@@ -26,6 +26,13 @@
 --          them, they still cover the weaker rules);
 --        - a standard (occupancy or days before arrival) rule reads the
 --          marks below.
+--      pricing_rules.version_ranks: per earlier version whose booking speed
+--      or pickup changes are still on the price (left there by a Skip, or
+--      by an edit to a rule that is off), the priority and condition that
+--      ranked the rule then. Such a change ranks as it was made (its own
+--      amount, from pickup_event, and that version's priority and
+--      condition), so an edit never changes which weaker rules it covers.
+--      save_rule keeps it, dropping versions with no change left on.
 --   2. ladder_rule_state.skip_state and skip_at: the marks Skip leaves on a
 --      standard rule's rows, written by save_rule with the rule:
 --        - 'held': on, with no change on the price, where the rule matched
@@ -51,9 +58,15 @@
 -- off a standard rule's changes on room types or nights the rule no longer
 -- covers (they used to stay for good).
 --
--- Deploy order: run this file before deploying the code. Code that runs
--- before it reads no skip columns (no rule was ever skipped) and the popup's
--- Skip answers "This needs a database update first."; Apply still saves.
+-- Deploy order: 1. run this file; 2. deploy the edge functions (the
+-- engine copy in supabase/functions/_shared/engine, through each sync
+-- function); 3. deploy the app. The engine must know the Skip before the app
+-- can record one: an engine from before this file reads a held mark as a
+-- change on the price and counts a skipped rule's whole window, so a Skip
+-- saved before the edge functions are deployed would move prices. Code
+-- that runs before this file reads no skip columns (no rule was ever
+-- skipped) and the popup's Skip answers "This needs a database update
+-- first."; Apply still saves.
 --
 -- Safe to run more than once. No backfill: no rule has been skipped yet.
 --
@@ -70,13 +83,20 @@ begin;
 -- ----------------------------------------------------------------------------
 
 alter table public.pricing_rules
-  add column if not exists skip_at timestamptz;
+  add column if not exists skip_at timestamptz,
+  add column if not exists version_ranks jsonb;
 
 comment on column public.pricing_rules.skip_at is
   'When the owner last switched the rule on (or saved it) with "Skip price '
   'adjustments": the nights it matched then were left alone and it acts only '
   'on what changes after this instant. Null after "Apply price adjustments". '
   'See 99_supabase_migration_rule_activation_v1.sql.';
+
+comment on column public.pricing_rules.version_ranks is
+  'Per earlier version with booking speed or pickup changes still on the '
+  'price, {"<version>": {"priority": n, "condition": {...}}}: how the rule '
+  'ranked then, so those changes keep covering the weaker rules they covered. '
+  'Written by save_rule. See 99_supabase_migration_rule_activation_v1.sql.';
 
 alter table public.ladder_rule_state
   add column if not exists skip_state text,
@@ -154,6 +174,7 @@ declare
   v_skip_at timestamptz;
   v_at      timestamptz := coalesce(p_at, now());
   v_count   integer;
+  v_ranks   jsonb;
 begin
   if p_hotel_id is null or p_rule_id is null then
     raise exception 'save_rule needs a hotel and a rule' using errcode = '22023';
@@ -204,6 +225,47 @@ begin
     v_version := coalesce((p_fields->>'version')::integer, v_rule.version);
     v_active := case p_activation when 'keep' then v_rule.is_active when 'off' then false else true end;
     v_skip_at := case p_activation when 'skip' then v_at when 'apply' then null else v_rule.skip_at end;
+    -- How each earlier version with changes still on the price ranked
+    -- (see the header): kept for those, and the version this edit replaces
+    -- added while it has any. Read before the condition is replaced below.
+    v_ranks := v_rule.version_ranks;
+    if v_version <> v_rule.version then
+      select coalesce(jsonb_object_agg(e.key, e.value), '{}'::jsonb) into v_ranks
+        from jsonb_each(coalesce(v_rule.version_ranks, '{}'::jsonb)) e
+       where e.key ~ '^[0-9]+$'
+         and exists (
+           select 1 from public.pickup_event pe
+            where pe.rule_id = p_rule_id and pe.retired_at is null and pe.rule_version = e.key::integer
+         );
+      if exists (
+        select 1 from public.pickup_event pe
+         where pe.rule_id = p_rule_id and pe.retired_at is null and pe.rule_version = v_rule.version
+      ) then
+        v_ranks := v_ranks || jsonb_build_object(
+          v_rule.version::text,
+          jsonb_build_object(
+            'priority', v_rule.priority,
+            'condition', coalesce((
+              select jsonb_build_object(
+                'occupancy_operator', c.occupancy_operator,
+                'dta_operator', c.dta_operator,
+                'pickup_operator', c.pickup_operator,
+                'pickup_threshold', c.pickup_threshold,
+                'pickup_metric', c.pickup_metric,
+                'booking_speed_operator', c.booking_speed_operator,
+                'booking_speed_level', c.booking_speed_level
+              )
+                from public.rule_condition c
+               where c.rule_id = p_rule_id
+               limit 1
+            ), '{}'::jsonb)
+          )
+        );
+      end if;
+      if v_ranks = '{}'::jsonb then
+        v_ranks := null;
+      end if;
+    end if;
     update public.pricing_rules r
        set name = coalesce(p_fields->>'name', r.name),
            priority = coalesce((p_fields->>'priority')::integer, r.priority),
@@ -219,6 +281,7 @@ begin
            version = v_version,
            is_active = v_active,
            skip_at = v_skip_at,
+           version_ranks = v_ranks,
            updated_at = now()
      where r.id = p_rule_id;
   end if;
@@ -346,11 +409,10 @@ comment on function public.save_rule(uuid, uuid, boolean, integer, jsonb, text, 
 
 do $$
 begin
-  if not exists (
-    select 1 from information_schema.columns
-     where table_schema = 'public' and table_name = 'pricing_rules' and column_name = 'skip_at'
-  ) then
-    raise exception 'rule activation: pricing_rules.skip_at is missing';
+  if (select count(*) from information_schema.columns
+       where table_schema = 'public' and table_name = 'pricing_rules'
+         and column_name in ('skip_at', 'version_ranks')) <> 2 then
+    raise exception 'rule activation: pricing_rules skip columns are missing';
   end if;
   if (select count(*) from information_schema.columns
        where table_schema = 'public' and table_name = 'ladder_rule_state'

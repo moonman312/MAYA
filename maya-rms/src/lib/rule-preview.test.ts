@@ -143,10 +143,41 @@ const CASES: Case[] = [
   },
 ];
 
+/**
+ * The rule's version_ranks as save_rule writes them when an edit moves its
+ * version on: the earlier versions that still have changes on the price,
+ * and the version the edit replaces while it has any.
+ */
+function withVersionRanks(t: Tables, after: FakeRow): FakeRow {
+  const stored = t.pricing_rules.find((r) => r.id === after.id);
+  if (!stored || Number(stored.version) === Number(after.version)) return after;
+  const open = new Set(
+    (t.pickup_event ?? []).filter((e) => e.rule_id === after.id && e.retired_at == null).map((e) => Number(e.rule_version)),
+  );
+  const ranks: Record<string, unknown> = {};
+  for (const [v, rank] of Object.entries((stored.version_ranks ?? {}) as Record<string, unknown>)) if (open.has(Number(v))) ranks[v] = rank;
+  if (open.has(Number(stored.version))) {
+    const c = ((stored.rule_condition as FakeRow[] | undefined)?.[0] ?? {}) as FakeRow;
+    ranks[String(stored.version)] = {
+      priority: stored.priority,
+      condition: {
+        occupancy_operator: c.occupancy_operator ?? null,
+        dta_operator: c.dta_operator ?? null,
+        pickup_operator: c.pickup_operator ?? null,
+        pickup_threshold: c.pickup_threshold ?? null,
+        pickup_metric: c.pickup_metric ?? null,
+        booking_speed_operator: c.booking_speed_operator ?? null,
+        booking_speed_level: c.booking_speed_level ?? null,
+      },
+    };
+  }
+  return { ...after, version_ranks: Object.keys(ranks).length > 0 ? ranks : null };
+}
+
 /** The rule saved as Apply saves it: on, no Skip. */
 function saveApply(t: Tables, after: FakeRow): Tables {
   const out = clone(t);
-  out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...after, is_active: true, skip_at: null }];
+  out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...withVersionRanks(t, after), is_active: true, skip_at: null }];
   return out;
 }
 
@@ -162,10 +193,15 @@ function notActing(t: Tables, after: FakeRow): Tables {
   return out;
 }
 
+/** notActing for a stored rule, by id. */
+function notActingById(t: Tables, id: string): Tables {
+  return notActing(t, t.pricing_rules.find((r) => r.id === id)!);
+}
+
 /** The rule saved as save_rule saves a Skip: on, skip_at, and the marks on its ladder rows. */
 function saveSkip(t: Tables, after: FakeRow, marks: SkipMark[], at: string): Tables {
   const out = clone(t);
-  out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...after, is_active: true, skip_at: at }];
+  out.pricing_rules = [...out.pricing_rules.filter((r) => r.id !== after.id), { ...withVersionRanks(t, after), is_active: true, skip_at: at }];
   const rows = out.ladder_rule_state;
   const find = (m: SkipMark) => rows.find((r) => r.rule_id === after.id && String(r.stay_date) === m.d && r.room_type_id === m.rt);
   for (const m of marks) {
@@ -379,6 +415,58 @@ for (const engine of ENGINES) {
     });
   });
 }
+
+describe("Skip after an edit to a booking speed rule that is on", () => {
+  // A change the Skip leaves on the price keeps covering the weaker rules it
+  // covered at the Skip: it ranks as it was made, not as the edited rule.
+  // Lowering Surging's amount (or making it fixed, changing its speed, or
+  // making it a standard rule) must not let Much Faster or Faster raise
+  // again on bookings Surging's change already covered. Seeds 5, 31 and 43 are hotels where Surging's
+  // changes are on the price over a weaker raise.
+  const EDITS: { name: string; id: string; patch: Record<string, unknown> }[] = [
+    { name: "Surging from +25% to +10%", id: R.bsSurging, patch: { action_value: 10 } },
+    { name: "Surging from +25% to a fixed +$5", id: R.bsSurging, patch: { action_type: "fixed", action_value: 5 } },
+    {
+      name: "Surging's speed to at least Faster, still +25%",
+      id: R.bsSurging,
+      patch: { rule_condition: [{ booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 }] },
+    },
+    { name: "Much Faster from +25% to +8%", id: R.bsMuchFaster, patch: { action_value: 8 } },
+    {
+      name: "Surging made a standard rule (occupancy over 50%), +10%",
+      id: R.bsSurging,
+      patch: { is_pickup_rule: false, action_value: 10, rule_condition: [{ occupancy_operator: "gt", occupancy_threshold: 0.5 }] },
+    },
+  ];
+  for (const engine of ENGINES) {
+    it.each([5, 31, 43])(`hotel seed %i on the ${engine.name}: no price moves`, async (seedNo) => {
+      engine.reset();
+      vi.setSystemTime(new Date(T10));
+      const t = await settle(engine.evaluate, seedNo);
+      const without = await realRun(engine.evaluate, notActingById(t, R.bsSurging), T11);
+      const withoutMf = await realRun(engine.evaluate, notActingById(t, R.bsMuchFaster), T11);
+      const moved: Record<string, string[]> = {};
+      for (const e of EDITS) {
+        const after = edited(t, e.id, e.patch);
+        vi.setSystemTime(new Date(T10));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const client = fake(clone(t)).client as any;
+        const marks = await skipMarksForRule(client, { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON }, engine.evaluate);
+        const skipped = await realRun(engine.evaluate, saveSkip(t, after, marks, T10), T11);
+        const base = e.id === R.bsSurging ? without : withoutMf;
+        moved[e.name] = nightsDiffering(published(skipped), published(base));
+      }
+      // An edit to a rule that is off moves no price either: its changes
+      // stay on, frozen, and cover what they covered.
+      const paused = notActingById(t, R.bsSurging);
+      const offEdit = clone(paused);
+      const afterOff = { ...withVersionRanks(paused, edited(paused, R.bsSurging, { action_value: 10 })), is_active: false };
+      offEdit.pricing_rules = [...offEdit.pricing_rules.filter((r) => r.id !== R.bsSurging), afterOff];
+      moved["Surging edited to +10% while off"] = nightsDiffering(published(await realRun(engine.evaluate, offEdit, T11)), published(without));
+      expect(moved).toEqual(Object.fromEntries([...EDITS.map((e) => e.name), "Surging edited to +10% while off"].map((n) => [n, []])));
+    }, 240_000);
+  }
+});
 
 describe("which nights the preview runs", () => {
   it("drops nights out of the rule's scope or its days-before-arrival bar, but never one with a change of it on", async () => {

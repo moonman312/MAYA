@@ -58,7 +58,7 @@ export const ENGINE_RULE_COLUMNS = `
   id, hotel_id, name, is_active, version, priority,
   start_date, end_date, is_annual, dow_mask,
   action_type, action_direction, action_value,
-  is_pickup_rule, created_at, updated_at, undo_on_cancellation, skip_at,
+  is_pickup_rule, created_at, updated_at, undo_on_cancellation, skip_at, version_ranks,
   rule_condition (
     occupancy_operator, occupancy_threshold,
     dta_operator, dta_threshold_days,

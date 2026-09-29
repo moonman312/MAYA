@@ -140,7 +140,34 @@ export type EngineRule = {
    * column exists) when the last activation applied its adjustments.
    */
   skip_at?: string | null;
+  /**
+   * How the rule ranked as each earlier version, for its changes of those
+   * versions still on the price (pricing_rules.version_ranks, written by
+   * save_rule when an edit moves the version on and the old version still
+   * has changes on the price): its priority and the parts of its condition
+   * that rank it. Such a change ranks as its version did, so it keeps
+   * covering the weaker rules it covered (pickup.ts rankedAsMade).
+   */
+  version_ranks?: VersionRanks | null;
 };
+
+/** pricing_rules.version_ranks: per earlier version, what ranked the rule then. */
+export type VersionRanks = Record<
+  string,
+  {
+    priority: number;
+    condition: Pick<
+      RuleCondition,
+      | "occupancy_operator"
+      | "dta_operator"
+      | "pickup_operator"
+      | "pickup_threshold"
+      | "pickup_metric"
+      | "booking_speed_operator"
+      | "booking_speed_level"
+    >;
+  }
+>;
 
 export type StayDateSnapshot = {
   hotel_id: string;

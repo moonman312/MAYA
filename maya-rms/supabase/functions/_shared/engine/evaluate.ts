@@ -65,6 +65,7 @@ import {
   loadPausedEventRules,
   loadPickupFireHeads,
   openFireHeads,
+  versionRanksOf,
   pickupEffectsFromFires,
   recordArrivals,
   recordWindowKeys,
@@ -450,7 +451,7 @@ export async function evaluateHotel(
       id, hotel_id, name, is_active, version, priority,
       start_date, end_date, is_annual, dow_mask,
       action_type, action_direction, action_value,
-      is_pickup_rule, created_at, updated_at,${cols.undo ? " undo_on_cancellation," : ""}${cols.skip ? " skip_at," : ""}
+      is_pickup_rule, created_at, updated_at,${cols.undo ? " undo_on_cancellation," : ""}${cols.skip ? " skip_at, version_ranks," : ""}
       rule_condition (
         occupancy_operator, occupancy_threshold,
         dta_operator, dta_threshold_days,
@@ -610,6 +611,8 @@ export async function evaluateHotel(
       undo_on_cancellation: r.undo_on_cancellation !== false,
       // The owner's last Skip (see pickup.ts and ladder.ts): none before the column exists.
       skip_at: r.skip_at != null ? String(r.skip_at) : null,
+      // How its earlier versions ranked, for their changes still on the price (rankedAsMade).
+      version_ranks: versionRanksOf(r.version_ranks),
     };
   });
 
@@ -1146,20 +1149,25 @@ export async function evaluateHotel(
   // Paused event rules never run, but pausing leaves their fires on the
   // price, so each one still covers the weaker rules that adjust the same
   // way (countFromFireAt). Only needed when some active event rule counts.
-  // A dry run's rule is on, whatever the table says.
+  // A dry run's rule is on, whatever the table says. Any other rule with
+  // changes on the price joins them: one an edit made a standard rule keeps
+  // the changes it made as a booking speed or pickup rule when the edit was
+  // saved with Skip, and they cover as they ranked then (rankedAsMade).
+  const firedRuleIds = new Set(openFires.map((f) => f.rule_id));
   const pausedEventRules =
     pickupRules.length > 0
-      ? (await loadPausedEventRules(supabase, hotelId)).filter((r) => !dry?.rule || r.id !== String(dry.rule.id))
+      ? (await loadPausedEventRules(supabase, hotelId, firedRuleIds)).filter((r) => !dry?.rule || r.id !== String(dry.rule.id))
       : [];
-  // Every event rule that can move where another counts from.
-  const rankedEventRules = [...pickupRules, ...pausedEventRules];
-  // The rules whose fires may move where each one counts from.
-  const sameWayOf = new Map(
-    pickupRules.map((rule) => [
-      rule.id,
-      rankedEventRules.filter((o) => o.id !== rule.id && o.action_direction === rule.action_direction),
-    ]),
-  );
+  // Every rule that can move where an event rule counts from.
+  const rankedEventRules = [
+    ...pickupRules,
+    ...pausedEventRules,
+    ...(pickupRules.length > 0 ? rules.filter((r) => !r.is_pickup_rule && firedRuleIds.has(r.id)) : []),
+  ];
+  // The rules whose fires may move where each one counts from: each change
+  // on the price covers the rules its way it outranks (countFromFireAt), and
+  // one of an earlier version its way as it was made.
+  const othersOf = new Map(pickupRules.map((rule) => [rule.id, rankedEventRules.filter((o) => o.id !== rule.id)]));
 
   // What came in during each count, and which bookings a booking speed
   // window counted, recorded on the fires this run is about to write (the
@@ -1302,7 +1310,7 @@ export async function evaluateHotel(
             rule,
             countFromFireAt(
               rule,
-              sameWayOf.get(rule.id) ?? [],
+              othersOf.get(rule.id) ?? [],
               openFireHeads(rankedEventRules, openFires, new Set([...off, fire.id])),
               stayDate,
               rtId,
@@ -1459,7 +1467,7 @@ export async function evaluateHotel(
   const scopedNights: ScopedNight[] = [];
   for (const rule of pickupRules) {
     const waitDays = ruleWaitDays(rule);
-    const sameWay = sameWayOf.get(rule.id)!;
+    const others = othersOf.get(rule.id)!;
     for (const stayDate of stayDates) {
       if (!ruleScopeMatches(rule, stayDate, now, hotelTimeZone)) continue;
       if (isStoppedOnNight(alertNights, rule, stayDate)) continue;
@@ -1469,7 +1477,7 @@ export async function evaluateHotel(
         // From the owner's Skip at the earliest: see SKIP in pickup.ts.
         const fireAt = countFromSkip(
           rule,
-          countFromFireAt(rule, sameWay, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100),
+          countFromFireAt(rule, others, openHeads, stayDate, rtId, basePrices.get(basePriceKey(stayDate, rtId)) ?? 100),
         );
         return {
           rtId,

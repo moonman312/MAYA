@@ -304,8 +304,72 @@ export function countPickupToDayStart(
  */
 export type RankedRule = Pick<
   EngineRule,
-  "id" | "version" | "priority" | "condition" | "action_type" | "action_direction" | "action_value" | "created_at" | "skip_at"
+  | "id"
+  | "version"
+  | "priority"
+  | "condition"
+  | "action_type"
+  | "action_direction"
+  | "action_value"
+  | "created_at"
+  | "skip_at"
+  | "version_ranks"
 >;
+
+/**
+ * A rule as it ranked when it made `fire` (comparePickupRules), for a
+ * change of an earlier version still on the price: one the owner's Skip left
+ * on, or one of a rule edited while it was off. It ranks by its own amount,
+ * direction and kind (pickup_event.action_*), and by the priority and
+ * condition its version had (version_ranks, written by save_rule when the
+ * edit moved the version on), so an edit saved with Skip never changes which
+ * weaker rules it covers. Without a record of that version (an edit saved
+ * before save_rule kept one), the rule's own priority and condition stand
+ * in. A change of the current version ranks as the rule.
+ */
+export function rankedAsMade(
+  rule: RankedRule,
+  fire: Pick<OpenPickupFire, "rule_version" | "action_kind" | "action_direction" | "action_value">,
+): RankedRule {
+  if (fire.rule_version === rule.version) return rule;
+  const was = rule.version_ranks?.[String(fire.rule_version)];
+  return {
+    ...rule,
+    ...(was ? { priority: Number(was.priority), condition: { ...was.condition } } : {}),
+    action_type: fire.action_kind as RankedRule["action_type"],
+    action_direction: fire.action_direction as RankedRule["action_direction"],
+    action_value: Number(fire.action_value),
+  };
+}
+
+/**
+ * pricing_rules.version_ranks as read, or null when it is missing or not
+ * the shape save_rule writes (a change of such a version then ranks by its
+ * own amount and the rule's current priority and condition).
+ */
+export function versionRanksOf(value: unknown): EngineRule["version_ranks"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const out: NonNullable<EngineRule["version_ranks"]> = {};
+  for (const [version, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^\d+$/.test(version) || !raw || typeof raw !== "object") continue;
+    const r = raw as { priority?: unknown; condition?: unknown };
+    const c = (r.condition && typeof r.condition === "object" ? r.condition : {}) as Record<string, unknown>;
+    if (!Number.isFinite(Number(r.priority))) continue;
+    out[version] = {
+      priority: Number(r.priority),
+      condition: {
+        occupancy_operator: (c.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
+        dta_operator: (c.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
+        pickup_operator: (c.pickup_operator ?? null) as RankedRule["condition"]["pickup_operator"],
+        pickup_threshold: c.pickup_threshold != null ? Number(c.pickup_threshold) : null,
+        pickup_metric: (c.pickup_metric ?? null) as RankedRule["condition"]["pickup_metric"],
+        booking_speed_operator: (c.booking_speed_operator ?? null) as RankedRule["condition"]["booking_speed_operator"],
+        booking_speed_level: c.booking_speed_level != null ? String(c.booking_speed_level) : null,
+      },
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 /**
  * Whether a fire was already on the price when the owner last chose "Skip
@@ -357,7 +421,17 @@ export type FireHead = {
    * cancellations still counts from when it was made.
    */
   lastCountedAt: string | null;
+  /**
+   * The rule's changes still on the night that can cover a weaker rule, the
+   * newest of each way it ranked (rankedAsMade: the current version as the
+   * rule, an earlier one as it was made). countFromFireAt reads these for
+   * the other rules on a cell; lastCountedAt stands in when absent.
+   */
+  covers?: FireCover[];
 };
+
+/** One of a rule's changes on a cell, as it ranks for covering the weaker rules (FireHead.covers). */
+export type FireCover = { at: string; rank: RankedRule };
 
 export function fireHeadKey(ruleId: string, stayDate: string, roomTypeId: string): string {
   return `${ruleId}|${stayDate}|${roomTypeId}`;
@@ -458,28 +532,36 @@ export function waitAnchor(
  * Event rules the owner paused, with what ranking them reads. Pausing
  * leaves a rule's fires on the price (and a paused rule is never loaded to
  * run), so without these a weaker rule would count again the bookings a
- * paused stronger rule raised or cut on. Throws on a failed read, as the
- * active rules' load does: counting them again would move prices the owner
- * never asked for.
+ * paused stronger rule raised or cut on. Also any other paused rule in
+ * `withFires` (rules with changes on the price): one edited from a booking
+ * speed or pickup rule into a standard one keeps its earlier changes, which
+ * still cover what they covered (rankedAsMade). Throws on a failed read, as
+ * the active rules' load does: counting them again would move prices the
+ * owner never asked for.
  */
-export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: string): Promise<RankedRule[]> {
+export async function loadPausedEventRules(
+  supabase: SupabaseClient,
+  hotelId: string,
+  withFires: ReadonlySet<string> = new Set(),
+): Promise<RankedRule[]> {
   const read = (skip: boolean) =>
     supabase
       .from("pricing_rules")
       .select(
         `
-      id, version, priority, action_type, action_direction, action_value, created_at,${skip ? " skip_at," : ""}
+      id, version, priority, action_type, action_direction, action_value, created_at, is_pickup_rule,${skip ? " skip_at, version_ranks," : ""}
       rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, pickup_metric, booking_speed_operator, booking_speed_level )
     `,
       )
       .eq("hotel_id", hotelId)
-      .eq("is_active", false)
-      .eq("is_pickup_rule", true);
+      .eq("is_active", false);
   let { data, error } = await read(true);
-  // No skip_at yet (99_supabase_migration_rule_activation_v1.sql): no rule was ever skipped.
+  // No skip_at or version_ranks yet (99_supabase_migration_rule_activation_v1.sql):
+  // no rule was ever skipped, and no earlier version's ranking was kept.
   if (error && isMissingColumnError(error)) ({ data, error } = await read(false));
   if (error) throw new Error(`Failed to load paused rules: ${error.message}`);
-  return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
+  const rows = (data ?? []) as unknown as Record<string, unknown>[];
+  return rows.filter((r) => r.is_pickup_rule === true || withFires.has(String(r.id))).map((r) => {
     const raw = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
     const rc = (raw ?? {}) as Record<string, unknown>;
     return {
@@ -491,6 +573,7 @@ export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: st
       action_value: Number(r.action_value),
       created_at: String(r.created_at),
       skip_at: r.skip_at != null ? String(r.skip_at) : null,
+      version_ranks: versionRanksOf(r.version_ranks),
       condition: {
         occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
         dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
@@ -565,17 +648,24 @@ export function bookingSpeedCountFrom(
 export function countFromFireAt(
   rule: RankedRule,
   others: readonly RankedRule[],
-  heads: ReadonlyMap<string, Pick<FireHead, "lastCountedAt">>,
+  heads: ReadonlyMap<string, Pick<FireHead, "lastCountedAt" | "covers">>,
   stayDate: string,
   roomTypeId: string,
   basePrice: number,
 ): string | null {
   let at = heads.get(fireHeadKey(rule.id, stayDate, roomTypeId))?.lastCountedAt ?? null;
   for (const other of others) {
-    if (other.id === rule.id || other.action_direction !== rule.action_direction) continue;
-    const otherAt = heads.get(fireHeadKey(other.id, stayDate, roomTypeId))?.lastCountedAt ?? null;
-    if (!otherAt || (at !== null && Date.parse(otherAt) <= Date.parse(at))) continue;
-    if (comparePickupRules(other, rule, basePrice, basePrice) < 0) at = otherAt;
+    if (other.id === rule.id) continue;
+    const head = heads.get(fireHeadKey(other.id, stayDate, roomTypeId));
+    if (!head) continue;
+    // Each change ranks as it was made (rankedAsMade): a change an edit
+    // saved with Skip left on covers what it covered before the edit.
+    const covers = head.covers ?? (head.lastCountedAt ? [{ at: head.lastCountedAt, rank: other }] : []);
+    for (const cover of covers) {
+      if (cover.rank.action_direction !== rule.action_direction) continue;
+      if (at !== null && Date.parse(cover.at) <= Date.parse(at)) continue;
+      if (comparePickupRules(cover.rank, rule, basePrice, basePrice) < 0) at = cover.at;
+    }
   }
   return at === null ? null : new Date(Date.parse(at)).toISOString();
 }
@@ -594,12 +684,14 @@ export function countFromFireAt(
  * on the price.
  */
 export function openFireHeads(
-  rules: readonly Pick<RankedRule, "id" | "version" | "skip_at">[],
+  rules: readonly RankedRule[],
   openFires: readonly OpenPickupFire[],
   retired: ReadonlySet<string>,
-): Map<string, Pick<FireHead, "lastCountedAt" | "counted">> {
+): Map<string, Pick<FireHead, "lastCountedAt" | "counted" | "covers">> {
   const ruleOf = new Map(rules.map((r) => [r.id, r]));
-  const out = new Map<string, Pick<FireHead, "lastCountedAt" | "counted">>();
+  const out = new Map<string, Pick<FireHead, "lastCountedAt" | "counted" | "covers">>();
+  // Per cell and rule, the newest change of each way it ranks.
+  const coverOf = new Map<string, FireCover>();
   for (const fire of openFires) {
     if (retired.has(fire.id)) continue;
     const rule = ruleOf.get(fire.rule_id);
@@ -607,19 +699,30 @@ export function openFireHeads(
     // A change still on the price covers what it counted, whichever version
     // of its rule made it: one the owner's Skip left on (keptBySkip), or one
     // of a rule edited while it was off (its changes stay on, frozen, until
-    // it is switched on). A running rule's older changes came off before
-    // this (firesToReset). Only the current version's count toward the
+    // it is switched on). It covers as it ranked when it was made
+    // (rankedAsMade). A running rule's older changes came off before this
+    // (firesToReset). Only the current version's count toward the
     // three-changes alert.
     const current = rule.version === fire.rule_version;
     const key = fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id);
-    const head = out.get(key);
+    let head = out.get(key);
     if (!head) {
-      out.set(key, { lastCountedAt: fire.applied_at, counted: current ? 1 : 0 });
-      continue;
+      head = { lastCountedAt: fire.applied_at, counted: current ? 1 : 0, covers: [] };
+      out.set(key, head);
+    } else {
+      if (current) head.counted += 1;
+      if (!head.lastCountedAt || Date.parse(fire.applied_at) > Date.parse(head.lastCountedAt)) {
+        head.lastCountedAt = fire.applied_at;
+      }
     }
-    if (current) head.counted += 1;
-    if (!head.lastCountedAt || Date.parse(fire.applied_at) > Date.parse(head.lastCountedAt)) {
-      head.lastCountedAt = fire.applied_at;
+    const way = current ? "current" : `${fire.rule_version}|${fire.action_kind}|${fire.action_direction}|${Number(fire.action_value)}`;
+    const cover = coverOf.get(`${key}|${way}`);
+    if (!cover) {
+      const made = { at: fire.applied_at, rank: current ? rule : rankedAsMade(rule, fire) };
+      coverOf.set(`${key}|${way}`, made);
+      head.covers!.push(made);
+    } else if (Date.parse(fire.applied_at) > Date.parse(cover.at)) {
+      cover.at = fire.applied_at;
     }
   }
   return out;

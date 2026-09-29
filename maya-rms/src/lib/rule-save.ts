@@ -143,7 +143,7 @@ export async function loadEngineRuleRow(client: SupabaseClient, hotelId: string,
     client.from("pricing_rules").select(columns).eq("id", ruleId).eq("hotel_id", hotelId).maybeSingle();
   let { data, error } = await read(ENGINE_RULE_COLUMNS);
   // Before 99_supabase_migration_rule_activation_v1.sql: no rule was ever skipped.
-  if (error && isMissingColumnError(error)) ({ data, error } = await read(ENGINE_RULE_COLUMNS.replace(" skip_at,", "")));
+  if (error && isMissingColumnError(error)) ({ data, error } = await read(ENGINE_RULE_COLUMNS.replace(" skip_at, version_ranks,", "")));
   if (error) throw new Error(`Could not read the rule: ${error.message}`);
   return (data as unknown as EngineRuleRow | null) ?? null;
 }

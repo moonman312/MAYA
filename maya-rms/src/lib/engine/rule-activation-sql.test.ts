@@ -36,6 +36,7 @@ const RT2 = "44444444-4444-4444-8444-444444444442";
 const FOREIGN_RT = "44444444-4444-4444-8444-444444444449";
 const RULE = "55555555-5555-4555-8555-555555555555";
 const NEW_RULE = "55555555-5555-4555-8555-555555555556";
+const SPEED_RULE = "55555555-5555-4555-8555-555555555557";
 
 const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
@@ -48,6 +49,7 @@ describe("the migration file", () => {
     const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
     for (const bit of [
       "add column if not exists skip_at timestamptz",
+      "add column if not exists version_ranks jsonb",
       "add column if not exists skip_state text",
       "create or replace function public.save_rule(",
       "public.can_manage_hotel(p_hotel_id)",
@@ -168,13 +170,14 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
   it("adds the Skip columns, and a ladder row takes only held or kept", async () => {
     const cols = await q(
       `select table_name as t, column_name as c from information_schema.columns
-        where (table_name = 'pricing_rules' and column_name = 'skip_at')
+        where (table_name = 'pricing_rules' and column_name in ('skip_at', 'version_ranks'))
            or (table_name = 'ladder_rule_state' and column_name in ('skip_state', 'skip_at')) order by 1, 2`,
     );
     expect(cols).toEqual([
       { t: "ladder_rule_state", c: "skip_at" },
       { t: "ladder_rule_state", c: "skip_state" },
       { t: "pricing_rules", c: "skip_at" },
+      { t: "pricing_rules", c: "version_ranks" },
     ]);
     await expect(db.exec(`update public.ladder_rule_state set skip_state = 'maybe'`)).rejects.toThrow(/skip_state_chk/);
   });
@@ -294,6 +297,59 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     );
     expect(result).toMatchObject({ is_active: false, version: 2 });
     expect(await rule(NEW_RULE)).toMatchObject({ is_active: false, name: "Busy nights 2" });
+  });
+
+  it("an edit keeps how each earlier version with changes still on the price ranked, and drops the rest", async () => {
+    // Surging, on, with two raises of version 1 on the price.
+    await as(null, async () => {
+      await db.exec(`
+        insert into public.pricing_rules (id, hotel_id, name, priority, action_type, action_direction, action_value, is_active, is_pickup_rule)
+          values ('${SPEED_RULE}', '${H}', 'Surging', 130, 'percent', 'increase', 25, false, true);
+        insert into public.rule_condition (rule_id, booking_speed_operator, booking_speed_level, booking_speed_window_days, booking_speed_cooldown_days)
+          values ('${SPEED_RULE}', 'at_least', 'surging', 1, 1);
+        insert into public.pickup_event (hotel_id, rule_id, rule_version, stay_date, affected_room_type_id, baseline_start_ts, baseline_end_ts,
+            signal_booked_units_start, signal_booked_units_end, signal_booked_revenue_start, signal_booked_revenue_end, applied_at,
+            action_kind, action_direction, action_value, fire_seq, signal_set_key)
+          values
+            ('${H}', '${SPEED_RULE}', 1, '${night(2)}', '${RT1}', now(), now(), 0, 3, 0, 300, now(), 'percent', 'increase', 25, 1, '${RT1}'),
+            ('${H}', '${SPEED_RULE}', 1, '${night(3)}', '${RT1}', now(), now(), 0, 3, 0, 300, now(), 'percent', 'increase', 25, 1, '${RT1}');
+      `);
+    });
+    const ranks = async () => (await rule(SPEED_RULE)).version_ranks;
+    const surging = { booking_speed_operator: "at_least", booking_speed_level: "surging", pickup_operator: null, pickup_threshold: null, pickup_metric: null, occupancy_operator: null, dta_operator: null };
+    // Lowered to +10% at least Faster, with Skip: version 1's raises stay, ranked as they were made.
+    await as(OWNER, () =>
+      save({
+        rule: SPEED_RULE,
+        expected: 1,
+        activation: "skip",
+        fields: {
+          name: "Surging",
+          action_type: "percent",
+          action_direction: "increase",
+          action_value: 10,
+          is_pickup_rule: true,
+          undo_on_cancellation: true,
+          version: 2,
+          condition: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 },
+        },
+      }),
+    );
+    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    // A new name moves no version and keeps them.
+    await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "keep", fields: { name: "Surging nights" } }));
+    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    // Another edit: version 2 has nothing on the price, so only version 1 is kept.
+    await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "skip", fields: { name: "Surging nights", action_value: 12, version: 3 } }));
+    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    // Once version 1's raises are off the price, the next edit drops it.
+    await as(null, () => q(`update public.pickup_event set retired_at = now(), retired_reason = 'night_passed' where rule_id = $1`, [SPEED_RULE]));
+    await as(OWNER, () => save({ rule: SPEED_RULE, expected: 3, activation: "apply", fields: { name: "Surging nights", action_value: 14, version: 4 } }));
+    expect(await ranks()).toBeNull();
+    // A standard rule's edit never writes one.
+    expect((await rule()).version_ranks).toBeNull();
+    // Off again, so the cap below counts as before.
+    await as(null, () => q(`update public.pricing_rules set is_active = false where id = $1`, [SPEED_RULE]));
   });
 
   it("the 40-rule cap still holds", async () => {
