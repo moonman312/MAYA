@@ -76,8 +76,10 @@ create function public.platform_pilot_health(
   open_incidents_admin_only int,
   open_incident_causes text[],
   active_rules int,
-  -- product_events rule.* in the last 24 hours (created, edited, enabled,
-  -- disabled, deleted, undo ticked or unticked).
+  -- product_events in the last 24 hours that changed a rule: created,
+  -- edited, enabled, disabled, deleted, undo ticked or unticked. Opening the
+  -- editor or the activation popup, a preview, and the popup's choice are
+  -- rule.* events too, and change nothing on their own.
   rule_changes_24h int
 )
 language plpgsql
@@ -161,7 +163,8 @@ begin
       select count(*)::int as rule_changes_24h
         from public.product_events e
        where e.hotel_id = h.id
-         and e.event like 'rule.%'
+         and e.event in ('rule.created', 'rule.edited', 'rule.enabled', 'rule.disabled',
+                         'rule.deleted', 'rule.undo_ticked', 'rule.undo_unticked')
          and e.occurred_at >= now() - interval '24 hours'
     ) pe on true
     where h.is_active
@@ -183,8 +186,12 @@ grant execute on function public.platform_pilot_health(boolean) to authenticated
 
 commit;
 
--- At a prompt:
+-- At a prompt (the SQL editor has no signed-in caller, so it acts as the
+-- service role for this one transaction):
 --
+--   begin;
+--   select set_config('request.jwt.claim.role', 'service_role', true);
 --   select name, mode, pms_status, last_sync_at, pass_date, pass_cursor,
 --          dirty_count, sent_24h, open_incidents, open_incident_causes
 --     from platform_pilot_health();
+--   commit;

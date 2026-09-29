@@ -200,6 +200,15 @@ describe.skipIf(!PGLITE_DIR)("pilot health migration in PGlite", () => {
         ('${HARBOUR}', 'rule.created', now() - interval '1 hour'),
         ('${HARBOUR}', 'rule.edited', now() - interval '2 hours'),
         ('${HARBOUR}', 'rule.deleted', now() - interval '3 days'),
+        ('${HARBOUR}', 'rule.undo_unticked', now() - interval '1 hour'),
+        -- Opening the editor or the popup, a preview and the popup's choice change no rule.
+        ('${HARBOUR}', 'rule.edit_opened', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.preview_opened', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.preview_shown', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.preview_cancelled', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.preview_failed', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.activation_chosen', now() - interval '1 hour'),
+        ('${HARBOUR}', 'rule.repeat_alert_answered', now() - interval '1 hour'),
         ('${HARBOUR}', 'manual_price.set', now() - interval '1 hour'),
         ('${QUIET}', 'rule.enabled', now() - interval '1 hour');
     `);
@@ -233,7 +242,8 @@ describe.skipIf(!PGLITE_DIR)("pilot health migration in PGlite", () => {
       open_incidents_admin_only: 1,
       open_incident_causes: ["rate_not_found", "vendor_busy"],
       active_rules: 2,
-      rule_changes_24h: 2,
+      // Created, edited and undo unticked; nothing for looking.
+      rule_changes_24h: 3,
     });
     const ageMinutes = (v: unknown) => Math.round((Date.now() - new Date(String(v)).getTime()) / 60_000);
     expect(ageMinutes(harbour?.last_sync_at)).toBe(5);
@@ -288,6 +298,19 @@ describe.skipIf(!PGLITE_DIR)("pilot health migration in PGlite", () => {
     } finally {
       await db.exec(`select set_config('maya.test_admin', '', false)`);
     }
+  });
+
+  it("gives a query in its closing comment that runs as written in the SQL editor, where nobody is signed in", async () => {
+    const prompt = MIGRATION.slice(MIGRATION.indexOf("-- At a prompt"))
+      .split("\n")
+      .filter((line) => line.startsWith("--   "))
+      .map((line) => line.slice(5))
+      .join("\n");
+    expect(prompt).toContain("from platform_pilot_health()");
+    const results = (await db.exec(prompt)) as { rows: Record<string, unknown>[] }[];
+    expect(results.some((r) => r.rows.some((row) => row.name === "Harbour Inn"))).toBe(true);
+    // The role was set for that transaction only.
+    expect((await db.query(`select coalesce(current_setting('request.jwt.claim.role', true), '') as role`)).rows).toEqual([{ role: "" }]);
   });
 
   it("adds the index for the 24-hour sent count, and grants the function to signed-in callers and the service role", async () => {

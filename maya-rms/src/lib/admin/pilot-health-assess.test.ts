@@ -112,15 +112,37 @@ describe("assessProperty", () => {
     expect(early.worst).toBe("amber");
   });
 
-  it("says how far a running pass has got, and when it started", () => {
+  it("leaves a pass alone while it runs as a healthy one does, however late in the hotel day it started", () => {
+    // An owner's edit at 3 pm starts a new pass; a few ticks later it is done.
     const a = assessProperty(
       healthy({ pass_cursor: "2026-11-03", pass_completed_at: null, pass_started_at: minutesAgo(20) }),
       NOW,
     );
     expect(a.pricedThrough).toEqual({ kind: "running", date: "2026-11-02" });
     expect(a.pricedThroughText).toBe("Priced through 2026-11-02 so far, pass running");
+    expect(a.problems).toEqual([]);
+    expect(a.worst).toBeNull();
+  });
+
+  it("says how far a running pass has got, and when it started, once it has run long or stopped pricing", () => {
+    const a = assessProperty(
+      healthy({ pass_cursor: "2026-11-03", pass_completed_at: null, pass_started_at: minutesAgo(45) }),
+      NOW,
+    );
     expect(a.problems).toEqual([
-      { kind: "pass", severity: "rose", text: "Today's pass started 20m ago and is still running, priced through 2026-11-02 so far." },
+      { kind: "pass", severity: "rose", text: "Today's pass started 45m ago and is still running, priced through 2026-11-02 so far." },
+    ]);
+
+    const stalled = assessProperty(
+      healthy({ pass_cursor: "2026-11-03", pass_completed_at: null, pass_started_at: minutesAgo(10), last_ok_run_at: minutesAgo(40) }),
+      NOW,
+    );
+    expect(stalled.problems).toEqual([
+      {
+        kind: "pass",
+        severity: "rose",
+        text: "Today's pass started 10m ago and is still running, priced through 2026-11-02 so far. Nothing has priced without an error for 40m.",
+      },
     ]);
 
     const fresh = assessProperty(

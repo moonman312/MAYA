@@ -59,6 +59,13 @@ export const QUEUE_WAIT_MINUTES = 30;
  * in pricing-plan.ts).
  */
 export const PASS_GRACE_MINUTES = 120;
+/**
+ * A pass that is running is only worth a look once it has run this long, or
+ * nothing has priced without an error for this long. A new pass starts
+ * whenever an owner's edit can move a night, at any hour, and a healthy one
+ * takes a few ticks.
+ */
+export const RUNNING_PASS_MINUTES = 30;
 
 export type ProblemSeverity = "amber" | "rose";
 export type ProblemKind = "connection" | "read" | "pass" | "sending" | "queue";
@@ -175,9 +182,15 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
       text: `Today's pass has not started, ${dayAge} into the hotel day. The last pass, for ${pricedThrough.passDate}, ${reach}.`,
     });
   } else if (pricedThrough.kind === "running") {
-    const started = row.pass_started_at ? `started ${ageLabel(row.pass_started_at, nowIso)} ago and ` : "";
-    const reach = pricedThrough.date ? `priced through ${pricedThrough.date} so far` : "has priced nothing yet";
-    problems.push({ kind: "pass", severity: passSeverity, text: `Today's pass ${started}is still running, ${reach}.` });
+    const slow = row.pass_started_at == null || olderThan(row.pass_started_at, RUNNING_PASS_MINUTES);
+    const stalled = row.last_ok_run_at == null || olderThan(row.last_ok_run_at, RUNNING_PASS_MINUTES);
+    if (slow || stalled) {
+      const started = row.pass_started_at ? `started ${ageLabel(row.pass_started_at, nowIso)} ago and ` : "";
+      const reach = pricedThrough.date ? `priced through ${pricedThrough.date} so far` : "has priced nothing yet";
+      const lastOk =
+        stalled && row.last_ok_run_at ? ` Nothing has priced without an error for ${ageLabel(row.last_ok_run_at, nowIso)}.` : "";
+      problems.push({ kind: "pass", severity: passSeverity, text: `Today's pass ${started}is still running, ${reach}.${lastOk}` });
+    }
   }
 
   // Sending: the problems an owner may be told about, by cause.
