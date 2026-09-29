@@ -28,6 +28,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
   );
   const failInsertFor = new Set<string>();
+  const failSelectFor = new Set<string>();
   let nextId = 0;
   const tableOf = (name: string) => {
     if (!tables.has(name)) tables.set(name, []);
@@ -134,6 +135,9 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         );
         return { data: null, error: null };
       }
+      if (failSelectFor.has(table)) {
+        return { data: null, error: { message: `select from ${table} timed out` } };
+      }
       let rows = tableOf(table).filter((r) => matches(r, filters));
       if (cap != null) rows = rows.slice(0, cap);
       if (counting) return { data: null, count: rows.length, error: null };
@@ -153,7 +157,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     rpc: async (name: string, args: Record<string, unknown>) => state.rpc(name, args, tables),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertFor };
+  return { client: client as any, tables, failInsertFor, failSelectFor };
 }
 
 const USER = "user-1";
@@ -475,6 +479,27 @@ describe("a first-time signup, with no property yet", () => {
         "Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off.",
       );
     }
+  });
+
+  it("stops before Stripe when the subscription on record cannot be read", async () => {
+    // Reading a failure as "nothing on record" would skip the guards against a
+    // second subscription and could give a restart the first signup's trial.
+    const { failSelectFor } = seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-live", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    failSelectFor.add("hotel_subscriptions");
+    state.hotelId = "hotel-live";
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "We couldn't load your account just now. Please try again in a moment.",
+    );
+    expect(state.sessions).toHaveLength(0);
+    expect(state.customers).toHaveLength(0);
   });
 
   it("reports a failure to provision rather than starting a payment with nowhere to land", async () => {

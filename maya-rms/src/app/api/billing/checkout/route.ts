@@ -179,14 +179,25 @@ export async function POST(request: Request) {
   }
 
   // One subscription per hotel. Sending someone to Checkout who already has one
-  // would create a second and bill them twice.
-  const { data: existing } = hotelId
+  // would create a second and bill them twice. A failed read stops here too:
+  // treating it as "nothing on record" would skip the guards below and could
+  // hand a restart the first signup's trial.
+  const { data: existing, error: existingError } = hotelId
     ? await supabase
         .from("hotel_subscriptions")
         .select("stripe_customer_id, stripe_subscription_id, status")
         .eq("hotel_id", hotelId)
         .maybeSingle()
-    : { data: null };
+    : { data: null, error: null };
+  if (existingError) {
+    console.error(
+      JSON.stringify({ fn: "billingCheckout", step: "read_subscription", error: existingError.message }),
+    );
+    return NextResponse.json(
+      { error: "We couldn't load your account just now. Please try again in a moment." },
+      { status: 503 },
+    );
+  }
   // Only a subscription that is actually doing something, or can still come
   // back, blocks a new one. Testing for "not canceled" instead trapped the
   // states that are truly over (incomplete: they abandoned the card form;
