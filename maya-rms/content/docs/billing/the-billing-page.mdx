@@ -3,7 +3,7 @@ title: The billing page
 summary: Where the Billing page is, who can open it, every sentence the top card can say, the Your plan rows, what the numbers on it include, what the Stripe billing portal can and cannot do, the dashboard banner, and what a group member sees.
 section: billing
 order: 10
-readingTime: 10
+readingTime: 11
 keywords: [billing, billing page, subscription, your plan, status, on trial, active, payment overdue, unpaid, stopped, cancelled, never completed, paused, paused subscription, on hold, bank retries, while the bank retries, price, was, next charge, access ends, retrying payment until, ended, signup code, which code did I use, with your code applied, price looks wrong, next charge higher, update card receipts & cancellation, stripe, stripe portal, billing portal, manage, fix it, restart MAYA, banner, restart your subscription, properties not set up yet, who can see billing, general manager, hotel admin, revenue manager, billing email, change billing email, invoices, receipts]
 questions:
   - Where is the billing page and who can see it? {#where-it-is-and-who-can-open-it}
@@ -43,7 +43,7 @@ One sentence at the top of the page says where you stand. MAYA shows the sentenc
 
 | Title | Colour | What it means and what to do |
 |---|---|---|
-| "MAYA has paused work on this property" | red | "Your rules no longer run on a schedule and nothing is sent to your PMS." If the status is "Unpaid", the card says to update your card and the subscription restarts where it left off. For any other status it says the subscription was cancelled and starting again means a new one, and a green <Ui>Restart your subscription</Ui> button sits under it. If the status is "Paused", email us before you restart ([Your plan](#your-plan) explains). |
+| "MAYA has paused work on this property" | red | "Your rules no longer run on a schedule and nothing is sent to your PMS." If the status is "Unpaid", the card says to update your card and the subscription restarts where it left off. If it is "Paused", the card says "Your subscription is on hold. Email us and we'll get it running again.", with our email address under it and no restart button ([Your plan](#your-plan) explains). For any other status it says the subscription was cancelled and starting again means a new one, and a green <Ui>Restart your subscription</Ui> button sits under it. |
 | "Your last payment did not go through" | amber | The bank is retrying the payment, and your rules keep running while it does. Update your card to avoid an interruption. |
 | "Your saved card stopped working" | amber | A card check failed. "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running." |
 | "You're billed for 20 rooms but running 24" | amber | Your system shows more rooms than you pay for. The card says how many are not paid for and how many days you have to set the count yourself. [Your room count and what you pay](/docs/billing/your-room-count) explains. |
@@ -62,7 +62,7 @@ Four rows at most.
 - **Trial ends.** The date, only during a trial.
 - **Next charge**, or one of its three other names: **Access ends** (set to cancel: MAYA works until this date, then stops), **Retrying payment until** (a payment failed and the bank is retrying) or **Ended** (work has stopped: "Unpaid", "Cancelled", "Never completed" or "Paused"). Under every name the date is the end of the current billing period. So while a payment is being retried, the date is not when the retries stop: they usually stop well before it, after about two weeks. An "Unpaid" subscription reads **Ended** too, but it is not over. Update your card in the portal and it restarts where it left off. Its **Ended** date can even be one still to come.
 
-**What "Paused" means.** The subscription is on hold in Stripe. No invoices are made, and work on the property stops, as it does for "Unpaid". You cannot pause a subscription from MAYA or from the billing portal, so this status is rare. If you see it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we sort it out with you. The top card will say the subscription was cancelled and offer <Ui>Restart your subscription</Ui>, but a paused subscription still exists in Stripe. Email us before you restart, or you may end up with two subscriptions.
+**What "Paused" means.** The subscription is on hold in Stripe. No invoices are made, and work on the property stops, as it does for "Unpaid". You cannot pause a subscription from MAYA or from the billing portal, so this status is rare. The top card says "Your subscription is on hold. Email us and we'll get it running again." with our email address under it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we get it running again with you. There is no <Ui>Restart your subscription</Ui> button, because a paused subscription still exists in Stripe and a second one beside it would bill you twice.
 
 ## Your card needs attention
 
@@ -102,7 +102,7 @@ Shown only when you have set a property aside with <Ui>Not now</Ui> during a Clo
 
 ## Restart your subscription
 
-When the subscription has been cancelled, was never completed or is "Paused", a green <Ui>Restart your subscription</Ui> button under the top card opens a screen of the same name, with your room count and period pre-filled. For "Paused", email us first, as [Your plan](#your-plan) explains. An "Unpaid" subscription has no restart button, because it is still alive in Stripe and comes back when you update the card in the portal. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the steps.
+When the subscription has been cancelled or was never completed, a green <Ui>Restart your subscription</Ui> button under the top card opens a screen of the same name, with your room count and period pre-filled. An "Unpaid" subscription has no restart button, because it is still alive in Stripe and comes back when you update the card in the portal. A "Paused" one has none either: it is on hold in Stripe, so email us and we get it running again, as [Your plan](#your-plan) explains. [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the steps.
 
 ## The dashboard banner
 

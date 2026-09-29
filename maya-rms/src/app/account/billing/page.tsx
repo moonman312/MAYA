@@ -10,9 +10,11 @@ import {
   headlineFor,
   loadAccountBilling,
   longDate,
+  offersRestart,
   periodEndLabel,
   type BillingTone,
 } from "@/lib/billing/account";
+import { SUPPORT_EMAIL } from "@/lib/docs/home";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { listDeferredMarketplaceHotels } from "@/lib/billing/pending-hotel";
@@ -87,10 +89,19 @@ export default async function BillingPage() {
       <section className={`rounded border p-4 ${TONE_STYLES[headline.tone]}`}>
         <h2 className="font-semibold text-slate-100">{headline.title}</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-300">{headline.detail}</p>
+        {headline.emailSubject && (
+          <a
+            href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(headline.emailSubject)}`}
+            className="mt-2 inline-block text-sm text-sky-300 underline underline-offset-2 hover:text-sky-200"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+        )}
         {/* Only the truly-dead state gets a restart link. "Unpaid" is still
-            alive in Stripe and revives through the card, and pointing its
-            owner at a new checkout would have them paying twice. */}
-        {!billing.entitled && billing.status !== "unpaid" && (
+            alive in Stripe and revives through the card, "Paused" is still
+            there on hold, and pointing either owner at a new checkout would
+            have them paying twice. */}
+        {offersRestart(billing) && (
           <Link
             href="/account/billing/restart"
             data-deeplink="billing.restart"

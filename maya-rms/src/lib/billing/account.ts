@@ -175,7 +175,16 @@ export function roomGraceDaysLeft(data: Record<string, unknown>, now: Date): num
 /** How loudly the page should say it. */
 export type BillingTone = "ok" | "warn" | "stopped";
 
-export type BillingHeadline = { tone: BillingTone; title: string; detail: string };
+export type BillingHeadline = {
+  tone: BillingTone;
+  title: string;
+  detail: string;
+  /**
+   * Set when the way forward is writing to us rather than anything on the
+   * page: the subject line for the mailto the page puts under the sentence.
+   */
+  emailSubject?: string;
+};
 
 /** What has stopped, said the same way on every stopped card. */
 const STOPPED = "Your rules no longer run on a schedule and nothing is sent to your PMS.";
@@ -189,6 +198,17 @@ const STOPPED = "Your rules no longer run on a schedule and nothing is sent to y
  */
 export function headlineFor(billing: AccountBilling, now = new Date()): BillingHeadline {
   if (!billing.entitled) {
+    // A paused subscription is still there in Stripe, on hold, and nothing on
+    // this page or in the portal resumes it. It needs us, and a restart would
+    // put a second subscription beside it.
+    if (billing.status === "paused") {
+      return {
+        tone: "stopped",
+        title: "MAYA has paused work on this property",
+        detail: `${STOPPED} Your subscription is on hold. Email us and we'll get it running again.`,
+        emailSubject: "Paused subscription",
+      };
+    }
     // Two different fixes hide under "not entitled", and sending someone at the
     // wrong one wastes their time: an unpaid subscription is still alive in
     // Stripe and a working card revives it, whereas a cancelled one is gone and
@@ -270,6 +290,16 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       ? `Next charge of ${formatUsd(billing.chargeCents ?? billing.periodCents)} on ${longDate(billing.renewsAt)}.`
       : `${formatUsd(billing.chargeCents ?? billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}.`,
   };
+}
+
+/**
+ * Whether the page offers a restart. Only a subscription that is gone in Stripe
+ * gets one: "unpaid" is still alive and revives through the card, and "paused"
+ * is still there on hold. A new checkout beside either has the owner paying
+ * twice.
+ */
+export function offersRestart(billing: AccountBilling): boolean {
+  return !billing.entitled && billing.status !== "unpaid" && billing.status !== "paused";
 }
 
 /**

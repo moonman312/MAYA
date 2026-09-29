@@ -428,6 +428,23 @@ describe("a first-time signup, with no property yet", () => {
     }
   });
 
+  it("refuses a new subscription beside a paused one, and says to email us", async () => {
+    // Paused is on hold in Stripe, not gone: a second checkout would bill the
+    // property twice once someone resumes the first.
+    seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [{ hotel_id: "hotel-live", stripe_subscription_id: "sub_paused", status: "paused" }],
+    });
+    state.hotelId = "hotel-live";
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(state.sessions).toHaveLength(0);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Your subscription is on hold.");
+    expect(body.error).toContain("info@modern-hospitality-solutions.com");
+  });
+
   it("reports a failure to provision rather than starting a payment with nowhere to land", async () => {
     const { failInsertFor } = seed();
     failInsertFor.add("hotels");

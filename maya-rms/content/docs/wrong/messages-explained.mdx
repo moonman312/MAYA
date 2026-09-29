@@ -103,6 +103,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Accept the Terms of Service to continue."**: tick the Terms box on the screen that appears, and checkout continues by itself.
 - **"Tell us how many rooms you have"** (any number from 1 to 500): the room count is missing.
 - **"This property already has a subscription. Manage it at /account/billing."**: one subscription per property. Open <Ui>Billing</Ui>.
+- **"Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again."**: the property's subscription is paused in Stripe, so a new one is not started beside it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription).
 - **"Too many checkout attempts. Wait a few minutes and try again."**: 10 checkout starts per 10 minutes.
 - **"That property isn't yours to pay for."**: you are not a manager of that property.
 - **"We couldn't start checkout"** (please try again in a moment): Stripe could not be reached. Try again.
@@ -398,7 +399,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 
 <Group>
 
-- **"MAYA has paused work on this property"** with **"Restart MAYA"**: the subscription is not paying. **"Your rules no longer run on a schedule and nothing is sent to your PMS."**, then **"Update your card and the subscription restarts where it left off."** or **"Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready."** [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"MAYA has paused work on this property"** with **"Restart MAYA"**: the subscription is not paying. **"Your rules no longer run on a schedule and nothing is sent to your PMS."**, then **"Update your card and the subscription restarts where it left off."**, **"Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready."** or **"Your subscription is on hold. Email us and we'll get it running again."** [Account and billing problems](/docs/wrong/account-and-billing-problems)
 - **"Your last payment did not go through"** with **"Fix it"**: the bank is retrying. "We are still pricing your rooms while the bank retries. Update your card to avoid an interruption."
 - **"Your saved card stopped working"**: a card check was declined. "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running."
 - **"You're billed for 24 rooms but running 26"**: your system shows more rooms than you pay for. "Set the count right below within 7 days and nothing else happens. After that we'll update it to 26 for you and adjust your next invoice." [Your room count](/docs/billing/your-room-count)

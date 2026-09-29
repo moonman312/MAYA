@@ -35,10 +35,11 @@ export default async function RestartPage() {
   if (!(await hasHotelRank(supabase, hotelId, "general_manager"))) redirect("/account/billing");
 
   // Only a dead subscription belongs here. A live one manages itself from the
-  // billing page, and no row at all means a hand-made property with nothing to
-  // restart — both go back to the page that explains them.
+  // billing page, a paused one is still there in Stripe waiting on us, and no
+  // row at all means a hand-made property with nothing to restart. All three
+  // go back to the page that explains them.
   const billing = await loadAccountBilling(supabase, hotelId);
-  if (!billing || billing.entitled) redirect("/account/billing");
+  if (!billing || billing.entitled || billing.status === "paused") redirect("/account/billing");
 
   const { data: conn } = await supabase
     .from("pms_connections")

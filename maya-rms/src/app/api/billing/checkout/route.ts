@@ -199,6 +199,17 @@ export async function POST(request: Request) {
       { status: 409 },
     );
   }
+  // Paused is not serving them, but it is not gone either: it sits on hold in
+  // Stripe until we resume it, and a new one beside it would bill twice.
+  if (existing?.stripe_subscription_id && existing.status === "paused") {
+    return NextResponse.json(
+      {
+        error:
+          "Your subscription is on hold. Email us at info@modern-hospitality-solutions.com and we'll get it running again.",
+      },
+      { status: 409 },
+    );
+  }
 
   // A code is required to reach checkout at all while signup is gated — but
   // that gate is now per PMS (see /admin/pms-access), so a declared PMS whose

@@ -5,7 +5,7 @@
  * told everything is fine.
  */
 import { describe, expect, it } from "vitest";
-import { headlineFor, periodEndLabel, type AccountBilling } from "./account";
+import { headlineFor, offersRestart, periodEndLabel, type AccountBilling } from "./account";
 import { describeRoomChange, priceCents } from "./tiers";
 
 const NOW = new Date("2026-07-30T12:00:00Z");
@@ -44,8 +44,20 @@ describe("headlineFor", () => {
     expect(unpaid.detail).not.toMatch(/restart below/i);
   });
 
+  it("gives a paused subscription its own words, pointing at us rather than a restart", () => {
+    // Paused is still there in Stripe. Calling it cancelled sent the owner to
+    // a restart that would have put a second subscription beside it.
+    const h = headlineFor(billing({ entitled: false, status: "paused" }), NOW);
+    expect(h.tone).toBe("stopped");
+    expect(h.detail).toContain("Your subscription is on hold. Email us and we'll get it running again.");
+    expect(h.detail).not.toMatch(/cancelled|restart/i);
+    expect(h.emailSubject).toBe("Paused subscription");
+
+    expect(headlineFor(billing({ entitled: false, status: "canceled" }), NOW).emailSubject).toBeUndefined();
+  });
+
   it("says what stopped in the owner's terms, with no dashes", () => {
-    for (const status of ["canceled", "unpaid"]) {
+    for (const status of ["canceled", "unpaid", "paused"]) {
       const h = headlineFor(billing({ entitled: false, status }), NOW);
       expect(h.detail).toMatch(
         /^Your rules no longer run on a schedule and nothing is sent to your PMS\. /,
@@ -159,6 +171,22 @@ describe("headlineFor", () => {
     expect(h.tone).toBe("ok");
     expect(h.detail).toContain("$200");
     expect(h.detail).toContain("August 30, 2026");
+  });
+});
+
+describe("offersRestart", () => {
+  it("offers a new checkout only where the old subscription is gone", () => {
+    for (const status of ["canceled", "incomplete", "incomplete_expired"]) {
+      expect(offersRestart(billing({ entitled: false, status })), status).toBe(true);
+    }
+  });
+
+  it("never offers one beside a subscription Stripe still holds", () => {
+    // Unpaid revives through the card; paused waits on us. A restart beside
+    // either is a second subscription.
+    expect(offersRestart(billing({ entitled: false, status: "unpaid" }))).toBe(false);
+    expect(offersRestart(billing({ entitled: false, status: "paused" }))).toBe(false);
+    expect(offersRestart(billing())).toBe(false);
   });
 });
 
