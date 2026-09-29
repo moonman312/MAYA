@@ -44,6 +44,31 @@ export type PreviewOutcome =
 /** The popup's line when the days could not be worked out (an error or a time-out): Jake's words, 2026-09-29. */
 export const DAYS_NOT_CALCULATED = "We weren't able to calculate how many days would be affected by this rule.";
 
+/**
+ * How long the popup waits for each part of a preview. The route gives up
+ * at 60 seconds (maxDuration) and its time-out answers first; this catches
+ * a request that never answers at all (a stalled connection), so the popup
+ * shows DAYS_NOT_CALCULATED instead of "Checking your calendar…" for good.
+ */
+export const PREVIEW_PART_TIME_LIMIT_MS = 75_000;
+
+/** `run` with an abort signal, given up (and aborted) after `ms`. */
+async function withinTimeLimit<T>(ms: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error("no answer in time"));
+    }, ms);
+  });
+  try {
+    return await Promise.race([run(controller.signal), limit]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const DAY_MS = 86_400_000;
 
 export function addDays(ymd: string, n: number): string {
@@ -101,7 +126,9 @@ type PartAnswer = {
  * Ask for the preview, in parts, calling `onPart` as each lands with what is
  * known so far (never a count: the popup shows the number only once every
  * part has answered). Parts that disagree on the fingerprint (something
- * changed between them) are asked again once.
+ * changed between them) are asked again once. A part that has not answered
+ * in full within PREVIEW_PART_TIME_LIMIT_MS is stopped, and the days could
+ * not be worked out.
  */
 export async function fetchRulePreview(
   request: PreviewRequest,
@@ -118,17 +145,22 @@ export async function fetchRulePreview(
     await Promise.all(
       parts.map(async (part) => {
         let res: Response;
+        let body: PartAnswer;
         try {
-          res = await fetchImpl("/api/rules/preview", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...request, ...part }),
+          [res, body] = await withinTimeLimit(PREVIEW_PART_TIME_LIMIT_MS, async (signal) => {
+            const r = await fetchImpl("/api/rules/preview", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...request, ...part }),
+              signal,
+            });
+            return [r, (await r.json().catch(() => ({}))) as PartAnswer] as const;
           });
         } catch {
+          // A lost connection, or no answer in time.
           got.failure ??= { status: "error", message: DAYS_NOT_CALCULATED };
           return;
         }
-        const body = (await res.json().catch(() => ({}))) as PartAnswer;
         if (res.status === 501) {
           got.failure ??= { status: "unavailable" };
           return;

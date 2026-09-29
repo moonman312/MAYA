@@ -3,8 +3,20 @@
  * window reaches, the parts a preview is asked in, the count's sentence,
  * and the days as runs for screen readers.
  */
-import { describe, expect, it } from "vitest";
-import { addDays, affectedSentence, dateRanges, dayTitle, draftKind, monthBlocks, previewParts } from "./rule-activation-client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DAYS_NOT_CALCULATED,
+  PREVIEW_PART_TIME_LIMIT_MS,
+  addDays,
+  affectedSentence,
+  dateRanges,
+  dayTitle,
+  draftKind,
+  fetchRulePreview,
+  monthBlocks,
+  previewParts,
+  type PreviewOutcome,
+} from "./rule-activation-client";
 
 describe("the popup's calendar", () => {
   it("a 396-night window from 1 October 2026 is thirteen months, the last partly outside it", () => {
@@ -65,5 +77,46 @@ describe("how a preview is asked", () => {
     expect(draftKind({ condition: { occupancy_operator: "gt" } })).toBe("standard");
     expect(draftKind({ condition: { booking_speed_operator: "at_least" } })).toBe("event");
     expect(draftKind(undefined, { pickup_rate: ">2" })).toBe("event");
+  });
+});
+
+describe("a preview that never answers", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Ask for an event rule's three parts with `impl`, and read the outcome as the clock moves. */
+  function ask(impl: (url: string, init?: RequestInit) => Promise<Response>) {
+    const signals: AbortSignal[] = [];
+    const answer: { outcome?: PreviewOutcome } = {};
+    const tracked = (url: string, init?: RequestInit) => {
+      if (init?.signal) signals.push(init.signal);
+      return impl(url, init);
+    };
+    void fetchRulePreview({ intent: "enable", ruleId: "r1" }, "event", () => {}, tracked as unknown as typeof fetch, "2026-10-01").then(
+      (o) => (answer.outcome = o),
+    );
+    return { signals, answer };
+  }
+
+  it("gives up after the time limit with the can't-calculate line, and stops the requests", async () => {
+    vi.useFakeTimers();
+    // A stalled connection: the request never answers.
+    const { signals, answer } = ask(() => new Promise<Response>(() => {}));
+    // Longer than the server's own 60 seconds, so its time-out answers first when it can.
+    expect(PREVIEW_PART_TIME_LIMIT_MS).toBeGreaterThan(60_000);
+    await vi.advanceTimersByTimeAsync(PREVIEW_PART_TIME_LIMIT_MS - 1);
+    expect(answer.outcome).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(answer.outcome).toEqual({ status: "error", message: DAYS_NOT_CALCULATED });
+    expect(signals).toHaveLength(3);
+    expect(signals.every((s) => s.aborted)).toBe(true);
+  });
+
+  it("does the same when an answer starts and then stalls", async () => {
+    vi.useFakeTimers();
+    const { answer } = ask(async () => new Response(new ReadableStream({ start() {} }), { status: 200 }));
+    await vi.advanceTimersByTimeAsync(PREVIEW_PART_TIME_LIMIT_MS);
+    expect(answer.outcome).toEqual({ status: "error", message: DAYS_NOT_CALCULATED });
   });
 });
