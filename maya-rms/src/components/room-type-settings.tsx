@@ -43,8 +43,9 @@ export function isCountingRoom(rt: { counts_as_room?: boolean | null }): boolean
  * Nobody has said whether guests sleep here: the flag is still null. Every
  * sync marks a name that reads as a bedroom as a room, so what is left is a
  * name that doesn't, and the bill leaves it out until someone ticks it. The
- * settings list shows it unticked with a "needs your answer" tag, so the box
- * says what the bill does and the shortfall email's "tick it" works.
+ * settings list and the review's room count strip show it unticked with a
+ * "needs your answer" tag, so the box says what the bill does and the
+ * shortfall email's "tick it" works.
  */
 export function needsAnswer(rt: { counts_as_room?: boolean | null }): boolean {
   return rt.counts_as_room == null;
@@ -181,8 +182,8 @@ export const COUNTS_AS_ROOM_HELP = {
   ],
 };
 
-/** Only the settings list carries the "needs your answer" tag, so only its "?" explains it. */
-const ROOM_TYPES_HELP = {
+/** For the lists that carry the "needs your answer" tag: the settings list and the review strip. */
+export const ROOM_TYPES_HELP = {
   ...COUNTS_AS_ROOM_HELP,
   lines: [
     ...COUNTS_AS_ROOM_HELP.lines,

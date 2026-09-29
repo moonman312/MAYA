@@ -152,7 +152,7 @@ describe("the room-count strip", () => {
     expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms. Anything here that isn't?");
   });
 
-  it("ticks everything the import didn't flag — null is ticked, only false is unticked", () => {
+  it("keeps an unanswered type in occupancy: only false leaves it out", () => {
     expect(isCountingRoom({ counts_as_room: null })).toBe(true);
     expect(isCountingRoom({ counts_as_room: true })).toBe(true);
     expect(isCountingRoom({ counts_as_room: false })).toBe(false);

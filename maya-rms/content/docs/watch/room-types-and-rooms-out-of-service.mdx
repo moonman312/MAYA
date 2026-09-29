@@ -24,7 +24,7 @@ questions:
   - 'Can I rename room types in MAYA?' {#something-to-try}
   - 'The unit count for a room type is wrong, how do I fix it?' {#something-to-try}
   - 'Why is a room type tagged "needs your answer"?' {#counts-as-a-room/a-room-type}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -63,7 +63,7 @@ Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), S
 
 ## How MAYA proposes the answer
 
-When your history is first imported, MAYA reads each room type's name. A name that is certainly not a bedroom (parking, a boardroom, a pickleball court) is proposed as not a room and shown unticked on the review screen, where one click puts it right. A name that only might be (a "Pool Cabana", a "Spa Deluxe") stays ticked, and the review asks "Is "Pool Cabana" actually a room?".
+When your history is first imported, MAYA reads each room type's name. A name that is certainly not a bedroom (parking, a boardroom, a pickleball court) is proposed as not a room and shown unticked on the review screen, where one click puts it right. A name that only might be (a "Pool Cabana", a "Spa Deluxe") waits for your answer: the review screen shows it unticked with a "needs your answer" tag, and asks "Is "Pool Cabana" actually a room?".
 
 After that, MAYA never unticks a room type on its own. A new room type from your system whose name reads like a bedroom arrives ticked as a room. If its name reads like something nobody sleeps in, it waits for your answer: it shows unticked, tagged "needs your answer", and counts in occupancy (your existing rules do not include it, see "What a new room type starts with" below), but it is left out of your bill until you answer. To answer, tick it if it is a room, or, if it is not, tick it and untick it again. A sync never overwrites an answer you have given. You can change any room type from the <Ui>PMS</Ui> tab at any time.
 

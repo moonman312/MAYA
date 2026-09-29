@@ -12,9 +12,9 @@ import {
   type OnboardingStatus,
 } from "@/components/onboarding/import-progress";
 import {
-  COUNTS_AS_ROOM_HELP,
+  ROOM_TYPES_HELP,
   RoomCountHelp,
-  isCountingRoom,
+  needsAnswer,
   roomCountQuestion,
   saveCountsAsRoom,
   type RoomTypeOption,
@@ -459,8 +459,11 @@ export function GoLiveConfirmation() {
 
 /**
  * The import's guess at which room types are rooms, shown as ticked chips
- * with the suspects already unticked. A tick is a save; there is no confirm
- * and nothing here gates Finish. The same switch lives in the PMS tab later.
+ * with the suspects already unticked. Ticked only on a yes, as on the PMS
+ * tab: a type nobody has answered for is out of the bill, so it shows
+ * unticked with the "needs your answer" tag and is not in the count. A tick
+ * is a save; there is no confirm and nothing here gates Finish. The same
+ * switch lives in the PMS tab later.
  */
 function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
   const [types, setTypes] = useState<RoomTypeOption[] | null>(null);
@@ -485,7 +488,7 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
   }, []);
 
   if (!types || types.length === 0) return null;
-  const counting = types.filter(isCountingRoom).length;
+  const counting = types.filter((t) => t.counts_as_room === true).length;
 
   async function toggle(rt: RoomTypeOption, next: boolean) {
     if (!hotelId) return;
@@ -505,11 +508,11 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-slate-200">{roomCountQuestion(counting)}</p>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
+        <RoomCountHelp {...ROOM_TYPES_HELP} docs="counts-as-room" />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {types.map((rt) => {
-          const on = isCountingRoom(rt);
+          const on = rt.counts_as_room === true;
           return (
             <label
               key={rt.id}
@@ -527,6 +530,11 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
               />
               {rt.name}
               <span className="text-slate-500">{rt.total_rooms}</span>
+              {needsAnswer(rt) ? (
+                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                  needs your answer
+                </span>
+              ) : null}
             </label>
           );
         })}

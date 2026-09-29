@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * The review screen as a whole: Finish only moves on once the server says the
- * review is marked done, and says why when it isn't; and the go-live card
- * stays after "Get suggestions from my data", whose own job builds no rules.
+ * review is marked done, and says why when it isn't; the go-live card stays
+ * after "Get suggestions from my data", whose own job builds no rules; and the
+ * room count strip ticks a type only on a yes, the same as the PMS tab.
  */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +18,8 @@ let completeReply: () => Response | Promise<Response> = () => json({ ok: true, t
 let completeCalls = 0;
 let statusReply: Record<string, unknown> = {};
 let statusCalls = 0;
+let roomTypes: unknown[] = [];
+let roomTypePatches: unknown[] = [];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -27,13 +30,19 @@ beforeEach(() => {
   completeReply = () => json({ ok: true, totalRooms: 20 });
   statusReply = { connected: true, hotelId: "h1", simulationMode: true };
   statusCalls = 0;
-  vi.stubGlobal("fetch", async (url: string) => {
+  roomTypes = [];
+  roomTypePatches = [];
+  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
     if (url === "/api/onboarding/findings") return json({ findings: [] });
     if (url === "/api/onboarding/status") {
       statusCalls += 1;
       return json(statusReply);
     }
-    if (url === "/api/room-types") return json([]);
+    if (url === "/api/room-types" && init?.method === "PATCH") {
+      roomTypePatches.push(JSON.parse(String(init.body)));
+      return json({});
+    }
+    if (url === "/api/room-types") return json(roomTypes);
     if (url === "/api/onboarding/complete") {
       completeCalls += 1;
       return completeReply();
@@ -125,5 +134,45 @@ describe("the go-live card", () => {
     await waitFor(() => expect(statusCalls).toBeGreaterThan(0));
     await act(async () => {});
     expect(screen.queryByRole("button", { name: "Turn them on for real" })).toBeNull();
+  });
+});
+
+describe("the room count strip", () => {
+  beforeEach(() => {
+    roomTypes = [
+      { id: "rt-king", name: "King", total_rooms: 5, counts_as_room: true },
+      { id: "rt-std", name: "Standard", total_rooms: 10, counts_as_room: true },
+      { id: "rt-pool", name: "Deluxe Pool View", total_rooms: 10, counts_as_room: null },
+      { id: "rt-park", name: "Parking", total_rooms: 30, counts_as_room: false },
+    ];
+  });
+
+  it("shows a type nobody has answered for unticked and tagged, and leaves it out of the count", async () => {
+    render(<ReviewFindings />);
+    const pool = (await screen.findByLabelText("Deluxe Pool View counts as a room")) as HTMLInputElement;
+
+    expect(pool.checked).toBe(false);
+    expect((screen.getByLabelText("King counts as a room") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Parking counts as a room") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getAllByText("needs your answer")).toHaveLength(1);
+    expect(screen.getByText(/^We're counting 2 room types as rooms/)).not.toBeNull();
+
+    // The "?" explains the tag here too.
+    fireEvent.click(screen.getByRole("button", { name: "What counting as a room changes" }));
+    expect(screen.getByText(/^A type tagged "needs your answer" is one nobody has ticked or unticked yet\./)).not.toBeNull();
+  });
+
+  it("brings it into the count when ticked, saving a yes", async () => {
+    render(<ReviewFindings />);
+    const pool = (await screen.findByLabelText("Deluxe Pool View counts as a room")) as HTMLInputElement;
+    await waitFor(() => expect(pool.disabled).toBe(false));
+
+    fireEvent.click(pool);
+    await waitFor(() =>
+      expect(roomTypePatches).toEqual([{ hotelId: "h1", roomTypeId: "rt-pool", countsAsRoom: true }]),
+    );
+    expect(pool.checked).toBe(true);
+    expect(screen.queryByText("needs your answer")).toBeNull();
+    expect(screen.getByText(/^We're counting 3 room types as rooms/)).not.toBeNull();
   });
 });

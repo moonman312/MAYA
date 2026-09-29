@@ -4,7 +4,7 @@ summary: The two review screens after the import, every card you can see (closur
 section: review
 order: 40
 readingTime: 13
-keywords: [review, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, only a revenue manager or above can finish the review, couldn't finish the review, go to my dashboard, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, different years, same closure every year, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
+keywords: [review, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, only a revenue manager or above can finish the review, couldn't finish the review, go to my dashboard, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, different years, same closure every year, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, needs your answer, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
 questions:
   - What does "Is X actually a room?" mean? {#is-x-actually-a-room/property-systems-list}
   - What does "Were you closed" do if I confirm it? {#were-you-closed-/confirm}
@@ -20,7 +20,7 @@ questions:
   - I answered a review card wrong. Can I change it? {#coming-back-and-changing-an-answer/you-can-leave}
   - Where is the "?" help on the review? {#how-you-get-here}
   - Who can answer the review cards? {#how-you-get-here}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -126,17 +126,18 @@ You do not have to press <Ui>Finish</Ui>. Close the page whenever you like and e
 
 ## The room count strip
 
-The strip reads "We're counting 4 room types as rooms" and asks whether anything there is not one. One chip per active room type, with its name and how many units it has. A chip is ticked unless the type has been marked as not a room.
+The strip reads "We're counting 4 room types as rooms" and asks whether anything there is not one. One chip per active room type, with its name and how many units it has. A chip is ticked once the type counts as a room, and the number in the question counts the ticked chips.
 
 Ticked types are what MAYA divides by for sellable occupancy, and what it counts for the revenue per room behind the calendar colours and for the room count you are billed for. Untick anything nobody sleeps in. An unticked type is still priced if a rule changes it.
 
 - Room types whose name is certainly not a bedroom (parking, boardroom, meeting, treatment and the like) arrive unticked, as MAYA's proposal. Tick one to say it is a room.
+- A type nobody has answered for yet shows unticked with a "needs your answer" tag, the same as on the <Ui>PMS</Ui> tab. A name that only might not be a bedroom (a "Pool Cabana", a "Spa Deluxe") starts this way. It is left out of your bill and out of the count in the question, and it still counts in occupancy. Tick it if guests sleep there and it joins your bill. If they do not, tick it and untick it again: it is then answered as not a room.
 - A tick saves at once. There is no confirm, and nothing here holds up <Ui>Finish</Ui>.
 - Ticking or unticking needs a Revenue Manager or higher. Below that you see "This needs Revenue Manager access or higher on this property." On a live property a change re-prices every night of the window from the next cycle, nearest nights first.
 - Thirty changes in ten minutes is the limit, per person. The same thirty also cover prices you type or clear by hand and rooms you take out of service in those ten minutes. Past it you see "That's a lot of room-type changes at once. Give it a minute and try again."
 - If a tick fails to save it snaps back and you see "That didn't save" with an invitation to try again.
 
-The "?" beside the strip is the only "?" on the review. Its panel is titled "What counts as a room" and says the same as this section, ending "You can change this any time from the PMS tab."
+The "?" beside the strip is the only "?" on the review. It opens the same panel as the <Ui>?</Ui> beside <Ui>Room types</Ui> on the <Ui>PMS</Ui> tab: titled "What counts as a room", it says the same as this section and ends with what the "needs your answer" tag means.
 
 ## The banner on your dashboard
 
