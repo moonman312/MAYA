@@ -123,13 +123,21 @@ export async function POST(request: Request) {
     await projectStrategyOntoRoomTypes(supabase, hotelId);
   }
 
+  // The answer is saved either way; a swap that cannot happen leaves it for
+  // "Get suggestions from my data".
   if (body.confidence !== undefined) {
-    const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
-    if (swap.swapped) {
-      await supabase
-        .from("onboarding_states")
-        .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
-        .eq("hotel_id", hotelId);
+    try {
+      const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
+      if (swap.swapped) {
+        await supabase
+          .from("onboarding_states")
+          .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
+          .eq("hotel_id", hotelId);
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({ fn: "onboardingAnswers", step: "starter_swap", hotelId, error: e instanceof Error ? e.message : String(e) }),
+      );
     }
   }
 
