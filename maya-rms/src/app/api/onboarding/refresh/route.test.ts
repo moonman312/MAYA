@@ -156,6 +156,16 @@ describe("POST /api/onboarding/refresh", () => {
     expect(state.insertedJobs).toHaveLength(0);
   });
 
+  // Queued anyway, a Mews read had nothing to read and retried for hours.
+  it("400 on a property system with no history import, and nothing is queued", async () => {
+    state.pmsConnection = { pms_type: "mews", status: "connected" };
+    const res = await POST();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Not available for Mews yet. MAYA can't read its booking history.");
+    expect(state.insertedJobs).toHaveLength(0);
+    expect(state.stateUpserts).toHaveLength(0);
+  });
+
   it("queues a refresh job and reopens the review", async () => {
     const res = await POST();
     expect(res.status).toBe(200);

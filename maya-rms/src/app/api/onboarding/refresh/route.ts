@@ -1,5 +1,6 @@
 import { requireEntitledHotel } from "@/lib/billing/require-entitled";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { getRegistry, type PmsType } from "@/lib/pms/registry";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -65,6 +66,15 @@ export async function POST() {
   if (!conn) {
     return NextResponse.json(
       { error: "Connect your property system first. There's nothing to read yet." },
+      { status: 400 },
+    );
+  }
+  // A PMS with no history import (Mews today) has nothing for the read to
+  // read: queued anyway, the job only fails. The button is off there too.
+  const pms = getRegistry(String(conn.pms_type) as PmsType);
+  if (pms?.onboardingSupported !== true) {
+    return NextResponse.json(
+      { error: `Not available for ${pms?.displayName ?? "your property system"} yet. MAYA can't read its booking history.` },
       { status: 400 },
     );
   }

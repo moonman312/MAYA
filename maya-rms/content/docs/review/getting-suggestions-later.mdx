@@ -3,8 +3,8 @@ title: Getting suggestions later
 summary: The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer, and what accepting each one does.
 section: review
 order: 70
-readingTime: 10
-keywords: [get suggestions from my data, mews, should I press it on mews, joined, first import still running, no suggestion cards, threshold changed prices dropped, meeting room price changed, unticked room type priced, suggestions, ask maya for help, re-read my history, re-run, rerun, re-import, refresh, here's exactly what happens, sounds good, never mind, suggestions ready, pulsing dot, still pulsing, stuck, still running, never finishes, nothing happened, where are my suggestions, suggestions not showing, blue banner, Review →, tune, make that change, leave it as is, remove, remove it, turn it off keep it, leave it running, add a rule, add this rule, no thanks, set a floor, set a ceiling, no floor card, no ceiling card, still at default, stuck at $1, "99,999.99", "99000", pickup rule, pickup rule not offered for removal, meeting room in pickup rule, occupancy threshold, where nights become scarce, revenue manager access or higher to run this, subscription is not active, connect your property system first, just run, let that one finish, before starting another, one at a time, before going live, go-live button gone, go-live card gone, turn them on for real missing, pressed it before going live]
+readingTime: 11
+keywords: [get suggestions from my data, mews, should I press it on mews, joined, first import still running, no suggestion cards, threshold changed prices dropped, meeting room price changed, unticked room type priced, suggestions, ask maya for help, re-read my history, re-run, rerun, re-import, refresh, here's exactly what happens, sounds good, never mind, suggestions ready, pulsing dot, still pulsing, stuck, still running, reading your history, your last read stopped, your last read paused, greyed out, not available for mews, never finishes, nothing happened, where are my suggestions, suggestions not showing, blue banner, Review →, tune, make that change, leave it as is, remove, remove it, turn it off keep it, leave it running, add a rule, add this rule, no thanks, set a floor, set a ceiling, no floor card, no ceiling card, still at default, stuck at $1, "99,999.99", "99000", pickup rule, pickup rule not offered for removal, meeting room in pickup rule, occupancy threshold, where nights become scarce, revenue manager access or higher to run this, subscription is not active, connect your property system first, just run, let that one finish, before starting another, one at a time, before going live, go-live button gone, go-live card gone, turn them on for real missing, pressed it before going live]
 questions:
   - What does "Get suggestions from my data" do? {#in-plain-words}
   - Will suggestions change anything by themselves? {#in-plain-words}
@@ -12,7 +12,8 @@ questions:
   - Why is it suggesting I remove my pickup rule? {#remove-quick-pickup}
   - Why is it suggesting a different occupancy threshold? {#tune-busy-nights/offered-for-a}
   - Does Get suggestions re-import everything? {#what-the-read-does}
-  - The dot is still pulsing. Has the read finished? {#the-button/on-the-rules}
+  - The dot is still pulsing. Has the read finished? {#the-button/while-the-read}
+  - It says "Your last read stopped". What now? {#the-button/when-a-read}
   - Where do I find my suggestions when the read is done? {#the-button/if-the-read}
   - Who can press Get suggestions from my data? {#who-can-press-it-and-when/a-revenue-manager}
   - How do I get the starter rules back after deleting them? {#add-a-rule-slow-date-rescue}
@@ -32,9 +33,11 @@ On the <Ui>Rules</Ui> tab, <Ui>Get suggestions from my data</Ui> reads your book
 
 On the <Ui>Rules</Ui> tab, beside the <Ui>Pricing Rules</Ui> heading, sits <Ui>Get suggestions from my data</Ui> (with a handshake symbol in front of it). Pressing it opens a small panel headed "Here's exactly what happens". The panel says MAYA re-reads your booking history and compares it against your current rules and price guardrails, that nothing changes by itself, and that you approve or reject each suggestion individually. Two buttons: the one beginning "Sounds good" starts the read, and <Ui>Never mind</Ui> closes the panel.
 
-While the read runs, the button turns into a pulsing dot with a short waiting line. MAYA is reading your bookings again and counting. The dot stays as long as the <Ui>Rules</Ui> tab stays open, even after the read has finished. To see the result, press another tab such as <Ui>Calendar</Ui> and then <Ui>Rules</Ui> again, or reload the page and open <Ui>Rules</Ui>.
+While the read runs, the button turns into a pulsing dot with the line "Reading your history…". MAYA is reading your bookings again and counting. The tab checks on the read every few seconds, so you can leave it open: when the read ends, the button changes by itself.
 
-If the read found something to offer, the button is now a link reading "3 suggestions ready →" that opens the review. The number counts every card waiting for your answer. If the read is still going, the dot shows again. If there was nothing to offer, the plain button is back. After a reload, the blue banner at the top of the dashboard also opens the review with its <Ui>Review →</Ui> link.
+If the read found something to offer, the button is now a link reading "3 suggestions ready →" that opens the review. The number counts every card waiting for your answer. If there was nothing to offer, the plain button is back. After a reload, the blue banner at the top of the dashboard also opens the review with its <Ui>Review →</Ui> link.
+
+When a read stops before it finishes, the plain button comes back with a line beside it that says so, and the line stays until a new read starts. A read tries again by itself the way [the history import](/docs/review/the-history-import#import-stopped) does, so the line can say "Your last read paused. We've been told, and it tries again by itself around 3:40 PM." Once it has stopped for good it says "Your last read stopped. We've been told.", or "Your last read stopped. Email us and we'll restart it." when nothing reached us. "Your last read stopped because your property system is no longer connected." means the connection went away: reconnect, then press the button again.
 
 ## Who can press it, and when
 
@@ -44,7 +47,7 @@ If the read found something to offer, the button is now a link reading "3 sugges
 - Five runs per 15 minutes per property. Past that, a message asks you to let the last read finish before starting another. Read [Messages explained](/docs/wrong/messages-explained).
 - One read at a time. If a read is already running (yours, a colleague's, or the first import), pressing the button joins it rather than starting another. If that read is the first import, it finishes as a first import, with no suggestion cards. Press the button again once it is complete. Either way the press counts towards the five runs.
 
-Mews has no history import yet, so on a Mews property the read cannot complete. Do not press the button there: the dot pulses for a few hours while the read retries, then the plain button comes back with no suggestions and no message. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Suggestions%20on%20Mews) instead. Read [The history import](/docs/review/the-history-import).
+Mews has no history import yet, so on a Mews property the button is greyed out, with the note "Not available for Mews yet. MAYA can't read its booking history." beside it. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Suggestions%20on%20Mews) if you would like suggestions for a Mews property. Read [The history import](/docs/review/the-history-import).
 
 <Callout kind="careful" title="Before you go live, wait">
 A read the button starts points the review at the new cards, and the card with <Ui>Turn them on for real</Ui> goes. Your starter rules stay. If it happens, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live.

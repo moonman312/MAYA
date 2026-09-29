@@ -64,6 +64,9 @@ export async function GET() {
   ]);
   const connection =
     (connections ?? []).find((c: { status: unknown }) => c.status === "connected") ?? (connections ?? [])[0] ?? null;
+  // Whether this PMS has a history import at all: without one, a read (Get
+  // suggestions from my data) has nothing to read, so the button stays off.
+  const pmsEntry = connection?.pms_type != null ? getRegistry(String(connection.pms_type) as PmsType) : null;
 
   const [{ count: proposedFindings }, { data: latestProposed }] = await Promise.all([
     supabase
@@ -125,6 +128,8 @@ export async function GET() {
     latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
     pmsType: connection?.pms_type != null ? String(connection.pms_type) : null,
+    pmsName: pmsEntry?.displayName ?? null,
+    historyImport: connection ? pmsEntry?.onboardingSupported === true : null,
     // The nights the push sends, so the go-live confirm names the real window:
     // the one the hotel's last daily pass used, which the syncs' switch sets.
     pushWindowDays: isAdminConfigured() ? await hotelPricingHorizon(createAdminClient(), hotelId) : pricingHorizonDays(),

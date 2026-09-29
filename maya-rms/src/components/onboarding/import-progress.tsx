@@ -21,6 +21,7 @@ export type OnboardingStatus = {
     oldest_stay_date: string | null;
     newest_stay_date: string | null;
     last_error: string | null;
+    started_at?: string | null;
     finished_at: string | null;
     stats?: {
       starterRules?: Array<{ name: string; explanation: string }>;
@@ -38,6 +39,13 @@ export type OnboardingStatus = {
   pmsType?: string | null;
   /** Nights the push sends (pricingHorizonDays); older servers leave it out. */
   pushWindowDays?: number;
+  /** The PMS's name, from the registry; older servers leave it out. */
+  pmsName?: string | null;
+  /**
+   * False when the hotel's PMS has no history import (Mews today), so a read
+   * has nothing to read; null with no connection; older servers leave it out.
+   */
+  historyImport?: boolean | null;
   /** The PMS connection is gone and the import cannot run until it is reconnected. */
   reconnect?: {
     pmsType: string;
@@ -118,19 +126,24 @@ function retryTime(ms: number, nowMs: number): string {
 /**
  * What a stopped import says, from what the worker recorded when it stopped
  * it: whether it goes back in the queue by itself and when, and whether the
- * alert reached us. "We've been told" appears only when it did.
+ * alert reached us. "We've been told" appears only when it did. `what` names
+ * the job: the import on the progress bar, "Your last read" on the Rules tab.
  */
-export function stoppedLabel(job: NonNullable<OnboardingStatus["job"]>, nowMs: number = Date.now()): string {
+export function stoppedLabel(
+  job: NonNullable<OnboardingStatus["job"]>,
+  nowMs: number = Date.now(),
+  what: string = "Import",
+): string {
   const stop = job.stats?.stop;
   const told = stop?.alerted === true;
   const retryAt = stop?.retryAt ? Date.parse(stop.retryAt) : NaN;
   if (Number.isFinite(retryAt)) {
     const when = retryAt > nowMs ? `around ${retryTime(retryAt, nowMs)}` : "in a minute or two";
     return told
-      ? `Import paused. We've been told, and it tries again by itself ${when}.`
-      : `Import paused. It tries again by itself ${when}.`;
+      ? `${what} paused. We've been told, and it tries again by itself ${when}.`
+      : `${what} paused. It tries again by itself ${when}.`;
   }
-  return told ? "Import stopped. We've been told." : "Import stopped. Email us and we'll restart it.";
+  return told ? `${what} stopped. We've been told.` : `${what} stopped. Email us and we'll restart it.`;
 }
 
 /** Slim progress strip shown under the questions and on the progress page. */
