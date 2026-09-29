@@ -73,6 +73,8 @@ export const RATE_LIMITS = {
    * for sent questions (docsQuestion) or page votes.
    */
   docsTally: { limit: 3000, windowSeconds: 3600 },
+  /** The Command Center's "Send a test alert", per admin: enough to check twice, not to flood the channel. */
+  testAlert: { limit: 5, windowSeconds: 600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

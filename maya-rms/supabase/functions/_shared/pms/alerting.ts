@@ -42,6 +42,47 @@ function webhookUrl(): string | null {
 }
 
 /**
+ * Whether alerts have somewhere to go, without ever handing out the address:
+ * "ready", "missing" (MAYA_ALERT_WEBHOOK unset), or "not_https" (set, but
+ * alerts are never sent in cleartext, so it is ignored).
+ */
+export function alertChannelState(): "ready" | "missing" | "not_https" {
+  const raw = readEnv("MAYA_ALERT_WEBHOOK");
+  if (!raw) return "missing";
+  return webhookUrl() ? "ready" : "not_https";
+}
+
+function postToWebhook(url: string, payload: Record<string, unknown>, timeoutMs: number): Promise<Response> {
+  return fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+}
+
+/**
+ * One plain message to the alert channel, with no severity floor and no
+ * dedupe: for a person checking that alerts arrive (the Command Center's
+ * "Send a test alert"). Never throws, and what it returns never includes the
+ * webhook address.
+ */
+export async function postTestMessage(
+  text: string,
+  timeoutMs = 8000,
+): Promise<{ sent: boolean; reason?: string }> {
+  const url = webhookUrl();
+  if (!url) return { sent: false, reason: "no_webhook_configured" };
+  try {
+    const res = await postToWebhook(url, { text }, timeoutMs);
+    return res.ok ? { sent: true } : { sent: false, reason: `webhook_${res.status}` };
+  } catch (e) {
+    const timedOut = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+    return { sent: false, reason: timedOut ? "timeout" : "send_failed" };
+  }
+}
+
+/**
  * Only critical alerts leave the building by default.
  *
  * An alert channel is worth exactly as much as the reader's willingness to look
@@ -91,12 +132,11 @@ export async function raiseAlert(
       .filter(Boolean)
       .join("\n");
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, severity: alert.severity, key: alert.key, hotelId: alert.hotelId ?? null }),
-      signal: AbortSignal.timeout(8000),
-    });
+    const res = await postToWebhook(
+      url,
+      { text, severity: alert.severity, key: alert.key, hotelId: alert.hotelId ?? null },
+      8000,
+    );
     if (!res.ok) return { sent: false, reason: `webhook_${res.status}` };
 
     await supabase.rpc("platform_log_event", {
