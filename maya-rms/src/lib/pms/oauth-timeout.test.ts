@@ -49,6 +49,9 @@ beforeEach(() => {
   process.env.THINK_CLIENT_SECRET = "secret";
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
+  // The Marketplace path builds its callback URL from this. Set here so the
+  // file passes on a clean checkout, not only in a shell that has it.
+  process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
 });
 
 const callback = (pms: "think" | "cloudbeds") =>
