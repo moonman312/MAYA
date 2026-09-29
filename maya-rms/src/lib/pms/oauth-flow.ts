@@ -15,7 +15,6 @@ import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { resumeImportAfterReconnect } from "@/lib/pms/eager-import";
 import { storedPropertyId } from "@/lib/pms/stored-property";
-import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
@@ -58,7 +57,7 @@ export async function buildAuthorizeRedirect(
     // The rank the Reconnect button is drawn for (/api/pms/activity), platform
     // admins included. can_manage_hotel also lets a Revenue Manager in, so the
     // link used to reconnect for someone who was never shown the button.
-    if (!(await hasHotelRank(ssr, target.hotelId, "general_manager"))) {
+    if (!(await canReconnectHotel(ssr, target.hotelId))) {
       return renderNotice("Reconnecting needs General Manager access or higher on this property.", 403);
     }
   } else {
@@ -302,7 +301,7 @@ export async function handleOAuthCallback(
     const outcome = await handleMarketplaceConnect(pmsType, secretPayload, {
       canReconnect: async (hotelId) => {
         signedIn ??= ssr.auth.getUser().then(({ data }) => Boolean(data.user));
-        return (await signedIn) && (await hasHotelRank(ssr, hotelId, "general_manager"));
+        return (await signedIn) && (await canReconnectHotel(ssr, hotelId));
       },
       reconnect: async (hotelId) => {
         const done = await reconnectHotel(hotelId, pmsType, secretPayload, "marketplace_flow_a");
@@ -447,6 +446,18 @@ async function reconnectHotel(
   });
 
   return { ok: true, parked };
+}
+
+/**
+ * General Manager or above on this hotel, or a platform admin. Asked of the
+ * database, where can_manage_finances takes the caller from the verified
+ * token (auth.uid()). hasHotelRank reads the user id from the session cookie,
+ * which the browser can edit, and a member can read every membership row of
+ * their hotel, so a Viewer could pass it under a General Manager's id.
+ */
+async function canReconnectHotel(ssr: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data, error } = await ssr.rpc("can_manage_finances", { target_hotel_id: hotelId });
+  return !error && data === true;
 }
 
 /**

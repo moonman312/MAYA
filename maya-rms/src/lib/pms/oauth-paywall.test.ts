@@ -15,32 +15,55 @@ const state = vi.hoisted(() => ({
   signupCodeId: "code-1" as string | null,
   /** The caller's role on hotel-1, for the reconnect (hotel) target. */
   role: null as string | null,
+  /**
+   * The user id in the session cookie's user object, which the browser can
+   * edit. Null leaves it matching the signed-in user.
+   */
+  cookieUserId: null as string | null,
   platformAdmin: false,
 }));
 
 const RANK: Record<string, number> = { viewer: 10, revenue_manager: 20, general_manager: 30, hotel_admin: 40 };
 
+/** Other members of hotel-1. Any member may read every row of their hotel. */
+const OTHER_MEMBERS: Record<string, string> = { "user-gm": "general_manager" };
+
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => {
     const memberships = () => {
-      const rows = state.role && state.userId ? [{ role: state.role }] : [];
+      let userId: unknown = null;
+      const rows = () => {
+        const role = userId === state.userId ? state.role : OTHER_MEMBERS[String(userId)];
+        return role && state.userId ? [{ role }] : [];
+      };
       const chain = {
         select: () => chain,
-        eq: () => chain,
-        then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows, error: null }).then(res),
+        eq: (col: string, value: unknown) => {
+          if (col === "user_id") userId = value;
+          return chain;
+        },
+        then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows(), error: null }).then(res),
       };
       return chain;
     };
     return {
       auth: {
         getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
-        getSession: async () => ({ data: { session: state.userId ? { user: { id: state.userId } } : null } }),
+        getSession: async () => ({
+          data: { session: state.userId ? { user: { id: state.cookieUserId ?? state.userId } } : null },
+        }),
       },
       from: memberships,
-      // As the database answers: can_manage_hotel lets a Revenue Manager in.
+      // As the database answers, always for the user the access token proves
+      // (auth.uid()): can_manage_hotel lets a Revenue Manager in,
+      // can_manage_finances starts at General Manager.
       rpc: async (fn: string) => {
+        const rank = state.userId ? (RANK[state.role ?? ""] ?? 0) : 0;
         if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
-        if (fn === "can_manage_hotel") return { data: (RANK[state.role ?? ""] ?? 0) >= RANK.revenue_manager, error: null };
+        if (fn === "can_manage_hotel") return { data: rank >= RANK.revenue_manager, error: null };
+        if (fn === "can_manage_finances") {
+          return { data: state.platformAdmin || rank >= RANK.general_manager, error: null };
+        }
         return { data: false, error: null };
       },
     };
@@ -90,6 +113,7 @@ beforeEach(() => {
   state.pendingHotelId = "hotel-1";
   state.signupCodeId = "code-1";
   state.role = null;
+  state.cookieUserId = null;
   state.platformAdmin = false;
   process.env.CLOUDBEDS_CLIENT_ID = "test-client-id";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -209,6 +233,15 @@ describe("the reconnect link asks for the rank the Reconnect button does", () =>
     const text = await res.text();
     expect(text).toContain("Reconnecting needs General Manager access or higher on this property.");
     expect(text).not.toContain("—");
+  });
+
+  it("goes by who the sign-in proves, not the user id in the session cookie", async () => {
+    // A Viewer who put the General Manager's id into their own cookie.
+    state.role = "viewer";
+    state.cookieUserId = "user-gm";
+    const res = await reconnect();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("location")).toBeNull();
   });
 
   it("refuses someone with no role on the property", async () => {

@@ -18,6 +18,11 @@ const state = vi.hoisted(() => ({
   properties: [{ propertyId: "320691", name: "Sea View Inn" }] as { propertyId: string; name: string | null }[],
   userId: "user-gm" as string | null,
   role: "general_manager" as string | null,
+  /**
+   * The user id in the session cookie's user object, which the browser can
+   * edit. Null leaves it matching the signed-in user.
+   */
+  cookieUserId: null as string | null,
   platformAdmin: false,
   secretReadFails: false,
 }));
@@ -26,19 +31,41 @@ vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => true }));
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.client }));
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => {
-    const rows = () => (state.userId && state.role ? [{ role: state.role }] : []);
-    const chain = {
-      select: () => chain,
-      eq: () => chain,
-      then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows(), error: null }).then(res),
+    // The owner's row, which any member of hotel-1 may read.
+    const others: Record<string, string> = { "user-owner": "hotel_admin" };
+    const memberships = () => {
+      let userId: unknown = null;
+      const rows = () => {
+        const role = userId === state.userId ? state.role : others[String(userId)];
+        return state.userId && role ? [{ role }] : [];
+      };
+      const chain = {
+        select: () => chain,
+        eq: (col: string, value: unknown) => {
+          if (col === "user_id") userId = value;
+          return chain;
+        },
+        then: (res: (v: unknown) => unknown) => Promise.resolve({ data: rows(), error: null }).then(res),
+      };
+      return chain;
     };
     return {
       auth: {
         getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }),
-        getSession: async () => ({ data: { session: state.userId ? { user: { id: state.userId } } : null } }),
+        getSession: async () => ({
+          data: { session: state.userId ? { user: { id: state.cookieUserId ?? state.userId } } : null },
+        }),
       },
-      from: () => chain,
-      rpc: async (fn: string) => ({ data: fn === "is_platform_admin" ? state.platformAdmin : false, error: null }),
+      from: memberships,
+      // As the database answers, for the user the access token proves (auth.uid()).
+      rpc: async (fn: string) => {
+        if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
+        if (fn === "can_manage_finances") {
+          const manages = Boolean(state.userId) && ["general_manager", "hotel_admin"].includes(state.role ?? "");
+          return { data: state.platformAdmin || manages, error: null };
+        }
+        return { data: false, error: null };
+      },
     };
   },
 }));
@@ -111,6 +138,7 @@ beforeEach(() => {
   state.properties = [{ propertyId: "320691", name: "Sea View Inn" }];
   state.userId = "user-gm";
   state.role = "general_manager";
+  state.cookieUserId = null;
   state.platformAdmin = false;
   state.secretReadFails = false;
   process.env.CLOUDBEDS_CLIENT_ID = "id";
@@ -171,6 +199,20 @@ describe("Connect App on a property connected from inside MAYA", () => {
     expect(text).not.toContain("—");
     expect(db.tables.hotels).toHaveLength(1);
     expect(db.tables.pms_marketplace_claims).toEqual([]);
+    expect(db.tables.pms_connections).toEqual([expect.objectContaining({ status: "disconnected" })]);
+    expect(secretWrites()).toEqual([]);
+  });
+
+  it("goes by who the sign-in proves, not the user id in the session cookie", async () => {
+    // A Viewer who put the owner's id into their own cookie.
+    state.userId = "user-v";
+    state.role = "viewer";
+    state.cookieUserId = "user-owner";
+    const db = connectedInsideMaya();
+    const res = await connectApp();
+
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("Reconnecting it needs General Manager access or higher on it.");
     expect(db.tables.pms_connections).toEqual([expect.objectContaining({ status: "disconnected" })]);
     expect(secretWrites()).toEqual([]);
   });
