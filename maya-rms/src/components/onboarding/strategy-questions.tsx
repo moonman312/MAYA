@@ -157,7 +157,7 @@ export function StrategyQuestions() {
 
       {step === "ceiling" ? (
         <QuestionCard
-          title="Now the fun one: Taylor Swift is playing next door."
+          title="Now the fun one: the biggest concert of the year is next door."
           subtitle="Every room in town is gone. What's the most you'd charge for a night? (For reference, also think about the highest you've ever actually sold a room for.)"
         >
           <MoneyInput
