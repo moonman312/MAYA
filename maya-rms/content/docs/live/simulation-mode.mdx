@@ -21,7 +21,7 @@ questions:
   - Why has the Turn them on for real button gone? {#how-to-tell-which-mode-you-are-in/the-review-screen}
   - How do I tell whether a Mews property is live? {#mews/a-mews-property}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -77,7 +77,7 @@ You can turn any of them off on the <Ui>Rules</Ui> tab before you go live, or de
 
 There is no "Simulation" or "Live" badge on the dashboard yet. Two clues say which mode you are in.
 
-1. **The review screen.** Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. If it opens on "First: does this match reality?", click <Ui>Continue to recommendations</Ui>. Near the end, under "While you were here, we built your first pricing rules", a green <Ui>Turn them on for real</Ui> button means you are simulating. A green pill reading "✓ Live: your rules are now managing prices" means you are live. The card is there only when setup built starter rules for you, and only until someone runs <Ui>Get suggestions from my data</Ui>. A Mews property never has it.
+1. **The review screen.** Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. If it opens on "First: does this match reality?", click <Ui>Continue to recommendations</Ui>. Near the end, under "While you were here, we built your first pricing rules", a green <Ui>Turn them on for real</Ui> button means you are simulating. A green pill reading "✓ Live: your rules are now managing prices" means you are live. The card is there only when setup built starter rules for you. A Mews property never has it.
 2. **The amber banner.** Once three of a booking speed or pickup rule's changes are on a night, the Rules that keep adjusting banner says "would have 3 raises" or "would have 3 cuts" in simulation, and "has 3 raises" or "has 3 cuts" when live.
 
 If you have typed a price for a real reason lately, its confirmation also said which mode you were in: it began "Saved (simulation: not sent to Cloudbeds)." in simulation, and "Saved. Sending to Cloudbeds now." when live. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
@@ -98,7 +98,7 @@ The button is another matter. It is there only when setup built starter rules fo
 
 MAYA sets no rule about this and runs no timer. A week is a good minimum: it covers a weekend (Friday and Saturday nights) and the quieter nights around it, so you see both kinds of change. If your bookings arrive in a longer rhythm, watch a whole one.
 
-Three things are worth checking while you watch: the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab (which rule acts most), the change log a few times a day (it keeps the 10 most recent runs that changed a price) for prices stopped at a floor or ceiling, and whether the Rules that keep adjusting banner appeared. Each is a sign to change a rule, or a floor or ceiling, before going live. A limit has no editor yet: [Set or change a floor or ceiling](/docs/recipes/set-a-floor-or-ceiling) has the ways to move one, including emailing us. While you simulate, leave out its <Ui>Get suggestions from my data</Ui> step: pressing it removes the go-live button.
+Three things are worth checking while you watch: the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab (which rule acts most), the change log a few times a day (it keeps the 10 most recent runs that changed a price) for prices stopped at a floor or ceiling, and whether the Rules that keep adjusting banner appeared. Each is a sign to change a rule, or a floor or ceiling, before going live. A limit has no editor yet: [Set or change a floor or ceiling](/docs/recipes/set-a-floor-or-ceiling) has the ways to move one, including emailing us. Its <Ui>Get suggestions from my data</Ui> step works while you simulate too, and the go-live button stays.
 
 ## Rates you change in your system while simulating
 
