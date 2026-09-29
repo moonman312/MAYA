@@ -28,6 +28,7 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     rooms: 40,
     periodCents: 20_000,
     chargeCents: null,
+    chargeBeforeTaxCents: null,
     codeApplied: false,
     renewsAt: null,
     unpaidSince: null,

@@ -33,7 +33,8 @@ vi.mock("./stripe", () => ({
   }),
 }));
 
-import { loadAccountBilling, roomGraceDaysLeft } from "./account";
+import { loadAccountBilling, priceHint, roomGraceDaysLeft } from "./account";
+import { priceCents } from "./tiers";
 
 const NOW = new Date("2026-08-10T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
@@ -191,6 +192,20 @@ describe("loadAccountBilling for a live subscription", () => {
     const prorated = await loadAccountBilling(rowClient(active), "hotel-1");
     expect(prorated?.chargeCents).toBe(23_400);
     expect(prorated?.codeApplied).toBe(false);
+  });
+
+  it("keeps the before-tax total, so tax is never read as a room count change", async () => {
+    const bracket = priceCents(40, "month");
+    stripe.preview = { amount_due: bracket + 1_650, total_excluding_tax: bracket, total_discount_amounts: [] };
+    const taxed = await loadAccountBilling(rowClient(active), "hotel-1");
+    expect(taxed?.chargeCents).toBe(bracket + 1_650);
+    expect(taxed?.chargeBeforeTaxCents).toBe(bracket);
+    expect(priceHint(taxed!)).toBe("40 rooms at MAYA's monthly rate.");
+
+    // An older preview without the field falls back to the charge itself.
+    stripe.preview = { amount_due: bracket, total_discount_amounts: [] };
+    const untaxed = await loadAccountBilling(rowClient(active), "hotel-1");
+    expect(untaxed?.chargeBeforeTaxCents).toBe(bracket);
   });
 
   it("claims no code when Stripe cannot be asked", async () => {

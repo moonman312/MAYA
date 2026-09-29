@@ -31,6 +31,12 @@ export type AccountBilling = {
    */
   chargeCents: number | null;
   /**
+   * The same invoice before tax, which is what the bracket price is compared
+   * with: once tax is collected, the charge itself always differs from it.
+   * Null when Stripe can't be asked.
+   */
+  chargeBeforeTaxCents: number | null;
+  /**
    * Whether that next invoice carries a discount, which only a code puts on a
    * subscription. False when Stripe can't be asked, and once a limited
    * discount has run out, even though the code is still on record.
@@ -80,7 +86,7 @@ const NOTICE_COLUMNS = "room_shortfall_notified_at, room_shortfall_notified_room
  */
 async function previewCharge(
   subscriptionId: string,
-): Promise<{ cents: number; discounted: boolean } | null> {
+): Promise<{ cents: number; beforeTaxCents: number; discounted: boolean } | null> {
   if (!isStripeConfigured()) return null;
   try {
     const invoice = await stripeClient().invoices.createPreview(
@@ -90,6 +96,8 @@ async function previewCharge(
     if (typeof invoice.amount_due !== "number") return null;
     return {
       cents: invoice.amount_due,
+      beforeTaxCents:
+        typeof invoice.total_excluding_tax === "number" ? invoice.total_excluding_tax : invoice.amount_due,
       discounted: (invoice.total_discount_amounts ?? []).some((d) => d.amount > 0),
     };
   } catch {
@@ -176,6 +184,7 @@ export async function loadAccountBilling(
     rooms,
     periodCents: priceCents(rooms, interval),
     chargeCents: preview?.cents ?? null,
+    chargeBeforeTaxCents: preview?.beforeTaxCents ?? null,
     codeApplied: preview?.discounted ?? false,
     renewsAt: data.current_period_end ? String(data.current_period_end) : null,
     unpaidSince,
@@ -367,12 +376,14 @@ export function offersRestart(billing: AccountBilling): boolean {
  * The line under the price. Stripe's next invoice can differ from the bracket
  * price for two reasons, and naming the wrong one sent owners hunting for a
  * code they never used: a discount on the invoice is their code, and anything
- * else is the part-period difference a room count change leaves on it.
+ * else is the part-period difference a room count change leaves on it. Tax is
+ * neither, so the comparison is made before it.
  */
 export function priceHint(billing: AccountBilling): string {
   const base = `${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate`;
   if (billing.codeApplied) return `${base}, with your code applied.`;
-  if (billing.chargeCents != null && billing.chargeCents !== billing.periodCents) {
+  const beforeTax = billing.chargeBeforeTaxCents ?? billing.chargeCents;
+  if (beforeTax != null && beforeTax !== billing.periodCents) {
     return `${base}, adjusted for a recent room count change.`;
   }
   return `${base}.`;

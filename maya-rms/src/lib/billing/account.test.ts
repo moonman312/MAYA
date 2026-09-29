@@ -26,6 +26,7 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     rooms: 40,
     periodCents: priceCents(40, "month"),
     chargeCents: null,
+    chargeBeforeTaxCents: null,
     codeApplied: false,
     renewsAt: "2026-08-30T12:00:00Z",
     unpaidSince: null,
@@ -280,6 +281,20 @@ describe("priceHint", () => {
     const raised = priceHint(billing({ chargeCents: priceCents(40, "month") + 1_234 }));
     expect(raised).toBe("40 rooms at MAYA's monthly rate, adjusted for a recent room count change.");
     expect(raised).not.toMatch(/code/);
+  });
+
+  it("does not put tax down to a room count change", () => {
+    // With tax collected, the charge is the bracket price plus tax. Only a
+    // difference before tax is anything to explain.
+    const taxed = priceHint(
+      billing({ chargeCents: priceCents(40, "month") + 1_650, chargeBeforeTaxCents: priceCents(40, "month") }),
+    );
+    expect(taxed).toBe("40 rooms at MAYA's monthly rate.");
+
+    const taxedAndProrated = priceHint(
+      billing({ chargeCents: priceCents(40, "month") + 2_900, chargeBeforeTaxCents: priceCents(40, "month") + 1_234 }),
+    );
+    expect(taxedAndProrated).toBe("40 rooms at MAYA's monthly rate, adjusted for a recent room count change.");
   });
 
   it("adds nothing when the invoice is the bracket price, or unknown", () => {
