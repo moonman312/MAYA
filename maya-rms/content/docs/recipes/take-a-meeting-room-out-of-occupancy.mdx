@@ -27,6 +27,8 @@ Go to the <Ui>PMS</Ui> tab. Under the connection cards is a section headed <Ui>R
 </Step>
 <Step title="Untick Counts as a room">
 On the Meeting Room's row, untick the box. It saves straight away, with no confirmation. The row dims and gains a "not a room" tag. If it did not save, the box snaps back and a short error shows.
+
+If the box is already unticked with a "needs your answer" tag, nobody has answered for that type yet, and it still counts in occupancy. Tick the box, then untick it: the tag changes to "not a room".
 </Step>
 </Steps>
 
@@ -34,8 +36,8 @@ Changing it needs Revenue Manager access or higher. The change re-prices every n
 
 ## What changes
 
-- **Sellable occupancy.** Only ticked types are divided by. The Harbour Inn has 20 rooms plus a Meeting Room. With it ticked, 18 booked rooms read as 18 of 21 (86%). Unticked, they read as 18 of 20 (90%).
-- **The calendar.** The day card's "18/20 rooms" and its percentage count ticked types only. Revenue on the card still sums every type.
+- **Sellable occupancy.** Only ticked types, and types still tagged "needs your answer", are divided by. The Harbour Inn has 20 rooms plus a Meeting Room. With it ticked, 18 booked rooms read as 18 of 21 (86%). Unticked, they read as 18 of 20 (90%).
+- **The calendar.** The day card's "18/20 rooms" and its percentage leave out types tagged "not a room". Revenue on the card still sums every type.
 - **Booking speed.** Bookings for an unticked type are not counted, and it is never measured by a rule.
 - **Rules.** In the rule builder the type is tagged "not a room" and starts unticked. A rule that ticks it can still change its price. A rule that measures only unticked types (the Meeting Room alone, say) never fires on occupancy, pickup or booking speed. A booking window condition counts days, not bookings. So a rule whose only condition is booking window still fires and changes the room types it is set to change.
 - **Your bill.** The room count MAYA measures from your system leaves out unticked types. Lowering the count never lowers your bill on its own: set it on the <Ui>Billing</Ui> page. Read [Change the room count you pay for](/docs/recipes/change-the-room-count-you-pay-for).

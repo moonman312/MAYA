@@ -36,11 +36,11 @@ MAYA charges per room and counts your rooms from your property system on every s
 About every five minutes, when MAYA reads your bookings, it also adds up the rooms in your active room types. Two kinds of type are left out:
 
 - **Types you have unticked as rooms.** On the <Ui>PMS</Ui> tab, each room type has a <Ui>Counts as a room</Ui> box. Untick it for anything nobody sleeps in, such as a meeting room, a spa slot or a court. An unticked type is left out of the count whatever its name. A ticked one is counted whatever its name. Your answer is final in both directions.
-- **Types you have not answered for, whose name reads like something nobody sleeps in.** Until you tick or untick a type, MAYA reads its name, as set out below. This is only a reading of the name, and one tick from you overrides it.
+- **Types you have not answered for, whose name reads like something nobody sleeps in.** When a type arrives from your system, MAYA reads its name, as set out below. A name that reads like a bedroom is ticked as a room. Any other name shows unticked on the <Ui>PMS</Ui> tab, tagged "needs your answer" (or "not a room" when your history import proposed it), and stays out of the count until you tick it. This is only a reading of the name, and one tick from you overrides it.
 
 Some words leave a type out whatever else its name says, such as meeting, conference, boardroom, banquet, parking, massage, treatment, storage and day use. Others leave a type out only when its name has no bedroom word in it (room, suite, king, queen, villa or cabin, for example). Spa, pool, cabana, court, event, hall, package and fee are words of this second kind. So "Spa Suite" is counted, while "Meeting Room", "Garden Cabana" and "Pool House" are left out.
 
-If the <Ui>Billing</Ui> page lists a type as not counted and guests do sleep there, tick it on the <Ui>PMS</Ui> tab. If its box already shows ticked, untick it and tick it again: your tick then counts.
+If the <Ui>Billing</Ui> page lists a type as not counted and guests do sleep there, tick it on the <Ui>PMS</Ui> tab and it joins the count.
 
 The count is the same for every night: rooms out of service change your occupancy, not your bill. Nothing is measured while your history is still importing, so an empty read is never treated as zero rooms.
 
@@ -64,7 +64,7 @@ So the count is that one number times the categories counted as rooms, and it ma
 
 The <Ui>Room count</Ui> section of the <Ui>Billing</Ui> page starts with "Your plan covers 20 rooms. We check this against your property management system." Then, depending on your property:
 
-- "Not counted, because they don't look like guest rooms:" followed by the names. MAYA read these names and left the types out. If one of them is a guest room, tick it under <Ui>PMS</Ui>, then Room types, and it joins the count (if its box already shows ticked, untick it and tick it again).
+- "Not counted, because they don't look like guest rooms:" followed by the names. MAYA read these names and left the types out. If one of them is a guest room, tick it under <Ui>PMS</Ui>, then Room types, and it joins the count. Each of them shows unticked there.
 - "You've marked these as not rooms:" followed by the names. Your own unticks. Change them on the same tab if one is wrong.
 - "Every room type is marked as not a room, so we can't measure your count." in amber. Tick the types guests sleep in.
 - "Your PMS currently shows 24 active rooms." when the measured number differs from the billed one, followed by either "You're paying for more than that" and a prompt to lower it here so your next invoice drops, or a note that the number comes from your property system and updates on its own as you open or close rooms.

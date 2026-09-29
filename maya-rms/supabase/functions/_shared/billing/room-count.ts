@@ -40,10 +40,11 @@ export type RoomExclusion = {
   /**
    * Who decided this is not a room: a person (counts_as_room = false with
    * counts_as_room_set_by stamped — the review strip, room-type settings or a
-   * direct write) or MAYA's name heuristic (a `false` the import wrote, or an
-   * unclassified type the name test excludes at bill time). The shortfall
-   * notice words them differently — "you marked these as not rooms" is
-   * theirs to stand behind; "we guessed" is ours to be corrected on.
+   * direct write) or MAYA's name heuristic (a `false` the import wrote, or a
+   * type still null because its name did not read as a bedroom and nobody has
+   * answered for it yet). The shortfall notice words them differently — "you
+   * marked these as not rooms" is theirs to stand behind; "we guessed" is ours
+   * to be corrected on.
    */
   source: "owner" | "heuristic";
 };
@@ -80,12 +81,15 @@ type MeasuredRoomTypeRow = {
  *
  * The owner's word is counts_as_room, and where it is set it is final in both
  * directions: false excludes a type whatever its name, true bills a
- * "Pickleball Suite" that really is a suite. Where it is still null — a type
- * the import has not classified, or a database ahead of the migration — the
- * name test decides, from the same function the review screen uses. That
- * fallback is deliberately one-directional: a misjudged exclusion under-bills
- * us, which is recoverable, while a misjudged inclusion charges a customer for
- * a car park.
+ * "Pickleball Suite" that really is a suite. Where it is still null, nobody
+ * has answered: every sync already writes true for a name that reads as a
+ * bedroom, so what is left is a name that does not, and it stays out of the
+ * bill until someone ticks it. That is what room-type settings shows (unticked,
+ * "needs your answer") and what the shortfall email asks them to fix. Only a
+ * database ahead of the migration, with no flag to read at all, falls back to
+ * the name test, from the same function the review screen uses. Both are
+ * deliberately one-directional: a misjudged exclusion under-bills us, which is
+ * recoverable, while a misjudged inclusion charges a customer for a car park.
  *
  * Provenance is read off counts_as_room_set_by, not inferred from the value:
  * the import writes `false` too, and telling an owner they "marked" a type
@@ -112,6 +116,11 @@ export async function measureRooms(
     if (rt.counts_as_room === false) {
       excluded.push({ name: label, rooms, source: rt.counts_as_room_set_by ? "owner" : "heuristic" });
     } else if (rt.counts_as_room === true) billable += rooms;
+    // Null is "nobody has answered": room-type settings shows it unticked,
+    // tagged "needs your answer", and the shortfall email tells them to tick
+    // it. It stays out until someone does.
+    else if (rt.counts_as_room === null) excluded.push({ name: label, rooms, source: "heuristic" });
+    // Absent (not null) only on the no-flag select below: the name decides.
     else if (nameLooksLikeNonRoom(label)) excluded.push({ name: label, rooms, source: "heuristic" });
     else billable += rooms;
   }

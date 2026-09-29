@@ -39,6 +39,17 @@ export function isCountingRoom(rt: { counts_as_room?: boolean | null }): boolean
   return rt.counts_as_room !== false;
 }
 
+/**
+ * Nobody has said whether guests sleep here: the flag is still null. Every
+ * sync marks a name that reads as a bedroom as a room, so what is left is a
+ * name that doesn't, and the bill leaves it out until someone ticks it. The
+ * settings list shows it unticked with a "needs your answer" tag, so the box
+ * says what the bill does and the shortfall email's "tick it" works.
+ */
+export function needsAnswer(rt: { counts_as_room?: boolean | null }): boolean {
+  return rt.counts_as_room == null;
+}
+
 /** The strip's question, with the count as the owner will read it. */
 export function roomCountQuestion(counting: number): string {
   return `We're counting ${counting} room type${counting === 1 ? "" : "s"} as rooms — anything here that isn't?`;
@@ -167,6 +178,15 @@ export const COUNTS_AS_ROOM_HELP = {
     "Ticked types are what MAYA divides by: sellable occupancy, RevPAR, and the room count you're billed for.",
     "Untick anything nobody sleeps in — a meeting room, a spa slot, a court. It still gets priced if you want it to.",
     "You can change this any time from the PMS tab.",
+  ],
+};
+
+/** Only the settings list carries the "needs your answer" tag, so only its "?" explains it. */
+const ROOM_TYPES_HELP = {
+  ...COUNTS_AS_ROOM_HELP,
+  lines: [
+    ...COUNTS_AS_ROOM_HELP.lines,
+    'A type tagged "needs your answer" is one nobody has said yet. Until you answer, it counts in occupancy but not in your bill.',
   ],
 };
 
@@ -300,7 +320,7 @@ export function RoomTypeSettings({
     <section data-deeplink="pms.room-types" className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold">Room types</h2>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
+        <RoomCountHelp {...ROOM_TYPES_HELP} docs="counts-as-room" />
       </div>
 
       {loadFailed ? (
@@ -368,7 +388,10 @@ function RoomTypeRow({
   onAdd: (input: { startDate: string; endDate: string; units: string; reason: string }) => Promise<string | null>;
   onClear: (id: string) => void;
 }) {
-  const counting = isCountingRoom(rt);
+  // Ticked only on a yes. An unanswered type is out of the bill, so it shows
+  // unticked, and ticking it is the answer that brings it in.
+  const unanswered = needsAnswer(rt);
+  const counting = rt.counts_as_room === true;
   const [adding, setAdding] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -402,7 +425,11 @@ function RoomTypeRow({
           <span className="ml-2 text-xs text-slate-500">
             {rt.total_rooms} unit{rt.total_rooms === 1 ? "" : "s"}
           </span>
-          {!counting ? (
+          {unanswered ? (
+            <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+              needs your answer
+            </span>
+          ) : !counting ? (
             <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
               not a room
             </span>
