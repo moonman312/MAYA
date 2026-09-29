@@ -1,6 +1,16 @@
 import { isAuthError, isAuthRetryableFetchError } from "@supabase/supabase-js";
 
 /**
+ * How long "Send reset link" on the sign-in page takes, whatever happens to
+ * the request. Supabase answers an address with no account at once and a real
+ * one only after it has sent the email, and it refuses a real one asked twice
+ * in a minute. Waiting on that answer would let the pause, or the message, say
+ * which addresses have an account. So the answer is never read, and the page
+ * moves on after this.
+ */
+export const RESET_PAUSE_MS = 1500;
+
+/**
  * Why a link from one of our emails (an invitation, a password reset) did not
  * sign someone in, in the only terms that change what they should do next.
  *
