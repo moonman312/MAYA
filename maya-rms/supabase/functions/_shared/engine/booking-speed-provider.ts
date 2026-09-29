@@ -725,13 +725,14 @@ export async function loadSplitWindows(
  * comparison data, not by checking ahead or filling the calendar in bit by
  * bit), it is reused two ways:
  *
- *   - Within one popup (HistoryReuse): its runs, the rule as saved and as
- *     stored, the ladder check and every part of one request, are at the
- *     same instant against the same database, so everything read for the
- *     comparison, and everything worked out from it (the season model, each
- *     night's comparable nights, each reading), is read and worked out once
- *     and handed to the next run. Kept in memory for that request only.
- *   - Across popups, their parts and the scheduled runs (the store,
+ *   - Within one request of the popup (HistoryReuse): its runs (the ladder
+ *     check, the hotel with the rule and without it) are at the same instant
+ *     against the same database, so everything read for the comparison, and
+ *     everything worked out from it (the season model, each night's
+ *     comparable nights, each reading), is read and worked out once and
+ *     handed to the next run. Kept in memory for that request only.
+ *   - Across the popup's parts (separate requests, asked at once), later
+ *     popups and the scheduled runs (the store,
  *     booking_history_cache, 99_supabase_migration_booking_history_cache_v1.sql):
  *     the history summary and the booking windows of nights already over,
  *     per hotel and hotel day, under the hotel's booking_history_seq. A
@@ -758,7 +759,7 @@ export async function loadSplitWindows(
 /** Bumped whenever what the store holds, or how it is read, changes: older entries are then never read. */
 export const HISTORY_STORE_FORMAT = 1;
 
-/** One popup's shared comparison: pass the same object to every run of it, and drop it with the request. */
+/** One popup request's shared comparison: pass the same object to every run of it, and drop it with the request. */
 export type HistoryReuse = { days: Map<string, SharedHistoryDay> };
 
 export function historyReuse(): HistoryReuse {
@@ -767,7 +768,7 @@ export function historyReuse(): HistoryReuse {
 
 /** How a run reads the history it compares with (evaluateHotel's `history` option). */
 export type HistoryLoad = {
-  /** Shared with the other runs handed the same object: one popup's, at one instant. */
+  /** Shared with the other runs handed the same object: one popup request's, at one instant. */
   reuse?: HistoryReuse | null;
   /** Read the hotel day's stored history ("read"), and save what was read afresh ("write"). */
   store?: "read" | "write" | null;

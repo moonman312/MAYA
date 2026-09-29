@@ -233,8 +233,9 @@ export type EvaluateOptions = {
   /**
    * The booking history booking speed compares with (HistoryLoad in
    * booking-speed-provider.ts): shared by the runs handed one HistoryReuse
-   * (one popup's), and read from the hotel day's store, and with "write"
-   * saved to it. A dry run only ever reads it. Left out, it is read afresh.
+   * (one popup request's), and read from the hotel day's store, and with
+   * "write" saved to it. A dry run only ever reads it. Left out, it is read
+   * afresh.
    */
   history?: HistoryLoad;
 };

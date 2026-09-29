@@ -38,11 +38,12 @@
  *      except where it has fires (open or taken off, where it can wait),
  *      and "before" runs on those nights alone.
  *
- * Every run of one preview reads the booking history booking speed compares
- * with once and shares it, with the season model, each night's comparable
- * nights and each reading worked out from it (they are at the same instant
- * against the same data), and reads the history of nights already over from
- * the hotel day's store where a scheduled run saved it (HistoryLoad in
+ * Every run of one preview (one request: the whole window, or one of the
+ * popup's parts) reads the booking history booking speed compares with once
+ * and shares it, with the season model, each night's comparable nights and
+ * each reading worked out from it (they are at the same instant against the
+ * same data), and reads the history of nights already over from the hotel
+ * day's store where a scheduled run saved it (HistoryLoad in
  * engine/booking-speed-provider.ts). booking-speed-reuse.test.ts proves the
  * days and prices come out exactly as without.
  *
