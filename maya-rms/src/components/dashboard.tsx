@@ -1207,7 +1207,7 @@ export function Dashboard({
                       weak night
                     </span>
                     <span>
-                      — measured by revenue per room, relative to this
+                      Measured by revenue per room, relative to this
                       property&apos;s own results (future nights compare
                       against other upcoming nights)
                     </span>
@@ -1277,7 +1277,7 @@ export function Dashboard({
                                 Current price{" "}
                                 {(rt.current_rate ?? rt.current_price) != null
                                   ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
-                                  : "—"}
+                                  : "–"}
                               </p>
                               <p className="text-sm text-slate-300">
                                 Revenue {currencySymbol}{rt.revenue.toFixed(2)}
@@ -2172,7 +2172,7 @@ export function Dashboard({
                     <div className="text-sm text-slate-200">
                       {pmsActivity.connection.last_sync_at
                         ? formatDisplayTime(pmsActivity.connection.last_sync_at)
-                        : "—"}
+                        : "–"}
                     </div>
                   </div>
                 </div>
@@ -2185,7 +2185,7 @@ export function Dashboard({
                     <p className="px-4 py-3 text-sm text-slate-500">Not tracked for this system</p>
                   ) : pmsActivity.log.length === 0 ? (
                     <p className="px-4 py-3 text-sm text-slate-500">
-                      No requests recorded yet — the log fills as syncs run.
+                      No requests recorded yet. The log fills as syncs run.
                     </p>
                   ) : (
                     <div className="max-h-80 overflow-y-auto">

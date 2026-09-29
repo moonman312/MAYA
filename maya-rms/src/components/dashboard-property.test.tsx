@@ -180,6 +180,15 @@ describe("the PMS tab's Health card and request list", () => {
     expect(screen.getByText(/No requests recorded yet/)).toBeTruthy();
     expect(screen.queryByText("Not tracked for this system")).toBeNull();
   });
+
+  it("say an empty log and a sync that never ran with no em dash", async () => {
+    routes["/api/pms/activity"] = () => json(activity({ requestsTracked: true, log: [] }));
+    window.history.replaceState(null, "", "/?tab=pms");
+    render(<Dashboard initialSearch={window.location.search} />);
+    expect(await screen.findByText("No requests recorded yet. The log fills as syncs run.")).toBeTruthy();
+    expect(screen.getByText("Last sync").nextElementSibling?.textContent).toBe("–");
+    expect(document.body.textContent).not.toContain("—");
+  });
 });
 
 function october(currency?: string) {
@@ -248,5 +257,17 @@ describe("the calendar's amounts", () => {
     expect(await screen.findByText("ADR $150.00")).toBeTruthy();
     expect(screen.getByText("$2.2k")).toBeTruthy();
     expect(screen.getByText("Manual · $180.00")).toBeTruthy();
+  });
+
+  it("show a night with no current price, and the colour legend, with no em dash", async () => {
+    const cal = october();
+    const day = cal.days["10"] as { room_types: Record<string, unknown>[] };
+    day.room_types = [{ ...day.room_types[0], current_rate: null, manual_price: null }];
+    routes["/api/calendar/2026/10"] = () => json(cal);
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+    expect(await screen.findByText(/^Current price\s*–$/)).toBeTruthy();
+    expect(screen.getByText(/^Measured by revenue per room/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("—");
   });
 });
