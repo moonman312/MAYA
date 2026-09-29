@@ -4,7 +4,7 @@ summary: The two review screens after the import, every card you can see (closur
 section: review
 order: 40
 readingTime: 12
-keywords: [review, finding was already resolved, can't answer card, card won't answer, viewer, staff, finish didn't work, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, years running, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
+keywords: [review, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, years running, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
 questions:
   - What does "Is X actually a room?" mean? {#is-x-actually-a-room/property-systems-list}
   - What does "Were you closed" do if I confirm it? {#were-you-closed-/confirm}
@@ -33,7 +33,7 @@ The review opens on its own at the end of [the five questions](/docs/review/the-
 
 The cards come from the history import. MAYA reads your history twice on a first import: once after the first three years are in, and again once every year is in. If the review is open when the second read finishes, the cards refresh: one can be sharpened, added or taken away.
 
-Anyone on the property can open the review and read it. Answering a card needs a Revenue Manager, General Manager or Hotel Admin. Below that, pressing any card button shows "Finding was already resolved", and the card stays.
+Anyone on the property can open the review and read it. Answering a card needs a Revenue Manager, General Manager or Hotel Admin. Below that, pressing any card button shows "Only a Revenue Manager or above can answer this.", and the card stays.
 
 ## Screen one: does this match reality?
 
@@ -76,7 +76,7 @@ Buttons: <Ui>Not a room</Ui>, which takes the type out of your counts, and <Ui>I
 - **Not a room**: the type leaves your sellable occupancy, your RevPAR (revenue per available room: a night's room revenue divided by your rooms, which sets the calendar's colours) and the room count you are billed for. A rule that changes it still prices it.
 - **It's a real room**: the type is recorded as a room, in your name, and MAYA does not ask again.
 
-Either answer needs a Revenue Manager or higher. Below that, the button shows "Finding was already resolved" and the card stays. You can change the answer any time on the <Ui>PMS</Ui> tab under <Ui>Room types</Ui>. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+Either answer needs a Revenue Manager or higher. Below that, the button shows "Only a Revenue Manager or above can answer this." and the card stays. You can change the answer any time on the <Ui>PMS</Ui> tab under <Ui>Room types</Ui>. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
 ### "Hid duplicate room type"
 
@@ -158,7 +158,7 @@ What you can still change:
 | Rates look like typos | Nothing to change. The answer only records your view |
 | $0 rates, deleted room types | Nothing to change |
 
-If a card answers itself with "Finding was already resolved", either a colleague or another tab got there first, or your role is below Revenue Manager, so the card cannot be answered from your login. The list refreshes, and a card you could not answer stays. Read [Messages explained](/docs/wrong/messages-explained).
+If a card answers itself with "Finding was already resolved", a colleague or another tab got there first, and the list refreshes. If it says "Only a Revenue Manager or above can answer this.", your role is below Revenue Manager, so the card cannot be answered from your login and it stays. Ask a Revenue Manager or above to answer it. Read [Messages explained](/docs/wrong/messages-explained).
 
 <Example title="The Harbour Inn's review">
 Sam opens the review with three cards waiting. The first asks about a closure two winters ago: 19 straight days with no rooms booked. The inn was shut for a refit, so Sam presses <Ui>Yes, we were closed</Ui>. The second asks "Is your property normally closed early-January to late-January?" and counts the closure in 3 different years. Sam presses <Ui>Yes, that's our season</Ui>. The third asks "Is "Meeting Room" actually a room?" because the name does not read like a bedroom. Sam presses <Ui>Not a room</Ui>. On the second screen the strip now reads "We're counting 3 room types as rooms", with Standard 12, Deluxe 6 and Suite 2 ticked and Meeting Room unticked. The five starter rules sit below, and Sam presses <Ui>Finish</Ui>.
