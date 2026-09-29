@@ -24,7 +24,7 @@ questions:
   - It says this login is for a different property {#it-says-this-login-is-for-a-different-property/a-property-on}
   - What happens to my prices while the connection is down? {#what-happens-to-my-prices-while-the-connection-is-down}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -43,7 +43,7 @@ After you reconnect, the next cycle reads your bookings again and sends any pric
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-Cloudbeds tells MAYA when you uninstall or disable the app, usually within seconds. Otherwise MAYA reads the refusal on its next call, within about five minutes. Either way the banner appears and the property leaves the schedule until someone reconnects. You can also reconnect from the Cloudbeds Marketplace by pressing <Ui>Connect App</Ui> again.
+Cloudbeds tells MAYA when you uninstall or disable the app, usually within seconds. Otherwise MAYA reads the refusal on its next call, within about five minutes. Either way the banner appears, and nothing is read, priced or sent until someone reconnects. You can also reconnect from the Cloudbeds Marketplace by pressing <Ui>Connect App</Ui> again.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 ThinkReservations does not tell MAYA when access is revoked. MAYA finds out when its calls fail, and shows the banner once the connection's status changes. Until then the <Ui>PMS</Ui> tab may still read "Connected" while <Ui>Last sync</Ui> falls behind. A refused rate write does not disconnect ThinkReservations; it appears in the change log as a permission problem instead.
