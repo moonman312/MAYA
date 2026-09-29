@@ -71,3 +71,22 @@ describe("a property on Mews", () => {
     expect(renewalNudgeHtml(input)).not.toMatch(/matters &mdash;/);
   });
 });
+
+describe("the whole email", () => {
+  it("has no em dash anywhere, in either charge or period", () => {
+    for (const isFirstCharge of [true, false]) {
+      for (const billingInterval of ["month", "year"] as const) {
+        const i = { ...input, isFirstCharge, billingInterval };
+        const all = [renewalNudgeSubject(i), renewalNudgeText(i), renewalNudgeHtml(i)].join("\n");
+        expect(all).not.toMatch(/—|&mdash;/);
+      }
+    }
+  });
+
+  it("says the room count sentence and the sign-off plainly", () => {
+    const text = renewalNudgeText(input);
+    expect(text).toContain("If 24 isn't right, connect first. That opens your billing page");
+    expect(text.trimEnd().endsWith("The MAYA team")).toBe(true);
+    expect(renewalNudgeHtml(input)).toContain("$5.00 per room, per month, $132.00 in total.");
+  });
+});

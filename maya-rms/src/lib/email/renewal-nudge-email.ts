@@ -87,9 +87,9 @@ export function renewalNudgeText(input: RenewalNudgeInput): string {
     `Finish setting up: ${input.resumeUrl}`,
     "",
     `What you're paying for: ${input.roomCount} rooms at ${input.perRoom} per room, per ${per}.`,
-    `If ${input.roomCount} isn't right, connect first — that opens your billing page (${input.billingUrl}), where you can change it before the ${input.chargeDate} charge and we'll bill the corrected number.`,
+    `If ${input.roomCount} isn't right, connect first. That opens your billing page (${input.billingUrl}), where you can change it before the ${input.chargeDate} charge and we'll bill the corrected number.`,
     "",
-    "— MAYA",
+    "The MAYA team",
   ].join("\n");
 }
 
@@ -139,11 +139,11 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
                   ${input.roomCount} rooms
                 </p>
                 <p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:${COLORS.muted};">
-                  ${input.perRoom} per room, per ${per} &mdash; ${input.amount} total.
+                  ${input.perRoom} per room, per ${per}, ${input.amount} in total.
                 </p>
                 <p style="margin:0;font-size:13px;line-height:1.6;color:${COLORS.body};">
                   If <strong style="color:${COLORS.heading}">${input.roomCount}</strong> isn&rsquo;t right,
-                  connect first &mdash; that opens your
+                  connect first. That opens your
                   <a href="${input.billingUrl}" style="color:${COLORS.cta}">billing page</a>,
                   where you can change it before the ${input.chargeDate} charge and
                   we&rsquo;ll bill the corrected number.
@@ -154,7 +154,7 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
         </td>
       </tr>
       <tr>
-        <td style="padding:16px 4px 0;font-size:11px;color:${COLORS.muted};">MAYA &mdash; Machine Assisted Yield Automation</td>
+        <td style="padding:16px 4px 0;font-size:11px;color:${COLORS.muted};">MAYA &middot; Machine Assisted Yield Automation</td>
       </tr>
     </table>
   </body>
