@@ -18,8 +18,13 @@ import { NextResponse } from "next/server";
 
 type Params = { params: Promise<{ id: string }> };
 
-/** The fields that change what a rule does to prices (the undo box included). */
+/**
+ * The fields that change what a rule does to prices (the undo box included,
+ * and priority, which decides which booking speed or pickup change is the
+ * stronger).
+ */
 const MOVES_PRICES: (keyof UpdateRuleInput)[] = [
+  "priority",
   "action",
   "condition",
   "signal_room_type_ids",
