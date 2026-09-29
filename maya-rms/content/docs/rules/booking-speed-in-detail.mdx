@@ -4,20 +4,20 @@ summary: The fine print behind booking speed, for when you want every step: whic
 section: rules
 order: 55
 readingTime: 14
-keywords: [booking speed detail, booking speed exact, what is counted, one booking counts once, bookings not rooms, room block, allotment, separate reservations, reservation number, four-room booking, added room, same booking on two nights, three-night stay, booking date, creation date, past day just after midnight, 12:10 am, extended stay, extension, added nights, date change, only measured room types, cancelled booking, not counted as a negative, channel, direct bookings, confirmation pending, no-show, mews optional, mews enquiry, mews requested, expected, we expected about, almost none, fraction, 0.4, trimmed average, highest and lowest dropped, unknown night, zero, same stretch, 40 days out, ratio, at least 1.25 times, twice, 3.5 times, guard, noise, ordinary ups and downs, held the call at Normal, softened it one step, genuinely comparable nights, raw numbers leaned away from Normal, even stronger call, only a few, worked table, how many bookings for faster than normal, 9 bookings, 27 bookings, momentum capped, latest raise, latest cut, stronger rule, weaker rule, newest raise still on this night, switched-off rule raise, paused rule raise, raise came off after cancellations, kept change, later on the day, same day as a raise, from that raise on, whole week, full days, up to yesterday, cut rules, days after, another rule same day, pickup raise on top, occupancy rule raise, standard rule raise, typed price starts over, when does how did we know show, reading not shown, part of the hotel, suites only, small set, widen what it measures]
+keywords: [booking speed detail, booking speed exact, what is counted, one booking counts once, bookings not rooms, room block, allotment, separate reservations, reservation number, four-room booking, added room, same booking on two nights, three-night stay, booking date, creation date, past day just after midnight, 12:10 am, extended stay, extension, added nights, date change, only measured room types, cancelled booking, not counted as a negative, channel, direct bookings, confirmation pending, no-show, mews optional, mews enquiry, mews requested, expected, we expected about, almost none, fraction, 0.4, trimmed average, highest and lowest dropped, unknown night, zero, same stretch, 40 days out, ratio, at least 1.25 times, twice, 3.5 times, guard, noise, ordinary ups and downs, stays Normal, one step closer to Normal, only a few similar nights, numbers leaned away from Normal, one step further from Normal, only a few, worked table, how many bookings for faster than normal, 9 bookings, 27 bookings, momentum capped, latest raise, latest cut, stronger rule, weaker rule, newest raise still on this night, switched-off rule raise, paused rule raise, raise came off after cancellations, kept change, later on the day, same day as a raise, from that raise on, whole week, full days, up to yesterday, cut rules, days after, another rule same day, pickup raise on top, occupancy rule raise, standard rule raise, typed price starts over, when does show the numbers show, reading not shown, part of the hotel, suites only, small set, widen what it measures]
 questions:
   - Why did the same booking count on two nights? {#what-is-counted/each-night-counts}
   - A guest extended their stay. Does that count as a new booking on the added nights? {#what-is-counted/an-extension-keeps}
   - Do Mews enquiries and optional reservations count for booking speed? {#what-is-counted/thinkreservations-thinkreservations-reports}
   - What does "expected" mean in the change log, and why does it say "almost none"? {#what-expected-means/expected-is-the}
   - How many bookings does it take to read Faster Than Normal? {#the-worked-table/how-many-bookings}
-  - What do the lines under "How did we know?" about Normal mean? {#where-the-lines-fall/the-smaller-the}
+  - What do the lines under "Show the numbers" about Normal mean? {#where-the-lines-fall/the-smaller-the}
   - Does a raise by another rule change what my booking speed rule counts? {#counting-after-a-rule-acts/once-a-rule}
   - Can another rule raise the night on the same day as a raise? {#counting-after-a-rule-acts/another-rule-can}
   - Why is there no booking speed reading under a price change? {#when-the-reading-shows}
   - Why is my booking speed rule on two Suites so quiet? {#booking-speed-on-part-of-the-hotel}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -64,7 +64,7 @@ Each night is compared with up to eight similar past nights from the last three 
 
 Each similar night is read over the same stretch of its own booking curve. If the night you are pricing is 40 days away and the window is <Ui>Past week</Ui>, MAYA counts what each similar night received in the 7 days when it was 40 days away. It never compares with a similar night's whole history.
 
-Expected is the average of those counts. Once there are five or more similar nights, the single highest and the single lowest are dropped before averaging, so one odd night cannot swing the number. The result is kept to two decimals, so expected can be a fraction, such as 0.4 for a quiet night far out. On screen it reads "almost none" when it is under 1, and is rounded to a whole number otherwise.
+Expected is the average of those counts. Once there are five or more similar nights, the single highest and the single lowest are dropped before averaging, so one odd night cannot swing the number. The result is kept to two decimals, so expected can be a fraction, such as 0.4 for a quiet night far out. The change log reads "almost none" when it is under 1, and <Ui>Show the numbers</Ui> reads "almost no bookings". Otherwise both round it to a whole number.
 
 A similar night that has no bookings anywhere in your history is treated as unknown, not as zero, and is left out of the average. A night that has history but nothing in the stretch is a real zero and stays in.
 
@@ -72,11 +72,11 @@ A similar night that has no bookings anywhere in your history is treated as unkn
 
 The smaller the numbers, the bigger the gap has to be compared with what is usual before a night reads anything but Normal. With 5 expected you need 9 to read <Ui>Faster Than Normal</Ui>, nearly double. With 20 expected you need 27, about a third more. The outer levels, <Ui>Stalled</Ui> and <Ui>Surging</Ui>, need a bigger gap still. With fewer than five similar nights to compare with, the reading stays within one step of Normal. That is always the case near a holiday.
 
-These checks can only pull a reading towards Normal, never away from it. When one of them held a reading back, <Ui>How did we know?</Ui> says so in one of three lines. Each is quoted here only far enough for you to find it:
+These checks can only pull a reading towards Normal, never away from it. When one of them kept a reading nearer Normal, <Ui>Show the numbers</Ui> says so in one of three lines. Each is quoted here only far enough for you to find it:
 
-- "The raw numbers leaned away from Normal": the gap was too small for this many bookings, so the level stays Normal.
-- "The raw numbers pointed at an even stronger": a <Ui>Stalled</Ui> or <Ui>Surging</Ui> reading did not have a big enough gap, so it stepped in one level, to <Ui>Much Slower Than Normal</Ui> or <Ui>Much Faster Than Normal</Ui>.
-- "We found only a few": there were fewer than five similar nights, so the level stays within one step of Normal however strong the numbers look. A reading built from momentum (see [similar nights](/docs/rules/similar-nights#momentum-when-nothing-matches)) always counts as one similar night, so it always stays within one step.
+- "The numbers leaned away from Normal": the gap was too small for this many bookings, so the level stays Normal.
+- "The numbers pointed one step further from Normal": a <Ui>Stalled</Ui> or <Ui>Surging</Ui> reading did not have a big enough gap, so it stepped in one level, to <Ui>Much Slower Than Normal</Ui> or <Ui>Much Faster Than Normal</Ui>.
+- "Only a few similar nights were found": there were fewer than five similar nights, so the level stays within one step of Normal however strong the numbers look. A reading built from momentum (see [similar nights](/docs/rules/similar-nights#momentum-when-nothing-matches)) always counts as one similar night, so it always stays within one step.
 
 <Example title="The exact lines, for the curious">
 MAYA divides the count by expected, with expected treated as at least 0.5 for the division. At least 1.25 times expected reads Faster Than Normal, at least 2 times Much Faster, at least 3.5 times Surging. The slow side mirrors it: 0.8 times or less is Slower, half or less Much Slower, 1 in 3.5 or less Stalled.
@@ -120,10 +120,10 @@ When cancellations hit a raise but bookings made since keep its rule true, the r
 <Example title="What the change log says after a re-count">
 In the Hot-week surge example on [Booking speed](/docs/rules/booking-speed#after-the-rule-acts), the rule raised Standard for Friday, November 13, 2026 on Monday, October 12 and counted again on Wednesday, October 14. The day of the raise is the first of those 3 days, and 12 bookings arrived in them, against the 5 similar Fridays got in a whole week at that point.
 
-The change log says: "Bookings came in much faster than normal in the 3 days since this rule or a stronger one's latest raise still on this night: 12, against the 5 a night like this usually gets in a whole week." Under <Ui>How did we know?</Ui> it says: "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Mon, Oct 12 2026. In the 3 days from that raise on, 12 bookings arrived for it, with 30 days still to go before arrival."
+The change log says: "Bookings came in much faster than normal in the 3 days since this rule or a stronger one's latest raise still on this night: 12, against the 5 a night like this usually gets in a whole week." Under <Ui>Show the numbers</Ui> it says: "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Mon, Oct 12 2026. In the 3 days from that raise on, 12 bookings arrived for it, with 30 days still to go before arrival."
 </Example>
 
-When only the day of the raise has been counted so far, the change log says "later on the day of this rule or a stronger one's latest raise still on this night", and a rule that does not raise on a fast pace ends with "in a day". The second sentence under <Ui>How did we know?</Ui> then begins "Later that day". After a cut the sentence reads "in the 3 full days after this rule or a stronger one's latest cut still on this night".
+When only the day of the raise has been counted so far, the change log says "later on the day of this rule or a stronger one's latest raise still on this night", and a rule that does not raise on a fast pace ends with "in a day". The second sentence under <Ui>Show the numbers</Ui> then begins "Later that day". After a cut the sentence reads "in the 3 full days after this rule or a stronger one's latest cut still on this night".
 
 Two things follow:
 
@@ -132,7 +132,7 @@ Two things follow:
 
 ## When the reading shows
 
-You cannot see a night's booking speed on the calendar. The reading appears in the change log, under <Ui>How did we know?</Ui>, under a price change on that night when at least one of your booking speed rules was checked there in that run.
+You cannot see a night's booking speed on the calendar. The reading appears in the change log, under <Ui>Show the numbers</Ui>, under a price change on that night when at least one of your booking speed rules was checked there in that run.
 
 - A rule that is switched off, or that you stopped on the night, is not checked.
 - A rule that is waiting on every room type it changes that night is checked only when another booking speed or pickup rule is ready to fire on one of them.
@@ -151,5 +151,5 @@ If a rule on two Suites seems too quiet, widen what it measures: tick <Ui>Change
 <Related>
 - [Booking speed](/docs/rules/booking-speed)
 - [Which past nights your rules compare with](/docs/rules/similar-nights)
-- ["How did we know?" explained](/docs/watch/how-did-we-know)
+- [The numbers behind a change](/docs/watch/how-did-we-know)
 </Related>
