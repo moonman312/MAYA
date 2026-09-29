@@ -469,6 +469,26 @@ describe("Skip after an edit to a booking speed rule that is on", () => {
 });
 
 describe("which nights the preview runs", () => {
+  it("reads every night the rule has a change on, past the rows one read returns", async () => {
+    const { fakeSupabase } = await import("@/lib/engine/fake-supabase.test");
+    const { nightsWithState } = await import("@/lib/rule-preview");
+    const RULE = uuid("d2000000", 1);
+    const nights = Array.from({ length: 300 }, (_, i) => addDays(TODAY, i));
+    const roomTypes = Array.from({ length: 5 }, (_, i) => uuid("a2000000", i + 1));
+    // 1,500 ladder rows and 1,200 fires, more than PostgREST's 1,000 a read.
+    const ladder = nights.flatMap((d) => roomTypes.map((rt) => ({ rule_id: RULE, stay_date: d, room_type_id: rt, is_active: true })));
+    const fires = nights.flatMap((d, i) =>
+      roomTypes.slice(0, 4).map((rt, k) => ({ id: uuid("e2000000", i * 10 + k), hotel_id: H, rule_id: RULE, stay_date: d, affected_room_type_id: rt, retired_at: null })),
+    );
+    const last = nights[nights.length - 1];
+    const onlyLadder = fakeSupabase({ ladder_rule_state: ladder, pickup_event: [] }, { maxRows: 1000 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await nightsWithState(onlyLadder.client as any, H, RULE, TODAY, last)).toEqual(nights);
+    const onlyFires = fakeSupabase({ ladder_rule_state: [], pickup_event: fires }, { maxRows: 1000 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(await nightsWithState(onlyFires.client as any, H, RULE, TODAY, last)).toEqual(nights);
+  });
+
   it("drops nights out of the rule's scope or its days-before-arrival bar, but never one with a change of it on", async () => {
     const { nightsInScope } = await import("@/lib/rule-preview");
     const row = ruleRow(NEW, { cond: { dta_operator: "lt", dta_threshold_days: 5 }, dow_mask: 1 | 2 | 4 | 8 | 16 }) as EngineRuleRow;

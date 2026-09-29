@@ -225,9 +225,13 @@ export function churn(tables: Tables, at: string, seedNo: number, adds: number, 
   }
 }
 
-/** The fake, as a migrated database with no stretch without a run. */
+/**
+ * The fake, as a migrated database with no stretch without a run, and
+ * PostgREST's cap of 1,000 rows a read, so a read that isn't paged comes
+ * back short here as it would in production.
+ */
 export function fake(tables: Tables) {
-  return fakeSupabase(tables, { rpc: (fn) => (fn === "engine_run_gaps" ? [] : undefined) });
+  return fakeSupabase(tables, { rpc: (fn) => (fn === "engine_run_gaps" ? [] : undefined), maxRows: 1000 });
 }
 
 /**

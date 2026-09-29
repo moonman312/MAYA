@@ -43,6 +43,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { dryRunCapture, evaluateHotel, type DryRunCapture } from "@/lib/engine/evaluate";
 import type { LadderOp } from "@/lib/engine/ladder";
 import { computeDta } from "@/lib/engine/metrics";
+import { fetchAllRows } from "@/lib/engine/snapshots";
 import { ruleScopeMatches } from "@/lib/engine/scope";
 import { addCalendarDays, evalIsoToHotelDateString } from "@/lib/engine/timezone";
 import type { EngineRule } from "@/types/domain";
@@ -164,29 +165,51 @@ export function nightsInScope(row: EngineRuleRow, nights: readonly string[], tod
   });
 }
 
-/** Nights where the rule has a change on the price now: a ladder row that is on, or a fire still on the night. */
-async function nightsWithState(client: SupabaseClient, hotelId: string, ruleId: string, first: string, last: string): Promise<string[]> {
+/**
+ * Nights where the rule has a change on the price now: a ladder row that is
+ * on, or a fire still on the night. Paged in a stable order: a rule on a
+ * large property can have more rows than one read returns (PostgREST's max
+ * rows), and a night left out here is a night the popup never checks and a
+ * Skip never marks.
+ */
+export async function nightsWithState(
+  client: SupabaseClient,
+  hotelId: string,
+  ruleId: string,
+  first: string,
+  last: string,
+): Promise<string[]> {
   const out = new Set<string>();
+  const read = (what: string, query: () => unknown) =>
+    fetchAllRows(query).catch((e: unknown) => {
+      throw new Error(`Could not read the rule's changes (${what}): ${e instanceof Error ? e.message : String(e)}`);
+    });
   const [ladder, fires] = await Promise.all([
-    client
-      .from("ladder_rule_state")
-      .select("stay_date")
-      .eq("rule_id", ruleId)
-      .eq("is_active", true)
-      .gte("stay_date", first)
-      .lte("stay_date", last),
-    client
-      .from("pickup_event")
-      .select("stay_date")
-      .eq("hotel_id", hotelId)
-      .eq("rule_id", ruleId)
-      .is("retired_at", null)
-      .gte("stay_date", first)
-      .lte("stay_date", last),
+    read("ladder_rule_state", () =>
+      client
+        .from("ladder_rule_state")
+        .select("stay_date, room_type_id")
+        .eq("rule_id", ruleId)
+        .eq("is_active", true)
+        .gte("stay_date", first)
+        .lte("stay_date", last)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    ),
+    read("pickup_event", () =>
+      client
+        .from("pickup_event")
+        .select("stay_date, id")
+        .eq("hotel_id", hotelId)
+        .eq("rule_id", ruleId)
+        .is("retired_at", null)
+        .gte("stay_date", first)
+        .lte("stay_date", last)
+        .order("stay_date", { ascending: true })
+        .order("id", { ascending: true }),
+    ),
   ]);
-  if (ladder.error) throw new Error(`Could not read the rule's changes: ${ladder.error.message}`);
-  if (fires.error) throw new Error(`Could not read the rule's changes: ${fires.error.message}`);
-  for (const r of [...(ladder.data ?? []), ...(fires.data ?? [])]) out.add(String((r as { stay_date: unknown }).stay_date).slice(0, 10));
+  for (const r of [...ladder, ...fires]) out.add(String((r as { stay_date: unknown }).stay_date).slice(0, 10));
   return [...out].sort();
 }
 
