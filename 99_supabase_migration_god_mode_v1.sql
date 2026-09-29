@@ -19,25 +19,37 @@
 --    rank triggers and the hotel team RPCs now also requires
 --    god_mode_active(): the caller is a platform admin, their JWT is aal2 (a
 --    code from their authenticator app, Supabase Auth MFA), and they hold an
---    open window in support_sessions. Hotel members' own access is exactly
---    as before. Platform-wide Command Center actions (creating a hotel,
---    signup codes, pending invites, stalled signups) are not hotel edits and
---    keep their plain is_platform_admin() checks.
+--    open window in support_sessions opened in this same sign-in session
+--    (the JWT's session_id), so a window on one device does nothing for the
+--    same login on another. Hotel members' own access is exactly as before.
+--    Platform-wide Command Center actions (creating a hotel, signup codes,
+--    pending invites, stalled signups) are not hotel edits and keep their
+--    plain is_platform_admin() checks. Making someone MAYA staff, or taking
+--    it away (platform_grant_role, platform_revoke_role), needs God Mode:
+--    a new staff account can enrol its own authenticator and open God Mode,
+--    so granting the role is worth as much as God Mode itself.
 --
--- 3. Time-boxed. god_mode_start() opens a window of god_mode_minutes() (the
---    one setting, 30). god_mode_end() closes it. god_mode_status() is what the
---    banner and the app's helper read, and it is where leaving by expiry is
---    recorded the first time anyone looks after the window ran out.
+-- 3. Time-boxed, and a fresh code every time. god_mode_start() opens a
+--    window of god_mode_minutes() (the one setting, 30) only for a code
+--    entered in the last 5 minutes: a totp entry in the JWT's amr claim, not
+--    just an aal2 session, which Supabase keeps at aal2 for its whole life
+--    after one code. god_mode_end() closes the admin's windows.
+--    god_mode_status() is what the banner and the app's helper read, and it
+--    is where leaving by expiry is recorded the first time anyone looks
+--    after the window ran out. A window covers every property.
 --
 -- 4. Logged. Entering and leaving go to platform_audit_events
 --    (god_mode.started / ended / expired, no hotel_id). Every row an admin
 --    changes under their own JWT in God Mode goes to support_changes through
 --    the god_mode_record_change trigger; app routes that write with the
 --    service role on an admin's behalf write the same rows themselves.
---    support_changes is a separate table on purpose: never_paid_last_activity
---    counts platform_audit_events rows with an actor as customer activity,
---    and a support edit must not hold a never-paid property back from
---    retention.
+--    The trigger is on every table a signed-in admin can write in God Mode
+--    (read from the write policies, section 8), except those that hold a
+--    secret. support_changes is a separate table on purpose:
+--    never_paid_last_activity counts platform_audit_events rows with an
+--    actor as customer activity, and a support edit must not hold a
+--    never-paid property back from retention. For the same reason it now
+--    leaves out product events and audit lines by MAYA staff (section 7).
 --
 -- 5. base_rate_calendar_access was one FOR ALL policy whose USING
 --    (is_hotel_accessible) governed DELETE and the UPDATE row filter, so any
@@ -63,8 +75,14 @@ create table if not exists public.support_sessions (
   expires_at       timestamptz not null,
   ended_at         timestamptz,
   end_reason       text check (end_reason in ('ended', 'expired', 'replaced')),
-  expiry_logged_at timestamptz
+  expiry_logged_at timestamptz,
+  -- The Supabase Auth session (the JWT's session_id) the window was opened
+  -- in. Only that session can use it: a window opened on one laptop does
+  -- nothing for the same login on another device.
+  auth_session_id  text
 );
+
+alter table public.support_sessions add column if not exists auth_session_id text;
 
 create index if not exists idx_support_sessions_user
   on public.support_sessions (user_id, expires_at desc);
@@ -148,6 +166,7 @@ as $$
        select 1
        from public.support_sessions s
        where s.user_id = auth.uid()
+         and s.auth_session_id = nullif(auth.jwt() ->> 'session_id', '')
          and s.ended_at is null
          and s.expires_at > now()
      )
@@ -196,9 +215,11 @@ begin
             jsonb_build_object('expires_at', v_expired.expires_at));
   end loop;
 
+  -- Only a window opened in this sign-in session is this session's.
   select * into v_open
   from public.support_sessions
   where user_id = auth.uid()
+    and auth_session_id = nullif(auth.jwt() ->> 'session_id', '')
     and ended_at is null
     and expires_at > now()
   order by expires_at desc
@@ -227,12 +248,28 @@ set search_path = public, pg_temp
 as $$
 declare
   v_row public.support_sessions%rowtype;
+  v_session text := nullif(auth.jwt() ->> 'session_id', '');
+  v_amr jsonb := auth.jwt() -> 'amr';
 begin
   if not public.is_platform_admin() then
     raise exception 'Only MAYA staff can turn on God Mode.' using errcode = '42501';
   end if;
   if coalesce(auth.jwt() ->> 'aal', '') <> 'aal2' then
     raise exception 'Enter the code from your authenticator app first.' using errcode = '42501';
+  end if;
+  -- A code entered just now, not an aal2 session from days ago: the JWT's
+  -- amr lists each way this session proved who it is, with when.
+  if not exists (
+    select 1
+    from jsonb_array_elements(case when jsonb_typeof(v_amr) = 'array' then v_amr else '[]'::jsonb end) as m(v)
+    where m.v ->> 'method' = 'totp'
+      and jsonb_typeof(m.v -> 'timestamp') = 'number'
+      and to_timestamp((m.v ->> 'timestamp')::double precision) >= now() - interval '5 minutes'
+  ) then
+    raise exception 'Enter a new code from your authenticator app to turn on God Mode.' using errcode = '42501';
+  end if;
+  if v_session is null then
+    raise exception 'Sign in again, then turn on God Mode.' using errcode = '42501';
   end if;
 
   -- One window at a time: starting again replaces the open one.
@@ -242,8 +279,8 @@ begin
      and ended_at is null
      and expires_at > now();
 
-  insert into public.support_sessions (user_id, expires_at)
-  values (auth.uid(), now() + make_interval(mins => public.god_mode_minutes()))
+  insert into public.support_sessions (user_id, expires_at, auth_session_id)
+  values (auth.uid(), now() + make_interval(mins => public.god_mode_minutes()), v_session)
   returning * into v_row;
 
   insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, detail)
@@ -541,6 +578,112 @@ begin
 end;
 $$;
 
+-- Making someone MAYA staff, or taking it away (command_center_v3, otherwise
+-- unchanged). A new staff account can enrol its own authenticator and open
+-- God Mode, so an admin signed in with only a password must not be able to
+-- make one: outside the service role this needs God Mode too.
+create or replace function public.platform_grant_role(
+  p_user_id uuid,
+  p_role public.app_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() and public.god_mode_active()) then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  insert into public.app_roles (user_id, role, granted_by)
+  values (p_user_id, p_role, auth.uid())
+  on conflict (user_id, role) do nothing;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, detail)
+  values (auth.uid(), 'app_role.granted', 'app_role', p_user_id::text,
+          jsonb_build_object('user_id', p_user_id, 'role', p_role::text));
+end;
+$$;
+
+create or replace function public.platform_revoke_role(
+  p_user_id uuid,
+  p_role public.app_role
+) returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if (select auth.role()) is distinct from 'service_role'
+     and not (public.is_platform_admin() and public.god_mode_active()) then
+    raise exception 'Not authorized' using errcode = '42501';
+  end if;
+
+  if p_role = 'platform_admin'
+     and p_user_id = auth.uid()
+     and (select count(*) from public.app_roles where role = 'platform_admin') <= 1 then
+    raise exception 'Cannot revoke the last platform_admin' using errcode = '23514';
+  end if;
+
+  delete from public.app_roles where user_id = p_user_id and role = p_role;
+
+  insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, detail)
+  values (auth.uid(), 'app_role.revoked', 'app_role', p_user_id::text,
+          jsonb_build_object('user_id', p_user_id, 'role', p_role::text));
+end;
+$$;
+
+revoke all on function public.platform_grant_role(uuid, public.app_role) from public, anon;
+grant execute on function public.platform_grant_role(uuid, public.app_role) to authenticated, service_role;
+revoke all on function public.platform_revoke_role(uuid, public.app_role) from public, anon;
+grant execute on function public.platform_revoke_role(uuid, public.app_role) to authenticated, service_role;
+
+-- A never-paid property's last activity (never_paid_retention_v1, otherwise
+-- unchanged) leaves out what MAYA staff did there: an admin looking at a
+-- property or changing it in God Mode is support, not the customer, and
+-- must not hold the property back from the retention sweep.
+create or replace function public.never_paid_last_activity(p_hotel_id uuid)
+returns timestamptz
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select greatest(
+    h.created_at,
+    (select max(mc.claimed_at) from public.pms_marketplace_claims mc where mc.hotel_id = h.id),
+    (select max(e.occurred_at)
+       from public.product_events e
+      where e.hotel_id = h.id
+        and public.product_event_by_person(e.event, e.source, e.properties)
+        and not exists (
+          select 1 from public.app_roles ar
+           where ar.user_id = e.user_id and ar.role = 'platform_admin'
+        )),
+    -- Only a person connecting or reconnecting creates a connection row; the
+    -- scheduler only ever updates one, and the purge deletes it.
+    (select max(c.created_at) from public.pms_connections c where c.hotel_id = h.id),
+    -- The Marketplace and OAuth connect lines are written with no actor, but
+    -- each is a person clicking Connect App, connecting, claiming, or paying.
+    (select max(a.created_at)
+       from public.platform_audit_events a
+      where a.hotel_id = h.id
+        and (a.actor_user_id is not null
+             or nullif(a.detail->>'actor_user_id', '') is not null
+             or a.detail->>'via' in ('marketplace_flow_a', 'oauth'))
+        and not exists (
+          select 1 from public.app_roles ar
+           where ar.role = 'platform_admin'
+             and ar.user_id::text in (a.actor_user_id::text, nullif(a.detail->>'actor_user_id', ''))
+        ))
+  )
+    from public.hotels h
+   where h.id = p_hotel_id
+$$;
+
+revoke all on function public.never_paid_last_activity(uuid) from public, anon, authenticated, service_role;
+
 -- base_rate_calendar: one policy per command, like every other hotel table.
 drop policy if exists base_rate_calendar_access on base_rate_calendar;
 drop policy if exists base_rate_calendar_read on base_rate_calendar;
@@ -603,7 +746,13 @@ begin
     when 'assumption_challenges'   then 'a correction'
     when 'onboarding_findings'     then 'a setup finding'
     when 'onboarding_states'       then 'the setup state'
-    else replace(p_table, '_', ' ')
+    when 'rule_repeat_alerts'      then 'a repeat alert of a rule'
+    when 'rule_repeat_alert_nights' then 'a night of a repeat alert'
+    when 'published_price'         then 'a published price'
+    when 'rate_updates'            then 'a sending record'
+    when 'market_events'           then 'a market event'
+    when 'reservations'            then 'a reservation'
+    else 'a ' || replace(p_table, '_', ' ') || ' row'
   end;
   v_name := case
     when coalesce(v_row ->> 'name', '') <> '' then ' "' || left(v_row ->> 'name', 60) || '"'
@@ -673,9 +822,25 @@ begin
     else null
   end;
 
+  -- A deleted rule takes its conditions and room types with it, and by then
+  -- rule_hotel_id() finds no rule. The rule's own row, recorded in this same
+  -- transaction (at is its start time), names the property.
+  if v_hotel is null and v_row ? 'rule_id' then
+    select sc.hotel_id into v_hotel
+    from public.support_changes sc
+    where sc.table_name = 'pricing_rules'
+      and sc.row_id = v_row ->> 'rule_id'
+      and sc.user_id = auth.uid()
+      and sc.at = now()
+      and sc.hotel_id is not null
+    order by sc.id desc
+    limit 1;
+  end if;
+
   select s.id into v_session
   from public.support_sessions s
   where s.user_id = auth.uid()
+    and s.auth_session_id = nullif(auth.jwt() ->> 'session_id', '')
     and s.ended_at is null
     and s.expires_at > now()
   order by s.expires_at desc
@@ -697,47 +862,69 @@ begin
     v_after,
     public.god_mode_change_summary(tg_table_name, lower(tg_op), v_before, v_after)
   );
+
+  -- And the other way round: rows of the rule recorded before the rule's own
+  -- delete (the cascade can run first) get the property now.
+  if tg_table_name = 'pricing_rules' and tg_op = 'DELETE' and v_hotel is not null then
+    update public.support_changes sc
+       set hotel_id = v_hotel
+     where sc.hotel_id is null
+       and sc.user_id = auth.uid()
+       and sc.at = now()
+       and sc.op = 'delete'
+       and sc.before ->> 'rule_id' = v_row ->> 'id';
+  end if;
   return null;
 end;
 $$;
 
 revoke all on function public.god_mode_record_change() from public, anon, authenticated;
 
--- The tables owners edit through RLS. Never pms_connection_secrets or any
--- other table that holds a secret.
+-- Every table a signed-in admin can write in God Mode: each public table
+-- whose write policy lets can_manage_hotel(), can_manage_finances() or
+-- god_mode_active() through, read from pg_policies so a table that gains
+-- such a policy later is found when this file runs again, plus the tables
+-- only save_rule and the repeat alert RPCs write (no write policy of their
+-- own; those RPCs check can_manage_hotel() under the caller's JWT). Never
+-- a table that holds a secret: its before and after would be copied into
+-- rows the property's members can read.
+--
+-- The WHEN clause keeps the service role's bulk writes (the syncs, the
+-- engine, the push) from calling the function at all.
+create or replace function public.god_mode_recorded_tables()
+returns setof text
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select distinct t
+  from (
+    select p.tablename::text as t
+    from pg_policies p
+    where p.schemaname = 'public'
+      and p.cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')
+      and concat_ws(' ', p.qual, p.with_check) ~ '(can_manage_hotel|can_manage_finances|god_mode_active)'
+    union all
+    select unnest(array['rule_skip_hold', 'rule_repeat_alerts', 'rule_repeat_alert_nights'])
+  ) x
+  where to_regclass('public.' || quote_ident(t)) is not null
+    and t not in ('support_sessions', 'support_changes', 'pms_connection_secrets')
+  order by t
+$$;
+
+revoke all on function public.god_mode_recorded_tables() from public, anon, authenticated;
+
 do $$
 declare
   t text;
 begin
-  foreach t in array array[
-    'pricing_rules',
-    'rule_condition',
-    'rule_signal_room_type',
-    'rule_affected_room_type',
-    'pricing_rule_conditions',
-    'pricing_rule_room_types',
-    'ladder_rule_state',
-    'rule_skip_hold',
-    'pickup_event',
-    'hotel_settings',
-    'room_types',
-    'hotel_closed_periods',
-    'base_rate_calendar',
-    'hotel_memberships',
-    'pms_connections',
-    'hotels',
-    'assumption_challenges',
-    'onboarding_findings',
-    'onboarding_states'
-  ]
+  for t in select public.god_mode_recorded_tables()
   loop
-    if to_regclass('public.' || t) is null then
-      continue;
-    end if;
     execute format('drop trigger if exists trg_god_mode_record_change on public.%I', t);
     execute format(
       'create trigger trg_god_mode_record_change after insert or update or delete on public.%I '
-      || 'for each row execute function public.god_mode_record_change()', t);
+      || 'for each row when (current_user <> ''service_role'') '
+      || 'execute function public.god_mode_record_change()', t);
   end loop;
 end $$;
 

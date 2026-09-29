@@ -81,9 +81,23 @@ describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
   let db: Db;
   const q = async (sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows;
 
-  /** Runs `fn` as this signed-in person, with the token's aal, then puts the session back. */
-  const as = async <T>(userId: string, aal: "aal1" | "aal2", fn: () => Promise<T>): Promise<T> => {
-    const claims = JSON.stringify({ sub: userId, role: "authenticated", aal, amr: [{ method: aal === "aal2" ? "totp" : "password", timestamp: 1 }] });
+  /**
+   * Runs `fn` as this signed-in person, with the token's aal, then puts the
+   * session back. An aal2 token carries a code entered `codeAgeSeconds` ago
+   * (just now by default), and every token names its sign-in session.
+   */
+  const as = async <T>(
+    userId: string,
+    aal: "aal1" | "aal2",
+    fn: () => Promise<T>,
+    opts: { session?: string; codeAgeSeconds?: number } = {},
+  ): Promise<T> => {
+    const now = Math.floor(Date.now() / 1000);
+    const amr =
+      aal === "aal2"
+        ? [{ method: "totp", timestamp: now - (opts.codeAgeSeconds ?? 0) }, { method: "password", timestamp: now - 86_400 }]
+        : [{ method: "password", timestamp: now }];
+    const claims = JSON.stringify({ sub: userId, role: "authenticated", aal, amr, session_id: opts.session ?? "sess-laptop" });
     await db.exec(`
       select set_config('request.jwt.claim.sub', '${userId}', false);
       select set_config('request.jwt.claim.role', 'authenticated', false);
@@ -395,6 +409,155 @@ describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
       expect((await switchOff())[0].r).toMatchObject({ is_active: false });
     });
     expect((await changes()).length).toBe(before + 3);
+  });
+
+  it("makes a new platform admin only in God Mode: refused at aal1 and at aal2 with no window", async () => {
+    const isAdmin = async (id: string) =>
+      (await q(`select count(*)::int as n from public.app_roles where user_id = $1 and role = 'platform_admin'`, [id]))[0].n;
+    await q(`select public.god_mode_end()`).catch(() => undefined);
+    await as(ADMIN, "aal1", async () => {
+      await expect(q(`select public.platform_grant_role($1, 'platform_admin')`, [OTHER])).rejects.toThrow(/Not authorized/);
+    });
+    await as(ADMIN, "aal2", async () => {
+      await q(`select public.god_mode_end()`);
+      await expect(q(`select public.platform_grant_role($1, 'platform_admin')`, [OTHER])).rejects.toThrow(/Not authorized/);
+      await expect(q(`select public.platform_revoke_role($1, 'platform_admin')`, [ADMIN])).rejects.toThrow(/Not authorized/);
+    });
+    expect(await isAdmin(OTHER)).toBe(0);
+
+    await as(ADMIN, "aal2", async () => {
+      await q(`select public.god_mode_start()`);
+      await q(`select public.platform_grant_role($1, 'platform_admin')`, [OTHER]);
+      await q(`select public.platform_revoke_role($1, 'platform_admin')`, [OTHER]);
+      await q(`select public.god_mode_end()`);
+    });
+    expect(await isAdmin(OTHER)).toBe(0);
+    expect((await audit("app_role.granted")).map((r) => r.actor_user_id)).toEqual([ADMIN]);
+    expect((await audit("app_role.revoked")).map((r) => r.actor_user_id)).toEqual([ADMIN]);
+  });
+
+  it("opens a window only for a code entered in the last few minutes, not an aal2 session from days ago", async () => {
+    await as(
+      ADMIN,
+      "aal2",
+      async () => {
+        await expect(q(`select public.god_mode_start()`)).rejects.toThrow(/new code from your authenticator app/);
+        expect(await godModeActive()).toBe(false);
+      },
+      { codeAgeSeconds: 30 * 86_400 },
+    );
+    await as(
+      ADMIN,
+      "aal2",
+      async () => {
+        await expect(q(`select public.god_mode_start()`)).rejects.toThrow(/new code from your authenticator app/);
+      },
+      { codeAgeSeconds: 6 * 60 },
+    );
+    await as(
+      ADMIN,
+      "aal2",
+      async () => {
+        await q(`select public.god_mode_start()`);
+        expect(await godModeActive()).toBe(true);
+        await q(`select public.god_mode_end()`);
+      },
+      { codeAgeSeconds: 60 },
+    );
+  });
+
+  it("ties a window to the sign-in session that opened it: another device of the same login cannot write", async () => {
+    await as(ADMIN, "aal2", async () => {
+      await q(`select public.god_mode_start()`);
+      expect(await godModeActive()).toBe(true);
+    }, { session: "sess-A" });
+    await as(
+      ADMIN,
+      "aal2",
+      async () => {
+        expect(await godModeActive()).toBe(false);
+        expect(await status()).toMatchObject({ admin: true, aal: "aal2", active: false, session_id: null });
+        expect(await renameRule("Busy (other device)")).toBe(0);
+      },
+      { session: "sess-B-other-device", codeAgeSeconds: 7 * 86_400 },
+    );
+    await as(ADMIN, "aal2", async () => {
+      expect(await renameRule("Busy (laptop A)")).toBe(1);
+      expect(await renameRule("Busy")).toBe(1);
+      await q(`select public.god_mode_end()`);
+    }, { session: "sess-A" });
+    expect(await q(`select name from public.pricing_rules where id = $1`, [RULE])).toEqual([{ name: "Busy" }]);
+  });
+
+  it("records every table an admin can write in God Mode: the policy tables, the RPC-only rule tables, and nothing holding a secret", async () => {
+    const triggered = (
+      await q(`select c.relname as t from pg_trigger g join pg_class c on c.oid = g.tgrelid where g.tgname = 'trg_god_mode_record_change' order by 1`)
+    ).map((r) => String(r.t));
+    const writable = (
+      await q(`
+        select distinct p.tablename::text as t from pg_policies p
+         where p.schemaname = 'public' and p.cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')
+           and concat_ws(' ', p.qual, p.with_check) ~ '(can_manage_hotel|can_manage_finances|god_mode_active)'
+         order by 1`)
+    ).map((r) => String(r.t));
+    expect(writable.length).toBeGreaterThan(19);
+    for (const t of ["published_price", "rate_updates", "market_events", "reservations", "pricing_decisions", "rule_applications"]) {
+      expect(writable).toContain(t);
+    }
+    expect(triggered).toEqual([...new Set([...writable, "rule_skip_hold", "rule_repeat_alerts", "rule_repeat_alert_nights"])].sort());
+    expect(triggered).not.toContain("pms_connection_secrets");
+
+    const before = (await changes()).length;
+    await as(ADMIN, "aal2", async () => {
+      await q(`select public.god_mode_start()`);
+      await q(`insert into public.published_price (hotel_id, room_type_id, stay_date, price, computed_at) values ($1, $2, '2026-12-03', 9, now())`, [H, RT1]);
+      await q(`insert into public.market_events (hotel_id, name, start_date, end_date) values ($1, 'Fake festival', '2026-12-01', '2026-12-03')`, [H]);
+      await q(`select public.god_mode_end()`);
+    });
+    const recorded = (await changes()).slice(before);
+    expect(recorded.map((r) => [r.user_id, r.hotel_id, r.table_name, r.op, r.summary])).toEqual([
+      [ADMIN, H, "published_price", "insert", "Added a published price."],
+      [ADMIN, H, "market_events", "insert", 'Added a market event "Fake festival".'],
+    ]);
+  });
+
+  it("files a deleted rule's conditions and room types under the property", async () => {
+    const DOOMED = "66666666-6666-4666-8666-666666666668";
+    await asService(() =>
+      db.exec(`
+        insert into public.pricing_rules (id, hotel_id, name, action_type, action_direction, action_value)
+          values ('${DOOMED}', '${H}', 'Doomed', 'percent', 'increase', 5);
+        insert into public.rule_affected_room_type (rule_id, room_type_id) values ('${DOOMED}', '${RT1}');
+        insert into public.rule_condition (rule_id, occupancy_operator, occupancy_threshold) values ('${DOOMED}', 'gt', 0.8);
+      `),
+    );
+    const before = (await changes()).length;
+    await as(ADMIN, "aal2", async () => {
+      await q(`select public.god_mode_start()`);
+      expect((await q(`with d as (delete from public.pricing_rules where id = $1 returning 1) select count(*)::int as n from d`, [DOOMED]))[0].n).toBe(1);
+      await q(`select public.god_mode_end()`);
+    });
+    const recorded = (await changes()).slice(before);
+    expect(recorded.map((r) => r.table_name).sort()).toEqual(["pricing_rules", "rule_affected_room_type", "rule_condition"]);
+    expect(recorded.map((r) => r.hotel_id)).toEqual([H, H, H]);
+  });
+
+  it("leaves MAYA staff's own clicks and edits out of a never-paid property's last activity", async () => {
+    const last = async () => (await q(`select public.never_paid_last_activity($1) as t`, [H]))[0].t as Date;
+    await asService(() => q(`update public.hotels set created_at = now() - interval '200 days' where id = $1`, [H]));
+    const start = await last();
+    await asService(() =>
+      q(`insert into public.product_events (hotel_id, user_id, event, source, occurred_at) values ($1, $2, 'dashboard.tab_opened', 'app', now())`, [H, ADMIN]),
+    );
+    await asService(() =>
+      q(`insert into public.platform_audit_events (actor_user_id, event_type, entity_type, entity_id, hotel_id) values ($1, 'membership.role_changed', 'hotel_membership', 'x', $2)`, [ADMIN, H]),
+    );
+    expect(await last()).toEqual(start);
+    // The property's own Revenue Manager still counts.
+    await asService(() =>
+      q(`insert into public.product_events (hotel_id, user_id, event, source, occurred_at) values ($1, $2, 'dashboard.tab_opened', 'app', now())`, [H, RM]),
+    );
+    expect((await last()).getTime()).toBeGreaterThan(start.getTime());
   });
 
   it("names every migration before it, so the base this test builds is production's", () => {
