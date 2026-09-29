@@ -340,7 +340,8 @@ export type CalendarRoomType = {
   total_rooms: number;
   occupancy_pct: number;
   booked: number;
-  rate: number;
+  /** Average rate of the night's bookings (ADR). Null when nothing is booked. */
+  rate: number | null;
   revenue: number;
   /**
    * Engine-published price for this night (from `published_price`), i.e. the

@@ -1,16 +1,16 @@
 ---
 title: Calendar and change log questions
-summary: Why every day is amber or a busy night is red, why the calendar and the change log's bold lines show $ for a euro property, what ADR $150 means on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
+summary: Why every day is amber or a busy night is red, why the calendar and the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
 section: wrong
 order: 80
 readingTime: 9
-keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR 150, ADR $150, placeholder, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history]
+keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history]
 questions:
   - Why is every day amber? {#why-is-every-day-amber}
   - Why is a busy night red? {#why-is-a-busy-night-red}
   - Why did the colour not change after a booking? {#why-did-the-colour-not-change-after-a-booking}
   - Why does the calendar show $ when my currency is euro? {#why-does-the-calendar-show--when-my-currency-is-euro}
-  - Why does ADR say $150 when nothing is booked? {#why-does-adr-say-150-when-nothing-is-booked}
+  - Why does ADR show a dash when nothing is booked? {#why-does-adr-show-a-dash-when-nothing-is-booked}
   - Why does today say revenue instead of revenue on the books? {#why-does-today-say-revenue-instead-of-revenue-on-the-books}
   - Why are there no weekday headers? {#why-are-there-no-weekday-headers}
   - Why do past months show zeros? {#why-do-past-months-show-zeros}
@@ -54,9 +54,9 @@ The sentences under each change, the amber alert banner and the manual price err
 The calendar and the change log's bold lines cannot show your currency's symbol yet, and the currency cannot be changed on a screen. If MAYA has the wrong currency for your property, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
 </Callout>
 
-## Why does ADR say $150 when nothing is booked?
+## Why does ADR show a dash when nothing is booked?
 
-The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0, ignore the ADR line: the $150.00 there is a placeholder, whatever your rates are. It is not a price and it is not sent anywhere. Look at <Ui>Current price</Ui> for the price your rules have set.
+The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0 there is nothing to average, so the line reads "ADR –". Look at <Ui>Current price</Ui> for the price your rules have set.
 
 ## Why does today say "revenue" instead of "revenue on the books"?
 

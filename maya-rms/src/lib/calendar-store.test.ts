@@ -336,6 +336,28 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
   });
 });
 
+describe("getCalendar (Supabase) — revenue and average rate", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.restoreAllMocks();
+  });
+
+  it("counts a booking with no rate as 0, and has no average rate for a night with nothing booked", async () => {
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 10, counts_as_room: true }],
+      reservations: [
+        { id: "a", hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", base_rate: 120, current_rate: 120 },
+        { id: "b", hotel_id: "h1", stay_date: "2026-10-10", room_type_id: "rt1", base_rate: null, current_rate: null },
+      ],
+    });
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.days["10"].room_types[0]).toMatchObject({ booked: 2, revenue: 120, rate: 60 });
+    expect(cal.days["10"].revenue).toBe(120);
+    expect(cal.days["11"].room_types[0]).toMatchObject({ booked: 0, revenue: 0, rate: null });
+  });
+});
+
 describe("countingCapacity — the RevPAR / sellable occupancy denominator", () => {
   it("sums total_rooms over types that count as rooms", () => {
     expect(

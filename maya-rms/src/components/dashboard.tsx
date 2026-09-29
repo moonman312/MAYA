@@ -1248,7 +1248,7 @@ export function Dashboard({
                                 Booked {rt.booked}/{rt.total_rooms}
                               </p>
                               <p className="text-sm text-slate-300">
-                                ADR ${rt.rate.toFixed(2)}
+                                ADR {rt.rate != null ? `$${rt.rate.toFixed(2)}` : "–"}
                               </p>
                               <p className="text-sm text-sky-300">
                                 Current price{" "}

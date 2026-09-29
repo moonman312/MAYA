@@ -329,7 +329,7 @@
 {"q":"Why does \"Current price\" show a dash?","page":"watch/the-calendar","bankSection":9},
 {"q":"What is \"Current price\"?","page":"watch/the-calendar","bankSection":9},
 {"q":"Where is the base price?","page":"watch/the-calendar","anchor":"when-a-night-has-no-current-price/the-night-has","bankSection":9},
-{"q":"Why does ADR say $150 when nothing is booked?","page":"wrong/calendar-and-log-questions","bankSection":9},
+{"q":"Why does ADR show a dash when nothing is booked?","page":"wrong/calendar-and-log-questions","bankSection":9},
 {"q":"Why does the calendar show \"$\" when my currency is euro?","page":"wrong/calendar-and-log-questions","bankSection":9},
 {"q":"How fresh is the calendar?","page":"watch/the-calendar","bankSection":9},
 {"q":"What does \"· live\" mean?","page":"watch/the-calendar","anchor":"the-controls","bankSection":9},
