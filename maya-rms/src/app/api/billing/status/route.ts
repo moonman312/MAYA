@@ -39,6 +39,8 @@ export async function GET(request: Request) {
     tone: headline.tone,
     title: headline.title,
     detail: headline.detail,
+    // Names no one: just the subject line for the banner's email button.
+    emailSubject: headline.emailSubject ?? null,
   });
 }
 

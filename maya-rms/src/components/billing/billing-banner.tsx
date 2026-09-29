@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { SUPPORT_EMAIL } from "@/lib/docs/home";
 
 type Status = {
   applicable: boolean;
@@ -9,6 +10,12 @@ type Status = {
   tone?: "ok" | "warn" | "stopped";
   title?: string;
   detail?: string;
+  /**
+   * Set when the way forward is writing to us (a paused subscription, a
+   * property above the self-serve ceiling). The button emails us instead of
+   * opening the billing page, which has nothing to press for these.
+   */
+  emailSubject?: string | null;
 };
 
 /**
@@ -43,6 +50,9 @@ export function BillingBanner({ hotelId = null }: { hotelId?: string | null }) {
   if (!status?.applicable || status.tone === "ok") return null;
 
   const stopped = status.tone === "stopped";
+  const button = `shrink-0 rounded px-3 py-2 text-sm font-medium text-white transition ${
+    stopped ? "bg-rose-500 hover:bg-rose-400" : "bg-amber-500 hover:bg-amber-400"
+  }`;
 
   return (
     <div
@@ -58,14 +68,18 @@ export function BillingBanner({ hotelId = null }: { hotelId?: string | null }) {
           </p>
           <p className="mt-1 max-w-2xl text-sm text-slate-300">{status.detail}</p>
         </div>
-        <Link
-          href="/account/billing"
-          className={`shrink-0 rounded px-3 py-2 text-sm font-medium text-white transition ${
-            stopped ? "bg-rose-500 hover:bg-rose-400" : "bg-amber-500 hover:bg-amber-400"
-          }`}
-        >
-          {stopped ? "Restart MAYA" : "Fix it"}
-        </Link>
+        {status.emailSubject ? (
+          <a
+            href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(status.emailSubject)}`}
+            className={button}
+          >
+            Email us
+          </a>
+        ) : (
+          <Link href="/account/billing" className={button}>
+            {stopped ? "Restart MAYA" : "Fix it"}
+          </Link>
+        )}
       </div>
     </div>
   );
