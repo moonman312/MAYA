@@ -16,6 +16,8 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/components/brand/logo", () => ({ MayaMark: () => null }));
+// The nav also carries the God Mode button, which is its own component with its own tests.
+vi.mock("@/components/admin/god-mode-button", () => ({ GodModeButton: () => null }));
 
 const { AdminTopNav } = await import("./admin-top-nav");
 
