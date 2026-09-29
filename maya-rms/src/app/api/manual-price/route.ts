@@ -303,18 +303,25 @@ async function stoppedSubscription(admin: SupabaseClient, hotelId: string): Prom
 }
 
 /**
+ * The systems a price is sent to. Mews is read-only for now (G2, on hold), so
+ * a Mews property's line stays as it is until sending to Mews is built.
+ */
+const SENDS_PRICES = new Set(["cloudbeds", "think"]);
+
+/**
  * True when the hotel's connection is Disconnected or Error and nothing else
  * of its works: the syncs never claim such a connection, so a price waits
  * for a reconnect. A working connection beside a stale one decides it, as it
  * does for the nudge (hotelPmsType); Pending, or no connection, is not down.
  */
 async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<boolean> {
-  const { data } = await admin.from("pms_connections").select("status").eq("hotel_id", hotelId);
-  const statuses = ((data ?? []) as { status?: unknown }[]).map((r) => String(r.status));
-  return (
-    statuses.some((s) => s === "disconnected" || s === "error") &&
-    !statuses.some((s) => s === "connected" || s === "degraded")
-  );
+  const { data } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
+  const rows = ((data ?? []) as { pms_type?: unknown; status?: unknown }[]).map((r) => ({
+    pms: String(r.pms_type),
+    status: String(r.status),
+  }));
+  if (rows.some((r) => r.status === "connected" || r.status === "degraded")) return false;
+  return rows.some((r) => (r.status === "disconnected" || r.status === "error") && SENDS_PRICES.has(r.pms));
 }
 
 async function pushFor(

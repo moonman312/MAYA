@@ -626,6 +626,11 @@ describe("POST /api/manual-price — pushed", () => {
     expect((await (await post()).json()).pushed).toBe("nudged");
   });
 
+  it("leaves a Mews property's line as it was: nothing is sent to Mews either way", async () => {
+    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "error" }] });
+    expect((await (await post()).json()).pushed).toBe("next_cycle");
+  });
+
   it("a comp night's 0 on a down connection still says to set it in the PMS", async () => {
     state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "disconnected" }] });
     expect((await (await post({ ...GOOD, price: 0 })).json()).pushed).toBe("zero_not_sent");
