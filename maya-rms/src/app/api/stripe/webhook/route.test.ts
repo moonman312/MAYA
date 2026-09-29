@@ -35,6 +35,21 @@ const state = vi.hoisted(() => ({
   openInvoices: [] as Record<string, unknown>[],
   payError: null as Error | null,
   paid: [] as { id: string; params: unknown }[],
+  /** What the webhook handed the account-ready email, and what it answers. */
+  readyCalls: [] as { sub: string; hotel: string; status: string }[],
+  readyOutcome: { sent: true } as Record<string, unknown>,
+}));
+
+vi.mock("@/lib/billing/account-ready", () => ({
+  sendAccountReadyOnce: async (
+    _admin: unknown,
+    _stripe: unknown,
+    sub: { id: string },
+    row: { hotel_id: string; status: string },
+  ) => {
+    state.readyCalls.push({ sub: sub.id, hotel: row.hotel_id, status: row.status });
+    return state.readyOutcome;
+  },
 }));
 
 vi.mock("@/lib/billing/reverify", () => ({
@@ -159,6 +174,8 @@ beforeEach(() => {
   state.insertError = null;
   state.upserts = [];
   state.upsertError = null;
+  state.readyCalls = [];
+  state.readyOutcome = { sent: true };
 });
 
 describe("signature enforcement", () => {
@@ -266,6 +283,44 @@ describe("subscription events", () => {
       signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }),
     );
     expect(res.status).toBe(500);
+  });
+});
+
+describe("the account ready email", () => {
+  it("is offered the re-fetched subscription once it is recorded", async () => {
+    state.retrieved = subscription({ status: "trialing" });
+    const res = await POST(
+      signedRequest({ id: "evt_1", type: "customer.subscription.created", data: { object: subscription() } }),
+    );
+    expect(res.status).toBe(200);
+    expect(state.upserts).toHaveLength(1);
+    expect(state.readyCalls).toEqual([{ sub: "sub_1", hotel: "hotel-1", status: "trialing" }]);
+  });
+
+  it("is offered it from checkout.session.completed too", async () => {
+    const res = await POST(
+      signedRequest({
+        id: "evt_2",
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_1", object: "checkout.session", subscription: "sub_1", metadata: { hotel_id: "hotel-1" } } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(state.readyCalls).toEqual([{ sub: "sub_1", hotel: "hotel-1", status: "active" }]);
+  });
+
+  it("does not hold up the webhook when the email fails", async () => {
+    state.readyOutcome = { sent: false, reason: "send_failed" };
+    const res = await POST(
+      signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("is not offered anything the database did not record", async () => {
+    state.upsertError = { message: "deadlock detected" };
+    await POST(signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }));
+    expect(state.readyCalls).toHaveLength(0);
   });
 });
 

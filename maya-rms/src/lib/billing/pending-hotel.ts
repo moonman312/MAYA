@@ -24,7 +24,7 @@ import { roleRank } from "@/lib/roles";
  * Placeholder name. hotels.name is globally unique and the real one only arrives
  * from the PMS on adoption, so this just has to not collide.
  */
-const PENDING_NAME_PREFIX = "Pending setup ";
+export const PENDING_NAME_PREFIX = "Pending setup ";
 
 function pendingName(): string {
   return `${PENDING_NAME_PREFIX}${randomUUID().slice(0, 8)}`;

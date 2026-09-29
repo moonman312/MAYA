@@ -22,7 +22,7 @@ questions:
   - 'What does "Manage billing or cancel" on the payment screen do?' {#manage-billing-or-cancel-on-this-screen}
   - Who can set up payment for a property? {#who-can-set-up-payment}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -112,9 +112,7 @@ Most people never see this screen. After Stripe confirms your payment, MAYA move
 
 If that takes longer than about 25 seconds, the screen says your payment went through but our side is taking longer than usual, and adds "Nothing is lost and you have not been charged twice." A <Ui>Check again</Ui> button asks straight away. After 5 minutes it stops checking on its own and says so. <Ui>Check again</Ui> still works, and so does closing the page and signing in again later, which takes you to the right next step. Your card is saved either way, and there is never a second charge. [Account and billing problems](/docs/wrong/account-and-billing-problems) has what to do if it stays stuck.
 
-<Callout kind="not-yet" title="No email when the payment is confirmed">
-The slow version of this screen says we will email you when it is ready. No such email is sent today. Sign in again later instead, and MAYA takes you to the next step. [Emails MAYA sends](/docs/billing/emails-maya-sends) lists the emails that do exist.
-</Callout>
+The slow version of this screen says we will email you when it is ready, and we do. Once the payment is recorded, an email headed "Your account is ready" goes to the address you sign in with, and its button, <Ui>Pick up where you left off</Ui>, takes you to the next step. It comes once for each property, whether or not you waited on the screen. [Emails MAYA sends](/docs/billing/emails-maya-sends#the-account-ready-email) describes it.
 
 ## After you pay
 
@@ -142,7 +140,7 @@ A first-time payer has no property yet, so anyone with an account can pay, and t
 If a subscription already sits on a property that is not connected yet, the payment or connect screen shows a small link, <Ui>Manage billing or cancel</Ui> (with the property's name when there is one). The <Ui>Billing</Ui> page cannot show a property until its system is connected, so this link is the door in the meantime: it opens Stripe straight onto cancelling that one subscription. Once set to cancel, the link becomes the words "Cancels at the end of the period". [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving) has the details.
 
 <Callout kind="not-yet">
-Cards only: no bank transfer, no ACH, no invoicing by email. No email when a payment is confirmed. The room count typed on get-maya.com is not carried into the app. Over 500 rooms is not sold self-serve. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) instead.
+Cards only: no bank transfer, no ACH, no invoicing by email. The room count typed on get-maya.com is not carried into the app. Over 500 rooms is not sold self-serve. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) instead.
 </Callout>
 
 <Related>

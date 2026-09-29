@@ -20,6 +20,7 @@ import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billi
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { recordFirstPayment } from "@/lib/billing/first-paid";
 import { defaultCardChanged, payUnpaidAfterCardUpdate } from "@/lib/billing/unpaid-recovery";
+import { sendAccountReadyOnce } from "@/lib/billing/account-ready";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -87,6 +88,9 @@ export async function POST(request: Request) {
       const saved = await persistSubscription(admin, row);
       if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
       await activateIfPaidMarketplace(admin, row, fresh);
+      // The "Payment received" screen promised an email once this is live.
+      // Claimed in the database, so however many deliveries land, one sends.
+      await sendAccountReadyOnce(admin, stripe, fresh, row);
       return NextResponse.json({ received: true, hotel_id: row.hotel_id, status: row.status });
     }
 
@@ -132,6 +136,7 @@ export async function POST(request: Request) {
           const saved = await persistSubscription(admin, row);
           if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
           await activateIfPaidMarketplace(admin, row, fresh);
+          await sendAccountReadyOnce(admin, stripe, fresh, row);
         }
       }
       return NextResponse.json({ received: true });
