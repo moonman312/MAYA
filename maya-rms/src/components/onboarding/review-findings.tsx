@@ -40,7 +40,7 @@ type Finding = {
 };
 
 const FINISH_FAILED = "Couldn't finish the review. Try again.";
-const POPUP_FAILED = "The days could not be checked. Try again.";
+const POPUP_FAILED = "The window didn't open. Try again.";
 
 export function ReviewFindings({
   initialStep = "assumptions",

@@ -132,7 +132,8 @@ describe("rule suggestions from the Rules tab", () => {
     failing = new Set(["/api/rules/engine"]);
     await openRecommendations();
     fireEvent.click(await screen.findByRole("button", { name: "Make that change" }));
-    await screen.findByText("The days could not be checked. Try again.");
+    // Nothing was asked about days yet, so it does not say days.
+    await screen.findByText("The window didn't open. Try again.");
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(confirms()).toEqual([]);
   });
