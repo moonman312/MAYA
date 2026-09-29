@@ -141,7 +141,7 @@ describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
     const { citext } = await import(/* @vite-ignore */ pathToFileURL(`${dist}/contrib/citext.js`).href);
     db = new mod.PGlite({ extensions: { pgcrypto, citext } }) as Db;
     await db.exec(PLATFORM);
-    for (const name of ["01_supabase_base_schema.sql", "02_supabase_schema.sql", ...MIGRATION_ORDER.filter((m) => m !== MIGRATION)]) {
+    for (const name of ["01_supabase_base_schema.sql", "02_supabase_schema.sql", ...MIGRATION_ORDER.slice(0, MIGRATION_ORDER.indexOf(MIGRATION))]) {
       try {
         await db.exec(fileSql(name));
       } catch (e) {
@@ -560,7 +560,9 @@ describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
     expect((await last()).getTime()).toBeGreaterThan(start.getTime());
   });
 
-  it("names every migration before it, so the base this test builds is production's", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("sits right after the manual price retry migration, so the base this test builds is production's", () => {
+    const at = MIGRATION_ORDER.indexOf(MIGRATION);
+    expect(at).toBeGreaterThan(0);
+    expect(MIGRATION_ORDER[at - 1]).toBe("99_supabase_migration_manual_price_retry_v1.sql");
   });
 });
