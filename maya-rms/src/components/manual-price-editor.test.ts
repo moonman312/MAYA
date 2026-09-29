@@ -9,6 +9,12 @@ describe("manualPriceBadge", () => {
     // Older rows and servers say nothing about where it came from.
     expect(manualPriceBadge({ price: 150 }, "Cloudbeds")).toBe("Manual · $150.00");
   });
+
+  it("uses the property's own currency symbol", () => {
+    expect(manualPriceBadge({ price: 180, source: "maya" }, "Cloudbeds", "€")).toBe("Manual · €180.00");
+    expect(manualPriceBadge({ price: 180, source: "pms" }, "Cloudbeds", "£")).toBe("Changed in Cloudbeds · £180.00");
+    expect(manualPriceBadge({ price: 180 }, "Cloudbeds", "CHF ")).toBe("Manual · CHF 180.00");
+  });
 });
 
 describe("describeSave", () => {
@@ -25,6 +31,36 @@ describe("describeSave", () => {
     expect(describeSave({ pushed: "zero_not_sent", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
       "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself.",
     );
+  });
+
+  it("never says sending while the connection is down, and names the way back when billing has stopped", () => {
+    expect(describeSave({ pushed: "reconnect", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
+      "Saved. It will be sent once you reconnect.",
+    );
+    // The connection or the mode could not be read: no promise either way.
+    expect(describeSave({ pushed: "saved", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe("Saved.");
+    const paused = (billingStatus?: string) =>
+      describeSave({ pushed: "billing_paused", billingStatus, suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds");
+    expect(paused("unpaid")).toBe(
+      "Saved. Nothing is sent while MAYA's work is paused. Update your card on the Billing page.",
+    );
+    // A response without the status reads the same.
+    expect(paused()).toBe("Saved. Nothing is sent while MAYA's work is paused. Update your card on the Billing page.");
+    for (const ended of ["canceled", "incomplete", "incomplete_expired"]) {
+      expect(paused(ended)).toBe(
+        "Saved. Nothing is sent while MAYA's work is paused. Restart your subscription on the Billing page.",
+      );
+    }
+    expect(paused("paused")).toBe(
+      "Saved. Nothing is sent while MAYA's work is paused. Email us and we'll get it running again.",
+    );
+    for (const line of [paused("unpaid"), describeSave({ pushed: "reconnect", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")]) {
+      expect(line).not.toMatch(/Sending/);
+    }
+    // Paused rules still read after it.
+    expect(
+      describeSave({ pushed: "reconnect", suppressedRules: 1, retiredPickups: 0, cells: 1 }, "Cloudbeds"),
+    ).toBe("Saved. It will be sent once you reconnect. Paused 1 rule on this night for this room; new rules will apply on top.");
   });
 
   it("mentions paused rules only when something was paused", () => {
@@ -165,9 +201,13 @@ describe("describeSave", () => {
 });
 
 describe("describeClear", () => {
-  it("says how many nights went back to MAYA", () => {
-    expect(describeClear(1)).toBe("Cleared. MAYA is pricing this night again.");
-    expect(describeClear(undefined)).toBe("Cleared. MAYA is pricing this night again.");
-    expect(describeClear(3)).toBe("Cleared 3 nights. MAYA is pricing them again.");
+  it("says how many nights went back to the owner's rules", () => {
+    expect(describeClear(1)).toBe("Cleared. Your rules price this night again.");
+    expect(describeClear(undefined)).toBe("Cleared. Your rules price this night again.");
+    expect(describeClear(3)).toBe("Cleared 3 nights. Your rules price them again.");
+  });
+
+  it("says a night that has passed had nothing to clear", () => {
+    expect(describeClear(0, true)).toBe("This night has passed, so there is nothing to clear.");
   });
 });

@@ -351,3 +351,52 @@ describe("a property whose never-paid data the retention sweep removed", () => {
     expect(db.tables.onboarding_states[0]).toMatchObject({ import_job_id: db.tables.import_jobs[0].id });
   });
 });
+
+describe("handleMarketplaceConnect on a property connected from inside MAYA", () => {
+  // Found by the property ID kept with its credential, since its row carries
+  // no Marketplace key. Without a way to ask who is at the browser, the
+  // answer is no, and nothing is parked beside it.
+  function insideMaya() {
+    const db = claimedProperty({ connection: "disconnected", subscription: "active", isActive: true });
+    db.tables.hotels[0].external_enterprise_id = null;
+    state.db = fakeSupabase(db.tables, {
+      rpc: (fn, args) => {
+        state.events.push({ fn, args: args as Record<string, unknown> });
+        return fn === "pms_secret_get" ? { accessToken: "old", propertyId: "320691" } : null;
+      },
+    });
+    return state.db;
+  }
+
+  it("refuses without a reconnect to route it to, and adds nothing", async () => {
+    const db = insideMaya();
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(outcome).toMatchObject({ kind: "refused" });
+    expect(db.tables.hotels).toHaveLength(1);
+    expect(db.tables.pms_marketplace_claims ?? []).toEqual([]);
+    expect(state.events.some((e) => e.fn === "pms_secret_set")).toBe(false);
+  });
+
+  it("hands it to the reconnect for someone allowed, and parks nothing", async () => {
+    const db = insideMaya();
+    const reconnect = vi.fn(async () => ({ ok: true as const }));
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS, { canReconnect: async () => true, reconnect });
+    expect(outcome).toMatchObject({ kind: "reconnected", hotelId: "hotel-1", inApp: true });
+    expect(reconnect).toHaveBeenCalledWith("hotel-1");
+    expect(db.tables.hotels).toHaveLength(1);
+    expect(db.tables.pms_marketplace_claims ?? []).toEqual([]);
+  });
+
+  it("never asks who is at the browser when the property is not in MAYA at all", async () => {
+    const db = insideMaya();
+    state.properties = [{ propertyId: "555001", name: "Harbour Annex" }];
+    const canReconnect = vi.fn(async () => false);
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS, {
+      canReconnect,
+      reconnect: async () => ({ ok: true }),
+    });
+    expect(outcome).toMatchObject({ kind: "claim" });
+    expect(canReconnect).not.toHaveBeenCalled();
+    expect(db.tables.hotels).toHaveLength(2);
+  });
+});

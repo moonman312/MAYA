@@ -1,8 +1,10 @@
 import { DocsTallyTile } from "@/components/admin/docs-tally-panels";
+import { TestAlertButton } from "@/components/admin/test-alert-button";
 import { loadTallyTotals, type TallyTotals } from "@/lib/admin/docs-tally";
 import { listHotels } from "@/lib/admin/hotels";
 import { listPendingInvites } from "@/lib/admin/memberships";
 import { countSignupCodes } from "@/lib/admin/signup-codes";
+import { testAlertProblem } from "@/lib/admin/test-alert";
 import { listPlatformUsers } from "@/lib/admin/users";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
@@ -84,6 +86,8 @@ export default async function AdminOverviewPage() {
       </div>
 
       <DocsTallyTile totals={docs.totals} error={docs.error} />
+
+      <TestAlertButton problem={testAlertProblem()} />
 
       <section className="rounded border border-slate-800 bg-slate-900">
         <header className="flex items-center justify-between border-b border-slate-800 p-4">

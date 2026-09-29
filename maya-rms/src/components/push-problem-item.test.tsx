@@ -55,7 +55,7 @@ describe("PushProblemItem", () => {
   it("is collapsed by default and says what is wrong, how much, and that it is still happening", () => {
     const view = render(<PushProblemItem item={item} {...formats} />);
     const text = view.container.textContent ?? "";
-    expect(text).toContain("Rates not reaching Cloudbeds");
+    expect(text).toContain("Prices not reaching Cloudbeds");
     expect(text).toContain(`${item.title}.`);
     expect(text).toContain("6 nights, 1 room type");
     expect(text).toContain("Still happening");

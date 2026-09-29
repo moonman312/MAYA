@@ -118,8 +118,13 @@ export async function POST(request: Request) {
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
-    const message = e instanceof Error ? e.message : "Could not send that invitation.";
+    // The detail names the services behind the invitation and means nothing
+    // to a hotel, so it stays in the log and the page gets a plain sentence.
+    const message = e instanceof Error ? e.message : String(e);
     console.error(JSON.stringify({ fn: "teamInvite", hotel: ctx.hotelId, error: message }));
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: "Could not send that invitation. Try again in a minute." },
+      { status: 500 },
+    );
   }
 }

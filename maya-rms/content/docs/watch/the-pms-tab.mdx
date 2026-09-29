@@ -1,28 +1,30 @@
 ---
 title: "The PMS tab: connection health"
-summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, and the reconnect link.
+summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, your property's time zone and currency, and the reconnect link.
 section: watch
 order: 80
-readingTime: 6
-keywords: [PMS tab, property system tab, UTC, +00:00, raw timestamp, last sync time looks odd, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, sync now, force a sync, refresh, is it connected]
+readingTime: 9
+keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, time zone, currency, which time zone does MAYA have, which currency does MAYA have, sync now, force a sync, refresh, is it connected, email, connection-down email]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the PMS tab show?' {#in-plain-words}
   - 'What is the "Recent requests" table?' {#recent-requests}
   - 'Can I force a sync now?' {#last-sync}
   - 'What do "Healthy", "Degraded" and "Having trouble" mean?' {#health-last-24-hours}
-  - 'The PMS tab says Degraded and the banner says MAYA lost its connection. Are my prices still going out?' {#connection/degraded-looks-more}
+  - 'The PMS tab says Degraded and my connection needs a refresh soon. Are my prices still going out?' {#connection/while-the-card}
   - 'What does "Last sync" mean on the PMS tab?' {#last-sync}
-  - 'Why is "Last sync" a long string ending in +00:00?' {#last-sync}
+  - 'Which time zone is "Last sync" in?' {#last-sync}
   - 'Why does the PMS tab say "No recent activity"?' {#recent-requests}
+  - 'Why does the PMS tab say "Not tracked for this system"?' {#recent-requests}
   - 'Does the PMS tab show whether my prices reached my property system?' {#how-fresh-the-tab-is}
   - 'Where is the Reconnect button?' {#reconnecting-from-here/not-broken-cloudbeds}
+  - 'Where can I see which time zone and currency MAYA has for my property?' {#time-zone-and-currency}
   - 'How do I check that MAYA is still connected to my property system?' {#connection/a-single-word}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
-The <Ui>PMS</Ui> tab shows whether your property system is connected, how the last 24 hours of requests to it went, when bookings last synced, and the most recent requests MAYA made. Problems sending prices are not here. They are in the change log. When the connection breaks on Cloudbeds or ThinkReservations, a General Manager or Hotel Admin sees a <Ui>Reconnect</Ui> button here (and above the calendar once this tab has been opened in that visit). On Mews, the panel asks you to send us a message.
+The <Ui>PMS</Ui> tab shows whether your property system is connected, how the last 24 hours of requests to it went, when bookings last synced, the most recent requests MAYA made, and the time zone and currency saved for your property. Problems sending prices are not here. They are in the change log. When the connection breaks on Cloudbeds or ThinkReservations, a General Manager or Hotel Admin sees a <Ui>Reconnect</Ui> button here, and in a banner at the top of the dashboard whichever tab is open. On Mews, the panel asks everyone to email us to re-enter the keys.
 </InPlainWords>
 
 ## Where it is
@@ -31,7 +33,7 @@ The <Ui>PMS</Ui> tab is the last of the five tabs. Everyone on the property can 
 
 Before it loads: "Loading connection status…". With no property chosen: "Select a property to view status." With no system connected yet: "No property system is connected for this property yet."
 
-The <Ui>Room types</Ui> section sits under the connection cards on the same tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) covers it.
+The <Ui>Time zone and currency</Ui> card sits under the request list, and the <Ui>Room types</Ui> section under that, on the same tab. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) covers it.
 
 ## The three cards
 
@@ -44,11 +46,13 @@ A single word, colour-coded. It is the state of the connection as MAYA last reco
 | Connected (green) | Healthy. MAYA reads bookings and, when you are live, sends prices. | Nothing. |
 | Pending (amber) | Connected but not yet paid for. Nothing runs. | Finish setting up payment. |
 | Degraded (amber) | Still working. MAYA keeps reading bookings and, when you are live, sending prices. Cloudbeds and ThinkReservations only. | Usually nothing: it tends to clear by itself on the next read. If it is still there in an hour, click Reconnect. It does no harm. |
-| Error (red) | Your system rejected MAYA's saved access. Syncing has stopped. | Reconnect. |
+| Error (red) | Your system rejected MAYA's saved access. On Mews: Mews refused MAYA's keys three reads in a row. Nothing is read or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, click Reconnect (on Mews, email us). It does no harm sooner. |
 | Disconnected (red) | MAYA's access is gone: the app was uninstalled, its permission removed, or your system refused it. Nothing runs until someone reconnects. | Reconnect. |
 | unknown (grey) | MAYA has no status on file for the connection yet. | Open the tab again in a few minutes. If it stays, [email us](mailto:info@modern-hospitality-solutions.com?subject=Connection%20status%20unknown). |
 
-Degraded looks more worrying than it is. While the card reads Degraded, the amber panel headed "MAYA has lost its connection to Cloudbeds" (or your system's name) shows anyway, and says your prices aren't updating. For Degraded that line is not true: nothing has stopped and nothing is lost.
+While the card reads Degraded, one calm line sits above the cards: "Your Cloudbeds connection needs a refresh soon. Prices are still updating." (with your system's name). Yes, your prices are still going out: nothing has stopped and nothing is lost. A General Manager or Hotel Admin also sees a quiet <Ui>Reconnect Cloudbeds</Ui> link at the end of that line.
+
+When the card has read Error or Disconnected for about an hour, every General Manager and Hotel Admin gets one email saying the connection is down, with a button that opens this tab. Degraded never sends it. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email).
 
 The Health card below has a "Degraded" of its own, about failed requests. The two are separate.
 
@@ -62,6 +66,7 @@ How the requests MAYA made to your system in the last 24 hours went. It counts e
 | Degraded | 80% to under 98% succeeded. |
 | Having trouble | Under 80% succeeded. |
 | No recent activity | No requests in the last 24 hours. |
+| Not tracked for this system | ThinkReservations and Mews. MAYA keeps no log of its requests to them, so there is nothing to count. |
 
 Beside the badge: "97% of 412 requests OK".
 
@@ -69,45 +74,52 @@ A short spell of "Degraded" is normal when your system is slow or asks MAYA to w
 
 ### Last sync
 
-The last time MAYA read your bookings successfully. It shows as a raw timestamp in UTC, the world reference time, for example 2026-09-22T22:05:12.345+00:00. The +00:00 at the end means UTC, so that one is 3:05 PM in US Pacific time. A dash means it has never read them. On a healthy connection this time is at most a few minutes old, because MAYA reads about every five minutes.
+The last time MAYA read your bookings successfully, on your own computer's clock with its time zone, for example "Sep 22, 2026, 3:05:12 PM PDT". Someone in another time zone sees the same moment on their own clock. A dash means it has never read them. On a healthy connection this time is at most a few minutes old, because MAYA reads about every five minutes.
 
 ## Recent requests
 
-Under the cards is a technical list of MAYA's last 50 requests to Cloudbeds, headed "Recent requests to Cloudbeds". You do not need to read it. If you email us about the connection, it helps us. A request that failed shows its status code, or ERR, in red. Its times show in the same raw UTC form as Last sync. Requests are kept for 7 days. When there are none, it reads "No requests recorded yet".
+Under the cards is a technical list of MAYA's last 50 requests to Cloudbeds, headed "Recent requests to Cloudbeds". You do not need to read it. If you email us about the connection, it helps us. A request that failed shows its status code, or ERR, in red. Its times show the same way as Last sync, on your own clock. Requests are kept for 7 days. When there are none, it reads "No requests recorded yet".
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
 The table fills with every request MAYA makes to Cloudbeds, and the Health card is built from the same list.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-Requests to ThinkReservations are not written to this table today. The table stays on "No requests recorded yet" and the Health card reads "No recent activity" even when the connection is working. Read the Connection card and Last sync instead.
+MAYA keeps no log of its requests to ThinkReservations, so this list and the Health card both read "Not tracked for this system". Read the Connection card and Last sync instead.
 </PmsTab>
 <PmsTab pms="mews">
-Requests to Mews are not written to this table today. The table stays on "No requests recorded yet" and the Health card reads "No recent activity" even when the connection is working. Read the Connection card and Last sync instead.
+MAYA keeps no log of its requests to Mews, so this list and the Health card both read "Not tracked for this system". Read the Connection card and Last sync instead.
 </PmsTab>
 </PmsTabs>
 
+## Time zone and currency
+
+Under the request list, a card headed <Ui>Time zone and currency</Ui> shows both as they are saved for your property. The time zone shows by its name, such as "America/Los_Angeles". The currency shows by its code and sign, such as "USD ($)", "EUR (€)" or "GBP (£)", or by the code alone for any other currency, such as "CAD". Nothing here can be changed. The <Ui>?</Ui> beside the heading says what each is for: tonight is tonight in this time zone, for your rules and for the prices sent to your system, and amounts across MAYA are in this currency, never converted.
+
+Both are saved when your property connects: read from Cloudbeds or ThinkReservations, and set with you for Mews. When no time zone was read, a property gets UTC, the world reference time, and when no currency was read, US dollars. So when the time zone reads UTC, a line under the two values says so in plain words: "UTC and US dollars are what a property gets when its time zone and currency weren't read from its system. If either is wrong for your property, send us a message and we'll correct it." When the currency is not US dollars, the line speaks of the time zone alone. The link opens an email to us. To change either value at any other time, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) too. [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays) explains what each one changes.
+
 ## Reconnecting from here
 
-Above the cards, what you see depends on the Connection card and on your role. Broken means the card reads Error, Degraded or Disconnected. Any other word counts as not broken.
+Above the cards, what you see depends on the Connection card and on your role. Broken means the card reads Error or Disconnected. Any other word counts as not broken.
 
 - **Not broken, Cloudbeds or ThinkReservations, General Manager or Hotel Admin:** a quiet link, <Ui>Reconnect Cloudbeds</Ui>. Use it if you have been asked to, for example after your system's permissions changed.
-- **Broken, Cloudbeds or ThinkReservations, General Manager or Hotel Admin:** an amber panel headed "MAYA has lost its connection to Cloudbeds" with the button <Ui>Reconnect Cloudbeds</Ui>. One click sends you to your system to confirm and brings you back. Your rules, history and settings are untouched.
-- **Broken, any system, Revenue Manager or Viewer:** the same heading, with a note to ask the property's General Manager or Hotel Admin, since it takes them one click.
-- **Broken, Mews, General Manager or Hotel Admin:** a panel headed "Mews needs its keys re-entered", asking you to send us a message. Mews connects with keys from your Mews account rather than a login, so it cannot be repaired from this screen.
+- **Degraded, any role:** one calm line, "Your Cloudbeds connection needs a refresh soon. Prices are still updating." A General Manager or Hotel Admin sees the quiet <Ui>Reconnect Cloudbeds</Ui> link at the end of it. The line also shows above the calendar, where the banner would.
+- **Broken, Cloudbeds or ThinkReservations, General Manager or Hotel Admin:** an amber panel headed "MAYA has lost its connection to Cloudbeds" with the button <Ui>Reconnect Cloudbeds</Ui>. One click sends you to your system to confirm and brings you back to this tab, with a short note: "Reconnected." Your rules, history and settings are untouched.
+- **Broken, Cloudbeds or ThinkReservations, Revenue Manager or Viewer:** the same heading, with a note to ask the property's General Manager or Hotel Admin, since it takes them one click.
+- **Broken, Mews, any role:** a panel headed "Mews needs its keys re-entered", with "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." The address opens an email to us. Mews connects with keys we enter, not a login, so nobody can repair it from this screen.
 
-The same panel appears as a banner above the calendar while the connection is broken, once you have opened the <Ui>PMS</Ui> tab in this visit. Until then the change log's "Rates not reaching Cloudbeds" item points you here with "Reconnect Cloudbeds on the PMS tab." [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect) has the full walk-through.
+The same panel appears as a banner at the top of the dashboard while the connection is broken, from the moment the dashboard opens and whichever tab you are on. On a live Cloudbeds property, the change log's "Prices not reaching Cloudbeds" item also points you here with "Reconnect Cloudbeds on the PMS tab." [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect) has the full walk-through.
 
 ## How fresh the tab is
 
-The tab loads when you open it and again when you switch property. It does not refresh on its own while open. Click another tab and come back to reload it.
+MAYA reads the connection when the dashboard opens, again when you switch property, and each time you open this tab. The banner at the top of the dashboard follows the same read. The tab does not refresh on its own while open. Click another tab and come back to reload it.
 
 <Example title="The Harbour Inn on a quiet Tuesday">
-Sam opens the <Ui>PMS</Ui> tab. Connection reads Connected. Health reads Healthy, "99% of 412 requests OK". Last sync reads "2026-09-22T22:05:12.345+00:00", which is 3:05 PM that afternoon at The Harbour Inn. Under the cards, the newest request is from a minute ago. Nothing needs doing.
+Sam opens the <Ui>PMS</Ui> tab. Connection reads Connected. Health reads Healthy, "99% of 412 requests OK". Last sync reads "Sep 22, 2026, 3:05:12 PM PDT", a couple of minutes ago on Sam's clock at The Harbour Inn. Under the cards, the newest request is from a minute ago. Nothing needs doing.
 </Example>
 
 <Callout kind="not-yet">
-The tab does not show whether a price reached your system, or when. Sending problems live in the change log, as "Rates not reaching" items. There is no button to sync now: MAYA reads your bookings about every five minutes on its own. There is no badge here that says whether you are live or in simulation. [Tell if you are live](/docs/recipes/tell-if-you-are-live) shows where to look.
+The tab does not show whether a price reached your system, or when. Sending problems live in the change log, as "Prices not reaching" items. There is no button to sync now: MAYA reads your bookings about every five minutes on its own. There is no badge here that says whether you are live or in simulation. [Tell if you are live](/docs/recipes/tell-if-you-are-live) shows where to look.
 </Callout>
 
 <Related>

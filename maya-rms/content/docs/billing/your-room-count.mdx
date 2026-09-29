@@ -36,11 +36,11 @@ MAYA charges per room and counts your rooms from your property system on every s
 About every five minutes, when MAYA reads your bookings, it also adds up the rooms in your active room types. Two kinds of type are left out:
 
 - **Types you have unticked as rooms.** On the <Ui>PMS</Ui> tab, each room type has a <Ui>Counts as a room</Ui> box. Untick it for anything nobody sleeps in, such as a meeting room, a spa slot or a court. An unticked type is left out of the count whatever its name. A ticked one is counted whatever its name. Your answer is final in both directions.
-- **Types you have not answered for, whose name reads like something nobody sleeps in.** Until you tick or untick a type, MAYA reads its name, as set out below. This is only a reading of the name, and one tick from you overrides it.
+- **Types you have not answered for, whose name reads like something nobody sleeps in.** When a type arrives from your system, MAYA reads its name, as set out below. A name that reads like a bedroom is ticked as a room. Any other name shows unticked on the <Ui>PMS</Ui> tab, tagged "needs your answer" (or "not a room" when your history import proposed it), and stays out of the count until you tick it. This is only a reading of the name, and one tick from you overrides it.
 
 Some words leave a type out whatever else its name says, such as meeting, conference, boardroom, banquet, parking, massage, treatment, storage and day use. Others leave a type out only when its name has no bedroom word in it (room, suite, king, queen, villa or cabin, for example). Spa, pool, cabana, court, event, hall, package and fee are words of this second kind. So "Spa Suite" is counted, while "Meeting Room", "Garden Cabana" and "Pool House" are left out.
 
-If the <Ui>Billing</Ui> page lists a type as not counted and guests do sleep there, tick it on the <Ui>PMS</Ui> tab. If its box already shows ticked, untick it and tick it again: your tick then counts.
+If the <Ui>Billing</Ui> page lists a type as not counted and guests do sleep there, tick it on the <Ui>PMS</Ui> tab and it joins the count.
 
 The count is the same for every night: rooms out of service change your occupancy, not your bill. Nothing is measured while your history is still importing, so an empty read is never treated as zero rooms.
 
@@ -64,7 +64,7 @@ So the count is that one number times the categories counted as rooms, and it ma
 
 The <Ui>Room count</Ui> section of the <Ui>Billing</Ui> page starts with "Your plan covers 20 rooms. We check this against your property management system." Then, depending on your property:
 
-- "Not counted, because they don't look like guest rooms:" followed by the names. MAYA read these names and left the types out. If one of them is a guest room, tick it under <Ui>PMS</Ui>, then Room types, and it joins the count (if its box already shows ticked, untick it and tick it again).
+- "Not counted, because they don't look like guest rooms:" followed by the names. MAYA read these names and left the types out. If one of them is a guest room, tick it under <Ui>PMS</Ui>, then Room types, and it joins the count. Each of them shows unticked there.
 - "You've marked these as not rooms:" followed by the names. Your own unticks. Change them on the same tab if one is wrong.
 - "Every room type is marked as not a room, so we can't measure your count." in amber. Tick the types guests sleep in.
 - "Your PMS currently shows 24 active rooms." when the measured number differs from the billed one, followed by either "You're paying for more than that" and a prompt to lower it here so your next invoice drops, or a note that the number comes from your property system and updates on its own as you open or close rooms.
@@ -75,9 +75,9 @@ Under those lines sit the <Ui>Rooms billed</Ui> box and the <Ui>Change</Ui> butt
 
 <Steps>
 <Step title="First a banner, then an email">
-The moment MAYA measures more rooms than you pay for, the top card on the <Ui>Billing</Ui> page and the dashboard banner turn amber: "You're billed for 20 rooms but running 24", then "MAYA charges per room, so 4 rooms are not being paid for." At first it adds "Set the count right below. We'll email you before anything changes." Once the email is out it says how many days remain: "Set the count right below within 7 days and nothing else happens. After that we'll update it to 24 for you and adjust your next invoice."
+The moment MAYA measures more rooms than you pay for, the top card on the <Ui>Billing</Ui> page and the dashboard banner turn amber: "You're billed for 20 rooms but running 24", then "MAYA charges per room, so 4 rooms are not being paid for." At first it adds "Set the count right below. We'll email you before anything changes." (above 500 rooms it says something else, as [Over 500 rooms](#over-500-rooms) explains). Once the email is out it says how many days remain: "Set the count right below within 7 days and nothing else happens. After that we'll update it to 24 for you and adjust your next invoice."
 
-The email follows at the next daily check (once a day), so it can arrive the day after the banner. Above 500 rooms it never comes, as [Over 500 rooms](#over-500-rooms) explains. It goes to the address on your billing account, the one that receives invoices. Its subject is "Your MAYA plan covers 20 rooms" followed by what your system shows. Its heading is "Your room count has changed", and it says what your system lists, what your plan covers, what you pay today and what you would pay at the measured count ("$110 today, $120 at 24 rooms"), that you have 7 days to set the number yourself, and the date after which MAYA updates it. A button, <Ui>Set your room count</Ui>, opens the <Ui>Billing</Ui> page. It also names any types that were left out and why, so your own count and MAYA's reconcile.
+The email follows at the next daily check (once a day), so it can arrive the day after the banner. Above 500 rooms it never comes, as [Over 500 rooms](#over-500-rooms) explains. It goes to the address on your billing account, the one that receives invoices. Its subject is "Your MAYA plan covers 20 rooms, and your PMS shows 24", with your own numbers. Its heading is "Your room count has changed", and it says what your system lists, what your plan covers, what you pay today and what you would pay at the measured count ("$110 today, $120 at 24 rooms"), that you have 7 days to set the number yourself, and the date after which MAYA updates it. A button, <Ui>Set your room count</Ui>, opens the <Ui>Billing</Ui> page. It also names any types that were left out and why, so your own count and MAYA's reconcile.
 </Step>
 <Step title="The 7 days">
 The 7 days count from the email, not from the first measurement, so you always get the full week after being told. If the measured number changes again during the week, a new email goes out about the new number. MAYA never corrects a count it has not emailed you about.
@@ -157,10 +157,10 @@ How many people can be on your team depends on the rooms you pay for: 2 seats up
 
 ## Over 500 rooms
 
-Self-serve stops at 500. If MAYA measures more than 500 rooms, the banner still turns amber, for example "You're billed for 20 rooms but running 600", and still ends "We'll email you before anything changes." No email follows, and nothing changes on its own: above 500, MAYA sends no room count email and makes no automatic correction. The <Ui>Rooms billed</Ui> box does not take a number above 500 either. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) and we price it by hand.
+Self-serve stops at 500. If MAYA measures more than 500 rooms, the banner still turns amber, for example "You're billed for 20 rooms but running 600", and ends "That's above what we sell self-serve. Email us and we'll set it up with you." The banner's button reads <Ui>Email us</Ui> and opens an email to us. On the <Ui>Billing</Ui> page our email address sits under it. Nothing changes on its own: above 500, MAYA sends no room count email and makes no automatic correction. The <Ui>Rooms billed</Ui> box does not take a number above 500 either. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms) and we price it by hand.
 
 <Callout kind="not-yet">
-No tolerance band (every extra room counts), no automatic decrease, no room count control in Stripe and no change to the count while the subscription has lapsed. Above 500 rooms, no email and no automatic change, although the banner says an email is coming. On Mews, the measurement uses one rooms-per-category number for the whole property, 100 until we set it, not a count for each category, and you cannot set it yourself.
+No tolerance band (every extra room counts), no automatic decrease, no room count control in Stripe and no change to the count while the subscription has lapsed. Above 500 rooms, no email and no automatic change. On Mews, the measurement uses one rooms-per-category number for the whole property, 100 until we set it, not a count for each category, and you cannot set it yourself.
 </Callout>
 
 <Related>

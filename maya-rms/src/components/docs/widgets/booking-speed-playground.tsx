@@ -2,17 +2,16 @@
 
 import { useState } from "react";
 import { engineFacts, readBookingSpeed, SPEED_LEVELS, type SpeedLevel } from "@/lib/docs/engine-facts";
+import { GUARD_NOTES as APP_GUARD_NOTES } from "@/lib/explain";
 import { cn } from "@/lib/utils";
 import { Output, RangeField } from "./controls";
 
-// The three notes "How did we know?" shows when a check held a reading back,
-// quoted as the app writes them.
+// The three notes "Show the numbers" shows when a check held a reading back,
+// quoted from the app itself.
 const GUARD_NOTES = {
-  noise:
-    "The raw numbers leaned away from Normal, but the gap was small enough to be ordinary noise at this volume, so we held the call at Normal.",
-  extreme:
-    "The raw numbers pointed at an even stronger call, but not by enough evidence to justify it, so we softened it one step.",
-  few: "We found only a few genuinely comparable nights, so we kept the call within one step of Normal no matter how strong the numbers looked.",
+  noise: APP_GUARD_NOTES.small_difference,
+  extreme: APP_GUARD_NOTES.extreme_demoted,
+  few: APP_GUARD_NOTES.few_comparables,
 };
 
 function trimNumber(n: number) {

@@ -10,9 +10,14 @@ import {
   headlineFor,
   loadAccountBilling,
   longDate,
+  offersRestart,
+  periodEndDate,
   periodEndLabel,
+  priceHint,
+  priceLabel,
   type BillingTone,
 } from "@/lib/billing/account";
+import { SUPPORT_EMAIL } from "@/lib/docs/home";
 import { hasHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { listDeferredMarketplaceHotels } from "@/lib/billing/pending-hotel";
@@ -33,7 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
   trialing: "On trial",
   active: "Active",
   past_due: "Payment overdue",
-  unpaid: "Unpaid — stopped",
+  unpaid: "Unpaid (stopped)",
   canceled: "Cancelled",
   incomplete: "Never completed",
   incomplete_expired: "Never completed",
@@ -72,7 +77,7 @@ export default async function BillingPage() {
     return (
       <Shell>
         <p className="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
-          This property has no subscription — it was set up by hand rather than through checkout, so
+          This property has no subscription. It was set up by hand rather than through checkout, so
           there is nothing to bill or manage here.
         </p>
         <NotSetUpYet items={deferred} />
@@ -81,16 +86,26 @@ export default async function BillingPage() {
   }
 
   const headline = headlineFor(billing);
+  const periodEnd = periodEndDate(billing);
 
   return (
     <Shell>
       <section className={`rounded border p-4 ${TONE_STYLES[headline.tone]}`}>
         <h2 className="font-semibold text-slate-100">{headline.title}</h2>
         <p className="mt-1 max-w-2xl text-sm text-slate-300">{headline.detail}</p>
+        {headline.emailSubject && (
+          <a
+            href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(headline.emailSubject)}`}
+            className="mt-2 inline-block text-sm text-sky-300 underline underline-offset-2 hover:text-sky-200"
+          >
+            {SUPPORT_EMAIL}
+          </a>
+        )}
         {/* Only the truly-dead state gets a restart link. "Unpaid" is still
-            alive in Stripe and revives through the card, and pointing its
-            owner at a new checkout would have them paying twice. */}
-        {!billing.entitled && billing.status !== "unpaid" && (
+            alive in Stripe and revives through the card, "Paused" is still
+            there on hold, and pointing either owner at a new checkout would
+            have them paying twice. */}
+        {offersRestart(billing) && (
           <Link
             href="/account/billing/restart"
             data-deeplink="billing.restart"
@@ -108,14 +123,14 @@ export default async function BillingPage() {
         <dl className="divide-y divide-slate-800">
           <Row label="Status" value={STATUS_LABELS[billing.status] ?? billing.status} />
           <Row
-            label={billing.entitled ? "Price" : "Was"}
+            label={priceLabel(billing)}
             value={`${formatUsd(billing.chargeCents ?? billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}`}
-            hint={`${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate${billing.chargeCents != null && billing.chargeCents !== billing.periodCents ? ", with your code applied" : ""}.`}
+            hint={priceHint(billing)}
           />
           {billing.trialEndsAt && billing.entitled && (
             <Row label="Trial ends" value={longDate(billing.trialEndsAt)} />
           )}
-          {billing.renewsAt && <Row label={periodEndLabel(billing)} value={longDate(billing.renewsAt)} />}
+          {periodEnd && <Row label={periodEndLabel(billing)} value={longDate(periodEnd)} />}
           {billing.signupCode && <Row label="Signup code" value={billing.signupCode} />}
         </dl>
       </section>
@@ -126,7 +141,7 @@ export default async function BillingPage() {
           <p className="mt-1 text-sm text-amber-100/80">
             We checked it on {longDate(billing.cardTrouble.since)} and your bank declined it
             {billing.cardTrouble.code ? ` (${billing.cardTrouble.code})` : ""}. Nothing has failed
-            yet — updating it now avoids an interruption.
+            yet, and updating it now avoids an interruption.
           </p>
         </section>
       )}
@@ -186,7 +201,7 @@ export default async function BillingPage() {
             >
               Your PMS currently shows <strong>{billing.roomTruth.measured} active rooms</strong>.
               {billing.roomTruth.kind === "over"
-                ? " You're paying for more than that — lower it here and your next invoice drops."
+                ? " You're paying for more than that. Lower it here and your next invoice drops."
                 : " We take this from your property management system, so it updates on its own as you open or close rooms."}
             </p>
           )}

@@ -1,10 +1,10 @@
 ---
 title: Find out why a price changed
-summary: Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open "How did we know?" when a booking speed rule acted.
+summary: Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open "Show the numbers" when a booking speed rule acted.
 section: recipes
 order: 10
 readingTime: 7
-keywords: [why did the price change, why did my price change, change log, which rule, who changed the price, reason, explanation, how did we know, pricing run, dropped, jumped, cut, raised, base rate changed, pricing rule, show all cycles, prices checked, stay, up to, down to, stronger one's latest raise, latest raise still on this night, latest cut, up to yesterday, bookings not rooms, cancellations meant, no longer true, came off, how far back, older change, change is gone, disappeared, 10 runs, 40 changes, empty log, yesterday, this morning, 90 days, manual badge, current price]
+keywords: [why did the price change, why did my price change, change log, which rule, who changed the price, reason, explanation, show the numbers, pricing run, dropped, jumped, cut, raised, base rate changed, pricing rule, show all cycles, prices checked, stay, up to, down to, stronger one's latest raise, latest raise still on this night, latest cut, up to yesterday, bookings not rooms, cancellations meant, no longer true, came off, how far back, older change, change is gone, disappeared, 10 runs, 40 changes, empty log, yesterday, this morning, 90 days, manual badge, current price]
 questions:
   - Why did the price change on a night? {#in-plain-words}
   - How do I find out which rule changed a price? {#open-the-change-log/1-go-to}
@@ -14,18 +14,18 @@ questions:
   - Why did a price change with no rule named? {#what-the-sentences-mean}
   - How far back does the change log go? {#how-far-back-the-log-goes}
   - The price changed a while ago and the log no longer shows it. How do I find out why? {#if-nothing-is-listed-for-the-night/when-the-price}
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
-Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price moved, one bold line per room type and night, followed by a sentence that names the rule and the reason. For a booking speed change, click <Ui>How did we know?</Ui> under the entry to see the counts behind it. The change log covers your 10 most recent runs that changed a price. For an older change, check the night on the <Ui>Calendar</Ui> tab first: a badge means the price was typed in MAYA or changed in your system, and <Ui>Current price</Ui> shows where your rules have taken your rate. For the exact reason, email us the night and room type within 90 days.
+Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price moved, one bold line per room type and night, followed by a sentence that names the rule and the reason. For a booking speed change, click <Ui>Show the numbers</Ui> under the entry to see the counts behind it. The change log covers your 10 most recent runs that changed a price. For an older change, check the night on the <Ui>Calendar</Ui> tab first: a badge means the price was typed in MAYA or changed in your system, and <Ui>Current price</Ui> shows where your rules have taken your rate. For the exact reason, email us the night and room type within 90 days.
 </InPlainWords>
 
 ## Open the change log
 
 <Steps>
 <Step title="Go to the Change Log tab">
-It opens on changes only. Each entry is headed <Ui>Pricing run</Ui> with the time of the run in your browser's local time, such as "Sat, Nov 14, 2026, 3:05 PM PST", and how long ago it was, such as "(12 min ago)". Ongoing problems, headed <Ui>Rates not reaching Cloudbeds</Ui> (or your system's name), sit above every run.
+It opens on changes only. Each entry is headed <Ui>Pricing run</Ui> with the time of the run in your browser's local time, such as "Sat, Nov 14, 2026, 3:05 PM PST", and how long ago it was, such as "(12 min ago)". Ongoing problems, headed <Ui>Prices not reaching Cloudbeds</Ui> (or your system's name), sit above every run.
 </Step>
 <Step title="Find the night">
 Inside a run, each change starts with a bold line in the shape "Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)". Look for the stay date. Down moves read "down to" with a minus percentage.
@@ -33,8 +33,8 @@ Inside a run, each change starts with a bold line in the shape "Standard · stay
 <Step title="Read the sentence under it">
 The first sentence names the rule and the move: "Busy nights" raised this night 10%, from $150.00 to $165.00. The next sentence gives the reason in your own numbers: It was 85% full, past the 80% mark you set.
 </Step>
-<Step title="Open How did we know? for a booking speed change">
-When a booking speed rule acted, a <Ui>How did we know?</Ui> link sits under the entry. It shows how many bookings the night received, how many a night like it usually has by that point, and the level that reads as. <Ui>Why did you expect that?</Ui> lists which past nights were compared and why, and <Ui>Show me the nights you compared</Ui> lists them one by one.
+<Step title="Show the numbers for a booking speed change">
+When a booking speed rule acted, a <Ui>Show the numbers</Ui> link sits under the entry. It shows how many bookings the night received, how many a night like it usually has by that point, and the level that reads as. <Ui>Which nights were compared?</Ui> lists which past nights were compared and why, and <Ui>List the nights</Ui> lists them one by one.
 </Step>
 </Steps>
 
@@ -57,7 +57,7 @@ When a booking speed rule acted, a <Ui>How did we know?</Ui> link sits under the
 
 The tab covers the 10 most recent runs that changed a price, however long ago they ran. On a busy day that may be the last hour, on a quiet week several days. A change older than the tenth is no longer listed. The runs in between that changed nothing are counted into one quiet line per stretch, shown under <Ui>Show All Cycles</Ui>.
 
-If no run has changed a price yet, no runs are listed. Within a run you see the 40 biggest moves, and nothing on screen says when a run had more.
+If no run has changed a price yet, no runs are listed. Within a run you see the 40 biggest moves. When a run had more, a line under them counts the rest, such as "And 23 more changes in this run."
 
 ## If nothing is listed for the night
 
@@ -81,6 +81,6 @@ There is no search box, no filter by night or room type, no way to page back to 
 
 <Related>
 - [The change log](/docs/watch/the-change-log)
-- [How did we know?](/docs/watch/how-did-we-know)
+- [The numbers behind a change](/docs/watch/how-did-we-know)
 - [A price looks wrong](/docs/wrong/a-price-looks-wrong)
 </Related>

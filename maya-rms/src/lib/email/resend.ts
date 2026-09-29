@@ -58,9 +58,9 @@ export type SendEmailInput = {
 
 /**
  * Sends a single transactional email through Resend.
- * Throws with a readable message on any configuration or API failure so
- * callers can surface it in the admin UI (same contract the Supabase
- * invite errors had).
+ * Throws on any configuration or API failure with a message written for the
+ * server log: it names Resend and carries its response. Callers log it and
+ * show the person on the other end a plain sentence of their own, never this.
  */
 export async function sendEmail(input: SendEmailInput): Promise<{ id: string }> {
   const apiKey = process.env.RESEND_API_KEY;

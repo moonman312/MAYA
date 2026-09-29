@@ -228,16 +228,35 @@ describe("measureRooms honours the owner's counts_as_room over the name", () => 
     expect(m.excluded).toEqual([]);
   });
 
-  it("falls back to the name heuristic on an unclassified type and says so", async () => {
+  it("leaves out a type nobody has answered for, which settings shows unticked", async () => {
+    // Null is "needs your answer" in room-type settings: an unticked box. The
+    // shortfall email's "tick it and it joins the count" only works if the
+    // bill leaves it out too, whatever the name says.
     const { admin } = fakeAdmin({
       roomTypes: [
-        { name: "King Room", total_rooms: 20, counts_as_room: null },
+        { name: "King Room", total_rooms: 20, counts_as_room: true },
         { name: "Pickleball Court", total_rooms: 5, counts_as_room: null },
+        { name: "Garden Room", total_rooms: 2, counts_as_room: null, counts_as_room_set_by: null },
       ],
     });
     const m = await measureRooms(admin, "h1");
     expect(m.billable).toBe(20);
-    expect(m.excluded).toEqual([{ name: "Pickleball Court", rooms: 5, source: "heuristic" }]);
+    expect(m.excluded).toEqual([
+      { name: "Pickleball Court", rooms: 5, source: "heuristic" },
+      { name: "Garden Room", rooms: 2, source: "heuristic" },
+    ]);
+  });
+
+  it("counts a type once someone ticks it", async () => {
+    const { admin } = fakeAdmin({
+      roomTypes: [
+        { name: "King Room", total_rooms: 20, counts_as_room: true },
+        { name: "Pickleball Court", total_rooms: 5, counts_as_room: true, counts_as_room_set_by: "user-1" },
+      ],
+    });
+    const m = await measureRooms(admin, "h1");
+    expect(m.billable).toBe(25);
+    expect(m.excluded).toEqual([]);
   });
 
   it("tells owner exclusions from heuristic ones in the same list", async () => {

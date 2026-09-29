@@ -24,14 +24,14 @@ There is no badge on the dashboard yet. Open the review page: where it shows you
 
 <Steps>
 <Step title="Open the review page">
-Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>, or click <Ui>Review →</Ui> on the blue banner when it is showing. Under "While you were here, we built your first pricing rules", a simulating property shows the button <Ui>Turn them on for real</Ui> and the line "Or leave them in simulation and watch for a while. That works too." A live property shows the green pill "✓ Live: your rules are now managing prices" instead. This box only appears when MAYA built starter rules for you during setup, which needs about 60 days of history. It also disappears once someone runs <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. If it is missing, use the clues below or [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live) and we check.
+Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>, or click <Ui>Review →</Ui> on the blue banner when it is showing. Under "While you were here, we built your first pricing rules", a simulating property shows the button <Ui>Turn them on for real</Ui> and the line "Or leave them in simulation and watch for a while. That works too." A live property shows the green pill "✓ Live: your rules are now managing prices" instead. This box only appears when MAYA built starter rules for you during setup, which needs about 60 days of history. It stays after someone runs <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. If it is missing, use the clues below or [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live) and we check.
 </Step>
 <Step title="Read the amber banner, if one is showing">
 When three of a rule's changes are on a night, the banner's headline reads "Hot-week surge" has 3 raises on Sat, Nov 14 2026. when you are live, and "Hot-week surge" would have 3 raises on Sat, Nov 14 2026. in simulation.
 </Step>
 </Steps>
 
-If you have typed a price for a real reason lately, its confirmation said which mode you were in: "Saved (simulation: not sent to Cloudbeds)." in simulation, "Saved. Sending to Cloudbeds now." or "Saved. Sending to Cloudbeds on the next cycle (about 5 min)." when live. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
+If you have typed a price for a real reason lately, its confirmation said which mode you were in: "Saved (simulation: not sent to Cloudbeds)." in simulation, "Saved. Sending to Cloudbeds now." or "Saved. Sending to Cloudbeds on the next cycle (about 5 min)." when live. "Saved. It will be sent once you reconnect." means live too, with the connection down. "Saved. Nothing is sent while MAYA's work is paused." says nothing about the mode. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
 
 ## Then compare a night with your system
 
@@ -39,7 +39,7 @@ Pick a night in the next few weeks with a price on the <Ui>Calendar</Ui> tab (th
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-Look at the room type's base rate in Cloudbeds. On a live property it matches MAYA's current price within a few minutes of a change, unless you have changed it yourself in Cloudbeds since. Derived rate plans follow it by Cloudbeds' own rules. The <Ui>Change Log</Ui> tab shows a "Rates not reaching Cloudbeds" item if sends are failing. A simulating property never has one, because nothing is sent.
+Look at the room type's base rate in Cloudbeds. On a live property it matches MAYA's current price within a few minutes of a change, unless you have changed it yourself in Cloudbeds since. Derived rate plans follow it by Cloudbeds' own rules. The <Ui>Change Log</Ui> tab shows a "Prices not reaching Cloudbeds" item if sends are failing. A simulating property never has one, because nothing is sent.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 Look at the Best Available rate for the room type in ThinkReservations. ThinkReservations accepts MAYA's prices and applies them shortly after, so allow a little longer than with Cloudbeds. MAYA reads the rate back within about an hour.

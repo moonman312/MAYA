@@ -4,7 +4,7 @@ summary: How to connect ThinkReservations from inside MAYA, what MAYA reads ther
 section: connect
 order: 30
 readingTime: 15
-keywords: [ThinkReservations, Think Reservations, Think, connect, access code, paid without a code, any code, reconnect, which login, wrong hotel, other hotel, another hotel, Last sync stopped, booking speed, seasons, Best Available, BAR, rate type, standard, derived, non-refundable, package, units, occupancy wrong, unit count, room count, rooms per room type, list of rooms, inactive room, not a room, not included in occupancy, sold online, zero rooms, bill, billing room count, accepted, applied, read back, an hour, group, several hotels, covers properties, one property per login, permission to update rates, write permission, disconnect, banner, Error, request log, No recent activity, password, connection failed, marketplace-initiated, link expired, 15 minutes, Return to Command Center, average]
+keywords: [ThinkReservations, Think Reservations, Think, connect, access code, paid without a code, any code, reconnect, which login, wrong hotel, other hotel, another hotel, Last sync stopped, booking speed, seasons, Best Available, BAR, rate type, standard, derived, non-refundable, package, units, occupancy wrong, unit count, room count, rooms per room type, list of rooms, inactive room, not a room, not included in occupancy, sold online, zero rooms, bill, billing room count, accepted, applied, read back, an hour, group, several hotels, covers properties, one property per login, permission to update rates, write permission, disconnect, banner, Error, request log, No recent activity, password, link ran out, sign-in link ran out, start again from MAYA, link expired, 15 minutes, Return to Command Center, average]
 questions:
   - How do I connect ThinkReservations to MAYA? {#connecting/there-is-one}
   - Which rate does MAYA change in ThinkReservations? {#which-rate-type-maya-sends-prices-to/thinkreservations-marks-each}
@@ -19,7 +19,7 @@ questions:
   - Can support set up a group of ThinkReservations properties? {#one-property-per-login}
   - How would I know if ThinkReservations lost its connection? {#disconnecting-and-reconnecting/thinkreservations-does-not}
   - Which ThinkReservations login should I reconnect with? {#disconnecting-and-reconnecting/thinkreservations-does-not}
-  - Why does the PMS tab say No recent activity for ThinkReservations? {#the-pms-tab-for-a-thinkreservations-property/the-connection-card}
+  - Why does the PMS tab say Not tracked for this system for ThinkReservations? {#the-pms-tab-for-a-thinkreservations-property/the-connection-card}
   - Does MAYA need a code to connect ThinkReservations? {#messages-you-can-meet-on-the-way-in/think-reservations-needs}
   - What changes in ThinkReservations once I go live? {#which-rate-type-maya-sends-prices-to/thinkreservations-marks-each}
   - What stays mine in ThinkReservations after I go live? {#which-rate-type-maya-sends-prices-to/derived-rate-types}
@@ -27,9 +27,9 @@ questions:
   - Will my ThinkReservations non-refundable rate follow MAYA's price? {#the-pms-tab-for-a-thinkreservations-property/the-harbour-inns}
   - How long until a price MAYA sends shows in ThinkReservations? {#how-a-send-is-checked/thinkreservations-does-not}
   - How do I stop using MAYA with ThinkReservations? {#disconnecting-and-reconnecting/thinkreservations-does-not}
-  - It says Think Reservations connection failed, what now? {#connecting/3-sign-in}
+  - It says the sign-in link ran out after 15 minutes, what now? {#connecting/3-sign-in}
 pms: [thinkreservations]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -50,7 +50,7 @@ There is one way in. You create your MAYA account, pay, and then connect. ThinkR
 **On the screen titled <Ui>Connect your property system</Ui>, click <Ui>Connect →</Ui> beside Think Reservations.** The card says <Ui>Sign in with your Think Reservations account</Ui>. There is nothing to copy and nothing to set up on the ThinkReservations side.
 </Step>
 <Step>
-**Sign in on ThinkReservations' website and approve.** MAYA asks ThinkReservations for permission to read your bookings, rooms, rates and availability, to write rates, and to stay connected without asking you to sign in again. It does not ask for guest details. Finish within 15 minutes. If it takes longer, you land on a page headed "Think Reservations connection failed" that says "think does not support marketplace-initiated connections." Nothing is wrong: the sign-in link had run out. Go back to the connect screen and start again.
+**Sign in on ThinkReservations' website and approve.** MAYA asks ThinkReservations for permission to read your bookings, rooms, rates and availability, to write rates, and to stay connected without asking you to sign in again. It does not ask for guest details. Finish within 15 minutes. If it takes longer, you land on a page that says "That sign-in link ran out after 15 minutes. Start again from MAYA." with an <Ui>Open MAYA</Ui> link. Nothing is wrong and nothing was set up: go back to the connect screen and start again.
 </Step>
 <Step>
 **You are brought back to MAYA.** MAYA names the property from ThinkReservations, reads its time zone and currency, and starts the history import. If a property with that name already exists on MAYA, a "(2)" is added. You can rename it in the questions step. Read [the history import](/docs/review/the-history-import).
@@ -132,7 +132,7 @@ At The Harbour Inn, "Best Available" covers Standard, Deluxe and Suite. "Non-Ref
 
 ### When a room type has no base rate
 
-If no rate type MAYA can send to covers a room type, that room type is priced on the calendar but not sent, and the change log shows a "Rates not reaching Think Reservations" entry: "MAYA can't find a base rate for Deluxe in Think Reservations, so its rates can't be changed", with the action "Add a base rate for this room type in Think Reservations." Add the room type to your Best Available rate type in ThinkReservations. MAYA re-reads your rate types and sends the held prices on a later cycle. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+If no rate type MAYA can send to covers a room type, that room type is priced on the calendar but not sent, and the change log shows a "Prices not reaching Think Reservations" entry: "MAYA can't find a base rate for Deluxe in Think Reservations, so its rates can't be changed", with the action "Add a base rate for this room type in Think Reservations." Add the room type to your Best Available rate type in ThinkReservations. MAYA re-reads your rate types and sends the held prices on a later cycle. Read [when your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
 
 ## How a send is checked
 
@@ -154,9 +154,9 @@ A refused write never disconnects a ThinkReservations property. The connection s
 
 ## Disconnecting and reconnecting
 
-ThinkReservations does not tell MAYA when access has been removed. MAYA reads the refusal when its next call fails. A failed read is tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while reads fail. When ThinkReservations refuses to renew MAYA's access, the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab reads <Ui>Error</Ui> and the banner "MAYA has lost its connection to Think Reservations" appears for a General Manager or Hotel Admin, with a <Ui>Reconnect Think Reservations</Ui> button. Until the status changes, the tab can still read <Ui>Connected</Ui> while calls are failing. If prices have stopped and the tab still reads <Ui>Connected</Ui>, a General Manager or Hotel Admin can click the quiet <Ui>Reconnect Think Reservations</Ui> link on the <Ui>PMS</Ui> tab anyway. Which ThinkReservations login you sign in with matters, so read the next paragraph first.
+ThinkReservations does not tell MAYA when access has been removed. MAYA reads the refusal when its next call fails. A failed read is tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while reads fail. When ThinkReservations refuses to renew MAYA's access, the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab reads <Ui>Error</Ui> and the banner "MAYA has lost its connection to Think Reservations" appears for a General Manager or Hotel Admin, with a <Ui>Reconnect Think Reservations</Ui> button. If it still reads <Ui>Error</Ui> an hour later, every General Manager and Hotel Admin gets one email saying so. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email). Until the status changes, the tab can still read <Ui>Connected</Ui> while calls are failing. If prices have stopped and the tab still reads <Ui>Connected</Ui>, a General Manager or Hotel Admin can click the quiet <Ui>Reconnect Think Reservations</Ui> link on the <Ui>PMS</Ui> tab anyway. Which ThinkReservations login you sign in with matters, so read the next paragraph first.
 
-To reconnect, click <Ui>Reconnect Think Reservations</Ui> on the banner or on the <Ui>PMS</Ui> tab, sign in on ThinkReservations' site with a login that reaches this hotel and no other, and you are back on the dashboard. Your rules, history and settings are untouched. Finish signing in within 15 minutes. If it takes longer, you see the "Think Reservations connection failed" page described under Connecting. Nothing has changed: start again from the <Ui>PMS</Ui> tab. Syncing resumes within about five minutes, or up to an hour if reads had been failing for a while. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+To reconnect, click <Ui>Reconnect Think Reservations</Ui> on the banner or on the <Ui>PMS</Ui> tab, sign in on ThinkReservations' site with a login that reaches this hotel and no other, and you are back on the dashboard's <Ui>PMS</Ui> tab with the note "Reconnected." Your rules, history and settings are untouched. Finish signing in within 15 minutes. If it takes longer, you see "That sign-in link ran out after 15 minutes. Start again from MAYA." Nothing has changed: click <Ui>Open MAYA</Ui> and start again from the <Ui>PMS</Ui> tab. Syncing resumes within about five minutes, or up to an hour if reads had been failing for a while. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
 <Callout kind="careful" title="Reconnect with a login for this hotel only">
 A reconnect clears which hotel MAYA reads, and the next read uses the hotel the new login reaches. A login to one other hotel moves this property onto that hotel: MAYA reads its bookings and, once you are live, sends prices to it. A login that reaches several hotels makes every read fail, while the tab still reads <Ui>Connected</Ui> and <Ui>Last sync</Ui> stops moving.
@@ -170,10 +170,10 @@ MAYA never sees your ThinkReservations password. ThinkReservations gives MAYA it
 
 ## The PMS tab for a ThinkReservations property
 
-The <Ui>Connection</Ui> card and <Ui>Last sync</Ui> are right for ThinkReservations. The <Ui>Recent requests to Think Reservations</Ui> table stays empty today, and the <Ui>Health (last 24 hours)</Ui> card reads <Ui>No recent activity</Ui>, because only calls to Cloudbeds are written to that log. It does not mean syncing has stopped. <Ui>Last sync</Ui> is the number to look at. Read [the PMS tab](/docs/watch/the-pms-tab).
+The <Ui>Connection</Ui> card and <Ui>Last sync</Ui> are right for ThinkReservations. The <Ui>Recent requests to Think Reservations</Ui> list and the <Ui>Health (last 24 hours)</Ui> card both read "Not tracked for this system", because MAYA keeps a log of its requests to Cloudbeds only. It does not mean syncing has stopped. <Ui>Last sync</Ui> is the number to look at. Read [the PMS tab](/docs/watch/the-pms-tab).
 
 <Callout kind="not-yet" title="Not yet">
-There is no Marketplace install for ThinkReservations, so no free trial without a code. ThinkReservations does not tell MAYA about a disconnect (MAYA finds the refusal on its next call). A login covering several hotels cannot connect on its own (we set them up by hand). The request log on the PMS tab does not fill for ThinkReservations.
+There is no Marketplace install for ThinkReservations, so no free trial without a code. ThinkReservations does not tell MAYA about a disconnect (MAYA finds the refusal on its next call). A login covering several hotels cannot connect on its own (we set them up by hand). The PMS tab keeps no request log for ThinkReservations.
 </Callout>
 
 <Example title="The Harbour Inn goes live on ThinkReservations">

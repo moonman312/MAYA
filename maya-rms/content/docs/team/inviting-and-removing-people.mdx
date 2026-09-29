@@ -3,8 +3,8 @@ title: Inviting and removing people
 summary: The Team page, seats and how many you get (there are no separate seats), inviting someone and what they receive, colleagues who already use MAYA, accepting an invitation, changing roles, removing people, getting a new invitation link, what happens when someone leaves, handing MAYA to a new owner, and who is signed in.
 section: team
 order: 20
-readingTime: 13
-keywords: [team, invite, invitation, not accepted yet, new link, link lost, add someone, add a colleague, add a user, seats, seat, how many people, used every seat, more seats, resend invitation, resend, invitation expired, invite link expired, accept invite, set your password, change role, remove someone, remove a user, remove myself, employee leaves, staff leaves, only hotel admin, already on this property, already have an invitation pending, invitation sent, existing account, audit trail, who did what, all properties at once, their email, what they can do, send invitation, extra seats, buy seats, seats only, seat without rooms, more logins, more users, four people, pay for more rooms, rooms we don't have, sold the hotel, selling the hotel, new owner, change of owner, change of ownership, new management company, management company, hand over, handover, transfer ownership, transfer the account, old owner's card, old card still charged, move the subscription, who is signed in, logged in, last signed in, last login, last sign-in, sign everyone out, log everyone out, active sessions, session length, IT, unauthorised access, invitation failed, invite error, could not send, error message, link is invalid, invalid or has expired, link already used, used link]
+readingTime: 14
+keywords: [team, invite, invitation, not accepted yet, new link, link lost, add someone, add a colleague, add a user, seats, seat, how many people, used every seat, more seats, resend invitation, resend, invitation expired, invite link expired, accept invite, set your password, change role, remove someone, remove a user, remove myself, employee leaves, staff leaves, only hotel admin, already on this property, already have an invitation pending, invitation sent, added, already uses MAYA, existing account, audit trail, who did what, all properties at once, their email, what they can do, send invitation, extra seats, buy seats, seats only, seat without rooms, more logins, more users, four people, pay for more rooms, rooms we don't have, sold the hotel, selling the hotel, new owner, change of owner, change of ownership, new management company, management company, hand over, handover, transfer ownership, transfer the account, old owner's card, old card still charged, move the subscription, who is signed in, logged in, last signed in, last login, last sign-in, sign everyone out, log everyone out, active sessions, session length, IT, unauthorised access, invitation failed, invite error, could not send, error message, link is invalid, invalid or has expired, expired or was already used, link already used, used link, try again in a minute]
 questions:
   - How do I add a colleague to MAYA? {#in-plain-words}
   - How many people can I add? {#seats}
@@ -15,9 +15,9 @@ questions:
   - How do I resend an invitation? {#resending-an-invitation}
   - Sending an invitation showed an error. What now? {#inviting-someone/1-type-their}
   - My colleague never got the invitation, why? {#if-they-already-use-maya}
-  - 'Why did it say "Invitation sent" when they already had an account?' {#if-they-already-use-maya}
+  - 'Why did it say "Added" instead of "Invitation sent"?' {#if-they-already-use-maya}
   - What happens when someone accepts an invite? {#accepting-an-invitation/1-click-accept}
-  - My invitation link says it is invalid or has expired. What now? {#accepting-an-invitation/if-the-link}
+  - My invitation link says it has expired or was already used. What now? {#accepting-an-invitation/if-the-link}
   - I signed up on my own with the invited email, am I on the property? {#accepting-an-invitation/if-the-link}
   - Can I change someone's role? {#on-this-property/changing-a-role}
   - Can I remove someone, or remove myself? {#on-this-property/removing-someone}
@@ -32,11 +32,11 @@ questions:
   - After a change of owner, will the old owner's card still be charged? {#when-the-property-changes-hands/a-subscription-can}
   - Can I see who is signed in, when a colleague last signed in, or sign everyone out? {#who-is-signed-in/there-is-no}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Click <Ui>Team</Ui>, top right. Type an email under <Ui>Their email</Ui>, pick what they can do, click <Ui>Send invitation</Ui>. They are on the property at once. Someone new to MAYA gets an email with a single-use link to set a password. Someone who already uses MAYA gets no email. Seats follow the room count you pay for (2, 4, 5, 6 or 8) and are not sold on their own. To remove someone, click <Ui>Remove</Ui> beside their name.
+Click <Ui>Team</Ui>, top right. Type an email under <Ui>Their email</Ui>, pick what they can do, click <Ui>Send invitation</Ui>. They are on the property at once. Someone who has never signed in to MAYA gets an email with a single-use link to set a password. Someone who already uses MAYA gets no email, and the page says so. Seats follow the room count you pay for (2, 4, 5, 6 or 8) and are not sold on their own. To remove someone, click <Ui>Remove</Ui> beside their name.
 </InPlainWords>
 
 ## The Team page
@@ -87,7 +87,7 @@ The <Ui>What they can do</Ui> dropdown lists the four roles and starts on Revenu
 The dropdown lists every role for everyone. A General Manager who picks Hotel Admin is refused on send with "You can't give someone a role above your own."
 </Step>
 <Step title="Click Send invitation">
-The button reads "Sending…", then the page says "Invitation sent to" the address, with "They'll get an email with a link to join." The person is on the property from this moment, before they open the email. Their address appears in the list below with their role, a role menu and <Ui>Remove</Ui>, like everyone else.
+The button reads "Sending…", then the page says "Invitation sent to" the address, with "They'll get an email with a link to join." If they already use MAYA, it says "Added." with their address and "already uses MAYA and will see this property next time they sign in." instead, and no email goes out. Either way the person is on the property from this moment, before they open any email. Their address appears in the list below with their role, a role menu and <Ui>Remove</Ui>, like everyone else.
 </Step>
 </Steps>
 
@@ -101,15 +101,20 @@ Messages you might see:
 - **"They already have an invitation pending."** Cancel the pending invitation in the list, then invite again.
 - **The seat message above.** Remove someone, or raise the room count on the <Ui>Billing</Ui> page.
 - **"Too many invitations just now. Try again shortly."** More than 20 in an hour on one property. Wait, then try again.
-- **Any other message.** Something else went wrong. It may read "Could not send that invitation." or be in technical words. Try once more, and if it fails again, [email us](mailto:info@modern-hospitality-solutions.com?subject=Invitation%20failed) with the words you saw. If a second try says "Invitation sent" but no email arrives, email us for a new link.
+- **"Could not send that invitation. Try again in a minute."** The invitation did not go through and nobody was added. Wait a minute and send it again: the new email carries a fresh link. If it fails again, [email us](mailto:info@modern-hospitality-solutions.com?subject=Invitation%20failed) with the address you were inviting.
+- **"Could not send that invitation."** The connection dropped before the page heard back. Reload the page. If they are in the list, it went through. If not, send it again.
 
 ## The invitation email
 
-The subject is "You have been invited to The Harbour Inn on MAYA". Inside, the heading "You're invited", a line saying who invited them, to which property and as which role, and an <Ui>Accept the invite</Ui> button. The reply-to is the inviter's address, so a reply reaches you. The footer says the link is single-use and expires after a limited time. How long is not a number MAYA sets. If the link has expired or the email is lost, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) and we send a new one (see [Resending an invitation](#resending-an-invitation) below).
+The subject is "You have been invited to The Harbour Inn on MAYA". Inside, the heading "You're invited", a line saying who invited them, to which property and as which role, and an <Ui>Accept the invite</Ui> button. The reply-to is the inviter's address, so a reply reaches you. Under the button it says the link works once and expires after a limited time, and that if it has expired and they haven't set a password yet, they can email us at info@modern-hospitality-solutions.com for a new link. How long is not a number MAYA sets. [Resending an invitation](#resending-an-invitation) below has the ways to get a new link.
 
 ## If they already use MAYA
 
-An address that already has a MAYA account (a colleague at another property, say) gets no email. They are added to the property the moment you click <Ui>Send invitation</Ui>, and the property appears in their <Ui>Property</Ui> selector the next time they open MAYA. The page still says "Invitation sent", but nothing was sent, and there is nothing for them to accept. Tell them to sign in.
+Someone who has signed in to MAYA before (a colleague at another property, say) gets no email. They are added to the property the moment you click <Ui>Send invitation</Ui>, and the property appears in their <Ui>Property</Ui> selector the next time they open MAYA. The page says "Added." with their address and "already uses MAYA and will see this property next time they sign in." There is nothing for them to accept. Tell them to sign in.
+
+A login that has never signed in is treated like a new address: it gets the email with a link to set a password, and the page says "Invitation sent". That covers someone whose earlier invitation, to this property or another, was never opened.
+
+Someone who opened an invitation link once but never finished setting a password counts as having signed in, so they get no email. If they cannot sign in, they click <Ui>Forgot password?</Ui> on the sign-in page to set one. [Reset your password](/docs/recipes/reset-your-password) has the steps.
 
 ## Accepting an invitation
 
@@ -125,7 +130,9 @@ The link opens a page headed "Set your password" with "Welcome to MAYA. Set a pa
 </Step>
 </Steps>
 
-If the link has expired or has already been used, the page shows a message that the link is invalid or has expired, in place of the form. Already set your password with that link? Then sign in with your email and password. If not, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) from the invited address and we send you a new link. Nobody on your property can resend it, and inviting you again sends no email, because you are already on the property.
+If the link has expired or has already been used, the page says "This link has expired or was already used. If you set your password already, sign in. If not, email us for a new link." in place of the form. Already set your password with that link? Click <Ui>sign in</Ui> and sign in with your email and password. If not, click <Ui>email us</Ui>, send the email from the invited address, and we send you a new link. The colleague who invited you can also send a fresh one, as [Resending an invitation](#resending-an-invitation) explains.
+
+If the page says "We couldn't check this link just now. Reload the page to try again.", the check got no answer. Reload the page. The link still works.
 
 <Callout kind="good-to-know" title="You are on the property before you accept">
 Sending the invitation adds the person to the property straight away. The email's link is how they set a password. They do not need to create an account of their own.
@@ -135,17 +142,19 @@ Sending the invitation adds the person to the property straight away. The email'
 
 The list shows each person's email and role. Someone you invited is listed straight away, with nothing to mark that they have not set a password yet.
 
-- **Changing a role.** Pick a new role in the dropdown beside their name (its label reads "Role for" their email). It saves at once. Refusals: "That's above your own access level." (you cannot promote someone above yourself, or change someone who already outranks you), "This is the property's only Hotel Admin. Make someone else one first." and "That person isn't on this property." Anything else that fails shows "Could not change that role." or a message in technical words. Try again.
-- **Removing someone.** Click <Ui>Remove</Ui>. Their access ends at once. The same rank rules apply. Anything else that fails shows "Could not remove them." or a message in technical words. Try again.
+- **Changing a role.** Pick a new role in the dropdown beside their name (its label reads "Role for" their email). It saves at once. Refusals: "That's above your own access level." (you cannot promote someone above yourself, or change someone who already outranks you), "This is the property's only Hotel Admin. Make someone else one first." and "That person isn't on this property." Anything else that fails shows "Could not change that role." Try again.
+- **Removing someone.** Click <Ui>Remove</Ui>. Their access ends at once. The same rank rules apply: a General Manager can remove anyone up to General Manager, other General Managers included, and not a Hotel Admin. Anything else that fails shows "Could not remove them." Try again.
 - **Taking back an invitation.** Click <Ui>Remove</Ui> beside their name, as for anyone else. They are off the property and the seat is free.
 
 You can remove yourself, as long as you are not the property's only Hotel Admin. Once removed you cannot get back in until someone still on the property invites you again.
 
 ## Resending an invitation
 
-There is no resend button, and inviting the same address again does not send a new link. The person is already on the property, so the page answers "That person is already on this property." Removing them and inviting them again puts them back on the property, but sends no email, because their login already exists.
+There is no resend button, and inviting the same address again while they are in the list does nothing new: the page answers "That person is already on this property."
 
-If the link has expired or the email went astray, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) with the address and we send a new link.
+To send a fresh link to someone who has never signed in, click <Ui>Remove</Ui> beside their name, then invite them again with the role they should have. A new email goes out with a new link, the old link stops working, and the page says "Invitation sent". Someone who has signed in before gets no email this way. The page says "Added." and they sign in as usual, or use <Ui>Forgot password?</Ui> on the sign-in page if they never set a password.
+
+You can also [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) with the address and we send a new link.
 
 ## When someone leaves
 
@@ -198,7 +207,7 @@ The Harbour Inn pays for 20 rooms, so it has 2 seats, and Sam and Priya fill the
 </Example>
 
 <Callout kind="not-yet">
-No resend button: email us for a new invitation link. No stated expiry on the link. No seats sold apart from rooms. No bulk invitation across properties. No team audit trail. No list of who is signed in or when, and no way to sign everyone out. No way to change your own email address.
+No resend button: remove and invite again, or email us, for a new invitation link. No stated expiry on the link. No seats sold apart from rooms. No bulk invitation across properties. No team audit trail. No list of who is signed in or when, and no way to sign everyone out. No way to change your own email address.
 </Callout>
 
 <Related>

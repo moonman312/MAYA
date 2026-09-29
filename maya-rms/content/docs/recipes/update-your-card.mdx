@@ -1,9 +1,9 @@
 ---
 title: Update your card
-summary: Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. When to do it, and what clears the warning.
+summary: Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. An unpaid subscription is paid and moved for you. When to do it, and what clears the warning.
 section: recipes
 order: 240
-readingTime: 3
+readingTime: 4
 keywords: [update my card, change card, new card, card expired, card declined, card stopped working, payment did not go through, fix it, stripe portal, update card receipts & cancellation, payment method, paused work, restart maya, old card still charged, old card, move to a new card, retry, retries]
 questions:
   - How do I update my card? {#update-the-card}
@@ -13,11 +13,11 @@ questions:
   - MAYA has paused work on my property, how do I get it going again? {#when-to-do-it/the-billing-page}
   - Will Stripe's retry use my new card? {#update-the-card}
   - Does MAYA store my card details? {#in-plain-words}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Click <Ui>Billing</Ui> at the top right, then <Ui>Update card, receipts & cancellation</Ui>. That opens Stripe, where your card, invoices and cancellation live. Save the new card there as your default and you are sent back to the Billing page. Then email us so we move your subscription onto it, because a subscription can keep charging the card it started with. MAYA never holds your card: Stripe does.
+Click <Ui>Billing</Ui> at the top right, then <Ui>Update card, receipts & cancellation</Ui>. That opens Stripe, where your card, invoices and cancellation live. Save the new card there as your default and you are sent back to the Billing page. Then email us so we move your subscription onto it, because a subscription can keep charging the card it started with. If work has paused because the payments failed, there is no need to email: MAYA pays the open invoice with the new card and moves the subscription onto it. MAYA never holds your card: Stripe does.
 </InPlainWords>
 
 ## Update the card
@@ -34,6 +34,8 @@ In the portal, update the payment method and save the new card as your default. 
 </Step>
 <Step title="Email us to move the subscription onto the new card">
 Your subscription may keep charging the card it started with, including when Stripe retries an overdue payment. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) with your property name and we move the subscription onto the new card.
+
+If the status reads "Unpaid", skip this step. As soon as the new card is your default, MAYA pays the open invoice with it and moves the subscription onto it.
 </Step>
 </Steps>
 
@@ -43,12 +45,12 @@ Your subscription may keep charging the card it started with, including when Str
 |---|---|---|
 | Your saved card stopped working | MAYA checks the card with a zero-amount check that moves no money, once after checkout and again about 48 hours later. This one was declined. Nothing has failed yet. | Before the next charge, update the card, then email us so we move your subscription onto it. The warning clears by itself the next time a payment succeeds. |
 | Your last payment did not go through | The bank declined a real charge. Stripe is retrying, and your rules keep running in the meantime. The status row reads "Payment overdue". | Update the card, then email us so we move your subscription onto it. The next retry then uses the new card. |
-| MAYA has paused work on this property | The retries ran out. Prices are no longer worked out or sent. The status row reads "Unpaid" and the dashboard shows the red <Ui>Restart MAYA</Ui> banner. | Update the card, then email us so we move your subscription onto it. Once a payment goes through, the subscription restarts where it left off. Your rules, settings and history are untouched. |
+| MAYA has paused work on this property | The retries ran out. Your rules no longer run on a schedule and nothing is sent to your PMS. The status row reads "Unpaid" and the dashboard shows the red <Ui>Restart MAYA</Ui> banner. | Update the card and save it as your default. MAYA pays the open invoice with it straight away and moves the subscription onto it, so there is no need to email us. Once the payment goes through, the subscription restarts where it left off. Your rules, settings and history are untouched. If the new card is declined too, the status stays "Unpaid": save a different card. |
 
 The retry period is a Stripe setting, about two weeks.
 
 <Callout kind="good-to-know">
-Receipts, failed-payment emails and expiring-card emails come from Stripe, not from MAYA, to the email address on your billing account. MAYA cannot resend them. MAYA itself sends three emails: the team invitation, the room count email and a nudge before a charge when your property system is not connected.
+Receipts, failed-payment emails and expiring-card emails come from Stripe, not from MAYA, to the email address on your billing account. MAYA cannot resend them. MAYA itself sends five emails: the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when your property system is not connected, and an email to your General Managers and Hotel Admins when the connection to your property system has been down about an hour.
 </Callout>
 
 <Callout kind="not-yet">

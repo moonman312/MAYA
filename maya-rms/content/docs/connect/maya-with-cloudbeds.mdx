@@ -13,11 +13,11 @@ questions:
   - How does MAYA work with Cloudbeds from start to finish? {#in-plain-words}
   - What do I do first after connecting Cloudbeds? {#day-one}
 pms: [cloudbeds]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
-Install MAYA from the Cloudbeds Marketplace, set up payment, and let MAYA read your history. Check what it found, watch your rules in simulation, and email us to check your time zone before you go live. When you go live, MAYA sends each room type's changed prices to its base rate in Cloudbeds, on a cycle that runs about every five minutes. Each step below is a line or two, with a link to the page that explains it.
+Install MAYA from the Cloudbeds Marketplace, set up payment, and let MAYA read your history. Check what it found, watch your rules in simulation, and check your time zone and currency on the <Ui>PMS</Ui> tab before you go live. When you go live, MAYA sends each room type's changed prices to its base rate in Cloudbeds, on a cycle that runs about every five minutes. Each step below is a line or two, with a link to the page that explains it.
 </InPlainWords>
 
 ## Before you start
@@ -50,7 +50,7 @@ Create your MAYA account, or switch to <Ui>Sign in</Ui> if you have one, then cl
 
 ## Going live
 
-- **Check your time zone with us.** MAYA copies your time zone and currency from Cloudbeds once, when you connect. No screen in MAYA shows the time zone, and nothing waits on it while you simulate. Before you go live, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) and we tell you which time zone MAYA has. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
+- **Check your time zone and currency.** MAYA copies them from Cloudbeds once, when you connect. The <Ui>PMS</Ui> tab shows both under <Ui>Time zone and currency</Ui>, and nothing waits on them while you simulate. Before you go live, check they are right, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) if either is wrong. Read [Time zone and currency](/docs/connect/setting-up-your-system-for-maya#time-zone-and-currency).
 - A General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui> on the review and confirms "Send prices to Cloudbeds?". With no starter rules there is no button: [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. Read [Going live](/docs/live/going-live).
 - From the next cycle, MAYA sends each room type's changed prices to its base rate. Derived plans follow by Cloudbeds' own rules, and nothing else in Cloudbeds changes. Read [What MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) and [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 - **Switch off other automatic pricing first.** Any feature in Cloudbeds that changes the base rate by itself, such as automatic pricing or yield rules, counts as another revenue tool. Leave it on while you simulate if you like, and switch it off before you go live, or the two will write over each other. Read [Switching from another revenue tool](/docs/start/is-maya-right-for-you#switching-from-another-revenue-tool).
@@ -61,16 +61,16 @@ Create your MAYA account, or switch to <Ui>Sign in</Ui> if you have one, then cl
 
 - Open the <Ui>Change Log</Ui> tab. Its default view shows only the runs that changed a price, so read what moved and why.
 - Look for a banner: billing, a lost connection or an amber one. The amber one says 3 or more of a rule's raises or cuts are on the same night, and asks whether it should keep going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
-- At the top of the change log, look for "Rates not reaching Cloudbeds".
-- On the <Ui>PMS</Ui> tab, check that <Ui>Last sync</Ui> is a few minutes old. It is written in universal time (UTC), not your local time: [the PMS tab](/docs/watch/the-pms-tab#last-sync) shows how to read it. If it is more than an hour old, bookings are not being read, even if <Ui>Connection</Ui> reads Connected. Read [When there is no banner](/docs/connect/reconnect-and-disconnect#when-there-is-no-banner).
+- At the top of the change log, look for "Prices not reaching Cloudbeds".
+- On the <Ui>PMS</Ui> tab, check that <Ui>Last sync</Ui> is a few minutes old. It is shown on your own computer's clock, with the time zone after it: [the PMS tab](/docs/watch/the-pms-tab#last-sync) has an example. If it is more than an hour old, bookings are not being read, even if <Ui>Connection</Ui> reads Connected. Read [When there is no banner](/docs/connect/reconnect-and-disconnect#when-there-is-no-banner).
 - For your own events, such as a wedding or a local festival, type a price on those nights.
 
 The rest runs without you, day and night, whether or not anyone has MAYA open. Other things you may meet:
 
 - **A rate you change in Cloudbeds** on a night MAYA has sent to and confirmed is kept as yours when you change it an hour or more after the send. Read [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
 - **A free night.** MAYA never sends a price of 0, so set a comp night to 0 in Cloudbeds yourself. Read [Make a night free](/docs/recipes/make-a-night-free).
-- **A sending problem** shows at the top of the change log as "Rates not reaching Cloudbeds", with what to do. Read [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
-- **A lost connection** shows a banner, and a General Manager or Hotel Admin reconnects in one click. Read [Connection lost](/docs/wrong/connection-lost).
+- **A sending problem** shows at the top of the change log as "Prices not reaching Cloudbeds", with what to do. Read [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price).
+- **A lost connection** shows a banner, and a General Manager or Hotel Admin reconnects in one click. If it is still down after about an hour, they get an email. Read [Connection lost](/docs/wrong/connection-lost).
 
 ## Leaving
 
@@ -79,7 +79,7 @@ Cancel on the <Ui>Billing</Ui> page first, then disconnect in Cloudbeds under <U
 <Example title="The Harbour Inn's first week on Cloudbeds">
 **Monday, October 5, 2026.** Sam clicks <Ui>Connect App</Ui>, creates the account, sets up payment and picks <Ui>Hold My Hand</Ui>. The review shows Standard, Deluxe and Suite, with the Meeting Room already unticked. The import has already set floors and ceilings from The Harbour Inn's own rates, and Sam checks them in the <Ui>Guardrails</Ui> column of the Rate Simulator. Sam adds a "Busy nights" rule (more than 80% full, raise 10%).
 
-**Tuesday to Thursday.** In simulation, the property reaches 17 of 20 rooms for Sat, Nov 14 2026, and "Busy nights" raises Standard from the $150 base rate in Cloudbeds to $165. Nothing is sent. On Thursday Sam emails us to check the time zone, and we reply that MAYA has US Pacific.
+**Tuesday to Thursday.** In simulation, the property reaches 17 of 20 rooms for Sat, Nov 14 2026, and "Busy nights" raises Standard from the $150 base rate in Cloudbeds to $165. Nothing is sent. On Thursday Sam checks the <Ui>PMS</Ui> tab: <Ui>Time zone and currency</Ui> reads America/Los_Angeles, US Pacific, and USD ($).
 
 **Friday, October 9, 2026.** Sam clicks <Ui>Turn them on for real</Ui>. On the next cycle MAYA reads the base rates again, then sends the changed prices. The "Non-refundable" plan, which follows Standard at 10% off, shows $148.50 for that Saturday without MAYA touching it.
 
@@ -87,7 +87,7 @@ Cancel on the <Ui>Billing</Ui> page first, then disconnect in Cloudbeds under <U
 </Example>
 
 <Callout kind="not-yet">
-MAYA does not read Cloudbeds room blocks, out-of-order rooms, allotments or restrictions, and never writes them. It never sends a price of 0. There is no disconnect button in MAYA, and no screen shows your time zone. A review with no starter rules has no go-live button (email us).
+MAYA does not read Cloudbeds room blocks, out-of-order rooms, allotments or restrictions, and never writes them. It never sends a price of 0. There is no disconnect button in MAYA, and no screen changes your time zone. A review with no starter rules has no go-live button (email us).
 </Callout>
 
 <Related>

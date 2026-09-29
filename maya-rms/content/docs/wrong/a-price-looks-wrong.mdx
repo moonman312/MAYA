@@ -51,7 +51,7 @@ Deluxe is $200. "Busy nights" (occupancy Greater than 80, Increase 10%) takes it
 
 Because booking speed compares a night with what similar past nights had received at the same point before arrival, not with how full it is. A night 50 days out is compared with how its similar nights were booking when they were 50 days out. If those nights had received none at all by then, 2 or 3 bookings in a week read Much Faster Than Normal, or Faster Than Normal when there are fewer than 5 similar nights to compare with. If they had averaged a fraction of a booking, 0.4 say, it takes 3, because a difference of less than 2 bookings always reads Normal.
 
-Press <Ui>How did we know?</Ui> under the change. The panel that opens shows the count, the expected count ("we would expect almost none over the same stretch") and which nights were compared. "Almost none" covers anything under 1, none at all included. Read [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly) for why small counts read the way they do.
+Press <Ui>Show the numbers</Ui> under the change. The panel that opens shows the count, the usual number ("nights like this one usually get almost no bookings over the same stretch") and which nights were compared. "Almost no bookings" covers anything under 1, none at all included. Read [Booking speed reads oddly](/docs/wrong/booking-speed-reads-oddly) for why small counts read the way they do.
 
 To keep raises off empty nights, add <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> as a second condition to your raise rules. A rule needs every condition true at once. Click <Ui>Edit</Ui> on the rule, click <Ui>+ Add condition</Ui>, and click <Ui>Save changes</Ui>. The window then shows the nights that change: <Ui>Apply price adjustments</Ui> takes the rule's raises off the nights the new condition rules out, and <Ui>Skip price adjustments</Ui> leaves them and keeps new raises off. An edited starter rule keeps its place above the rules you build.
 
@@ -170,7 +170,7 @@ To put the price where you want it, type it on the <Ui>Calendar</Ui> tab. To und
 
 Three things clear a manual price.
 
-- **Someone pressed <Ui>Clear</Ui>.** The confirmation reads "Cleared. MAYA is pricing this night again." Any Revenue Manager or above on the property can do it.
+- **Someone pressed <Ui>Clear</Ui>.** The confirmation reads "Cleared. Your rules price this night again." Any Revenue Manager or above on the property can do it.
 - **Your system reported the night at 0.** On a live property, a night MAYA has sent to that your system now has at 0 is read as you closing it. The night is left unpriced and the manual price there is cleared. When you load a rate again, MAYA reads it as the starting point.
 - **The night passed.** Manual prices apply to tonight onwards.
 

@@ -134,7 +134,7 @@ function client() {
   } as any;
 }
 
-const { resolveOnboardingStep } = await import("./step");
+const { pendingIsRestart, resolveOnboardingStep } = await import("./step");
 const step = () => resolveOnboardingStep(client());
 
 const pendingHotel = (id = "hotel-pending") => ({
@@ -309,5 +309,23 @@ describe("once the PMS connect has adopted the property", () => {
       hotel_subscriptions: [{ hotel_id: "hotel-real", status: "unpaid" }],
     };
     await expect(step()).resolves.toBe("done");
+  });
+});
+
+describe("pendingIsRestart", () => {
+  // Checkout calls a payment a restart when the property already had a
+  // subscription, and grants it no trial. The screen has to agree.
+  it("is false for a brand-new account and for a checkout never finished", async () => {
+    await expect(pendingIsRestart(client())).resolves.toBe(false);
+    state.tables = pendingHotel();
+    await expect(pendingIsRestart(client())).resolves.toBe(false);
+  });
+
+  it("is true once a subscription has been on the pending property", async () => {
+    state.tables = {
+      ...pendingHotel(),
+      hotel_subscriptions: [{ hotel_id: "hotel-pending", stripe_subscription_id: "sub_old", status: "canceled" }],
+    };
+    await expect(pendingIsRestart(client())).resolves.toBe(true);
   });
 });

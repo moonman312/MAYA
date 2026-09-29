@@ -1,7 +1,9 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
+import { describeGuardrailNotSaved, projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
+import { swapStarterRulesForAnswer } from "@/lib/onboarding/starter-swap";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -18,7 +20,13 @@ type AnswersBody = {
  * Saves strategy answers (all optional). Raw answers merge into
  * onboarding_states.questions; normalized values land on hotel_settings and
  * are projected onto room_types guardrails. A user-entered property name
- * always wins over the PMS-derived one.
+ * always wins over the PMS-derived one. An answer to the last question swaps
+ * the starter rules for the set it calls for, when they are still as built
+ * (src/lib/onboarding/starter-swap.ts).
+ *
+ * A floor or ceiling answer that a room type cannot take (it would put that
+ * room type's floor above its ceiling) is saved everywhere else and answered
+ * with a 409 naming the room type, so the card stays up and says why.
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -43,6 +51,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
+  if (
+    body.confidence !== undefined &&
+    body.confidence !== null &&
+    body.confidence !== "automate_current" &&
+    body.confidence !== "find_upside"
+  ) {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
   const floor = numOrNull(body.floor);
   const ceiling = numOrNull(body.ceiling);
   const turnCost = numOrNull(body.turnCost);
@@ -51,6 +68,30 @@ export async function POST(request: Request) {
       { error: "Your floor price needs to be below your ceiling price." },
       { status: 400 },
     );
+  }
+  // The cards save one answer at a time, so the other one is already on file.
+  if ((floor !== null && body.ceiling === undefined) || (ceiling !== null && body.floor === undefined)) {
+    const { data: saved } = await supabase
+      .from("hotel_settings")
+      .select("strategy_floor, strategy_ceiling")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const savedFloor = saved?.strategy_floor != null ? Number(saved.strategy_floor) : null;
+    const savedCeiling = saved?.strategy_ceiling != null ? Number(saved.strategy_ceiling) : null;
+    if (floor !== null && body.ceiling === undefined && savedCeiling !== null && floor >= savedCeiling) {
+      const money = await moneyFor(supabase, hotelId);
+      return NextResponse.json(
+        { error: `Your floor price needs to be below your ceiling price of ${money(savedCeiling)}.` },
+        { status: 400 },
+      );
+    }
+    if (ceiling !== null && body.floor === undefined && savedFloor !== null && savedFloor >= ceiling) {
+      const money = await moneyFor(supabase, hotelId);
+      return NextResponse.json(
+        { error: `Your ceiling price needs to be above your floor price of ${money(savedFloor)}.` },
+        { status: 400 },
+      );
+    }
   }
 
   // Rename: user input wins. A name collision is a real conflict — tell them.
@@ -64,7 +105,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: conflict
-            ? "That property name is already taken — try adding your city or neighborhood."
+            ? "That property name is already taken. Try adding your city or neighborhood."
             : nameErr.message,
         },
         { status: conflict ? 409 : 500 },
@@ -100,6 +141,9 @@ export async function POST(request: Request) {
   if (body.floor !== undefined) settingsPatch.strategy_floor = floor;
   if (body.ceiling !== undefined) settingsPatch.strategy_ceiling = ceiling;
   if (body.confidence !== undefined) settingsPatch.pricing_confidence = body.confidence;
+  // A floor or ceiling a room type couldn't take. Answered after the swap
+  // below, so a body that also carries the last answer still swaps.
+  let guardrailRefusal: NextResponse | null = null;
   if (Object.keys(settingsPatch).length > 0) {
     const { error: setErr } = await supabase
       .from("hotel_settings")
@@ -108,10 +152,51 @@ export async function POST(request: Request) {
     if (setErr) {
       return NextResponse.json({ error: setErr.message }, { status: 500 });
     }
-    await projectStrategyOntoRoomTypes(supabase, hotelId);
+    const notSaved = await projectStrategyOntoRoomTypes(supabase, hotelId);
+    // Saving one card writes the other answer on file again too. A clash on
+    // that one was reported when it was given, so only this card's are.
+    const answered = notSaved.filter((n) =>
+      n.fields.some((f) => (f === "floor" ? body.floor !== undefined : body.ceiling !== undefined)),
+    );
+    if (answered.length > 0) {
+      const money = await moneyFor(supabase, hotelId);
+      guardrailRefusal = NextResponse.json(
+        { error: answered.map((n) => describeGuardrailNotSaved(n, money)).join(" ") },
+        { status: answered.some((n) => n.reason === "save_failed") ? 500 : 409 },
+      );
+    }
   }
 
-  return NextResponse.json({ ok: true });
+  // The answer is saved either way; a swap that cannot happen leaves it for
+  // "Get suggestions from my data".
+  if (body.confidence !== undefined) {
+    try {
+      const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
+      if (swap.swapped) {
+        // If this note is lost, saving the answer again finds the new set
+        // already on the property and writes it then.
+        const { error: noteErr } = await supabase
+          .from("onboarding_states")
+          .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
+          .eq("hotel_id", hotelId);
+        if (noteErr) throw new Error(`starterRulesFor not recorded: ${noteErr.message}`);
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({ fn: "onboardingAnswers", step: "starter_swap", hotelId, error: e instanceof Error ? e.message : String(e) }),
+      );
+    }
+  }
+
+  return guardrailRefusal ?? NextResponse.json({ ok: true });
+}
+
+/** Amounts the way the question cards show them: "$" for US dollars, otherwise the code. */
+async function moneyFor(supabase: SupabaseClient, hotelId: string): Promise<(amount: number) => string> {
+  const { data: hotel } = await supabase.from("hotels").select("currency").eq("id", hotelId).maybeSingle();
+  const code = hotel?.currency ? String(hotel.currency) : "USD";
+  const symbol = code === "USD" ? "$" : `${code} `;
+  return (amount) => `${symbol}${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 function numOrNull(v: unknown): number | null {

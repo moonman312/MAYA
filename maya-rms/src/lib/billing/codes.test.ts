@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { checkCode, checkoutEffectFor, describeCode, displayEffectFor, type SignupCode } from "./codes";
+import {
+  checkCode,
+  checkoutEffectFor,
+  describeCode,
+  displayEffectFor,
+  rejectionMessage,
+  type SignupCode,
+} from "./codes";
 
 function code(o: Partial<SignupCode> = {}): SignupCode {
   return {
@@ -463,6 +470,72 @@ describe("a discount code can open with a free run", () => {
       trialDays: 7,
       percentOff: 75,
       discountDuration: "forever",
+    });
+  });
+});
+
+describe("a restart gets no free days, whatever the code says", () => {
+  // Checkout grants a restart no trial of any kind. The wording and the panel
+  // must not promise days Stripe will not give; the discount still counts.
+  it("says plainly that a trial code's free days don't apply", () => {
+    expect(describeCode(code({ trial_days: 30 }), "month", { restart: true })).toBe(
+      "This code's 30 free days don't apply to a restart, so it doesn't change your price.",
+    );
+    expect(describeCode(code({ trial_days: 1 }), "month", { restart: true })).toBe(
+      "This code's 1 free day doesn't apply to a restart, so it doesn't change your price.",
+    );
+  });
+
+  it("describes only the discount of a code that also opens with free days", () => {
+    const sevenThen75 = code({ kind: "percent_off", trial_days: 7, percent_off: 75 });
+    expect(describeCode(sevenThen75, "month", { restart: true })).toBe("75% off, for as long as you stay.");
+    const amt = code({ kind: "amount_off", trial_days: 14, amount_off_cents: 5000, duration_months: 6 });
+    expect(describeCode(amt, "month", { restart: true })).toBe("$50.00 off each of your first 6 months.");
+  });
+
+  it("leaves the trial out of what the panel prices from", () => {
+    expect(displayEffectFor(code({ trial_days: 30 }), "month", { restart: true })).toEqual({});
+    const sevenThen75 = code({ kind: "percent_off", trial_days: 7, percent_off: 75 });
+    expect(displayEffectFor(sevenThen75, "month", { restart: true })).toEqual({
+      percentOff: 75,
+      discountDuration: "forever",
+    });
+  });
+
+  it("changes nothing for a first signup", () => {
+    expect(describeCode(code({ trial_days: 30 }), "month")).toMatch(/^30 days free/);
+    expect(displayEffectFor(code({ trial_days: 30 }), "month")).toEqual({ trialDays: 30 });
+  });
+
+  it("never puts an em dash in front of the owner", () => {
+    const shapes = [
+      code(),
+      code({ kind: "percent_off", trial_days: 7, percent_off: 20, duration_months: 3 }),
+      code({ kind: "percent_off", trial_days: null, percent_off: 20, duration_months: null }),
+      code({ kind: "amount_off", trial_days: 14, amount_off_cents: 2500, duration_months: 3 }),
+      code({ kind: "amount_off", trial_days: null, amount_off_cents: 2500, duration_months: null }),
+    ];
+    for (const c of shapes) {
+      for (const interval of ["month", "year"] as const) {
+        for (const restart of [false, true]) {
+          expect(describeCode(c, interval, { restart }), `${c.kind} ${interval} ${restart}`).not.toContain("\u2014");
+        }
+      }
+    }
+    for (const reason of ["unknown", "inactive", "expired", "exhausted", "already_redeemed"] as const) {
+      expect(rejectionMessage(reason)).not.toContain("\u2014");
+    }
+    expect(rejectionMessage("unknown")).toBe("We don't recognize that code. Check it for typos.");
+    expect(describeCode(shapes[1], "year")).toBe(
+      "7 days free, then 20% off your first 3 months, taken as 5% off your first year, which is the same saving.",
+    );
+  });
+
+  it("carries the restart wording through checkCode", async () => {
+    const check = await checkCode(fakeAdmin(code({ trial_days: 30 })), "DRIFTWOOD", { now: NOW, restart: true });
+    expect(check).toMatchObject({
+      ok: true,
+      describe: "This code's 30 free days don't apply to a restart, so it doesn't change your price.",
     });
   });
 });

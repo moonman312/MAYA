@@ -43,7 +43,7 @@ export async function POST() {
     const hotelId = await resolveAccessibleHotelId(supabase);
     if (!hotelId) {
       return NextResponse.json(
-        { error: "No accessible hotel." },
+        { error: "You don't have access to this property." },
         { status: 400 },
       );
     }
@@ -64,7 +64,7 @@ export async function POST() {
     const throttled = await enforceRateLimit(
       "evaluate",
       hotelId,
-      "An evaluation just ran. Prices are re-checked automatically — give it a few minutes.",
+      "An evaluation just ran. Prices are re-checked automatically, so give it a few minutes.",
     );
     if (throttled) return throttled;
 

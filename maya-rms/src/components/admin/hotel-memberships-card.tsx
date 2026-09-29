@@ -45,9 +45,9 @@ export function HotelMembershipsCard({
         return;
       }
       setMessage(
-        body.existingUser
-          ? `${inviteEmail} already existed — added to the hotel.`
-          : `Invite email sent to ${inviteEmail}.`,
+        body.inviteSent
+          ? `Invite email sent to ${inviteEmail}.`
+          : `${inviteEmail} already existed, added to the hotel (no email sent).`,
       );
       setInviteEmail("");
       router.refresh();

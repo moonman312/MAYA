@@ -78,7 +78,7 @@ export function PushProblemItem({
       <p className="text-xs text-slate-400">
         <time dateTime={item.timestamp} title={formatExact(item.timestamp)} className="not-italic">
           <span className={`font-medium ${ongoing ? "text-amber-300" : "text-slate-300"}`}>
-            Rates not reaching {item.pms}
+            Prices not reaching {item.pms}
           </span>
           <span className="text-slate-500"> · </span>
           <span>{formatWhen(item.timestamp)}</span>

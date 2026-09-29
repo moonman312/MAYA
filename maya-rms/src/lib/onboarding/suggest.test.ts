@@ -7,6 +7,7 @@ import {
   type InitialGuardrailInput,
 } from "../../../supabase/functions/_shared/onboarding/suggest";
 import { computeStarterRules } from "../../../supabase/functions/_shared/onboarding/generate-rules";
+import { starterRuleSets, type RateMoves } from "../../../supabase/functions/_shared/onboarding/rate-moves";
 
 const PACE_SPECS = computeStarterRules({ daysOfHistory: 400 });
 const OCC_REF = { surgePct: 85, peakPct: 95 };
@@ -43,6 +44,117 @@ function bookingSpeedRule(o: Partial<ExistingRuleSummary> = {}): ExistingRuleSum
     ...o,
   });
 }
+
+describe("computeRuleSuggestions with the set the last onboarding question calls for", () => {
+  const moves: RateMoves = {
+    nightsRead: 300,
+    fill: [{ group: "weekend", thresholdPct: 60, changePct: 20, nights: 40, bookings: 120 }],
+    late: [{ group: "all", withinDays: 7, changePct: -10, nights: 90, bookings: 260 }],
+    flatWhenNearlyFull: { changePct: 0, nights: 30, bookings: 80 },
+    filledEarly: { nights: 40, share: 0.13 },
+  };
+  const sets = starterRuleSets({ daysOfHistory: 400, moves });
+  const adds = (out: ReturnType<typeof computeRuleSuggestions>) =>
+    out.flatMap((s) => (s.suggestion_type === "add_rule" ? [[s.spec.name, s.rationale]] : []));
+
+  it("offers the owner's own moves for My pricing works, and no pace ladder", () => {
+    expect(adds(computeRuleSuggestions([], sets.automate_current.rules, null))).toEqual([
+      ["Filling-up raise (Fri and Sat)", "Your own rates already made this move, and no rule of yours makes it yet."],
+      ["Last-minute cut", "Your own rates already made this move, and no rule of yours makes it yet."],
+    ]);
+  });
+
+  it("leaves out a copied move a rule of the same kind already makes, switched off or not", () => {
+    const occupancyRaise = rule({ is_active: false, occupancy_operator: "gt" });
+    const lastMinute = rule({ id: "r2", name: "Late deal", occupancy_operator: null, occupancy_threshold: null, dta_operator: "lt" });
+    expect(adds(computeRuleSuggestions([occupancyRaise], sets.automate_current.rules, null)).map(([n]) => n)).toEqual([
+      "Last-minute cut",
+    ]);
+    expect(adds(computeRuleSuggestions([lastMinute], sets.automate_current.rules, null)).map(([n]) => n)).toEqual([
+      "Filling-up raise (Fri and Sat)",
+    ]);
+    // A booking speed rule does not stand in for either.
+    expect(adds(computeRuleSuggestions([bookingSpeedRule()], sets.automate_current.rules, null))).toHaveLength(2);
+  });
+
+  it("offers the bigger ladder and the nearly-full raise for Find money, each with its own guard", () => {
+    // This owner has no fill raise, so the flat nearly full nights count.
+    const upside = starterRuleSets({ daysOfHistory: 400, moves: { ...moves, fill: [] } }).find_upside.rules;
+    const offered = adds(computeRuleSuggestions([], upside, null));
+    expect(offered.map(([n]) => n)).toEqual([
+      "Slow-date rescue",
+      "Slow-date trim",
+      "Warm-date bump",
+      "Hot-week surge",
+      "Sudden-spike catcher",
+      "Nearly-full raise",
+    ]);
+    expect(offered[5][1]).toBe("Nothing raises your nearly full nights yet.");
+    expect(adds(computeRuleSuggestions([bookingSpeedRule()], upside, null)).map(([n]) => n)).toEqual(["Nearly-full raise"]);
+    expect(adds(computeRuleSuggestions([rule({})], upside, null))).toHaveLength(5);
+  });
+});
+
+describe("the words on the rule cards", () => {
+  it("use no long dashes and none of the words the owner-facing copy avoids, on any card", () => {
+    const moves: RateMoves = {
+      nightsRead: 300,
+      fill: [{ group: "weekend", thresholdPct: 60, changePct: 20, nights: 40, bookings: 120 }],
+      late: [{ group: "all", withinDays: 7, changePct: -10, nights: 90, bookings: 260 }],
+      flatWhenNearlyFull: { changePct: 0, nights: 30, bookings: 80 },
+      filledEarly: { nights: 40, share: 0.13 },
+    };
+    const sets = starterRuleSets({ daysOfHistory: 400, moves });
+    const upside = starterRuleSets({ daysOfHistory: 400, moves: { ...moves, fill: [] } }).find_upside.rules;
+    const pickup = rule({
+      id: "p1",
+      name: "Quick pickup",
+      is_pickup_rule: true,
+      occupancy_operator: null,
+      occupancy_threshold: null,
+      pickup_operator: "gte",
+      pickup_threshold: 3,
+    });
+    const cards = [
+      ...computeRuleSuggestions([], PACE_SPECS, null),
+      ...computeRuleSuggestions([], sets.automate_current.rules, null),
+      ...computeRuleSuggestions([], upside, null),
+      ...computeRuleSuggestions([bookingSpeedRule(), pickup, rule({ id: "a", name: "Busy nights", occupancy_threshold: 0.6 })], PACE_SPECS, OCC_REF),
+    ];
+    expect(new Set(cards.map((c) => c.suggestion_type))).toEqual(new Set(["add_rule", "remove_rule", "adjust_rule"]));
+    for (const c of cards) {
+      expect(c.rationale).not.toMatch(/[–—]/);
+      expect(c.rationale).not.toMatch(/MAYA (learns|knows|thinks|studies|analy[sz]es)/i);
+    }
+  });
+});
+
+describe("Tune cards and the rules built from the owner's own bookings", () => {
+  const tunes = (existing: ExistingRuleSummary[]) =>
+    computeRuleSuggestions(existing, PACE_SPECS, { surgePct: 75, peakPct: 90 }).flatMap((s) =>
+      s.suggestion_type === "adjust_rule" ? [s.rule_name] : [],
+    );
+
+  it("never offers to move a copied Filling-up raise or the Nearly-full raise, whose threshold came from those bookings", () => {
+    expect(
+      tunes([
+        rule({ id: "f", name: "Filling-up raise", occupancy_threshold: 0.6 }),
+        rule({ id: "fw", name: "Filling-up raise (Fri and Sat)", occupancy_threshold: 0.5 }),
+        rule({ id: "fd", name: "Filling-up raise (Sun to Thu)", occupancy_threshold: 0.6 }),
+        rule({ id: "n", name: "Nearly-full raise", occupancy_threshold: 0.6 }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("still offers it for the owner's own rule at the same threshold, or one renamed", () => {
+    expect(
+      tunes([
+        rule({ id: "b", name: "Busy nights", occupancy_threshold: 0.6 }),
+        rule({ id: "r", name: "Filling-up raise, my version", occupancy_threshold: 0.6 }),
+      ]),
+    ).toEqual(["Busy nights", "Filling-up raise, my version"]);
+  });
+});
 
 describe("computeRuleSuggestions", () => {
   it("offers the whole pace ladder to a hotel with no rules", () => {
@@ -121,6 +233,11 @@ describe("computeRuleSuggestions", () => {
     const removes = existing.filter((s) => s.suggestion_type === "remove_rule");
     expect(removes).toHaveLength(1);
     expect(removes[0]).toMatchObject({ rule_id: "pk1", rule_name: "Old pickup spike" });
+    // Plain and true: what the booking speed rules do, and what doubling up would do.
+    expect(removes[0].rationale).toBe(
+      '"Old pickup spike" reacts to a fixed booking count. Your booking speed rules already cover the same nights by comparing with your own similar past nights. Keeping both would stack two price changes on the same bookings.',
+    );
+    expect(removes[0].rationale).not.toMatch(/pace awareness|same demand/);
   });
 
   it("never suggests removing a pickup rule the ladder's scope doesn't actually contain", () => {
@@ -289,6 +406,17 @@ describe("computeInitialGuardrails", () => {
     expect(out[0].field).toBe("ceiling_price");
   });
 
+  it("treats only the exact default ceiling as unset, not any ceiling of 99,000 or more", () => {
+    // A yen or won property sets ceilings in this range on purpose, and above it.
+    for (const ceiling_price of [99_000, 99_500, 99_999.98, 100_000, 150_000, 2_500_000]) {
+      const out = computeInitialGuardrails([rtIn({ ceiling_price, observed_p99_rate: 60_000, observed_median_rate: 40_000 })]);
+      expect(out.find((g) => g.field === "ceiling_price")).toBeUndefined();
+      expect(out.find((g) => g.field === "floor_price")).toMatchObject({ value: 16_000 });
+    }
+    const unset = computeInitialGuardrails([rtIn({ observed_p99_rate: 60_000, observed_median_rate: 40_000 })]);
+    expect(unset.find((g) => g.field === "ceiling_price")).toMatchObject({ value: 90_000 });
+  });
+
   it("a fat-fingered max cannot inflate the ceiling — p99 is the basis", () => {
     const out = computeInitialGuardrails([rtIn({ observed_p99_rate: 418 })]);
     expect(out.find((g) => g.field === "ceiling_price")!.value).toBeLessThan(1000);
@@ -373,6 +501,16 @@ describe("computeGuardrailSuggestions", () => {
     expect(out[0]).toMatchObject({ field: "floor_price", suggested: 79 });
     // Their stated ceiling (500) beats the p99-derived 600.
     expect(out[1]).toMatchObject({ field: "ceiling_price", suggested: 500 });
+  });
+
+  it("offers no ceiling card for a ceiling set near or above the default, only for the default itself", () => {
+    const big = { observed_p99_rate: 60_000, observed_median_rate: 40_000 };
+    for (const ceiling_price of [99_000, 99_500, 150_000, 2_500_000]) {
+      const out = computeGuardrailSuggestions([rt({ ...big, ceiling_price })], NO_ANSWERS);
+      expect(out.map((s) => s.field)).toEqual(["floor_price"]);
+    }
+    const unset = computeGuardrailSuggestions([rt(big)], NO_ANSWERS);
+    expect(unset.find((s) => s.field === "ceiling_price")).toMatchObject({ suggested: 90_000 });
   });
 
   it("NEVER questions a guardrail a human already set", () => {

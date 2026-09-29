@@ -1,5 +1,6 @@
 import "server-only";
 import type { HotelRole } from "@/lib/admin/types";
+import { SUPPORT_EMAIL } from "@/lib/docs/home";
 import { roleLabel as roleLabelFor } from "@/lib/roles";
 import { emailBrandHeader } from "./brand";
 
@@ -49,7 +50,7 @@ export function inviteEmailText(input: InviteEmailInput): string {
     "Follow this link to accept the invite and set your password:",
     input.acceptUrl,
     "",
-    "This link is single-use and expires after a limited time. If it has expired, ask an administrator to resend the invite.",
+    `This link works once and expires after a limited time. If it has expired and you haven't set your password yet, email us at ${SUPPORT_EMAIL} for a new link.`,
     "",
     "If you weren't expecting this invitation, you can safely ignore this email.",
   ].join("\n");
@@ -99,8 +100,10 @@ export function inviteEmailHtml(input: InviteEmailInput): string {
                   </tr>
                 </table>
                 <p style="margin:20px 0 0;font-size:12px;line-height:1.6;color:${COLORS.muted};">
-                  This link is single-use and expires after a limited time. If it has
-                  expired, ask an administrator to resend the invite.
+                  This link works once and expires after a limited time. If it has
+                  expired and you haven't set your password yet, email us at
+                  <a href="mailto:${SUPPORT_EMAIL}" style="color:${COLORS.cta};">${SUPPORT_EMAIL}</a>
+                  for a new link.
                 </p>
                 <p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:${COLORS.muted};">
                   If the button doesn't work, copy and paste this URL into your browser:<br />

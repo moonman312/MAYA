@@ -1,10 +1,10 @@
 ---
 title: Booking speed reads oddly
-summary: Why two bookings can read Faster Than Normal, why a big count can still read Normal, why a Friday is compared with a Saturday, what to do about a festival or a holiday MAYA does not have, how a group counts, and what the words in "How did we know?" mean.
+summary: Why two bookings can read Faster Than Normal, why a big count can still read Normal, why a Friday is compared with a Saturday, what to do about a festival or a holiday MAYA does not have, how a group counts, and what the words in "Show the numbers" mean.
 section: wrong
 order: 40
 readingTime: 13
-keywords: [faster than normal, much faster, surging, slower, much slower, stalled, normal, two bookings, small numbers, noise, guard, expected, expected 0.4, fraction, almost none, friday compared with saturday, widened the comparison, relaxed, festival, festival weekend, not a fair comparison, set aside, holiday, national holiday, bank holiday, our holiday, holiday we don't have modeled, group, wedding, 10 rooms, counts as ten, counts once, confirmation pending, not confirmed, optional, enquired, mews optional, cancelled, cancellation, cancellations, below zero, negative, momentum, how did we know, neighbouring dates, latest raise, since this rule or a stronger one's latest raise, latest raise still on this night, stronger rule, whole week, from that raise on, later that day, rest of that day, no bookings, empty room type fired]
+keywords: [faster than normal, much faster, surging, slower, much slower, stalled, normal, two bookings, small numbers, noise, guard, expected, fraction, friday compared with saturday, festival, festival weekend, not a fair comparison, set aside, holiday, national holiday, bank holiday, our holiday, holiday not on maya's list, group, wedding, 10 rooms, counts as ten, counts once, confirmation pending, not confirmed, optional, enquired, mews optional, cancelled, cancellation, cancellations, below zero, negative, momentum, neighbouring dates, latest raise, since this rule or a stronger one's latest raise, latest raise still on this night, stronger rule, whole week, from that raise on, later that day, rest of that day, no bookings, empty room type fired, usual number, 0.4, almost no bookings, usually get, stays normal, one step closer to normal, only a few similar nights, saturday nights were compared too, search was widened, fewer than 4 nights matched closely, show the numbers]
 questions:
   - Why does it say Faster Than Normal from two bookings? {#why-does-it-say-faster-or-much-faster-than-normal-from-two-bookings/because-the-nights}
   - Why does it say Normal when we got far more bookings than usual? {#why-does-it-say-normal-when-we-got-far-more-bookings-than-usual}
@@ -14,9 +14,9 @@ questions:
   - Does a 10-room group count as 10 bookings? {#does-a-10-room-group-count-as-10-bookings}
   - Why did a Confirmation Pending booking count? {#why-did-a-confirmation-pending-booking-count}
   - Why do Mews Optional reservations count? {#why-do-mews-optional-reservations-count}
-  - Why is "expected" a fraction like 0.4? {#why-is-expected-a-fraction-like-04}
+  - Why is the usual number a fraction like 0.4? {#why-is-the-usual-number-a-fraction-like-04}
   - Do cancellations lower the count? {#do-cancellations-lower-the-count}
-  - 'What does momentum mean in "How did we know?"' {#what-does-momentum-mean-in-how-did-we-know}
+  - 'What does momentum mean in "Show the numbers"' {#what-does-momentum-mean-in-show-the-numbers}
   - Why does the change log say "in the 4 days since this rule or a stronger one's latest raise"? {#why-does-it-say-in-the-4-days-since-this-rule-or-a-stronger-ones-latest-raise/the-change-log}
   - Why did a booking speed rule fire on a room type with no bookings? {#why-did-a-booking-speed-rule-fire-on-a-room-type-with-no-bookings}
 pms: [cloudbeds, thinkreservations, mews]
@@ -24,7 +24,7 @@ updated: 2026-09-28
 ---
 
 <InPlainWords>
-Booking speed compares how many bookings a night received in the past day, week or month with how many similar past nights had received by the same point before arrival. A booking counts once, however many rooms it holds. Small numbers read the way small numbers do: 2 bookings on a far-out night can be Much Faster Than Normal, and a big count can still read Normal when the difference is within the ordinary ups and downs. The <Ui>How did we know?</Ui> panel under a change shows the count, the expected count and the nights compared.
+Booking speed compares how many bookings a night received in the past day, week or month with how many similar past nights had received by the same point before arrival. A booking counts once, however many rooms it holds. Small numbers read the way small numbers do: 2 bookings on a far-out night can be Much Faster Than Normal, and a big count can still read Normal when the difference is within the ordinary ups and downs. The <Ui>Show the numbers</Ui> panel under a change shows the count, the expected count and the nights compared.
 </InPlainWords>
 
 ## How the level is worked out
@@ -41,19 +41,19 @@ Recent bookings divided by expected bookings gives a ratio. At least 1.25 times 
 
 Because the nights it was compared with had received almost none by that point. A night 50 days out is compared with how its similar nights were booking when they were 50 days out, which is often close to nothing. When the similar nights had received none at all, 2 or 3 bookings read Much Faster Than Normal and 4 or more read Surging, provided there are at least 5 similar nights. Against an expectation of 0.4, 2 bookings still read Normal: it takes 3 to read Much Faster and 5 to read Surging. One booking stays Normal against either, because a difference of one is inside the first check.
 
-With fewer than 5 similar nights, or a momentum reading, the call stops at Faster Than Normal. That is how 2 bookings against none end up reading Faster Than Normal.
+With fewer than 5 similar nights, or a momentum reading, the reading stops at Faster Than Normal. That is how 2 bookings against none end up reading Faster Than Normal.
 
-The <Ui>How did we know?</Ui> panel says so in its own words: "In the last 7 days, 2 bookings arrived for this night, with 50 days still to go before arrival." then "By this point on nights like this one, we would expect almost none over the same stretch." then "That reads as Much Faster Than Normal." The words "almost none" cover any expectation under 1, so 2 bookings beside "almost none" can also read Normal.
+The <Ui>Show the numbers</Ui> panel says so in its own words: "In the last 7 days, 2 bookings arrived for this night, with 50 days still to go before arrival." then "By this point, nights like this one usually get almost no bookings over the same stretch." then "That reads as Much Faster Than Normal." The words "almost no bookings" cover any usual number under 1, so 2 bookings beside "almost no bookings" can also read Normal.
 
 If you would rather raise rules stayed off far-out nights, add a <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> condition, or a <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> condition, to the rule.
 
 ## Why does it say Normal when we got far more bookings than usual?
 
-One of the three checks held the call back, and the <Ui>How did we know?</Ui> panel names which:
+One of the three checks kept the reading nearer Normal, and the <Ui>Show the numbers</Ui> panel names which:
 
-- "The raw numbers leaned away from Normal, but the gap was small enough to be ordinary noise at this volume, so we held the call at Normal." The gap was too small for the numbers involved. With 20 expected, 26 received is 1.3 times as many, which would read Faster, but at that size it takes 27 to leave Normal, so it stays Normal.
-- "The raw numbers pointed at an even stronger call, but not by enough evidence to justify it, so we softened it one step." A Surging or Stalled reading without enough difference behind it.
-- "We found only a few genuinely comparable nights, so we kept the call within one step of Normal no matter how strong the numbers looked." Fewer than 5 similar nights. A momentum reading (below) always counts as one, so it is always capped.
+- "The numbers leaned away from Normal, but by too little to matter at this many bookings, so it stays Normal." The gap was too small for the numbers involved. With 20 expected, 26 received is 1.3 times as many, which would read Faster, but at that size it takes 27 to leave Normal, so it stays Normal.
+- "The numbers pointed one step further from Normal, but not clearly enough, so it reads one step closer to Normal." A Surging or Stalled reading without enough difference behind it.
+- "Only a few similar nights were found, so it stays within one step of Normal however strong the numbers look." Fewer than 5 similar nights. A momentum reading (below) always counts as one, so it is always capped.
 
 <Example title="Expected 5 at The Harbour Inn">
 Similar Saturdays had received about 5 bookings by this point. This Saturday received: 1, which reads Much Slower Than Normal. 5 or 6: Normal. 7 or 8: still Normal, because the gap is too small at this size. 9: Faster Than Normal. 10 to 17: Much Faster Than Normal. 18 or more: Surging.
@@ -63,11 +63,11 @@ Similar Saturdays had received about 5 bookings by this point. This Saturday rec
 
 Because strict matching found too few nights. MAYA looks for similar nights in three widening steps: first the same weekday in the same stretch of the year, going back up to 3 years, wanting at least 4 and taking up to 8. When that finds too few, it widens to the same weekend or weekday class, day by day. Friday and Saturday nights form the weekend class, so a Friday can be matched with a Saturday. When that is still too few, it takes the same weekday within 45 days of the date, ignoring the season.
 
-Under <Ui>How did we know?</Ui>, <Ui>Why did you expect that?</Ui> says when it widened: "Strict matching found too few usable nights, so we relaxed the criteria a step" and each compared night carries its reason, for example "a Saturday, similar to a Friday". As your history grows, widening happens less.
+Under <Ui>Show the numbers</Ui>, <Ui>Which nights were compared?</Ui> names the nights that were added: "Too few other Friday nights matched, so Saturday nights were compared too, since they are also weekend nights. Friday and Saturday nights count as weekend nights, the rest as weekday nights." and then "Fewer than 4 nights matched closely, so the search was widened. Check the nights below and set aside any that were not normal." Under <Ui>List the nights</Ui> each compared night carries its reason, for example "a Saturday, similar to a Friday". As your history grows, widening happens less.
 
 ## Why did it compare with a festival weekend?
 
-Because nobody had told MAYA that weekend was unusual. Open the change, press <Ui>How did we know?</Ui>, then <Ui>Why did you expect that?</Ui>, then <Ui>Show me the nights you compared</Ui>. Beside the festival night press <Ui>Not a fair comparison?</Ui>, choose a reason such as <Ui>Local Event or Festival</Ui>, and press <Ui>Set this date aside</Ui>.
+Because nobody had told MAYA that weekend was unusual. Open the change, press <Ui>Show the numbers</Ui>, then <Ui>Which nights were compared?</Ui>, then <Ui>List the nights</Ui>. Beside the festival night press <Ui>Not a fair comparison?</Ui>, choose a reason such as <Ui>Local Event or Festival</Ui>, and press <Ui>Set this date aside</Ui>.
 
 From the next run that night is left out of every comparison. Choosing "This happens every year around this time" also counts toward a yearly pattern: once the same reason has been reported from 2 different years, a window of 5 days either side is set aside every year. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison). Setting a date aside needs Revenue Manager access or higher.
 
@@ -76,7 +76,7 @@ From the next run that night is left out of every comparison. Choosing "This hap
 MAYA has 17 US holidays and no others, and there is no screen to add one. A night near one of those holidays is compared with the same position around the same holiday in earlier years. A night near any other holiday is compared like an ordinary night.
 
 <Callout kind="not-yet">
-You cannot add a holiday. The workaround is to set the night aside from the <Ui>How did we know?</Ui> panel with the reason <Ui>Holiday We Don't Have Modeled</Ui> and the scope "This happens every year around this time". After reports from 2 different years, MAYA leaves that stretch out of comparisons every year.
+You cannot add a holiday. The workaround is to set the night aside from the <Ui>Show the numbers</Ui> panel with the reason <Ui>Holiday Not on MAYA's List</Ui> and the scope "This happens every year around this time". After reports from 2 different years, MAYA leaves that stretch out of comparisons every year.
 </Callout>
 
 Read [Handle a holiday MAYA does not have](/docs/recipes/handle-a-holiday-maya-does-not-have).
@@ -109,9 +109,9 @@ On Cloudbeds, a booking with the status Confirmation Pending (Cloudbeds calls it
 
 On Mews, every reservation counts except a cancelled one. Optional, Enquired and Requested reservations count as booked, for occupancy and for booking speed, exactly like a Confirmed one. On ThinkReservations every booking counts except cancelled bookings and no-shows.
 
-## Why is "expected" a fraction like 0.4?
+## Why is the usual number a fraction like 0.4?
 
-Because it is an average. Expected is the trimmed average of what the similar nights had received over the same stretch: a plain average with fewer than 5 nights, and with 5 or more the single highest and lowest are dropped first. An expected count of 0.4 is a true statement about a quiet far-out night: most similar nights had none, one or two had one. On screen it reads "almost none" when it is under 1, and "about 3" otherwise. A similar night with no bookings at all in your history is left out of the average, not counted as zero.
+Because it is an average. The usual number, the expected count, is the trimmed average of what the similar nights had received over the same stretch: a plain average with fewer than 5 nights, and with 5 or more the single highest and lowest are dropped first. An expected count of 0.4 is a true statement about a quiet far-out night: most similar nights had none, one or two had one. On screen it reads "almost no bookings" when it is under 1, and "about 3 bookings" otherwise. A similar night with no bookings at all in your history is left out of the average, not counted as zero.
 
 ## Do cancellations lower the count?
 
@@ -119,11 +119,11 @@ Yes, but the count never goes below zero. It counts the bookings for the night t
 
 The nights it is compared with are counted the same way: a past booking that cancelled is not in their counts either. When bookings a change counted cancel, the change can come off, if the rule's undo box is ticked and the rule is no longer true. Read [When a change comes off](/docs/rules/when-a-change-comes-off).
 
-## What does momentum mean in "How did we know?"
+## What does momentum mean in "Show the numbers"
 
-When a night has no usable similar nights at all, MAYA falls back to momentum: how the 10 nights either side of it are booking now compared with the same nights a year earlier. The <Ui>How did we know?</Ui> panel opens like any other reading, with the count, the expected count and the level.
+When a night has no usable similar nights at all, MAYA falls back to momentum: how the 10 nights either side of it are booking now compared with the same nights a year earlier. The <Ui>Show the numbers</Ui> panel opens like any other reading, with the count, the usual number and the level.
 
-Under <Ui>Why did you expect that?</Ui> it explains "This night had no usable comparable nights in your history" and says it read your recent booking momentum instead. Then comes "Momentum means: how nights near this one are filling right now, compared to how the same nights were filling at this time last year." After that it says how many nearby nights could be paired, whether they are filling faster or slower than a year ago, where the starting point came from, and that a momentum reading is a best effort.
+Under <Ui>Which nights were compared?</Ui> it explains "Your history has no usable similar nights for this one, so the usual number comes from booking momentum instead." Then comes "Momentum here means how nights near this one are filling now, compared with how the same nights were filling at this point last year." After that it says how many nearby nights could be paired, whether they are filling faster or slower than a year ago, where the starting point came from, and that a momentum reading is a best effort.
 
 A momentum reading counts as one comparable night, so it is always capped within one step of Normal. With too few neighbours it gives up: the reading is "not enough history" and booking speed rules stay quiet on that night.
 
@@ -133,7 +133,7 @@ After a night has been raised, a rule that raises counts only the bookings made 
 
 On the day of the raise, only the bookings that reached MAYA after it count, so a burst later that day is not lost. A rule that raises on a fast pace (<Ui>Faster Than Normal</Ui>, <Ui>Much Faster Than Normal</Ui> or <Ui>Surging</Ui>) needs those bookings alone to beat what a night like this usually gets in its whole window. Any other rule compares them with the similar nights over the same days. A rule that cuts counts full days only, from the day after the newest cut still on the night by itself or a stronger rule, up to yesterday. So one burst of bookings raises a night once, and a weaker rule steps in on top only when the bookings since that raise keep it true on their own.
 
-The change log sentence names the shorter stretch: "Bookings came in faster than normal in the 4 days since this rule or a stronger one's latest raise still on this night: 6, against the 2 a night like this usually gets in a whole week." The <Ui>How did we know?</Ui> panel opens with "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Fri, Nov 13 2026. In the 4 days from that raise on, 6 bookings arrived for it, with 20 days still to go before arrival." That raise is always one made by a booking speed or pickup rule.
+The change log sentence names the shorter stretch: "Bookings came in faster than normal in the 4 days since this rule or a stronger one's latest raise still on this night: 6, against the 2 a night like this usually gets in a whole week." The <Ui>Show the numbers</Ui> panel opens with "The newest raise still on this night's price, by the rule behind this reading or a stronger rule, was made on Fri, Nov 13 2026. In the 4 days from that raise on, 6 bookings arrived for it, with 20 days still to go before arrival." That raise is always one made by a booking speed or pickup rule.
 
 When the raise was made today, the stretch is that one day: the change log says "later on the day of this rule or a stronger one's latest raise still on this night" and the panel starts "Later that day,".
 

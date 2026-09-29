@@ -14,6 +14,8 @@ const updateRule = vi.fn(async () => true);
 const hasHotelRank = vi.fn(async () => true);
 /** The rule the PUT route reads back when a save changed nothing. */
 let ruleRow: { hotel_id: string } | null = { hotel_id: "h1" };
+/** The property the caller can reach; null for someone with no membership. */
+let accessibleHotel: string | null = "h1";
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
@@ -24,7 +26,7 @@ vi.mock("@/utils/supabase/server", () => ({
   }),
 }));
 vi.mock("@/lib/require-supabase-hotel", () => ({ hasHotelRank }));
-vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
+vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => accessibleHotel }));
 vi.mock("@/lib/rules-store", () => ({
   createRule,
   listRules: vi.fn(),
@@ -51,6 +53,17 @@ const params = { params: Promise.resolve({ id: "r1" }) };
 beforeEach(() => {
   createRule.mockClear();
   updateRule.mockClear();
+  accessibleHotel = "h1";
+});
+
+describe("POST without a property", () => {
+  it("says the caller doesn't have access, in plain words, and saves nothing", async () => {
+    accessibleHotel = null;
+    const res = await POST(req(base));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "You don't have access to this property." });
+    expect(createRule).not.toHaveBeenCalled();
+  });
 });
 
 describe("room type sets on the rules routes", () => {

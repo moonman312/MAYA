@@ -220,6 +220,21 @@ describe("findings confirm route: claims before side effects", () => {
     expect(tables.get("hotel_closed_periods")).toHaveLength(1);
   });
 
+  it("tells someone below Revenue Manager why the card can't be answered, and changes nothing", async () => {
+    // Row security leaves their claim an update of no rows, which used to
+    // come back as "Finding was already resolved".
+    const { client, tables } = seedClosedPeriodFinding();
+    client.rpc = async (name: string) => ({ data: name === "can_manage_hotel" ? false : null, error: null });
+    state.client = client;
+    for (const action of ["confirm", "dismiss"]) {
+      const res = await post({ action });
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toBe("Only a Revenue Manager or above can answer this.");
+    }
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+    expect(tables.get("hotel_closed_periods") ?? []).toHaveLength(0);
+  });
+
   it("rejects confirming a finding that was already dismissed", async () => {
     const { client, tables } = seedClosedPeriodFinding("dismissed");
     state.client = client;
@@ -351,6 +366,37 @@ describe("add_rule: an accepted suggestion", () => {
       p_activation: "skip",
       p_fields: expect.objectContaining({ priority: 90, action_type: "fixed", action_value: 12 }),
     });
+  });
+
+  it("keeps the days of a rule copied from the owner's weekend moves, and every day otherwise", async () => {
+    const finding = (id: string, spec: Record<string, unknown>) => ({
+      id,
+      hotel_id: HOTEL,
+      kind: "rule_suggestion",
+      status: "proposed",
+      payload: {
+        suggestion_type: "add_rule",
+        room_type_ids: ["rt1"],
+        spec: {
+          priority: 100,
+          condition: { occupancy_operator: "gt", occupancy_threshold: 0.6 },
+          action: { action_type: "percent", action_direction: "increase", action_value: 20 },
+          is_pickup_rule: false,
+          ...spec,
+        },
+      },
+    });
+    const { client, tables } = fakeSupabase({
+      onboarding_findings: [finding("f1", { name: "Filling-up raise (Fri and Sat)", dow_mask: 48 })],
+    });
+    state.client = client;
+    expect((await post({ action: "confirm" })).status).toBe(200);
+    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Filling-up raise (Fri and Sat)", dow_mask: 48 });
+
+    const bad = fakeSupabase({ onboarding_findings: [finding("f1", { name: "Odd days", dow_mask: 400 })] });
+    state.client = bad.client;
+    expect((await post({ action: "confirm" })).status).toBe(200);
+    expect(bad.tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Odd days", dow_mask: 127 });
   });
 });
 

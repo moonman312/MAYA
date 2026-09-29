@@ -3,7 +3,7 @@ title: Account and billing problems
 summary: Sign-in trouble, the connection link, codes, a stuck "Payment received" screen, card checks and whether you were charged twice, the room count banner, a paused property, seats, invitations, and a property name, time zone or currency that came in wrong.
 section: wrong
 order: 90
-readingTime: 12
+readingTime: 13
 keywords: [cannot sign in, can't sign in, invalid login credentials, forgot password, password reset, reset password, wrong password, already has an account, confirmation email, never got the email, check your email, link expired, connection link expired, already been claimed, claimed, colleague signed up, session expired, code not recognised, code not recognized, don't recognize that code, code expired, code turned off, payment page, sent me to payment, sent to onboarding, onboarding, payment received stuck, stuck, charged twice, double charge, card check, zero amount, saved card stopped working, card declined, billed for 20 rooms, running 24, running 300, 300 rooms, 100 rooms per type, rooms per type, ThinkReservations room count, Mews room count, wrong room count, over 500, room count, 7 days, paused work, paused, unpaid, open invoice, pay the invoice, updated card still paused, cancelled, already has a subscription, next charge, calculator, price differs, cannot see billing, billing page, property missing, dropdown, not now, used every seat, seats, invitation, invite never arrived, only hotel admin, property name wrong, rename property, change property name, reopen questions, onboarding questions, time zone wrong, currency wrong, too many checkout attempts]
 questions:
   - I cannot sign in {#i-cannot-sign-in}
@@ -24,6 +24,7 @@ questions:
   - It says I'm running 300 rooms on Mews {#it-says-youre-billed-for-20-rooms-but-running-24/mews-where-mews}
   - My room count on ThinkReservations looks wrong {#it-says-youre-billed-for-20-rooms-but-running-24/thinkreservations-thinkreservations-lists}
   - It says MAYA has paused work on this property {#it-says-maya-has-paused-work-on-this-property}
+  - I updated my card but MAYA is still paused {#it-says-maya-has-paused-work-on-this-property}
   - It says this property already has a subscription {#it-says-this-property-already-has-a-subscription}
   - Why is the next charge different from the calculator? {#why-is-the-next-charge-different-from-the-calculator}
   - Why can't I see the billing page? {#why-cant-i-see-the-billing-page}
@@ -34,26 +35,26 @@ questions:
   - My property name, time zone or currency came in wrong {#my-property-name-time-zone-or-currency-came-in-wrong}
   - How do I reopen the questions to change my property name? {#my-property-name-time-zone-or-currency-came-in-wrong}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Most sign-in and billing problems have a one-line fix, and the message on screen says what to do. There is no password reset link yet, so email us from the address you signed up with. A card check moves no money, so you were not charged twice. The billing page and the Team page need General Manager or Hotel Admin access, and a property that is not paid for never appears in the property dropdown.
+Most sign-in and billing problems have a one-line fix, and the message on screen says what to do. A forgotten password is reset from <Ui>Forgot password?</Ui> on the sign-in page. A card check moves no money, so you were not charged twice. The billing page and the Team page need General Manager or Hotel Admin access, and a property that is not paid for never appears in the property dropdown.
 </InPlainWords>
 
 ## I cannot sign in
 
 The sign-in card shows "Invalid login credentials" when the email or password is wrong. Check the email address you signed up with and retype the password. Passwords are at least 8 characters.
 
-If you have forgotten your password, there is no reset link yet. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Password%20reset) from the address you signed up with, and we send you a link to set a new one. Read [Reset your password](/docs/recipes/reset-your-password).
+If you have forgotten your password, click <Ui>Forgot password?</Ui> under the <Ui>Sign In</Ui> button, type your email and click <Ui>Send reset link</Ui>. If the address has an account, an email with a link to set a new password arrives. Read [Reset your password](/docs/recipes/reset-your-password).
 
 <Callout kind="not-yet">
-There is no forgot-password link, no way to change your email address or password inside the app, no two-factor sign-in and no Google or single sign-on. Email us for a password reset.
+There is no way to change your email address inside the app, no two-factor sign-in and no Google or single sign-on.
 </Callout>
 
 ## It says "That email already has an account. Sign in instead."
 
-You pressed <Ui>Create Account</Ui> with an address that already has a MAYA login. The card has switched to sign-in mode for you. Sign in with that address. If a colleague created it and you do not have the password, ask them, or email us for a reset.
+You pressed <Ui>Create Account</Ui> with an address that already has a MAYA login. The card has switched to sign-in mode for you. Sign in with that address. If you do not know its password, click <Ui>Forgot password?</Ui> and a link to set one goes to that address.
 
 ## I never got the confirmation email
 
@@ -69,7 +70,7 @@ Another MAYA account already owns that Cloudbeds property. Ask whoever set it up
 
 ## A colleague already signed up for our property, how do I get in?
 
-They invite you. On the <Ui>Team</Ui> page they enter your email, pick your role and press <Ui>Send invitation</Ui>. You get an email with a link to set a password and join. If you already have a MAYA account, you are added at once with no email, and the property appears the next time you open MAYA. Read [Inviting and removing people](/docs/team/inviting-and-removing-people).
+They invite you. On the <Ui>Team</Ui> page they enter your email, pick your role and press <Ui>Send invitation</Ui>. You get an email with a link to set a password and join. If you have signed in to MAYA before, you are added at once with no email, and the property appears the next time you open MAYA. Read [Inviting and removing people](/docs/team/inviting-and-removing-people).
 
 ## The code field says "Your session expired"
 
@@ -99,7 +100,7 @@ Your account has no property that is set up and active yet. Onboarding is where 
 
 After Stripe confirms, MAYA usually takes you straight on. When confirmation is slow you see "Payment received" with "Setting up your account" and a moving bar. After 25 seconds it reads "Your payment went through, but our side is taking longer than usual to catch up." with a <Ui>Check again</Ui> button, and after 5 minutes it stops checking.
 
-Your payment went through and you have not been charged twice. You can leave the page and sign in again later; the property is waiting. The screen also says we will email you when it is ready. No such email exists today, so do not wait for one. If the screen is still stuck an hour later, [email us](mailto:info@modern-hospitality-solutions.com?subject=Payment%20received%20stuck).
+Your payment went through and you have not been charged twice. You can leave the page and sign in again later; the property is waiting. The screen also says we will email you when it is ready, and we do: once the payment is recorded, an email headed "Your account is ready" goes to the address you sign in with, and its button takes you to the next step. If the screen is still stuck an hour later and no email has come, [email us](mailto:info@modern-hospitality-solutions.com?subject=Payment%20received%20stuck).
 
 ## Was I charged twice?
 
@@ -113,7 +114,7 @@ Your card did not pass one of the two card checks: the one right after checkout 
 
 On every cycle MAYA adds up the rooms in your room types ticked as rooms. When that measured count is higher than the count you pay for, the banner appears, and an email with the same numbers goes to the address on your billing account. You have 7 days from that email to put it right. After the 7 days MAYA raises the count you pay for to the measured number, and the difference lands on your next invoice. Nothing is charged today and nothing is charged separately.
 
-The banner clears once you pay for at least the measured count, or the measured count comes down. A number under <Ui>Rooms billed</Ui> that is still below the measured count does not clear it. Above 500 rooms there is no email and no automatic raise: [email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms).
+The banner clears once you pay for at least the measured count, or the measured count comes down. A number under <Ui>Rooms billed</Ui> that is still below the measured count does not clear it. Above 500 rooms there is no email and no automatic raise. The banner ends "That's above what we sell self-serve. Email us and we'll set it up with you.", and its button reads <Ui>Email us</Ui>. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Over%20500%20rooms).
 
 Where the measured count comes from depends on your property system.
 
@@ -139,10 +140,11 @@ If MAYA is counting something that is not a guest room, untick it under <Ui>Room
 
 ## It says "MAYA has paused work on this property"
 
-The subscription is not paying. Nothing is read, priced or sent until it is. Two cases, and the banner's second line tells them apart:
+The subscription is not paying. Nothing is read, priced or sent until it is. Three cases, and what the banner says after "Your rules no longer run on a schedule and nothing is sent to your PMS." tells them apart:
 
-- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and update the card. Then pay the open invoice in Stripe, and the subscription restarts where it left off. Updating the card alone does not restart it, because nothing tries the payment again by itself.
-- "Your subscription was cancelled, so starting again means a new one" (restart below whenever you are ready). Press <Ui>Restart your subscription</Ui> on the billing page. A new subscription starts on the same pricing; the old code cannot be reused.
+- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and save the new card as your default. MAYA pays the open invoice with it straight away and moves the subscription onto it, and the subscription restarts where it left off. If the status still reads "Unpaid" a few minutes later, the new card was declined too. Save a different card as your default, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Still%20unpaid).
+- "Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready." Press <Ui>Restart your subscription</Ui> on the billing page. A new subscription starts on the same pricing; the old code cannot be reused.
+- "Your subscription is on hold. Email us and we'll get it running again." The status reads "Paused": the subscription is on hold in Stripe. There is no restart button, because a second subscription beside it would bill you twice. The dashboard banner's button reads <Ui>Email us</Ui> and opens an email to us. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we get it running again.
 
 Your rules, limits, history and settings are kept while paused. Rates already in your system stay as they are. Read [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
 
@@ -168,10 +170,11 @@ Seats come with your room count: 2 seats for 1 to 20 rooms, 4 for 21 to 40, 5 fo
 
 ## My colleague never got the invitation
 
-Two common reasons.
+Three common reasons.
 
-- **They already use MAYA.** An address that already has a MAYA account is added to the property at once, with no email, even though the page says "Invitation sent to". Ask them to sign in. The property is in their <Ui>Property</Ui> dropdown.
-- **The link expired or went to spam.** Ask them to check their spam folder first. The invitation link is single-use and expires. There is no resend button, and inviting the address again sends no email. [Email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) with the address and we send a new link.
+- **They already use MAYA.** Someone who has signed in to MAYA before gets no email. They are added to the property at once, and the page says "Added." with "already uses MAYA and will see this property next time they sign in." Ask them to sign in. The property is in their <Ui>Property</Ui> dropdown.
+- **Sending failed.** The page said "Could not send that invitation. Try again in a minute." and nobody was added. Send the invitation again. It goes out with a fresh link.
+- **The link expired or went to spam.** Ask them to check their spam folder first. The invitation link works once and expires. There is no resend button, but as long as they have never signed in, you can click <Ui>Remove</Ui> beside their name and invite them again: a new email goes out with a fresh link, and the old link stops working. Or [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) with the address and we send a new link.
 
 ## It says "This is the property's only Hotel Admin"
 
@@ -183,7 +186,7 @@ The name, time zone and currency are read from your property system when you con
 
 To reopen the questions any time after connecting, go to <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink>. Type the name and press <Ui>Looks right</Ui>. Then press <Ui>Skip the rest →</Ui>, so your floors and ceilings stay as they are. Read [The five questions](/docs/review/the-five-questions).
 
-The time zone and currency cannot be changed on a screen. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) with the right values. The time zone matters: it sets which night is tonight for pricing and sending.
+The <Ui>PMS</Ui> tab shows the time zone and currency MAYA has, under <Ui>Time zone and currency</Ui>. UTC and US dollars are what a property gets when they were not read from its system, and the card says so when the time zone is UTC. Neither can be changed on a screen. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) with the right values. The time zone matters: it sets which night is tonight for pricing and sending.
 
 <Related>
 - [Create an account and sign in](/docs/account/create-an-account-and-sign-in)

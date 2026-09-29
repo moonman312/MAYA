@@ -470,7 +470,7 @@
    "Where do I type a price for one night?",
    "Does the app remember which tab I was on?",
    "What does the coloured bar on a calendar day mean?",
-   "I switched property. Why does a banner still show the old one?"
+   "Do the banners change when I switch property?"
   ],
   "faq": []
  },
@@ -482,10 +482,10 @@
   "slug": "create-an-account-and-sign-in",
   "order": 10,
   "title": "Create an account and sign in",
-  "summary": "The sign-in page at maya-rms.com/login, creating an account with an email and a password of at least 8 characters, confirming your email, what to do without a password reset link, where signing in takes you, the messages after Connect App in Cloudbeds and how to get a new link, using MAYA on a phone or tablet, and the web addresses an office network needs to allow.",
-  "readingTime": 14,
+  "summary": "The sign-in page at maya-rms.com/login, creating an account with an email and a password of at least 8 characters, confirming your email, resetting a forgotten password, where signing in takes you, the messages after Connect App in Cloudbeds and how to get a new link, using MAYA on a phone or tablet, and the web addresses an office network needs to allow.",
+  "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -577,7 +577,7 @@
    "How do I create a MAYA account?",
    "What is the sign-in address for MAYA?",
    "What are the password rules?",
-   "Is there a password reset link?",
+   "How do I reset a forgotten password?",
    "Can I change my password?",
    "Can I change my email address?",
    "Is there two-factor authentication, Google sign-in or single sign-on?",
@@ -614,7 +614,7 @@
   "summary": "The one box every agreement goes through, where it appears, why you agree to the Terms but only acknowledge the Privacy Policy, what MAYA records when you tick it, and what the Terms lines on the payment screen and in the go-live dialog mean.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -731,7 +731,7 @@
    "Can I see all my properties on one screen?",
    "Is the property I had open saved for next time?",
    "Why did switching property do nothing?",
-   "Why does the billing banner still show the other property?",
+   "Do the banners change when I switch property?",
    "Can I run several ThinkReservations or Mews properties on one account?",
    "Our first hotel is on Cloudbeds and the second is on ThinkReservations. Can both be on one MAYA login?"
   ],
@@ -746,9 +746,9 @@
   "order": 10,
   "title": "Setting up payment",
   "summary": "The payment screen field by field, how many rooms to enter, what the price panel and the Stripe page show, what happens if you leave checkout, the \"Payment received\" screen, and who can pay.",
-  "readingTime": 11,
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -839,7 +839,7 @@
   "order": 20,
   "title": "Codes and the free trial",
   "summary": "Who gets the 7-day trial, who needs a code and where to get one, what a code can grant, every message the code field shows, what happens on a yearly plan, and what a trial that ends unpaid means.",
-  "readingTime": 8,
+  "readingTime": 9,
   "readingNote": null,
   "updated": "2026-09-24",
   "pms": [
@@ -923,7 +923,7 @@
   "summary": "How several properties arrive from one Connect App in Cloudbeds, why the payment screen says Property 2 of 3, one card and one subscription per property, paying with a different card or billing a different company, setting a property aside with Not now, and what a group looks like on the billing page.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1004,7 +1004,7 @@
   "summary": "Cloudbeds and ThinkReservations connect from the app and receive prices. Mews is connected by us and is read-only for now. Every other system is not yet supported.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1065,7 +1065,7 @@
   "summary": "How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds"
   ],
@@ -1121,7 +1121,7 @@
    "I changed my Cloudbeds password, does MAYA still work?",
    "Can a second Cloudbeds user reconnect MAYA?",
    "Can I reconnect with a Cloudbeds group login?",
-   "I took too long signing in at Cloudbeds and MAYA offers me a new property",
+   "I took too long signing in at Cloudbeds and the sign-in link ran out",
    "How does MAYA date a Cloudbeds booking made late in the evening?",
    "Can I choose which rate plan MAYA writes to in Cloudbeds?",
    "Does the connection break if the Cloudbeds user who installed MAYA leaves?",
@@ -1143,7 +1143,7 @@
   "summary": "How to connect ThinkReservations from inside MAYA, what MAYA reads there, which rate type it sends prices to, how a send is checked, and what is different about room counts and disconnects.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "thinkreservations"
   ],
@@ -1223,7 +1223,7 @@
    "Can support set up a group of ThinkReservations properties?",
    "How would I know if ThinkReservations lost its connection?",
    "Which ThinkReservations login should I reconnect with?",
-   "Why does the PMS tab say No recent activity for ThinkReservations?",
+   "Why does the PMS tab say Not tracked for this system for ThinkReservations?",
    "Does MAYA need a code to connect ThinkReservations?",
    "What changes in ThinkReservations once I go live?",
    "What stays mine in ThinkReservations after I go live?",
@@ -1231,7 +1231,7 @@
    "Will my ThinkReservations non-refundable rate follow MAYA's price?",
    "How long until a price MAYA sends shows in ThinkReservations?",
    "How do I stop using MAYA with ThinkReservations?",
-   "It says Think Reservations connection failed, what now?"
+   "It says the sign-in link ran out after 15 minutes, what now?"
   ],
   "faq": []
  },
@@ -1244,9 +1244,9 @@
   "order": 40,
   "title": "Mews: what works today",
   "summary": "Mews is read-only for now. We connect it for you, MAYA reads your bookings and shows what your rules would do, and nothing is sent to Mews. It costs the same as any other property.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "mews"
   ],
@@ -1437,9 +1437,9 @@
   "order": 60,
   "title": "Reconnecting and disconnecting",
   "summary": "What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.",
-  "readingTime": 14,
+  "readingTime": 17,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1455,6 +1455,11 @@
     "depth": 3,
     "text": "When there is no banner",
     "id": "when-there-is-no-banner"
+   },
+   {
+    "depth": 2,
+    "text": "The email after an hour",
+    "id": "the-email-after-an-hour"
    },
    {
     "depth": 2,
@@ -1513,7 +1518,9 @@
    "What do Connected, Pending, Degraded, Error and Disconnected mean on the PMS tab?",
    "Does disconnecting delete anything?",
    "Can I type a price while MAYA is disconnected?",
-   "Last sync stopped but the PMS tab says Connected and there is no banner, why?"
+   "Last sync stopped but the PMS tab says Connected and there is no banner, why?",
+   "Will I get an email when the connection breaks?",
+   "Who is emailed when the connection is down?"
   ],
   "faq": []
  },
@@ -1528,7 +1535,7 @@
   "summary": "A short checklist for a Cloudbeds property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds"
   ],
@@ -1585,7 +1592,7 @@
   "summary": "A short checklist for a ThinkReservations property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 6,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "thinkreservations"
   ],
@@ -1641,7 +1648,7 @@
   "summary": "A short checklist for a Mews property's first weeks with MAYA. We connect it, you build rules, and you use MAYA's calendar as your guide while nothing is sent to Mews.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "mews"
   ],
@@ -1763,7 +1770,7 @@
    "Do minimum stays or restrictions need changing for MAYA?",
    "Are my prices with or without tax in MAYA?",
    "Where can I check which time zone and currency MAYA has for my property?",
-   "Do I have to email you about my time zone before anything works?",
+   "Do I have to check my time zone before anything works?",
    "Should I clear a price I typed in MAYA when I close a night in my system?"
   ],
   "faq": []
@@ -1843,7 +1850,7 @@
   "summary": "What Cloudbeds, ThinkReservations and Mews call things, what MAYA calls the same things, and what each one means once it is inside MAYA. Rate plans and rate types, reservations and bookings, room categories and room types, statuses and states.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1904,7 +1911,7 @@
   "order": 10,
   "title": "The history import",
   "summary": "What MAYA reads from your property system after you connect, in what order, what it keeps, how long it takes, and what you can do while it runs.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [
@@ -1970,7 +1977,8 @@
    "How far back does MAYA read my bookings?",
    "Can I use MAYA while it is still importing?",
    "It says \"Import stopped\". What do I do?",
-   "I reconnected. Why has the import not carried on?",
+   "It says \"Import paused\". Will it carry on by itself?",
+   "I reconnected. Does the import carry on?",
    "Does MAYA keep my guests' details?",
    "Why does it say part 2 while reading my bookings?",
    "We only have 18 months of history. Will the review still open?"
@@ -1986,9 +1994,9 @@
   "order": 20,
   "title": "Hold My Hand or Let Me Drive",
   "summary": "The two buttons you see once your property is paid for and connected, what each path skips, what happens either way, and how to reach the guided screens later.",
-  "readingTime": 4,
+  "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2036,10 +2044,10 @@
   "slug": "the-five-questions",
   "order": 30,
   "title": "The five questions",
-  "summary": "The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer, how the floor ladder works, and what happens if you skip or answer again later.",
-  "readingTime": 9,
+  "summary": "The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer (the last one picks your starter rules), how the floor ladder works, and what happens if you skip or answer again later.",
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -2069,8 +2077,8 @@
    },
    {
     "depth": 2,
-    "text": "Question 5: how to treat your current pricing",
-    "id": "question-5-how-to-treat-your-current-pricing"
+    "text": "Question 5: what your starting rules do",
+    "id": "question-5-what-your-starting-rules-do"
    },
    {
     "depth": 2,
@@ -2081,14 +2089,17 @@
   "questions": [
    "Do I have to answer the five questions?",
    "What is the cost to turn over a room used for?",
-   "What does the Taylor Swift question set?",
-   "What does the last question about my current pricing change?",
+   "What does the biggest concert question set?",
+   "What does the last question about my starting rules change?",
    "What happens if I skip a question?",
    "If I skip the floor question, why is a room type's floor still $1.00?",
    "Can I go back and answer the questions later?",
    "Why does the floor question keep offering me a number?",
    "What happens if my ceiling is lower than my floor?",
+   "Why wasn't my floor saved for one room type?",
+   "Why wasn't my ceiling saved for one room type?",
    "Why did my floors change when I answered the last question?",
+   "Which answer should I pick on the last question?",
    "Why is my Suite stuck at the ceiling I gave?"
   ],
   "faq": []
@@ -2102,9 +2113,9 @@
   "order": 40,
   "title": "Checking what MAYA found",
   "summary": "The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -2199,8 +2210,8 @@
   "slug": "your-starter-rules",
   "order": 50,
   "title": "Your starter rules",
-  "summary": "The five booking speed rules MAYA builds during a first import, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
-  "readingTime": 12,
+  "summary": "The rules MAYA builds during a first import, which depend on your answer to the last of the five questions, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
+  "readingTime": 20,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [],
@@ -2239,6 +2250,31 @@
     "depth": 3,
     "text": "Sudden-spike catcher",
     "id": "sudden-spike-catcher"
+   },
+   {
+    "depth": 2,
+    "text": "If you picked \"My pricing works\"",
+    "id": "if-you-picked-my-pricing-works"
+   },
+   {
+    "depth": 3,
+    "text": "Weekends and weekdays",
+    "id": "weekends-and-weekdays"
+   },
+   {
+    "depth": 3,
+    "text": "When nothing of yours can be copied",
+    "id": "when-nothing-of-yours-can-be-copied"
+   },
+   {
+    "depth": 2,
+    "text": "If you picked \"Find money I'm leaving on the table\"",
+    "id": "if-you-picked-find-money-im-leaving-on-the-table"
+   },
+   {
+    "depth": 2,
+    "text": "Answering after they were built",
+    "id": "answering-after-they-were-built"
    },
    {
     "depth": 2,
@@ -2290,7 +2326,12 @@
    "Do starter rules change prices straight away?",
    "Which room types do the starter rules cover?",
    "Why did a starter rule fire before one of my own rules?",
-   "Can I edit a starter rule?"
+   "Can I edit a starter rule?",
+   "What starter rules do I get if I pick \"My pricing works\"?",
+   "What starter rules do I get if I pick \"Find money I'm leaving on the table\"?",
+   "I picked \"My pricing works\". Why did I get the usual five rules?",
+   "What happens if I answer the last question after the starter rules were built?",
+   "Why does a starter rule only apply on Fridays and Saturdays?"
   ],
   "faq": []
  },
@@ -2305,7 +2346,7 @@
   "summary": "What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), the numbers MAYA uses, and what they mean for prices you type.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -2369,8 +2410,8 @@
   "slug": "getting-suggestions-later",
   "order": 70,
   "title": "Getting suggestions later",
-  "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer, and what accepting each one does.",
-  "readingTime": 11,
+  "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer (the rules offered follow your answer to the last of the five questions), and what accepting each one does.",
+  "readingTime": 13,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [],
@@ -2429,9 +2470,11 @@
    "Why is it suggesting a different occupancy threshold?",
    "Does Get suggestions re-import everything?",
    "The dot is still pulsing. Has the read finished?",
+   "It says \"Your last read stopped\". What now?",
    "Where do I find my suggestions when the read is done?",
    "Who can press Get suggestions from my data?",
    "How do I get the starter rules back after deleting them?",
+   "Which rules does Get suggestions offer after I answered the last of the five questions?",
    "How do I get a floor or ceiling suggested?",
    "Why is there no floor or ceiling card for a room type still at the default?",
    "Should I press Get suggestions from my data on a Mews property?",
@@ -2593,7 +2636,7 @@
   "summary": "What the Sellable occupancy condition counts, why it can differ from your property system's headline occupancy, and what Greater than 80 means at exactly 80.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -2832,7 +2875,7 @@
   "summary": "The fine print behind booking speed, for when you want every step: which bookings count on Cloudbeds, ThinkReservations and Mews, how \"expected\" is worked out, where the lines between the levels fall, what a rule counts after it acts, and when a reading shows.",
   "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -2881,7 +2924,7 @@
    "Do Mews enquiries and optional reservations count for booking speed?",
    "What does \"expected\" mean in the change log, and why does it say \"almost none\"?",
    "How many bookings does it take to read Faster Than Normal?",
-   "What do the lines under \"How did we know?\" about Normal mean?",
+   "What do the lines under \"Show the numbers\" about Normal mean?",
    "Does a raise by another rule change what my booking speed rule counts?",
    "Can another rule raise the night on the same day as a raise?",
    "Why is there no booking speed reading under a price change?",
@@ -2898,9 +2941,9 @@
   "order": 60,
   "title": "Which past nights your rules compare with",
   "summary": "Which past nights your rules compare each night with, up to eight similar nights, how holidays (in the US and elsewhere), weekends, seasons and thin history change them, and how to set aside a night that was not normal.",
-  "readingTime": 21,
+  "readingTime": 22,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2953,7 +2996,7 @@
    "What are similar nights?",
    "Where can I see the nights MAYA compared with?",
    "Why is MAYA comparing my Friday with a Saturday?",
-   "Why does the drill-down say \"we relaxed the criteria a step\"?",
+   "Why does the drill-down say \"the search was widened\"?",
    "Which holidays does MAYA have?",
    "My hotel is outside the US. Do Thanksgiving and July 4 still change how my nights are compared?",
    "Can I turn the US holidays off?",
@@ -2966,7 +3009,7 @@
    "What does \"Not enough history\" mean?",
    "Why did it compare with a festival weekend?",
    "Does MAYA use weather, events or holiday feeds?",
-   "The drill-down says \"We only compared against other Friday nights\", but the list shows a Saturday.",
+   "Why does the drill-down say Saturday nights were compared too?",
    "How do I keep rules off nights we are closed?"
   ],
   "faq": []
@@ -3658,7 +3701,7 @@
   "summary": "What each day on the Calendar tab shows, what the colours mean, what you see when you click a day, and how fresh the numbers are.",
   "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3726,6 +3769,7 @@
    "What is the big percentage on each day of the calendar?",
    "What does \"12/20 rooms\" mean?",
    "What is the dollar figure on each day?",
+   "Does the calendar show my own currency?",
    "Is the revenue on the calendar with or without tax, fees and OTA commission? Why does it not match my PMS revenue report?",
    "What do the colours on the calendar mean?",
    "Why does a night's colour not match its dollar figure?",
@@ -3746,8 +3790,8 @@
    "Why did the calendar open on next month?",
    "Why does yesterday still say \"revenue on the books\"?",
    "Why does tonight already say \"revenue\" instead of \"revenue on the books\"?",
-   "Why is a night's revenue $150 more than my system shows?",
-   "Why does the ADR say $150.00 on a room type with nothing booked?"
+   "Why does a booking add nothing to a night's revenue?",
+   "Why does the ADR show a dash on a room type with nothing booked?"
   ],
   "faq": []
  },
@@ -3762,7 +3806,7 @@
   "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.",
   "readingTime": 19,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3831,8 +3875,8 @@
    },
    {
     "depth": 2,
-    "text": "Rates not reaching your property system",
-    "id": "rates-not-reaching-your-property-system"
+    "text": "Prices not reaching your property system",
+    "id": "prices-not-reaching-your-property-system"
    },
    {
     "depth": 2,
@@ -3868,6 +3912,7 @@
    "Why is the change log empty?",
    "A change from this morning is missing from the change log. Where did it go?",
    "Why are only some of a run's changes listed?",
+   "What does \"And 23 more changes in this run\" mean?",
    "A price went back down. What does the change log say?",
    "What does \"Prices checked 47 times, nothing needed to change\" mean?",
    "What does \"Cancellations meant ... was no longer true\" mean?",
@@ -3886,11 +3931,11 @@
    "Whose time zone are the change log times in?",
    "Can I get the change log by email or notification?",
    "Can I export the change log?",
-   "Why does the log use a different currency sign from the calendar?",
+   "Why does the bold line use a different currency sign from the calendar?",
    "Why does the bold line show $ when the sentences show my currency?",
    "What happens in the change log when I delete a rule?",
    "Why does my revenue pickup rule's sentence talk about bookings?",
-   "Why is \"How did we know?\" under a change an occupancy rule made?",
+   "Why is \"Show the numbers\" under a change an occupancy rule made?",
    "Why did a problem sending prices take hours to show in the change log?"
   ],
   "faq": []
@@ -3904,7 +3949,7 @@
   "order": 30,
   "title": "The numbers behind a change",
   "summary": "The numbers behind a booking speed reading, opened from a button under a change in the change log. Three layers you can open one at a time, down to the past nights the night was compared with.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [],
@@ -3931,8 +3976,8 @@
    },
    {
     "depth": 2,
-    "text": "The second layer: \"Why did you expect that?\"",
-    "id": "the-second-layer-why-did-you-expect-that"
+    "text": "The second layer: \"Which nights were compared?\"",
+    "id": "the-second-layer-which-nights-were-compared"
    },
    {
     "depth": 3,
@@ -3941,8 +3986,8 @@
    },
    {
     "depth": 2,
-    "text": "The third layer: \"Show me the nights you compared\"",
-    "id": "the-third-layer-show-me-the-nights-you-compared"
+    "text": "The third layer: \"List the nights\"",
+    "id": "the-third-layer-list-the-nights"
    },
    {
     "depth": 2,
@@ -3951,21 +3996,22 @@
    }
   ],
   "questions": [
-   "What is \"How did we know?\"",
-   "Why is \"How did we know?\" missing on some changes?",
-   "Why is \"How did we know?\" under a change an occupancy rule made?",
-   "Why does \"How did we know?\" show several blocks?",
+   "What is \"Show the numbers\"?",
+   "Why is \"Show the numbers\" missing on some changes?",
+   "Why is \"Show the numbers\" under a change an occupancy rule made?",
+   "Why does \"Show the numbers\" show several blocks?",
    "Which block belongs to the rule that made the change?",
    "Why do two blocks show the same numbers?",
    "In what order are the compared nights listed?",
    "What does \"no history for this night\" mean?",
-   "What is \"Why did you expect that?\"",
-   "What is \"Show me the nights you compared\"?",
-   "What does \"we held the call at Normal\" mean?",
-   "What does \"we softened it one step\" mean?",
+   "What is \"Which nights were compared?\"",
+   "Why were Saturday nights compared with my Friday?",
+   "What is \"List the nights\"?",
+   "What does \"so it stays Normal\" mean?",
+   "What does \"it reads one step closer to Normal\" mean?",
    "What does \"The newest raise still on this night's price\" mean in the evidence?",
    "What does \"Later that day\" mean in the evidence?",
-   "Where do I see which past nights MAYA compared my night with?",
+   "Where do I see which past nights my night was compared with?",
    "How long can I open the evidence behind a change?",
    "Where do I see the numbers behind a price change?"
   ],
@@ -4041,7 +4087,7 @@
    "What is \"Your corrections\" on the change log?",
    "Our local holiday is not one MAYA has, what do I do?",
    "The change has gone from the change log. How do I set its night aside?",
-   "What does \"Set aside, not used from the next run onward\" mean?"
+   "What does \"Set aside. Not used from the next run on.\" mean?"
   ],
   "faq": []
  },
@@ -4053,10 +4099,10 @@
   "slug": "setting-a-price-yourself",
   "order": 50,
   "title": "Setting a price yourself",
-  "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, and how to hand the night back to MAYA.",
-  "readingTime": 12,
+  "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, and how to hand the night back to your rules.",
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4127,6 +4173,9 @@
    "It says \"MAYA doesn't send a price of 0\", what does that mean?",
    "When is my typed price sent to my property system?",
    "It says \"It will be sent when the date enters the 396-day push window\", what does that mean?",
+   "It says \"It will be sent once you reconnect\", what does that mean?",
+   "It says \"Nothing is sent while MAYA's work is paused\", what does that mean?",
+   "Why is there no Clear button on a night that has passed?",
    "What does Clear do to the rules that were paused?",
    "Can I clear a whole range of nights at once?",
    "Does typing a price restart a rule's wait?",
@@ -4151,7 +4200,7 @@
   "summary": "What happens when you change a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your change is kept as your price. On any other night it becomes the starting point your rules work from.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4245,9 +4294,9 @@
   "order": 70,
   "title": "Room types and rooms out of service",
   "summary": "The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4332,7 +4381,7 @@
    "Can I switch a room type off in MAYA?",
    "Can I rename room types in MAYA?",
    "The unit count for a room type is wrong, how do I fix it?",
-   "Why is a room type that shows ticked not in my bill?"
+   "Why is a room type tagged \"needs your answer\"?"
   ],
   "faq": []
  },
@@ -4344,10 +4393,10 @@
   "slug": "the-pms-tab",
   "order": 80,
   "title": "The PMS tab: connection health",
-  "summary": "What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, and the reconnect link.",
-  "readingTime": 6,
+  "summary": "What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, your property's time zone and currency, and the reconnect link.",
+  "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4386,6 +4435,11 @@
    },
    {
     "depth": 2,
+    "text": "Time zone and currency",
+    "id": "time-zone-and-currency"
+   },
+   {
+    "depth": 2,
     "text": "Reconnecting from here",
     "id": "reconnecting-from-here"
    },
@@ -4400,12 +4454,14 @@
    "What is the \"Recent requests\" table?",
    "Can I force a sync now?",
    "What do \"Healthy\", \"Degraded\" and \"Having trouble\" mean?",
-   "The PMS tab says Degraded and the banner says MAYA lost its connection. Are my prices still going out?",
+   "The PMS tab says Degraded and my connection needs a refresh soon. Are my prices still going out?",
    "What does \"Last sync\" mean on the PMS tab?",
-   "Why is \"Last sync\" a long string ending in +00:00?",
+   "Which time zone is \"Last sync\" in?",
    "Why does the PMS tab say \"No recent activity\"?",
+   "Why does the PMS tab say \"Not tracked for this system\"?",
    "Does the PMS tab show whether my prices reached my property system?",
    "Where is the Reconnect button?",
+   "Where can I see which time zone and currency MAYA has for my property?",
    "How do I check that MAYA is still connected to my property system?"
   ],
   "faq": []
@@ -4608,9 +4664,9 @@
   "order": 30,
   "title": "How prices reach your property system",
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
-  "readingTime": 19,
+  "readingTime": 20,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4724,10 +4780,10 @@
   "slug": "when-your-pms-does-not-accept-a-price",
   "order": 40,
   "title": "When your property system does not accept a price",
-  "summary": "What the \"Rates not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
+  "summary": "What the \"Prices not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4796,7 +4852,7 @@
    }
   ],
   "questions": [
-   "What is \"Rates not reaching Cloudbeds\"?",
+   "What is \"Prices not reaching Cloudbeds\"?",
    "Where do I see sending problems?",
    "What happens if my property system is down?",
    "What happens if Cloudbeds rate-limits MAYA?",
@@ -4807,7 +4863,7 @@
    "How many times does MAYA retry a price?",
    "When am I told about a sending problem?",
    "Will a sending problem fix itself?",
-   "Do I need to do anything about \"Rates not reaching\"?",
+   "Do I need to do anything about \"Prices not reaching\"?",
    "My room type has only derived plans, or no base rate. What happens?",
    "Is this a MAYA problem or a Cloudbeds problem?",
    "How do I make MAYA's floor match my Cloudbeds minimum for one room type?"
@@ -4895,7 +4951,7 @@
   "order": 10,
   "title": "The billing page",
   "summary": "Where the Billing page is, who can open it, every sentence the top card can say, the Your plan rows, what the numbers on it include, what the Stripe billing portal can and cannot do, the dashboard banner, and what a group member sees.",
-  "readingTime": 10,
+  "readingTime": 11,
   "readingNote": null,
   "updated": "2026-09-24",
   "pms": [
@@ -4964,10 +5020,12 @@
    "Where is the billing page and who can see it?",
    "Can a Revenue Manager see the billing page?",
    "What does \"Fix it\" or \"Restart MAYA\" on my dashboard mean?",
+   "Why does my dashboard banner say \"Email us\" instead of \"Restart MAYA\"?",
    "What does \"Retrying payment until\" mean?",
    "What does \"Access ends\" mean on the billing page?",
    "Where can I see the code I used at checkout?",
-   "Why does the price say \"with your code applied\" when I used no code?",
+   "Why does the price say \"adjusted for a recent room count change\"?",
+   "When does the price say \"with your code applied\"?",
    "What can I do in the Stripe billing portal?",
    "How do I change the billing email address?",
    "Why is my next charge different from the calculator?",
@@ -4975,7 +5033,7 @@
    "What does \"Manage billing or cancel\" on the payment screen do?",
    "Why does the billing page say MAYA has paused work on this property?",
    "What does the \"Paused\" status mean?",
-   "Why does my billing page say \"Ended\" when my status is Unpaid?"
+   "What does \"Unpaid since\" mean on the billing page?"
   ],
   "faq": []
  },
@@ -5068,9 +5126,9 @@
   "order": 30,
   "title": "Cards, payments and invoices",
   "summary": "The two zero-amount card checks, what happens when a payment fails and when the retries run out, what \"stopped\" means, updating your card, keeping a second card on file, where invoices and receipts live, the name on your card statement, tax, switching monthly and yearly, refunds and disputes.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5191,9 +5249,9 @@
   "order": 40,
   "title": "Cancelling, restarting and leaving",
   "summary": "How to cancel and when it takes effect, what stops and what stays, your invoices after cancelling, restarting later, pausing instead, cancel versus disconnect, prices after you leave, starting again from scratch, deleting your data, and what happens to a property that never pays.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5287,6 +5345,7 @@
    "Can I cancel a property I paid for but never connected?",
    "How do I cancel one property in a group?",
    "Why does the restart screen ask for a code for my Marketplace property?",
+   "Do I get the free trial again when I restart?",
    "Can I reset my property and start again from scratch?",
    "Can I delete my data or my account myself?",
    "What happens to my data if I never pay or the trial lapses?",
@@ -5302,10 +5361,10 @@
   "slug": "emails-maya-sends",
   "order": 50,
   "title": "Emails MAYA sends",
-  "summary": "The three emails MAYA itself sends (the team invitation, the room count email, and a nudge before a charge when nothing is connected), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
-  "readingTime": 7,
+  "summary": "The five emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5314,13 +5373,18 @@
   "headings": [
    {
     "depth": 2,
-    "text": "The three emails MAYA sends",
-    "id": "the-three-emails-maya-sends"
+    "text": "The five emails MAYA sends",
+    "id": "the-five-emails-maya-sends"
    },
    {
     "depth": 3,
     "text": "The team invitation",
     "id": "the-team-invitation"
+   },
+   {
+    "depth": 3,
+    "text": "The account ready email",
+    "id": "the-account-ready-email"
    },
    {
     "depth": 3,
@@ -5333,9 +5397,19 @@
     "id": "the-nudge-before-a-charge-when-nothing-is-connected"
    },
    {
+    "depth": 3,
+    "text": "The connection-down email",
+    "id": "the-connection-down-email"
+   },
+   {
     "depth": 2,
     "text": "The account confirmation email",
     "id": "the-account-confirmation-email"
+   },
+   {
+    "depth": 2,
+    "text": "The password reset email",
+    "id": "the-password-reset-email"
    },
    {
     "depth": 2,
@@ -5367,6 +5441,7 @@
    "What billing emails will I get?",
    "What is the \"your subscription starts\" email?",
    "Will I get an email when my payment is confirmed?",
+   "What is the \"Your MAYA account is ready\" email?",
    "Will I get a reminder before the trial ends?",
    "Will I get a receipt?",
    "Does MAYA email me when a price changes or a rule needs an answer?",
@@ -5374,7 +5449,10 @@
    "Which emails come from Stripe and which from MAYA?",
    "An email did not arrive, what should I check?",
    "Which address do MAYA's emails come from, so we can allow them through our spam filter?",
-   "I use Mews and got a reminder that my system is not connected. What should I do?"
+   "I use Mews and got a reminder that my system is not connected. What should I do?",
+   "Where does the password reset email come from?",
+   "Will MAYA email me if the connection to my property system breaks?",
+   "Who gets the email when the connection is down?"
   ],
   "faq": []
  },
@@ -5477,9 +5555,9 @@
   "order": 20,
   "title": "Inviting and removing people",
   "summary": "The Team page, seats and how many you get (there are no separate seats), inviting someone and what they receive, colleagues who already use MAYA, accepting an invitation, changing roles, removing people, getting a new invitation link, what happens when someone leaves, handing MAYA to a new owner, and who is signed in.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5567,9 +5645,9 @@
    "How do I resend an invitation?",
    "Sending an invitation showed an error. What now?",
    "My colleague never got the invitation, why?",
-   "Why did it say \"Invitation sent\" when they already had an account?",
+   "Why did it say \"Added\" instead of \"Invitation sent\"?",
    "What happens when someone accepts an invite?",
-   "My invitation link says it is invalid or has expired. What now?",
+   "My invitation link says it has expired or was already used. What now?",
    "I signed up on my own with the invited email, am I on the property?",
    "Can I change someone's role?",
    "Can I remove someone, or remove myself?",
@@ -5594,10 +5672,10 @@
   "slug": "find-out-why-a-price-changed",
   "order": 10,
   "title": "Find out why a price changed",
-  "summary": "Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open \"How did we know?\" when a booking speed rule acted.",
+  "summary": "Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open \"Show the numbers\" when a booking speed rule acted.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -5742,7 +5820,7 @@
   "summary": "Type 0 on the room type card and save. No rule raises a night set to 0, and because MAYA never sends a price of 0 to Cloudbeds or ThinkReservations, you set the night to 0 in your system yourself.",
   "readingTime": 3,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5789,9 +5867,9 @@
   "order": 50,
   "title": "Hand a night back to MAYA",
   "summary": "Click Clear on the room type card to remove a typed price (or a rate you changed in your system) so your rules price the night again, and what Clear does to the rules that were paused.",
-  "readingTime": 3,
+  "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -6380,10 +6458,10 @@
   "slug": "stop-a-festival-night-skewing-comparisons",
   "order": 180,
   "title": "Stop an unusual past night skewing comparisons",
-  "summary": "From a change's \"How did we know?\" panel, open the nights MAYA compared with, click \"Not a fair comparison?\" on the odd one, give a reason and set it aside so it drops out of comparisons from the next run.",
+  "summary": "From a change's \"Show the numbers\" panel, open the nights MAYA compared with, click \"Not a fair comparison?\" on the odd one, give a reason and set it aside so it drops out of comparisons from the next run.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -6421,10 +6499,10 @@
   "slug": "handle-a-holiday-maya-does-not-have",
   "order": 190,
   "title": "Handle a holiday MAYA does not have",
-  "summary": "MAYA uses 17 US holidays for every property, wherever it is, and has no screen to add one or switch one off. Set a past night on your holiday aside with the holiday reason (first in the list) and the yearly scope. After reports from 2 different years, the days around it are left out of comparisons every year, for as long as those reports are under 3 years old.",
+  "summary": "MAYA uses 17 US holidays for every property, wherever it is, and has no screen to add one or switch one off. Set a past night on your holiday aside with the reason Holiday Not on MAYA's List (first in the list) and the yearly scope. After reports from 2 different years, the days around it are left out of comparisons every year, for as long as those reports are under 3 years old.",
   "readingTime": 6,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -6552,7 +6630,7 @@
   "summary": "Invite someone from the Team page as a Viewer so they can see the calendar, prices and change log but change nothing, and what happens when they accept.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -6569,6 +6647,11 @@
     "depth": 2,
     "text": "What a Viewer sees",
     "id": "what-a-viewer-sees"
+   },
+   {
+    "depth": 2,
+    "text": "Seats",
+    "id": "seats"
    },
    {
     "depth": 2,
@@ -6630,10 +6713,10 @@
   "slug": "update-your-card",
   "order": 240,
   "title": "Update your card",
-  "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. When to do it, and what clears the warning.",
-  "readingTime": 3,
+  "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. An unpaid subscription is paid and moved for you. When to do it, and what clears the warning.",
+  "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -6719,9 +6802,9 @@
   "order": 260,
   "title": "Reconnect your property system",
   "summary": "When MAYA loses its connection, a General Manager or Hotel Admin clicks Reconnect on the banner or the PMS tab, signs in at Cloudbeds or ThinkReservations, and lands back on the dashboard. Mews is reconnected by us.",
-  "readingTime": 3,
+  "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6745,7 +6828,8 @@
    "Who can reconnect?",
    "I uninstalled the app in Cloudbeds by accident, how do I get it back?",
    "What happens to my prices while the connection is down?",
-   "Why do I not see the reconnect banner?"
+   "Why do I not see the reconnect banner?",
+   "Will I get an email when the connection drops?"
   ],
   "faq": []
  },
@@ -6757,10 +6841,10 @@
   "slug": "reset-your-password",
   "order": 270,
   "title": "Reset your password",
-  "summary": "There is no reset link yet. Email us from the address you signed up with, subject \"Password reset\", and we send you a link to set a new one.",
-  "readingTime": 2,
+  "summary": "Click Forgot password? on the sign-in page, type your email, and open the link that arrives in the same browser to set a new password. The same link changes a password you still have.",
+  "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -6770,16 +6854,23 @@
    },
    {
     "depth": 2,
-    "text": "Before you email",
-    "id": "before-you-email"
+    "text": "Changing a password you still have",
+    "id": "changing-a-password-you-still-have"
+   },
+   {
+    "depth": 2,
+    "text": "If it does not work",
+    "id": "if-it-does-not-work"
    }
   ],
   "questions": [
    "I forgot my password, what do I do?",
    "How do I ask for a password reset?",
-   "Why is there no forgot password link?",
+   "Where is the forgot password link?",
    "How do I change my password?",
-   "What does \"Invalid login credentials\" mean?"
+   "What does \"Invalid login credentials\" mean?",
+   "The reset email never arrived, what now?",
+   "The reset link says it has expired or was already used. What now?"
   ],
   "faq": []
  },
@@ -6794,7 +6885,7 @@
   "summary": "For Cloudbeds, click Connect App in that property's Cloudbeds Marketplace and sign in to your existing MAYA account. Each property gets its own subscription, rules and team. For ThinkReservations or Mews, email us.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7144,7 +7235,7 @@
   "slug": "booking-speed-reads-oddly",
   "order": 40,
   "title": "Booking speed reads oddly",
-  "summary": "Why two bookings can read Faster Than Normal, why a big count can still read Normal, why a Friday is compared with a Saturday, what to do about a festival or a holiday MAYA does not have, how a group counts, and what the words in \"How did we know?\" mean.",
+  "summary": "Why two bookings can read Faster Than Normal, why a big count can still read Normal, why a Friday is compared with a Saturday, what to do about a festival or a holiday MAYA does not have, how a group counts, and what the words in \"Show the numbers\" mean.",
   "readingTime": 13,
   "readingNote": null,
   "updated": "2026-09-28",
@@ -7201,8 +7292,8 @@
    },
    {
     "depth": 2,
-    "text": "Why is \"expected\" a fraction like 0.4?",
-    "id": "why-is-expected-a-fraction-like-04"
+    "text": "Why is the usual number a fraction like 0.4?",
+    "id": "why-is-the-usual-number-a-fraction-like-04"
    },
    {
     "depth": 2,
@@ -7211,8 +7302,8 @@
    },
    {
     "depth": 2,
-    "text": "What does momentum mean in \"How did we know?\"",
-    "id": "what-does-momentum-mean-in-how-did-we-know"
+    "text": "What does momentum mean in \"Show the numbers\"",
+    "id": "what-does-momentum-mean-in-show-the-numbers"
    },
    {
     "depth": 2,
@@ -7234,9 +7325,9 @@
    "Does a 10-room group count as 10 bookings?",
    "Why did a Confirmation Pending booking count?",
    "Why do Mews Optional reservations count?",
-   "Why is \"expected\" a fraction like 0.4?",
+   "Why is the usual number a fraction like 0.4?",
    "Do cancellations lower the count?",
-   "What does momentum mean in \"How did we know?\"",
+   "What does momentum mean in \"Show the numbers\"",
    "Why does the change log say \"in the 4 days since this rule or a stronger one's latest raise\"?",
    "Why did a booking speed rule fire on a room type with no bookings?"
   ],
@@ -7247,7 +7338,7 @@
    },
    {
     "q": "Why does it say Normal when we got far more bookings than usual?",
-    "a": "One of the three checks held the call back, and the How did we know? panel names which:"
+    "a": "One of the three checks kept the reading nearer Normal, and the Show the numbers panel names which:"
    },
    {
     "q": "Why is it comparing my Friday with a Saturday?",
@@ -7255,7 +7346,7 @@
    },
    {
     "q": "Why did it compare with a festival weekend?",
-    "a": "Because nobody had told MAYA that weekend was unusual. Open the change, press How did we know?, then Why did you expect that?, then Show me the nights you compared. Beside the festival night press Not a fair comparison?, choose a reason such as Local Event or Festival, and press Set this date aside."
+    "a": "Because nobody had told MAYA that weekend was unusual. Open the change, press Show the numbers, then Which nights were compared?, then List the nights. Beside the festival night press Not a fair comparison?, choose a reason such as Local Event or Festival, and press Set this date aside."
    },
    {
     "q": "Why was our national holiday not recognised?",
@@ -7274,8 +7365,8 @@
     "a": "On Mews, every reservation counts except a cancelled one. Optional, Enquired and Requested reservations count as booked, for occupancy and for booking speed, exactly like a Confirmed one. On ThinkReservations every booking counts except cancelled bookings and no-shows."
    },
    {
-    "q": "Why is \"expected\" a fraction like 0.4?",
-    "a": "Because it is an average. Expected is the trimmed average of what the similar nights had received over the same stretch: a plain average with fewer than 5 nights, and with 5 or more the single highest and lowest are dropped first. An expected count of 0.4 is a true statement about a quiet far-out night: most similar nights had none, one or two had one. On screen it reads \"almost none\" when it is under 1, and \"about 3\" otherwise. A similar night with no bookings at all in your history is left out of the average, not counted as zero."
+    "q": "Why is the usual number a fraction like 0.4?",
+    "a": "Because it is an average. The usual number, the expected count, is the trimmed average of what the similar nights had received over the same stretch: a plain average with fewer than 5 nights, and with 5 or more the single highest and lowest are dropped first. An expected count of 0.4 is a true statement about a quiet far-out night: most similar nights had none, one or two had one. On screen it reads \"almost no bookings\" when it is under 1, and \"about 3 bookings\" otherwise. A similar night with no bookings at all in your history is left out of the average, not counted as zero."
    },
    {
     "q": "Do cancellations lower the count?",
@@ -7404,7 +7495,7 @@
    },
    {
     "q": "Why does day revenue differ from a revenue pickup rule?",
-    "a": "They value a booked night differently. The day card values each booked night at the booking's rate as it was imported, falling back to its current rate, and to a placeholder of $150 when neither is on file (which is also why an empty room type shows \"ADR $150.00\"). A pickup count rule set to Revenue (currency) sums each booked night's current rate as your system reports it. The two can differ for the same night. Neither figure is sent anywhere."
+    "a": "They value a booked night differently. The day card values each booked night at the booking's rate as it was imported, falling back to its current rate, and at 0 when neither is on file. A pickup count rule set to Revenue (currency) sums each booked night's current rate as your system reports it. The two can differ for the same night. Neither figure is sent anywhere."
    },
    {
     "q": "Why does day revenue not match my property system's revenue report?",
@@ -7420,10 +7511,10 @@
   "slug": "prices-not-reaching-your-pms",
   "order": 60,
   "title": "Prices are not reaching your property system",
-  "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Rates not reaching\" sentence asks you to do.",
-  "readingTime": 11,
+  "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Prices not reaching\" sentence asks you to do.",
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7467,8 +7558,8 @@
    },
    {
     "depth": 2,
-    "text": "Every \"Rates not reaching\" sentence, and what to do",
-    "id": "every-rates-not-reaching-sentence-and-what-to-do"
+    "text": "Every \"Prices not reaching\" sentence, and what to do",
+    "id": "every-prices-not-reaching-sentence-and-what-to-do"
    }
   ],
   "questions": [
@@ -7515,10 +7606,10 @@
   "slug": "connection-lost",
   "order": 70,
   "title": "Connection lost",
-  "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, and how to tell when Mews reads have stopped with no banner.",
-  "readingTime": 9,
+  "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, how to tell when Mews reads have stopped with no banner, and the email that follows when the connection stays down.",
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7529,6 +7620,11 @@
     "depth": 2,
     "text": "It says \"MAYA has lost its connection to Cloudbeds\"",
     "id": "it-says-maya-has-lost-its-connection-to-cloudbeds"
+   },
+   {
+    "depth": 2,
+    "text": "It says \"Your Cloudbeds connection needs a refresh soon\"",
+    "id": "it-says-your-cloudbeds-connection-needs-a-refresh-soon"
    },
    {
     "depth": 2,
@@ -7567,6 +7663,11 @@
    },
    {
     "depth": 2,
+    "text": "Will I get an email?",
+    "id": "will-i-get-an-email"
+   },
+   {
+    "depth": 2,
     "text": "Why is \"Last sync\" old?",
     "id": "why-is-last-sync-old"
    },
@@ -7582,8 +7683,8 @@
    },
    {
     "depth": 2,
-    "text": "After reconnecting I landed on the dashboard with no message",
-    "id": "after-reconnecting-i-landed-on-the-dashboard-with-no-message"
+    "text": "After reconnecting, how do I know it worked?",
+    "id": "after-reconnecting-how-do-i-know-it-worked"
    },
    {
     "depth": 2,
@@ -7598,6 +7699,7 @@
   ],
   "questions": [
    "It says MAYA has lost its connection to Cloudbeds",
+   "It says my Cloudbeds connection needs a refresh soon",
    "Why does the banner say to ask my General Manager?",
    "I uninstalled the app in Cloudbeds by accident",
    "Someone removed MAYA's permission to update rates",
@@ -7606,17 +7708,20 @@
    "It says Mews needs its keys re-entered",
    "My Mews property still reads Connected but Last sync is old",
    "What do Degraded, Error and Pending mean?",
+   "Does a connection that reads Error come back by itself?",
    "Why is Last sync old?",
    "Why does Health say Having trouble?",
    "The log says reconnect on the PMS tab but I see no banner",
-   "After reconnecting I landed on the dashboard with no message",
+   "After reconnecting, how do I know it worked?",
    "It says this login is for a different property",
-   "What happens to my prices while the connection is down?"
+   "What happens to my prices while the connection is down?",
+   "Will I get an email when the connection is lost?",
+   "I got an email saying MAYA has lost its connection"
   ],
   "faq": [
    {
     "q": "Why does the banner say to ask my General Manager?",
-    "a": "Only a General Manager or Hotel Admin can reconnect. Everyone else sees the same banner with \"Ask this property's General Manager or Hotel Admin to reconnect it\" and no button, so they can tell the right person. Read Roles."
+    "a": "Only a General Manager or Hotel Admin can reconnect Cloudbeds or ThinkReservations. Everyone else sees the same banner with \"Ask this property's General Manager or Hotel Admin to reconnect it\" and no button, so they can tell the right person. A reconnect link someone forwards does not get round this: it stops with \"Reconnecting needs General Manager access or higher on this property.\" Read Roles."
    },
    {
     "q": "Why did MAYA disconnect after my Cloudbeds subscription changed?",
@@ -7627,12 +7732,20 @@
     "a": "MAYA shows the banner and the Reconnect Think Reservations button when the connection stops working and its status changes. Because ThinkReservations does not tell MAYA, that can lag: MAYA's reads fail first and are retried with a growing gap of up to an hour, and the banner follows once the status is marked. If Last sync on the PMS tab is hours old and no banner shows, press Reconnect Think Reservations there anyway, with a login for this hotel only. It is harmless on a working connection."
    },
    {
+    "q": "Will I get an email?",
+    "a": "Yes, once the connection has read Error or Disconnected for about an hour. Every General Manager and Hotel Admin on the property gets one email, headed \"MAYA has lost its connection to Cloudbeds\" (or your system), saying when it went down, what happened, what it means for your prices and how to reconnect. Its button, Open the PMS tab, opens the tab where you reconnect. On Mews, reply to it and we arrange new keys with you."
+   },
+   {
     "q": "Why is \"Last sync\" old?",
     "a": "Last sync is the last time bookings were read successfully. On a healthy connection it is a few minutes old. After a failed read MAYA waits longer before each retry, doubling each time up to an hour, so a system that is down for a while leaves Last sync up to an hour behind before it catches up. A disconnected property stops reading altogether until someone reconnects. A paused subscription stops it too."
    },
    {
     "q": "Why does Health say \"Having trouble\"?",
     "a": "Health (last 24 hours) counts MAYA's requests to your system over the last day: \"Healthy\" when 98% or more succeeded, \"Degraded\" from 80%, \"Having trouble\" below that, with the figure beside it, for example \"76% of 412 requests OK\". \"Having trouble\" usually means your system was down or refusing for part of the day. If the connection card reads Connected and Last sync is recent, the trouble has passed. If not, reconnect."
+   },
+   {
+    "q": "After reconnecting, how do I know it worked?",
+    "a": "A successful reconnect brings you back to the dashboard's PMS tab, on the property you reconnected, with a short note: \"Reconnected.\" Close it with the ×. The banner stops showing once the connection reads Connected, and a few minutes later Last sync shows a fresh time."
    },
    {
     "q": "What happens to my prices while the connection is down?",
@@ -7648,10 +7761,10 @@
   "slug": "calendar-and-log-questions",
   "order": 80,
   "title": "Calendar and change log questions",
-  "summary": "Why every day is amber or a busy night is red, why the calendar and the change log's bold lines show $ for a euro property, what ADR $150 means on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
-  "readingTime": 9,
+  "summary": "Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
+  "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7680,8 +7793,8 @@
    },
    {
     "depth": 2,
-    "text": "Why does ADR say $150 when nothing is booked?",
-    "id": "why-does-adr-say-150-when-nothing-is-booked"
+    "text": "Why does ADR show a dash when nothing is booked?",
+    "id": "why-does-adr-show-a-dash-when-nothing-is-booked"
    },
    {
     "depth": 2,
@@ -7720,8 +7833,8 @@
    },
    {
     "depth": 2,
-    "text": "Why is \"How did we know?\" missing on some changes?",
-    "id": "why-is-how-did-we-know-missing-on-some-changes"
+    "text": "Why is \"Show the numbers\" missing on some changes?",
+    "id": "why-is-show-the-numbers-missing-on-some-changes"
    },
    {
     "depth": 2,
@@ -7730,8 +7843,8 @@
    },
    {
     "depth": 2,
-    "text": "Why does the PMS tab say \"No recent activity\" on ThinkReservations or Mews?",
-    "id": "why-does-the-pms-tab-say-no-recent-activity-on-thinkreservations-or-mews"
+    "text": "Why does the PMS tab say \"Not tracked for this system\" on ThinkReservations or Mews?",
+    "id": "why-does-the-pms-tab-say-not-tracked-for-this-system-on-thinkreservations-or-mews"
    },
    {
     "depth": 2,
@@ -7749,7 +7862,7 @@
    "Why is a busy night red?",
    "Why did the colour not change after a booking?",
    "Why does the calendar show $ when my currency is euro?",
-   "Why does ADR say $150 when nothing is booked?",
+   "Why does ADR show a dash when nothing is booked?",
    "Why does today say revenue instead of revenue on the books?",
    "Why are there no weekday headers?",
    "Why do past months show zeros?",
@@ -7757,10 +7870,10 @@
    "Why is the change log empty?",
    "Why did an older change disappear?",
    "Why are only some of a run's changes listed?",
-   "Why is \"How did we know?\" missing on some changes?",
-   "Why does \"How did we know?\" show under a change a booking speed rule did not make?",
+   "Why is \"Show the numbers\" missing on some changes?",
+   "Why does \"Show the numbers\" show under a change a booking speed rule did not make?",
    "Whose time zone are the log times in?",
-   "Why does the PMS tab say No recent activity on ThinkReservations or Mews?",
+   "Why does the PMS tab say Not tracked for this system on ThinkReservations or Mews?",
    "The alert banner is out of date",
    "Switching property did nothing"
   ],
@@ -7779,11 +7892,11 @@
    },
    {
     "q": "Why does the calendar show $ when my currency is euro?",
-    "a": "The day cards, the day detail, the room type cards, the manual price box, the Rate Simulator and the bold line of each change in the change log all show $ regardless of your property's currency. The numbers are in your own currency. Only the symbol is wrong."
+    "a": "The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its Manual badge, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check Time zone and currency on the PMS tab, and email us to correct it."
    },
    {
-    "q": "Why does ADR say $150 when nothing is booked?",
-    "a": "The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When Booked reads 0, ignore the ADR line: the $150.00 there is a placeholder, whatever your rates are. It is not a price and it is not sent anywhere. Look at Current price for the price your rules have set."
+    "q": "Why does ADR show a dash when nothing is booked?",
+    "a": "The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When Booked reads 0 there is nothing to average, so the line reads \"ADR –\". Look at Current price for the price your rules have set."
    },
    {
     "q": "Why does today say \"revenue\" instead of \"revenue on the books\"?",
@@ -7811,19 +7924,19 @@
    },
    {
     "q": "Why are only some of a run's changes listed?",
-    "a": "A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40 and does not say how many more there were."
+    "a": "A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40, then a line counting the rest, such as \"And 23 more changes in this run.\" In a very large run the count can be a minimum: \"And at least 23 more changes in this run.\" The rest are not listed anywhere in the app. To see where a night stands now, open it on the Calendar tab."
    },
    {
-    "q": "Why is \"How did we know?\" missing on some changes?",
-    "a": "The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system."
+    "q": "Why is \"Show the numbers\" missing on some changes?",
+    "a": "The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every booking speed starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system."
    },
    {
     "q": "Whose time zone are the log times in?",
-    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact timestamp. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock."
+    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. Last sync and the request times on the PMS tab use your clock too. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock."
    },
    {
-    "q": "Why does the PMS tab say \"No recent activity\" on ThinkReservations or Mews?",
-    "a": "The Health (last 24 hours) card and the Recent requests table are filled from a request log that only Cloudbeds writes to today. On a ThinkReservations or Mews property the card reads \"No recent activity\" and the table reads \"No requests recorded yet\" however healthy the connection is. Use Connection and Last sync on those properties instead."
+    "q": "Why does the PMS tab say \"Not tracked for this system\" on ThinkReservations or Mews?",
+    "a": "The Health (last 24 hours) card and the Recent requests table are filled from a log of MAYA's requests, and MAYA keeps that log for Cloudbeds only. On a ThinkReservations or Mews property both read \"Not tracked for this system\", however healthy the connection is. Use Connection and Last sync on those properties instead."
    }
   ]
  },
@@ -7836,9 +7949,9 @@
   "order": 90,
   "title": "Account and billing problems",
   "summary": "Sign-in trouble, the connection link, codes, a stuck \"Payment received\" screen, card checks and whether you were charged twice, the room count banner, a paused property, seats, invitations, and a property name, time zone or currency that came in wrong.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7980,6 +8093,7 @@
    "It says I'm running 300 rooms on Mews",
    "My room count on ThinkReservations looks wrong",
    "It says MAYA has paused work on this property",
+   "I updated my card but MAYA is still paused",
    "It says this property already has a subscription",
    "Why is the next charge different from the calculator?",
    "Why can't I see the billing page?",
@@ -7993,7 +8107,7 @@
   "faq": [
    {
     "q": "A colleague already signed up for our property, how do I get in?",
-    "a": "They invite you. On the Team page they enter your email, pick your role and press Send invitation. You get an email with a link to set a password and join. If you already have a MAYA account, you are added at once with no email, and the property appears the next time you open MAYA. Read Inviting and removing people."
+    "a": "They invite you. On the Team page they enter your email, pick your role and press Send invitation. You get an email with a link to set a password and join. If you have signed in to MAYA before, you are added at once with no email, and the property appears the next time you open MAYA. Read Inviting and removing people."
    },
    {
     "q": "Why did signing in take me to a payment page?",
@@ -8030,7 +8144,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 43,
+  "readingTime": 53,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-29",
   "pms": [
@@ -8086,13 +8200,13 @@
    },
    {
     "depth": 2,
-    "text": "\"How did we know?\" and setting a date aside",
-    "id": "how-did-we-know-and-setting-a-date-aside"
+    "text": "\"Show the numbers\" and setting a date aside",
+    "id": "show-the-numbers-and-setting-a-date-aside"
    },
    {
     "depth": 2,
-    "text": "\"Rates not reaching\", in the change log",
-    "id": "rates-not-reaching-in-the-change-log"
+    "text": "\"Prices not reaching\", in the change log",
+    "id": "prices-not-reaching-in-the-change-log"
    },
    {
     "depth": 2,
@@ -8119,9 +8233,10 @@
    "What does this message mean?",
    "Where do I find out what an error on screen means?",
    "It says something and I cannot tell what it means",
-   "What does \"No accessible hotel\" mean?",
+   "What does \"You don't have access to this property\" mean?",
    "What does \"That's a lot of price changes at once\" mean?",
    "What does \"Finding was already resolved\" mean?",
+   "Why does a review card say \"Only a Revenue Manager or above can answer this.\"?",
    "What does \"We hit a snag connecting your property\" mean?",
    "What does \"Payment is needed before connecting\" mean?",
    "What does \"needs an access code to connect\" mean?",
@@ -8193,7 +8308,8 @@
    "What are booking speed and pickup rules?",
    "What is a room night?",
    "What does Last sync mean?",
-   "What does \"expected\" mean in an explanation?",
+   "What does \"usually get\" mean in an explanation?",
+   "What does the Show the numbers link under a change open?",
    "What is a manual price?",
    "What does paused mean?",
    "What is a fire?",
@@ -8289,6 +8405,7 @@
    "What is a hotel day?",
    "Which time zone does MAYA use?",
    "Can I change the time zone?",
+   "Where can I see my property's time zone?",
    "Whose clock are the times on screen in?",
    "Is \"Past day\" the last 24 hours?",
    "Do \"Past week\" and \"Past month\" mean 7 and 30 days?",
@@ -8399,7 +8516,7 @@
   "order": 40,
   "title": "What MAYA does not do (yet)",
   "summary": "Every limit in one list, grouped by rules, prices and sending, property systems, the calendar and change log, account and billing, and your data, each with what to do instead and the page that explains it.",
-  "readingTime": 9,
+  "readingTime": 10,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -8469,7 +8586,7 @@
   "summary": "What MAYA keeps and never keeps, where it is hosted, how long each thing is kept, how your system's access is held and withdrawn, who else handles data, Europe and the GDPR, cookies, how to report a security problem and how we would reach you, and the questions a security review asks.",
   "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8596,6 +8713,7 @@
    "Does MAYA sell my data, share it, or use it to price other hotels?",
    "How long do you keep my data?",
    "What do you keep after deletion?",
+   "How often do you back up our data, and for how long?",
    "Do you back up our data, and what happens if your servers lose it?",
    "Can I get a copy of my data?",
    "Is there a cookie banner?",
@@ -8616,7 +8734,7 @@
   "summary": "The Terms of Service in plain words. Who the agreement is with and where they are based, why every price is yours, who is liable if a price costs you money, uptime and what happens when MAYA is down, who owns your data, fees and refunds in brief, how you hear about changes to MAYA, and how disputes are settled under Wyoming law.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8707,7 +8825,7 @@
   "summary": "Email info@modern-hospitality-solutions.com from the address you sign in with. We aim to answer within one business day. Name your property, and for a price add the night, the room type and the change log sentence.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8819,7 +8937,7 @@
   "summary": "These pages describe MAYA as it works today, including what it cannot do yet. The docs helper answers with passages taken word for word from these pages and matches your question inside your browser. It counts each question without its words, and sends your words only if you press Send.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {

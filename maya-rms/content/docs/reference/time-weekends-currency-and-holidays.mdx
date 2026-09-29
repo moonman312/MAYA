@@ -9,6 +9,7 @@ questions:
   - What is a hotel day? {#your-propertys-day/maya-counts-days}
   - Which time zone does MAYA use? {#which-time-zone}
   - Can I change the time zone? {#which-time-zone}
+  - Where can I see my property's time zone? {#which-time-zone}
   - Whose clock are the times on screen in? {#whose-clock-you-see/times-on-screen}
   - Is "Past day" the last 24 hours? {#past-day-past-week-and-past-month}
   - Do "Past week" and "Past month" mean 7 and 30 days? {#past-day-past-week-and-past-month}
@@ -65,7 +66,7 @@ MAYA does not read it from Mews. We set it with you when we connect the property
 </PmsTab>
 </PmsTabs>
 
-If your system gave none, MAYA uses universal time (UTC) until we set yours. No screen in MAYA shows the time zone, and it cannot be changed from the app. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) to check or change it. Changing it in your system later does not change it in MAYA.
+If your system gave none, or it could not be read when you connected, MAYA uses universal time (UTC) until we set yours. The <Ui>PMS</Ui> tab shows the time zone MAYA has, under <Ui>Time zone and currency</Ui>, and says so in plain words when it is UTC. It cannot be changed from the app. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) to change it. Changing it in your system later does not change it in MAYA.
 
 It matters for sending. If your system and MAYA disagree about when tonight ends, your system can refuse tonight's price in the hours between the two midnights. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) has the signs to look for.
 
@@ -130,20 +131,20 @@ A holiday never changes a price by itself, and there is no holiday rule. It chan
 
 ## Seasons
 
-Seasons are stretches of your year that book differently, found from your own history, never set by hand. They only ever show inside an explanation under <Ui>How did we know?</Ui>. [Similar nights](/docs/rules/similar-nights)
+Seasons are stretches of your year that book differently, found from your own history, never set by hand. They only ever show inside an explanation under <Ui>Show the numbers</Ui>. [Similar nights](/docs/rules/similar-nights)
 
 ## Currency
 
-Your property's currency is read once, when you connect: from Cloudbeds or ThinkReservations, and set with you for Mews. MAYA never converts anything. Every price is a number in your own currency.
+Your property's currency is read once, when you connect: from Cloudbeds or ThinkReservations, and set with you for Mews. If none could be read, MAYA uses US dollars until we set yours. MAYA never converts anything. Every price is a number in your own currency.
 
 The symbol depends on the screen:
 
-- **Your currency's symbol** in the change log's sentences, the <Ui>Rules that keep adjusting</Ui> banner and the typed-price messages. That is $ for US dollars, € for euros and £ for pounds, and the three-letter code in front of the amount for any other.
-- **Always $**, whatever your currency, on the calendar's day cards and day detail, the room type cards, the typed-price box and the Rate Simulator. The first line of each change in the change log also shows $. The numbers are still yours. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
+- **Your currency's symbol** on the calendar's day cards and day detail, the room type cards and their badges, the typed-price box, the Rate Simulator, the change log's sentences, the <Ui>Rules that keep adjusting</Ui> banner and the typed-price messages. That is $ for US dollars, € for euros and £ for pounds, and the three-letter code in front of the amount for any other.
+- **Always $**, whatever your currency, on the first line of each change in the change log, the <Ui>Price Change</Ui> column on the <Ui>Rules</Ui> tab and the rule builder's fixed amount box. The numbers are still yours. [Calendar and change log questions](/docs/wrong/calendar-and-log-questions)
 
 Your MAYA subscription is billed in US dollars, whatever your property's currency. [What it costs](/docs/start/what-it-costs)
 
-To check which currency MAYA has for your property, read the sign in the sentences under any change in the <Ui>Change Log</Ui>, not the bold line above them. The currency cannot be changed from the app. If MAYA has the wrong one, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
+To check which currency MAYA has for your property, open the <Ui>PMS</Ui> tab: <Ui>Time zone and currency</Ui> shows it by its code and sign, such as "EUR (€)". The currency cannot be changed from the app. If MAYA has the wrong one, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
 
 **The default floor and ceiling are numbers in your currency.** Every room type starts with a floor of 1.00 and a ceiling of 99,999.99, whatever the currency. In most currencies they stop nothing. Where a room type sells above 99,999.99 (yen, won, rupiah or dong, for example), the default ceiling holds its prices down to 99,999.99, and a price you type above it is refused, until a real ceiling is set. Set ceilings before you go live: through the five questions, a suggestion card, or by email. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
 
@@ -172,7 +173,7 @@ This applies to Cloudbeds and ThinkReservations. Nothing is sent to Mews yet.
 - **Typed prices:** up to 399 days ahead. One 396 or more nights ahead is priced and sent when its night enters the window. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
 
 <Callout kind="not-yet">
-No screen shows or changes the time zone or the currency (email us). The calendar cannot show your currency's symbol. Rules have no weekday setting. There is no holiday list to edit and no holidays outside the US. Prices cannot be rounded to whole units.
+No screen changes the time zone or the currency (the <Ui>PMS</Ui> tab shows them; email us to change them). The change log's bold lines and the rule builder cannot show your currency's symbol. Rules have no weekday setting. There is no holiday list to edit and no holidays outside the US. Prices cannot be rounded to whole units.
 </Callout>
 
 <Related>

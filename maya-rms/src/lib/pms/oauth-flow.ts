@@ -5,12 +5,16 @@ import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { links } from "@/lib/deep-links";
+import { activeHotelCookieOptions, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
-import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
+import { handleMarketplaceConnect, type MarketplaceTokens } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
+import { resumeImportAfterReconnect } from "@/lib/pms/eager-import";
+import { storedPropertyId } from "@/lib/pms/stored-property";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
@@ -23,12 +27,13 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
 /**
  * Who the OAuth dance is for:
- * - hotel: admin connecting an existing hotel (requires manage rights).
+ * - hotel: connecting an existing hotel again (General Manager or above, or
+ *   a platform admin).
  * - onboarding: a new user with no hotel — any authenticated session;
  *   the callback creates the hotel from PMS data.
  */
 export type OAuthTarget =
-  | { kind: "hotel"; hotelId: string }
+  | { kind: "hotel"; hotelId: string; from?: "admin" }
   | { kind: "onboarding" };
 
 /**
@@ -49,12 +54,11 @@ export async function buildAuthorizeRedirect(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   if (target.kind === "hotel") {
-    const { data: isAdmin } = await ssr.rpc("is_platform_admin", { p_user_id: user.id });
-    const { data: canManage } = await ssr.rpc("can_manage_hotel", {
-      target_hotel_id: target.hotelId,
-    });
-    if (!isAdmin && !canManage) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // The rank the Reconnect button is drawn for (/api/pms/activity), platform
+    // admins included. can_manage_hotel also lets a Revenue Manager in, so the
+    // link used to reconnect for someone who was never shown the button.
+    if (!(await canReconnectHotel(ssr, target.hotelId))) {
+      return renderNotice("Reconnecting needs General Manager access or higher on this property.", 403);
     }
   } else {
     // The paywall. Connecting a PMS is what turns a signup into a working
@@ -143,7 +147,7 @@ export async function buildAuthorizeRedirect(
   const state =
     target.kind === "onboarding"
       ? signOnboardingState(user.id, pmsType)
-      : signState(target.hotelId, pmsType);
+      : signState(target.hotelId, pmsType, target.from);
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -164,7 +168,7 @@ export async function buildAuthorizeRedirect(
 /**
  * Handle the callback from the vendor. Verifies state, exchanges code for
  * tokens via the standard OAuth2 token endpoint, stores everything in Vault
- * via `pms_secret_set`, and redirects to the hotel detail page.
+ * via `pms_secret_set`, and redirects back to where the connect started.
  */
 export async function handleOAuthCallback(
   cookieStore: CookieStore,
@@ -197,6 +201,12 @@ export async function handleOAuthCallback(
   // URL. A forged state therefore buys nothing a bare Flow A callback does not
   // already allow.
   const verified = state ? verifyState(state, pmsType) : null;
+  // Except a link we signed that simply ran out: that one is ours, so it is
+  // no Marketplace grant. Taken as one, it ended ThinkReservations on a
+  // Marketplace error with a link to the staff console. Nothing is exchanged.
+  if (verified != null && !verified.ok && verified.expired) {
+    return renderNotice("That sign-in link ran out after 15 minutes. Start again from MAYA.");
+  }
   const isMarketplace = !state || (verified != null && !verified.ok);
   if (verified != null && !verified.ok) {
     console.warn(
@@ -283,9 +293,25 @@ export async function handleOAuthCallback(
 
   // FLOW A: no state, so the property is identified from the grant itself.
   if (isMarketplace) {
-    const outcome = await handleMarketplaceConnect(pmsType, secretPayload);
+    // A property connected from inside MAYA is reconnected here only for the
+    // person its own Reconnect button is for, so who is at the browser is
+    // asked, once, and only when such a property turns up.
+    const ssr = createSSRClient(cookieStore);
+    let signedIn: Promise<boolean> | null = null;
+    const outcome = await handleMarketplaceConnect(pmsType, secretPayload, {
+      canReconnect: async (hotelId) => {
+        signedIn ??= ssr.auth.getUser().then(({ data }) => Boolean(data.user));
+        return (await signedIn) && (await canReconnectHotel(ssr, hotelId));
+      },
+      reconnect: async (hotelId) => {
+        const done = await reconnectHotel(hotelId, pmsType, secretPayload, "marketplace_flow_a");
+        return done.ok ? { ok: true } : { ok: false, message: done.message };
+      },
+    });
     if (outcome.kind === "error") return renderCallbackError(pmsType, outcome.message);
+    if (outcome.kind === "refused") return renderNotice(outcome.message, 403);
     if (outcome.kind === "reconnected") {
+      if (outcome.inApp) return reconnectedRedirect(base, outcome.hotelId);
       // Flow A's own wording: after connecting, "Connect App" becomes "Login".
       return NextResponse.redirect(`${base}/login?reconnected=1`, { status: 302 });
     }
@@ -302,23 +328,44 @@ export async function handleOAuthCallback(
   }
 
   const { hotelId } = verified;
+  const done = await reconnectHotel(hotelId, pmsType, secretPayload, "oauth");
+  if (!done.ok) return done.plain ? renderNotice(done.message) : renderCallbackError(pmsType, done.message);
+
+  if (verified.from === "admin") {
+    return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
+      status: 302,
+    });
+  }
+  // A parked property is not on the dashboard yet: back to the payment
+  // screen its reconnect prompt was on.
+  if (done.parked) return NextResponse.redirect(`${base}/onboarding`, { status: 302 });
+  return reconnectedRedirect(base, hotelId);
+}
+
+/**
+ * An existing hotel connected again with a fresh grant: its Reconnect button,
+ * the staff console, and a Marketplace "Connect App" on a property connected
+ * from inside MAYA all come through here.
+ */
+async function reconnectHotel(
+  hotelId: string,
+  pmsType: PmsType,
+  secretPayload: MarketplaceTokens,
+  via: "oauth" | "marketplace_flow_a",
+): Promise<{ ok: true; parked: boolean } | { ok: false; message: string; plain: boolean }> {
   const admin = createAdminClient();
 
-  // A Marketplace property is bound to one Cloudbeds property, and its stored
-  // credential is the only place that ID is kept. The retention sweep deletes
-  // that credential, so a reconnect through this door has to supply it again,
-  // and has to be for the same property: a group grant cannot say which
-  // sibling on its own, and a login to some other property must not have its
-  // history imported and priced here.
-  const bound = await marketplacePropertyForGrant(admin, hotelId, pmsType, secretPayload);
-  if (!bound.ok) return renderCallbackError(pmsType, bound.message);
+  // Every Cloudbeds reconnect has to be for the property this hotel is
+  // connected to, and that is settled before its credential is overwritten.
+  const bound = await boundPropertyForGrant(admin, hotelId, pmsType, secretPayload);
+  if (!bound.ok) return { ok: false, message: bound.message, plain: true };
 
   const { error: secretErr } = await admin.rpc("pms_secret_set", {
     p_hotel_id: hotelId,
     p_pms_type: pmsType,
     p_secret: bound.propertyId ? { ...secretPayload, propertyId: bound.propertyId } : secretPayload,
   });
-  if (secretErr) return renderCallbackError(pmsType, `pms_secret_set: ${secretErr.message}`);
+  if (secretErr) return { ok: false, message: `pms_secret_set: ${secretErr.message}`, plain: false };
 
   // The reconnect prompt sends a Marketplace property here too, including one
   // whose owner never paid and whose data the retention sweep removed. Owning
@@ -340,18 +387,27 @@ export async function handleOAuthCallback(
       },
       { onConflict: "hotel_id,pms_type" },
     );
-  if (pcErr) return renderCallbackError(pmsType, `pms_connections upsert: ${pcErr.message}`);
+  if (pcErr) return { ok: false, message: `pms_connections upsert: ${pcErr.message}`, plain: false };
   // A person re-authorized: rate pushes held for a missing permission or a
   // refused grant go out on the next tick instead of a day later.
   await markConnectionReauthorized(admin, hotelId, pmsType, now);
 
   // A property the sweep emptied gets its full history read again; a plain
-  // reconnect would only ever sync the recent window. Never fails the connect.
-  await queueImportAfterPurge(admin, hotelId, pmsType, null).catch((e: unknown) => {
+  // reconnect would only ever sync the recent window. Otherwise an import the
+  // lost connection stopped or wore out carries on from where it was, as the
+  // Marketplace reconnect does; a parked property's waits for its payment
+  // screen. Never fails the connect.
+  const importStep = async () => {
+    const afterPurge = await queueImportAfterPurge(admin, hotelId, pmsType, null);
+    if (!afterPurge.queued && afterPurge.reason === "not_purged" && !parked) {
+      await resumeImportAfterReconnect(admin, hotelId);
+    }
+  };
+  await importStep().catch((e: unknown) => {
     console.error(
       JSON.stringify({
         fn: "handleOAuthCallback",
-        step: "import_after_purge",
+        step: "import",
         hotelId,
         error: e instanceof Error ? e.message : String(e),
       }),
@@ -367,9 +423,9 @@ export async function handleOAuthCallback(
         accessToken: secretPayload.accessToken,
         tokenType: typeof secretPayload.tokenType === "string" ? secretPayload.tokenType : "Bearer",
         baseUrl: defaultCloudbedsBaseUrl(),
-        // Flow B resolves the property id on its first sync, not here. Cloudbeds
-        // infer it from the grant when it is omitted. A Marketplace property
-        // already knows its own.
+        // A hotel with no property on record yet resolves it on its first
+        // sync, not here, and Cloudbeds infer it from the grant when it is
+        // omitted.
         propertyId: bound.propertyId ?? "",
       },
       hotelId,
@@ -386,27 +442,60 @@ export async function handleOAuthCallback(
     p_entity_type: "pms_connection",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
-    p_detail: { pms_type: pmsType, via: "oauth" },
+    p_detail: { pms_type: pmsType, via },
   });
 
-  return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
-    status: 302,
-  });
+  return { ok: true, parked };
 }
 
 /**
- * The Cloudbeds property a claimed Marketplace hotel is bound to, checked
- * against what the new grant can reach. Any other hotel is not bound and
- * passes with no property ID, as it always has.
+ * General Manager or above on this hotel, or a platform admin. Asked of the
+ * database, where can_manage_finances takes the caller from the verified
+ * token (auth.uid()). hasHotelRank reads the user id from the session cookie,
+ * which the browser can edit, and a member can read every membership row of
+ * their hotel, so a Viewer could pass it under a General Manager's id.
  */
-async function marketplacePropertyForGrant(
+async function canReconnectHotel(ssr: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data, error } = await ssr.rpc("can_manage_finances", { target_hotel_id: hotelId });
+  return !error && data === true;
+}
+
+/**
+ * Back to the dashboard's PMS tab on the property just reconnected, with the
+ * short note that says it worked. The property is made the active one, so
+ * the note sits over the right connection; the cookie is only ever honoured
+ * for a property the person belongs to (hotel-context.ts).
+ */
+function reconnectedRedirect(base: string, hotelId: string): Response {
+  const res = NextResponse.redirect(
+    `${base}${links.internalHref({ dest: "pms", params: {} }, { note: "reconnected" })}`,
+    { status: 302 },
+  );
+  res.cookies.set(MAYA_ACTIVE_HOTEL_COOKIE, hotelId, activeHotelCookieOptions());
+  return res;
+}
+
+/**
+ * The Cloudbeds property this hotel is connected to, checked against what the
+ * new grant can reach, before anything of the existing connection is touched.
+ *
+ * A Marketplace hotel's is on its row, and the retention sweep may have
+ * deleted its credential, so a reconnect through this door has to supply it
+ * again. A hotel connected from inside MAYA keeps it with its credential.
+ * Either way a login for some other property stops here: its bookings must
+ * not be read and priced, nor rates sent to it, under this hotel. A group
+ * login that reaches the property is fine, and the ID stored with the new
+ * tokens says which sibling. A hotel with no property on record yet has
+ * nothing to compare against and connects as it always has.
+ */
+async function boundPropertyForGrant(
   admin: SupabaseClient,
   hotelId: string,
   pmsType: PmsType,
   tokens: { accessToken: string; tokenType: string },
 ): Promise<{ ok: true; propertyId: string | null } | { ok: false; message: string }> {
   if (pmsType !== "cloudbeds") return { ok: true, propertyId: null };
-  let enterpriseId: string | null = null;
+  let propertyId: string | null = null;
   try {
     // Read directly so a failed read stops here. The shared lookup reads an
     // error as "no claim", which would skip the very check this is.
@@ -418,21 +507,31 @@ async function marketplacePropertyForGrant(
       .limit(1)
       .maybeSingle();
     if (claimErr) throw new Error(claimErr.message);
-    if (!claimRow) return { ok: true, propertyId: null };
     const { data, error } = await admin
       .from("hotels")
       .select("external_enterprise_id")
       .eq("id", hotelId)
       .maybeSingle();
     if (error) throw new Error(error.message);
-    enterpriseId = data?.external_enterprise_id ? String(data.external_enterprise_id) : null;
+    const enterpriseId = data?.external_enterprise_id ? String(data.external_enterprise_id) : "";
+    const prefix = `${pmsType}:`;
+    if (enterpriseId.startsWith(prefix)) propertyId = enterpriseId.slice(prefix.length) || null;
+    if (claimRow && !propertyId) {
+      return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
+    }
+    propertyId ??= await storedPropertyId(admin, hotelId, pmsType);
   } catch (e) {
-    return { ok: false, message: `Could not read the property: ${e instanceof Error ? e.message : String(e)}` };
+    console.error(
+      JSON.stringify({
+        fn: "handleOAuthCallback",
+        step: "bound_property",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return { ok: false, message: "We couldn't check this login just now. Try connecting again in a moment." };
   }
-
-  const prefix = `${pmsType}:`;
-  const propertyId = enterpriseId?.startsWith(prefix) ? enterpriseId.slice(prefix.length) : "";
-  if (!propertyId) return { ok: false, message: "Reconnect this property from the Cloudbeds Marketplace." };
+  if (!propertyId) return { ok: true, propertyId: null };
 
   const bare = { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl: defaultCloudbedsBaseUrl() };
   let reachable: string[];
@@ -470,6 +569,23 @@ async function parkedMarketplaceHotel(admin: SupabaseClient, hotelId: string): P
     );
     return false;
   }
+}
+
+/**
+ * One plain sentence for the person at the browser, and the way back to their
+ * dashboard. For a refusal they can act on; driver detail belongs in the log.
+ */
+function renderNotice(message: string, status = 400): Response {
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>MAYA</title></head>
+<body style="font-family: system-ui, sans-serif; background: #020617; color: #e2e8f0; padding: 3rem;">
+  <p style="max-width:36rem;line-height:1.6">${message.replace(/</g, "&lt;")}</p>
+  <p><a href="/" style="color:#38bdf8">Open MAYA</a></p>
+</body></html>`;
+  return new Response(html, {
+    status,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
 }
 
 function renderCallbackError(pmsType: PmsType, message: string): Response {

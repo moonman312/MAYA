@@ -156,6 +156,7 @@ describe("listUnpaidMarketplaceHotels", () => {
       propertyName: "Sea View Inn",
       pmsType: "cloudbeds",
       groupKey: "grp-1",
+      hadSubscription: false,
     });
     expect(unpaid[1].propertyName).toBeNull();
   });
@@ -188,6 +189,23 @@ describe("listUnpaidMarketplaceHotels", () => {
     });
     const unpaid = await listUnpaidMarketplaceHotels(client, USER);
     expect(unpaid.map((u) => u.hotelId)).toEqual(["h-dead", "h-none"]);
+  });
+
+  it("marks a property whose subscription ended, so the screen offers it no Marketplace trial", async () => {
+    // Checkout calls any subscription on record a restart, and the trial is
+    // for a first signup only. The screen has to agree or it promises free
+    // days that are then charged.
+    const { client } = fakeAdmin({
+      hotel_memberships: [member("h-ended"), member("h-new")],
+      hotels: [parked("h-ended", "Ended", "2026-09-10T14:08:00Z"), parked("h-new", "New", "2026-09-10T14:08:01Z")],
+      pms_marketplace_claims: [claim("h-ended", null), claim("h-new", null)],
+      hotel_subscriptions: [{ hotel_id: "h-ended", status: "canceled", stripe_subscription_id: "sub_old" }],
+    });
+    const unpaid = await listUnpaidMarketplaceHotels(client, USER);
+    expect(unpaid.map((u) => [u.hotelId, u.hadSubscription])).toEqual([
+      ["h-ended", true],
+      ["h-new", false],
+    ]);
   });
 
   it("leaves Flow B's placeholder alone — same shape, no claim, and the PMS connect owns it", async () => {
@@ -247,7 +265,14 @@ describe("listUnpaidMarketplaceHotels", () => {
     const unpaid = await listUnpaidMarketplaceHotels(client, USER);
     expect(unpaid.map((u) => u.hotelId)).toEqual(["h-a", "h-c"]);
     // The public shape does not grow a deferredAt: nothing in it is deferred.
-    expect(Object.keys(unpaid[0]).sort()).toEqual(["groupKey", "hotelId", "name", "pmsType", "propertyName"]);
+    expect(Object.keys(unpaid[0]).sort()).toEqual([
+      "groupKey",
+      "hadSubscription",
+      "hotelId",
+      "name",
+      "pmsType",
+      "propertyName",
+    ]);
   });
 
   it("offers every parked sibling, loudly, when the setup_deferred_at column has not been migrated", async () => {
@@ -307,6 +332,7 @@ describe("listDeferredMarketplaceHotels", () => {
       propertyName: "Bay Lodge",
       pmsType: "cloudbeds",
       groupKey: "grp-1",
+      hadSubscription: false,
       deferredAt: DEFERRED_AT,
     });
   });

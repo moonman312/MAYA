@@ -40,10 +40,6 @@ begin
     create type run_status as enum ('queued', 'running', 'completed', 'failed', 'partial');
   end if;
 
-  if not exists (select 1 from pg_type where typname = 'rate_update_status') then
-    create type rate_update_status as enum ('pending', 'sent', 'succeeded', 'failed', 'skipped');
-  end if;
-
   if not exists (select 1 from pg_type where typname = 'app_role') then
     create type app_role as enum ('platform_admin', 'platform_support');
   end if;
@@ -728,24 +724,6 @@ create table if not exists pricing_decisions (
 create index if not exists idx_pricing_decisions_hotel_stay_date
   on pricing_decisions(hotel_id, stay_date);
 
-create table if not exists rate_updates (
-  id uuid primary key default gen_random_uuid(),
-  hotel_id uuid not null references hotels(id) on delete cascade,
-  run_id uuid references pricing_runs(id) on delete set null,
-  decision_id uuid references pricing_decisions(id) on delete set null,
-  room_type_id uuid references room_types(id) on delete set null,
-  stay_date date not null,
-  old_rate numeric(12,2),
-  new_rate numeric(12,2),
-  status rate_update_status not null default 'pending',
-  external_response jsonb,
-  update_time timestamptz not null default now(),
-  created_at timestamptz not null default now()
-);
-
-create index if not exists idx_rate_updates_hotel_update_time
-  on rate_updates(hotel_id, update_time desc);
-
 -- ============================================================================
 -- AUDIT + OPTIONAL MARKET/COMP DATA
 -- ============================================================================
@@ -939,7 +917,6 @@ alter table pricing_rule_room_types enable row level security;
 alter table rule_applications enable row level security;
 alter table pricing_runs enable row level security;
 alter table pricing_decisions enable row level security;
-alter table rate_updates enable row level security;
 alter table audit_events enable row level security;
 alter table market_events enable row level security;
 alter table competitor_rates enable row level security;
@@ -1240,7 +1217,7 @@ begin
     'profiles','hotels','hotel_memberships',
     'pms_connections','hotel_settings','room_types','room_constraints','reservations',
     'occupancy_metrics','pricing_rules','pricing_rule_conditions','pricing_rule_room_types',
-    'rule_applications','pricing_runs','pricing_decisions','rate_updates','audit_events',
+    'rule_applications','pricing_runs','pricing_decisions','audit_events',
     'market_events','competitor_rates'
   ]
   loop
@@ -1388,12 +1365,6 @@ create policy pricing_runs_access
 drop policy if exists pricing_decisions_access on pricing_decisions;
 create policy pricing_decisions_access
   on pricing_decisions for all
-  using (is_hotel_accessible(hotel_id))
-  with check (can_manage_hotel(hotel_id));
-
-drop policy if exists rate_updates_access on rate_updates;
-create policy rate_updates_access
-  on rate_updates for all
   using (is_hotel_accessible(hotel_id))
   with check (can_manage_hotel(hotel_id));
 
@@ -2392,7 +2363,6 @@ begin
       ('rule_applications',       'hotel_id'),
       ('pricing_runs',            'hotel_id'),
       ('pricing_decisions',       'hotel_id'),
-      ('rate_updates',            'hotel_id'),
       ('audit_events',            'hotel_id'),
       ('market_events',           'hotel_id'),
       ('competitor_rates',        'hotel_id'),

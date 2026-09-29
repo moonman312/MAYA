@@ -50,7 +50,7 @@ export type RoomShortfallInput = {
 const ROOM_TYPES_PATH = "PMS > Room types";
 
 export function roomShortfallSubject(input: RoomShortfallInput): string {
-  return `Your MAYA plan covers ${input.billedRooms} rooms — your PMS shows ${input.measuredRooms}`;
+  return `Your MAYA plan covers ${input.billedRooms} rooms, and your PMS shows ${input.measuredRooms}`;
 }
 
 /**
@@ -65,7 +65,7 @@ export function roomShortfallText(input: RoomShortfallInput): string {
     `MAYA is priced per room, so this changes what you pay: ${input.currentAmount} today, ${input.correctedAmount} at ${input.measuredRooms} rooms.`,
     "",
     input.daysLeft > 0
-      ? `You have ${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"} to set the number yourself. If it's still different on ${input.correctionDate} we'll update it to ${input.measuredRooms} and adjust your next invoice — nothing is charged today, and nothing is charged separately.`
+      ? `You have ${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"} to set the number yourself. If it's still different on ${input.correctionDate} we'll update it to ${input.measuredRooms} and adjust your next invoice. Nothing is charged today, and nothing is charged separately.`
       : `We'll update it to ${input.measuredRooms} shortly and adjust your next invoice. Nothing is charged separately.`,
     "",
     `Set your room count: ${input.billingUrl}`,
@@ -84,14 +84,14 @@ export function roomShortfallText(input: RoomShortfallInput): string {
     );
   }
 
-  lines.push("", "If this number is wrong, change it on that page and we'll bill what you set.", "", "— MAYA");
+  lines.push("", "If this number is wrong, change it on that page and we'll bill what you set.", "", "The MAYA team");
   return lines.join("\n");
 }
 
 export function roomShortfallHtml(input: RoomShortfallInput): string {
   const deadline =
     input.daysLeft > 0
-      ? `You have <strong style="color:${COLORS.heading}">${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"}</strong> to set the number yourself. If it's still different on <strong style="color:${COLORS.heading}">${input.correctionDate}</strong> we'll update it to ${input.measuredRooms} and adjust your next invoice — nothing is charged today, and nothing is charged separately.`
+      ? `You have <strong style="color:${COLORS.heading}">${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"}</strong> to set the number yourself. If it's still different on <strong style="color:${COLORS.heading}">${input.correctionDate}</strong> we'll update it to ${input.measuredRooms} and adjust your next invoice. Nothing is charged today, and nothing is charged separately.`
       : `We'll update it to <strong style="color:${COLORS.heading}">${input.measuredRooms}</strong> shortly and adjust your next invoice. Nothing is charged separately.`;
 
   const guessed =

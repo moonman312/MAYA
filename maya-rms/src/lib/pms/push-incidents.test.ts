@@ -234,7 +234,7 @@ describe("recordPushIncidents", () => {
     const res = await recordPushIncidents(fake.client, tick(later, [], [[key, cell]]), deps);
     expect(res).toMatchObject({ escalated: 1 });
     expect(fake.tables.rate_push_incidents[0]).toMatchObject({ customer_visible_at: at(later), alerted_at: at(later) });
-    expect(alerts).toEqual([expect.objectContaining({ severity: "critical", title: "Rates not reaching Cloudbeds: pms unavailable" })]);
+    expect(alerts).toEqual([expect.objectContaining({ severity: "critical", title: "Prices not reaching Cloudbeds: pms unavailable" })]);
   });
 
   it("does not alert a revoked grant, which connection health already reports", async () => {

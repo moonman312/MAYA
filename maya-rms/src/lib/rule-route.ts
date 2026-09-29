@@ -46,7 +46,7 @@ export async function ruleGate(): Promise<RuleGate> {
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const hotelId = await resolveAccessibleHotelId(supabase);
-  if (!hotelId) return { ok: false, response: NextResponse.json({ error: "Pick a property first." }, { status: 400 }) };
+  if (!hotelId) return { ok: false, response: NextResponse.json({ error: "You don't have access to this property." }, { status: 400 }) };
   const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
   if (!canManage) {
     return { ok: false, response: NextResponse.json({ error: RULE_CHANGE_FORBIDDEN, code: "forbidden" }, { status: 403 }) };

@@ -1,14 +1,15 @@
 ---
 title: Emails MAYA sends
-summary: The three emails MAYA itself sends (the team invitation, the room count email, and a nudge before a charge when nothing is connected), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
+summary: The five emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
 section: billing
 order: 50
-readingTime: 7
-keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available]
+readingTime: 12
+keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, account ready, your account is ready, is ready in MAYA, pick up where you left off, welcome email, email when it's ready, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available, password reset email, reset link, forgot password email, connection down, connection lost email, lost its connection, disconnected email, reconnect email, down for an hour, outage, keys refused]
 questions:
   - What billing emails will I get? {#emails-that-come-from-stripe}
   - 'What is the "your subscription starts" email?' {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
-  - Will I get an email when my payment is confirmed? {#emails-that-do-not-exist/a-payment-confirmed}
+  - Will I get an email when my payment is confirmed? {#the-account-ready-email/sent-once-for}
+  - 'What is the "Your MAYA account is ready" email?' {#the-account-ready-email/sent-once-for}
   - Will I get a reminder before the trial ends? {#emails-that-do-not-exist/a-trial-ending}
   - Will I get a receipt? {#emails-that-come-from-stripe}
   - Does MAYA email me when a price changes or a rule needs an answer? {#emails-that-do-not-exist/a-change-log}
@@ -16,30 +17,48 @@ questions:
   - Which emails come from Stripe and which from MAYA? {#emails-that-come-from-stripe}
   - An email did not arrive, what should I check? {#if-an-email-did-not-arrive/check-spam-and}
   - Which address do MAYA's emails come from, so we can allow them through our spam filter? {#the-sending-address}
-  - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
+  - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/if-your-property}
+  - Where does the password reset email come from? {#the-password-reset-email}
+  - Will MAYA email me if the connection to my property system breaks? {#the-connection-down-email}
+  - Who gets the email when the connection is down? {#the-connection-down-email}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-MAYA itself sends three emails: the team invitation, the room count email, and a nudge before your subscription starts or renews if your property system is not connected. Creating an account may also bring a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
+MAYA itself sends five emails: the team invitation, a note that your account is ready once you have paid, the room count email, a nudge before your subscription starts or renews if your property system is not connected, and an email to your General Managers and Hotel Admins once the connection to your property system has been down about an hour. Creating an account may also bring a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
 </InPlainWords>
 
-## The three emails MAYA sends
+## The five emails MAYA sends
 
 | Email | When | Subject |
 |---|---|---|
-| The team invitation | Someone on your team invites an address that does not have a MAYA account yet | "You have been invited to The Harbour Inn on MAYA" |
-| The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms" followed by what your system shows |
-| The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" the date "and isn't connected to your PMS yet" |
+| The team invitation | Someone on your team invites an address that has never signed in to MAYA | "You have been invited to The Harbour Inn on MAYA" |
+| The account ready email | Your payment is recorded, or your free trial starts, once for each property | "Your MAYA account is ready", or the property's name followed by "is ready in MAYA" |
+| The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms, and your PMS shows 24", with your own numbers |
+| The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" and the date, then "and isn't connected to your PMS yet" |
+| The connection-down email | The connection to your property system has read <Ui>Disconnected</Ui> or <Ui>Error</Ui> for about an hour | "MAYA has lost its connection to Cloudbeds at The Harbour Inn", with your system and property |
 
-All three come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
+All five come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
 
 ### The team invitation
 
-Sent when a General Manager or Hotel Admin invites an email address that does not have a MAYA account yet. Its heading is "You're invited", it names the property, the role and the person who invited you (the reply-to is their address, so a reply reaches them), and it carries an <Ui>Accept the invite</Ui> button. The link is single-use and expires after a limited time. If it has expired, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new one. Inviting you again does not help, because you are already on the property and a second invitation sends no email.
+Sent when a General Manager or Hotel Admin invites an email address that has never signed in to MAYA. Its heading is "You're invited", it names the property, the role and the person who invited you (the reply-to is their address, so a reply reaches them), and it carries an <Ui>Accept the invite</Ui> button. The link works once and expires after a limited time. If it has expired and you haven't set your password yet, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new one, as the email itself says. The colleague who invited you can also send a fresh one by removing you from the <Ui>Team</Ui> page and inviting you again, as long as you have never signed in.
 
-Everyone invited is added to the property straight away, before they open the email. Someone who already uses MAYA gets no email at all. [Inviting and removing people](/docs/team/inviting-and-removing-people) covers both cases.
+Everyone invited is added to the property straight away, before they open the email. Someone who has signed in to MAYA before gets no email at all, and the <Ui>Team</Ui> page says "Added." instead of "Invitation sent". [Inviting and removing people](/docs/team/inviting-and-removing-people) covers both cases.
+
+### The account ready email
+
+Sent once for each property, when MAYA records that you have paid or that your free trial has started. This is the email the "Payment received" screen promises when it says we will email you when it is ready. It goes to the address you sign in with, the one that paid, and to the email on your billing account only if that login cannot be found. It usually arrives within a minute or two of paying, whether or not you waited on the screen.
+
+Its heading is "Your account is ready". The subject is "Your MAYA account is ready", or, for a property that already has its name (a Cloudbeds Marketplace property), the name followed by "is ready in MAYA", for example "The Harbour Inn is ready in MAYA". It thanks you for signing up and says your subscription has started, or, on a free trial, that your card is saved, the date the trial runs until, and that nothing is charged before then. Then it gives your next step:
+
+- **Signed up at maya-rms.com:** connect your property management system, after which MAYA reads your booking history. If you use Mews, it asks you to reply so we can connect it with you.
+- **From the Cloudbeds Marketplace:** your property system is connected and MAYA has started reading your booking history.
+
+Its button, <Ui>Pick up where you left off</Ui>, takes you to whichever step you are on. It ends by saying that every property starts in simulation, so nothing is sent to your system until you choose to go live. A reply reaches us.
+
+Each property gets it once. Paying for the properties of a group one at a time brings one for each. Restarting a cancelled subscription, or a card update that restarts an unpaid one, does not send another.
 
 ### The room count email
 
@@ -49,13 +68,34 @@ Sent after MAYA measures more rooms in your property system than you pay for. Th
 
 Sent to a property with a subscription, on a trial or paid, whose property system is not connected (never connected, or disconnected), shortly before a charge. It is triggered when Stripe announces the upcoming invoice. How many days ahead that happens is a Stripe setting. A connected property never gets it, even one whose connection is showing a problem.
 
-It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Its button reads <Ui>Finish setting up MAYA</Ui>. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
+It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Then it reads "On Mews? We connect it for you. Reply to this email or write to info@modern-hospitality-solutions.com and we'll set it up with you." Its button reads <Ui>Finish setting up MAYA</Ui>. A reply to it reaches us. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
 
-If your property uses Mews, we connect it for you, and until we have, this email can still arrive. Its button cannot connect Mews. It leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so the two minutes the email mentions do not apply. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) instead and we connect it with you.
+If your property uses Mews, we connect it for you, and until we have, this email can still arrive. As it says, reply to it or [email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) and we connect it with you. Its button leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so pressing it does not connect Mews.
+
+### The connection-down email
+
+Sent once the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab has read <Ui>Disconnected</Ui> or <Ui>Error</Ui> for about an hour. It goes to every General Manager and Hotel Admin on the property, at the address they sign in with, and our team is told at the same time. <Ui>Degraded</Ui> never sends it, because MAYA is still reading and sending then.
+
+It goes once per outage. Moving between <Ui>Disconnected</Ui> and <Ui>Error</Ui> is the same outage. If the connection comes back and later breaks again, a new email follows about an hour after the new break.
+
+Headed "MAYA has lost its connection to Cloudbeds" (or your system), it says:
+
+- **When it went down**, in your property's time.
+- **What happened.** For example, the app was uninstalled or disconnected in Cloudbeds, your system refused to renew MAYA's access, or Mews refused MAYA's keys three reads in a row.
+- **What it means for your prices.** MAYA can't read your bookings, so your prices aren't updating. When you are live on Cloudbeds or ThinkReservations, it also says no prices are sent, and that the rates already in your system stay as they are.
+- **How to reconnect.** On Cloudbeds and ThinkReservations: open the <Ui>PMS</Ui> tab, click <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) and sign in with a login for this property only. On Mews: reply to the email and we arrange new keys with you.
+
+Its button, <Ui>Open the PMS tab</Ui>, opens MAYA on that tab, for the property you last had open in MAYA. If you look after more than one property, the email adds a line: if the tab opens on another property, pick this one in the <Ui>Property</Ui> dropdown. A reply reaches us. When the connection reads <Ui>Disconnected</Ui>, the email adds that you can ignore it if you disconnected MAYA on purpose.
+
+It is not sent when your subscription has stopped (cancelled, or unpaid after the bank's retries), because MAYA has paused work on the property anyway. It is not sent when we remove your Mews keys at your request. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
 ## The account confirmation email
 
 When you create an account, you may get an email with a link to confirm your address before you can sign in. It comes from the sign-in service MAYA uses, not from MAYA's own emails, and whether it is asked for at all is set on our side. [Create an account and sign in](/docs/account/create-an-account-and-sign-in) shows the "Check your email" screen and what to do next.
+
+## The password reset email
+
+When you click <Ui>Forgot password?</Ui> on the sign-in page and send your address, an email with a link to set a new password goes to that address, if it has a MAYA account. Like the confirmation email, it comes from the sign-in service MAYA uses. Open the link in the browser where you asked for it. It works once. [Reset your password](/docs/recipes/reset-your-password) has the steps and what to do if it does not arrive.
 
 ## Emails that come from Stripe
 
@@ -63,36 +103,37 @@ Stripe, not MAYA, sends everything about money: receipts and invoices, a failed-
 
 ## Emails that do not exist
 
-- **A "payment confirmed" email.** The slow version of the "Payment received" screen says one will come, but none is sent today. Sign in again and MAYA takes you to the next step.
 - **A change log digest or a price alert.** There is no email when a night's price changes. The <Ui>Change Log</Ui> tab is the record.
 - **An email about the <Ui>Rules that keep adjusting</Ui> banner.** The question is asked on the dashboard only.
-- **A password reset link.** Email us and we send one.
 - **A trial-ending reminder from MAYA.** Any reminder comes from Stripe, if Stripe's settings send one.
 - **A "your subscription was cancelled" email from MAYA.** The <Ui>Billing</Ui> page shows the status.
 
 ## Changing the billing email
 
-The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. Change it in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
+The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. The account ready email goes to the address you sign in with instead, and the connection-down email to the sign-in address of each General Manager and Hotel Admin. Change the billing email in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
 
 ## The sending address
 
-MAYA's three emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
+MAYA's five emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
 
-In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us.
+In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us. A reply to the account ready email, the nudge before a charge or the connection-down email comes to us.
 
-The other emails come from elsewhere: anything about money from Stripe, and the account confirmation email from the sign-in service. Allow those separately.
+The other emails come from elsewhere: anything about money from Stripe, and the account confirmation and password reset emails from the sign-in service. Allow those separately.
 
 ## If an email did not arrive
 
 - Check spam, and search for "MAYA" in the subject. To have your IT team allow our emails, read [the sending address](#the-sending-address).
-- For an invitation: if the person already has a MAYA account, no email is sent, because they are on the property already. Ask them to sign in and pick it in the <Ui>Property</Ui> selector. If they are new to MAYA and the email is lost, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new link.
+- For an invitation: if the person has signed in to MAYA before, no email is sent (the <Ui>Team</Ui> page said "Added."), because they are on the property already. Ask them to sign in and pick it in the <Ui>Property</Ui> selector. If they have never signed in and the email is lost, remove them on the <Ui>Team</Ui> page and invite them again for a fresh link, or [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new link.
+- For a password reset: check spam, and check you typed the address you sign in with. Wait a minute before asking again. Then [email us](mailto:info@modern-hospitality-solutions.com?subject=Password%20reset) from that address.
 - For the account confirmation: check spam, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Confirmation%20email) with the address you used.
+- For the account ready email: it went to the address you sign in with, once, soon after you paid. It is only sent in the first day after you pay, so if confirming the payment took longer than that, none comes. You do not need it to carry on: sign in and MAYA takes you to the next step.
 - For the room count email or the nudge: it went to the billing email, which may not be the address you sign in with.
+- For the connection-down email: it goes only to General Managers and Hotel Admins, at the address they sign in with, about an hour after the <Ui>Connection</Ui> card first read <Ui>Disconnected</Ui> or <Ui>Error</Ui>, and only once for that outage. <Ui>Degraded</Ui> sends none. Check the <Ui>PMS</Ui> tab, which is always up to date.
 - For a receipt or a Stripe reminder: the same billing email, and it depends on Stripe's settings.
 - Still nothing? [Email us](mailto:info@modern-hospitality-solutions.com?subject=Missing%20email) and say which email and which address.
 
 <Callout kind="not-yet">
-No payment-confirmed email. No price or rule alerts by email. No digest. No email preferences screen: the three emails are sent when their moment comes and cannot be switched off individually.
+No price or rule alerts by email. No digest. No email preferences screen: the five emails are sent when their moment comes and cannot be switched off individually.
 </Callout>
 
 <Related>

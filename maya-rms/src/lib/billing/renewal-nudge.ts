@@ -16,6 +16,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isResendConfigured, sendEmail } from "@/lib/email/resend";
 import {
+  NUDGE_REPLY_TO,
   renewalNudgeHtml,
   renewalNudgeSubject,
   renewalNudgeText,
@@ -185,6 +186,8 @@ export async function sendRenewalNudge(
       subject: renewalNudgeSubject(input),
       html: renewalNudgeHtml(input),
       text: renewalNudgeText(input),
+      // The email asks a Mews property to reply, so a reply has to reach us.
+      replyTo: NUDGE_REPLY_TO,
       idempotencyKey: `nudge:${invoice.subscriptionId ?? "none"}:${invoice.periodEnd ?? 0}`,
     });
     return { ok: true };

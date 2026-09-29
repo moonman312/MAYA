@@ -93,10 +93,7 @@ export async function POST(req: Request) {
       hotelId = await resolveAccessibleHotelId(supabase);
       if (!hotelId) {
         return NextResponse.json(
-          {
-            error:
-              "No accessible hotel. You need a hotel membership or a dev default hotel configured.",
-          },
+          { error: "You don't have access to this property." },
           { status: 400 },
         );
       }

@@ -1,6 +1,6 @@
 import { MayaLockup } from "@/components/brand/logo";
 import { SubscribeStep } from "@/components/onboarding/subscribe-step";
-import { loadAccountBilling } from "@/lib/billing/account";
+import { loadAccountBilling, offersRestart } from "@/lib/billing/account";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { getRegistry, type PmsType } from "@/lib/pms/registry";
@@ -22,6 +22,11 @@ export const dynamic = "force-dynamic";
  * which also means the code field follows that PMS's own gate: a fresh code
  * while it's gated (the old one is spent — one redemption per property), none
  * once it's open.
+ *
+ * No trial of any kind: the Marketplace trial and a code's own free days are
+ * both for a first signup only, and checkout grants neither on a restart, so
+ * the screen's "Billed when you finish checkout" is the truth whatever code is
+ * typed. `restart` keeps a code's free days off the panel; its discount stays.
  */
 export default async function RestartPage() {
   const supabase = createClient(await cookies());
@@ -34,11 +39,13 @@ export default async function RestartPage() {
   if (!hotelId) redirect("/onboarding");
   if (!(await hasHotelRank(supabase, hotelId, "general_manager"))) redirect("/account/billing");
 
-  // Only a dead subscription belongs here. A live one manages itself from the
-  // billing page, and no row at all means a hand-made property with nothing to
-  // restart — both go back to the page that explains them.
+  // Only a dead subscription belongs here, the same test the billing page's
+  // restart button uses. A live one manages itself from the billing page, an
+  // unpaid one comes back through the card, a paused one is still there in
+  // Stripe waiting on us, and no row at all means a hand-made property with
+  // nothing to restart. All of them go back to the page that explains them.
   const billing = await loadAccountBilling(supabase, hotelId);
-  if (!billing || billing.entitled) redirect("/account/billing");
+  if (!billing || !offersRestart(billing)) redirect("/account/billing");
 
   const { data: conn } = await supabase
     .from("pms_connections")
@@ -61,10 +68,11 @@ export default async function RestartPage() {
       <MayaLockup height={32} className="mb-6" />
       <SubscribeStep
         title="Restart your subscription"
-        intro="Same pricing as always — per room, per month. Confirm the size and period and you're back; pricing picks up as soon as checkout completes."
+        intro="Same pricing as always: per room, per month. Confirm the size and period and you're back; pricing picks up as soon as checkout completes."
         footnote="Card details are handled by Stripe. They never touch MAYA. Your PMS connection is still in place, so there's nothing to set up again."
         initialRooms={billing.rooms || undefined}
         initialInterval={billing.interval}
+        restart
         lockPms={Boolean(pmsType)}
         pmsOptions={
           pmsType

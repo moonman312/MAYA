@@ -262,6 +262,14 @@ export async function POST(
       : null;
   const keepRule = body?.keepRule === true;
 
+  // Row security turns a lower role's claim below into an update of no rows,
+  // which reads exactly like a finding someone else already resolved. Ask
+  // first, so the card can say why it can't be answered from this login.
+  const { data: canManage } = await supabase.rpc("can_manage_hotel", { target_hotel_id: hotelId });
+  if (!canManage) {
+    return NextResponse.json({ error: "Only a Revenue Manager or above can answer this." }, { status: 403 });
+  }
+
   const { data: finding } = await supabase
     .from("onboarding_findings")
     .select("id, kind, status, payload")

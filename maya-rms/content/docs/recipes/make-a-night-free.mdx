@@ -13,7 +13,7 @@ questions:
   - Will a rule raise a night I set to 0? {#set-the-night-to-0}
   - Why can the floor not be 0? {#why-0-is-the-way}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -47,7 +47,7 @@ A floor cannot be 0: the lowest floor MAYA accepts is above 0, and a typed price
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-MAYA does not send a rate of 0 to Cloudbeds, so the change log carries an ongoing item headed "Rates not reaching Cloudbeds" with the line "MAYA doesn't send a price of 0 to Cloudbeds, so Standard rates set to 0 in MAYA weren't changed there." Open the night's base rate in Cloudbeds and set it to 0 yourself. Once MAYA's next hourly read of your rates finds the 0 there, the item closes.
+MAYA does not send a rate of 0 to Cloudbeds, so the change log carries an ongoing item headed "Prices not reaching Cloudbeds" with the line "MAYA doesn't send a price of 0 to Cloudbeds, so Standard rates set to 0 in MAYA weren't changed there." Open the night's base rate in Cloudbeds and set it to 0 yourself. Once MAYA's next hourly read of your rates finds the 0 there, the item closes.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 The same applies. Set the night to 0 in ThinkReservations yourself. The change log item closes once MAYA reads the 0 back.
@@ -63,9 +63,9 @@ Until you set 0 in your system, the room is still on sale there at its old rate.
 
 ## Afterwards
 
-If the comp is cancelled before the night, click <Ui>Clear</Ui> on the room type card. The line reads "Cleared. MAYA is pricing this night again." and your rules apply to it from the next run. Remember to put the rate back in your system too.
+If the comp is cancelled before the night, click <Ui>Clear</Ui> on the room type card. The line reads "Cleared. Your rules price this night again." and your rules price it again straight away. Remember to put the rate back in your system too.
 
-Once the night has passed there is nothing to clear. MAYA never prices a past night again, so the comp needs no tidying up.
+Once the night has passed there is nothing to clear, and <Ui>Clear</Ui> no longer shows. Your rules never price a past night again, so the comp needs no tidying up.
 
 <Related>
 - [Setting a price yourself](/docs/watch/setting-a-price-yourself)

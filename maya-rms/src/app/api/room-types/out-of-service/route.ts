@@ -12,7 +12,7 @@
  * can_manage_hotel gate, and each add or clear is logged.
  */
 
-import { isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { NOT_READY_YET, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { peakUnitsOut } from "@/lib/out-of-service";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { roleLabel } from "@/lib/roles";
@@ -22,7 +22,7 @@ import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { NEEDS_MIGRATION, isPreMigration, scheduleReprice } from "../reprice";
+import { isPreMigration, scheduleReprice } from "../reprice";
 
 export const maxDuration = 300;
 
@@ -57,7 +57,7 @@ function needsMigration(hotelId: string, what: string): NextResponse {
       message: `${what}: room_type_out_of_service is missing — run the room classification migration.`,
     }),
   );
-  return NextResponse.json({ error: NEEDS_MIGRATION }, { status: 503 });
+  return NextResponse.json({ error: NOT_READY_YET }, { status: 503 });
 }
 
 async function readBody(req: Request): Promise<Body> {
@@ -204,7 +204,7 @@ export async function POST(req: Request) {
     const name = String(roomType.display_name || roomType.name || "");
     const total = Number(roomType.total_rooms) || 0;
     if (units > total) {
-      return bad(`${name} has ${total} room${total === 1 ? "" : "s"} — you can't block more than that.`);
+      return bad(`${name} has ${total} room${total === 1 ? "" : "s"}, so you can't block more than that.`);
     }
 
     // Blocks stack (the snapshot sums every open row on a night), so the cap
@@ -233,8 +233,8 @@ export async function POST(req: Request) {
     );
     if (alreadyOut > 0 && alreadyOut + units > total) {
       return bad(
-        `${name} already has ${alreadyOut} room${alreadyOut === 1 ? "" : "s"} out of service on some of those nights — ` +
-          `that leaves ${total - alreadyOut} you can still block.`,
+        `${name} already has ${alreadyOut} room${alreadyOut === 1 ? "" : "s"} out of service on some of those nights. ` +
+          `That leaves ${total - alreadyOut} you can still block.`,
       );
     }
 

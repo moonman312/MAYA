@@ -9,8 +9,10 @@ import { useEffect, useState } from "react";
  * final analysis raised after they had already finished reviewing.
  * Renders nothing in every other situation.
  */
-export function OnboardingReviewBanner() {
-  const [show, setShow] = useState<{ count: number } | null>(null);
+export function OnboardingReviewBanner({ hotelId = null }: { hotelId?: string | null }) {
+  // hotelId is the property on screen: the status is read again when it
+  // changes, and a read for another property is never shown for this one.
+  const [loaded, setLoaded] = useState<{ hotelId: string | null; count: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -33,15 +35,18 @@ export function OnboardingReviewBanner() {
           !reviewedAt ||
           (!!b.latestProposedAt && Date.parse(b.latestProposedAt) > Date.parse(reviewedAt));
         if (b.connected && analysed && unseen && (b.proposedFindings ?? 0) > 0) {
-          setShow({ count: b.proposedFindings ?? 0 });
+          setLoaded({ hotelId, count: b.proposedFindings ?? 0 });
+        } else {
+          setLoaded(null);
         }
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, []);
+  }, [hotelId]);
 
+  const show = loaded?.hotelId === hotelId ? loaded : null;
   if (!show) return null;
 
   return (
@@ -51,11 +56,11 @@ export function OnboardingReviewBanner() {
     >
       <div>
         <div className="text-sm font-semibold text-sky-200">
-          Your booking history analysis is ready
+          Your booking history has been read
         </div>
         <div className="mt-0.5 text-xs text-sky-200/70">
           We found {show.count} thing{show.count === 1 ? "" : "s"} worth a quick
-          look — takes about a minute.
+          look. It takes about a minute.
         </div>
       </div>
       <span className="shrink-0 text-sm font-medium text-sky-300">Review →</span>

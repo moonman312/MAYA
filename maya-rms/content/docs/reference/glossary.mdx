@@ -4,7 +4,7 @@ summary: Every product word the docs use, in a few plain sentences each, with a 
 section: reference
 order: 10
 readingTime: 20
-keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, expected, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
+keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, usual number, usually get, show the numbers, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
 questions:
   - What does this word mean? {#in-plain-words}
   - What is a cycle? {#a-to-c/cycle}
@@ -16,7 +16,8 @@ questions:
   - What are booking speed and pickup rules? {#a-to-c/booking-speed-and}
   - What is a room night? {#r-to-s/room-night}
   - What does Last sync mean? {#l-to-p/last-sync}
-  - What does "expected" mean in an explanation? {#d-to-h/expected}
+  - What does "usually get" mean in an explanation? {#t-to-y/usual-number}
+  - What does the Show the numbers link under a change open? {#r-to-s/show-the-numbers}
   - What is a manual price? {#l-to-p/manual-price}
   - What does paused mean? {#l-to-p/paused}
   - What is a fire? {#d-to-h/fired}
@@ -35,7 +36,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 ## A to C
 
-**ADR** (screen: ADR $150.00). Average daily rate: a room type's room revenue for a night divided by the rooms of that type booked that night. It is on the room type cards in the calendar's day detail. With nothing booked it shows $150.00, which is a placeholder, not a price. Read [The calendar](/docs/watch/the-calendar).
+**ADR** (screen: ADR $160.00). Average daily rate: a room type's room revenue for a night divided by the rooms of that type booked that night. It is on the room type cards in the calendar's day detail. With nothing booked it shows a dash: "ADR –". Read [The calendar](/docs/watch/the-calendar).
 
 **Apply price adjustments** (screen). One of the two choices in the window that opens before a rule starts acting (switched on, added, or saved with changes while on): the rule changes the days the window showed from the next pricing run. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
 
@@ -67,7 +68,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Connected** (screen, on the PMS tab). The connection to your property system is working: MAYA reads your bookings and, once you are live, sends prices. The other words the <Ui>Connection</Ui> card can show are Pending, Degraded, Error and Disconnected, each defined here. Read [The PMS tab](/docs/watch/the-pms-tab).
 
-**Counts as a room** (screen). The checkbox on the PMS tab that says a room type is somewhere guests sleep. Ticked types are what MAYA divides by for sellable occupancy, and what you are billed for. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+**Counts as a room** (screen). The checkbox on the PMS tab that says a room type is somewhere guests sleep. Ticked types are what MAYA divides by for sellable occupancy, and what you are billed for. A type tagged "needs your answer" has not been ticked or unticked yet: it counts in occupancy but not in your bill until you answer. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
 **Current price** (screen). The price MAYA has worked out for a room type on a night, after rules and limits. It is what the calendar shows and what is sent. Read [The calendar](/docs/watch/the-calendar).
 
@@ -75,15 +76,13 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 ## D to H
 
-**Degraded** (screen, on the PMS tab). Two meanings. On the <Ui>Connection</Ui> card (Cloudbeds and ThinkReservations only): MAYA is still reading and sending, and the lost-connection banner may show. It usually clears by itself on the next read. If it is still there in an hour, a General Manager or Hotel Admin reconnects, which does no harm. On the <Ui>Health (last 24 hours)</Ui> card: 80% to under 98% of MAYA's requests to your system succeeded. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+**Degraded** (screen, on the PMS tab). Two meanings. On the <Ui>Connection</Ui> card (Cloudbeds and ThinkReservations only): MAYA is still reading and sending, and one calm line says "Your Cloudbeds connection needs a refresh soon. Prices are still updating." It usually clears by itself on the next read. If it is still there in an hour, a General Manager or Hotel Admin reconnects, which does no harm. On the <Ui>Health (last 24 hours)</Ui> card: 80% to under 98% of MAYA's requests to your system succeeded. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
 **Derived rate plan.** A rate plan in your property system that follows another plan by a rule of its own, such as 10% off the base rate. MAYA never writes to one. It moves when the base rate moves, by your system's own rules. ThinkReservations calls it a derived rate type. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 
 **Disconnected** (screen, on the PMS tab). MAYA's access to your property system is gone: the app was uninstalled, its permission was removed, or your system refused it. Nothing is read or sent until a General Manager or Hotel Admin reconnects. Nothing is deleted. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
-**Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped. A General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
-
-**Expected** (in explanations). What similar past nights had received over the same stretch of their own run-up, averaged with the highest and lowest dropped once there are five or more. It can be a fraction, such as 0.4. On screen it reads "almost none" under 1 and is rounded to a whole number otherwise. Read [Similar nights](/docs/rules/similar-nights).
+**Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped for now. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. If it does not clear, a General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
 
 **Fired** (screen). The number of times a rule acted, counted once per night and room type, including changes that later came off. A booking speed or pickup rule can act on the same night more than once. Read [The rule builder](/docs/rules/the-rule-builder).
 
@@ -91,7 +90,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **General Manager** (screen, a role). Everything except managing Hotel Admins: pricing, going live, the property system connection, billing and the team. Read [Roles](/docs/team/roles).
 
-**Go live.** Switching a property from simulation to live, so its changed prices are sent to Cloudbeds or ThinkReservations every cycle (nothing is sent to Mews yet). A General Manager or Hotel Admin does it with <Ui>Turn them on for real</Ui>, in the starter rules box on the review screen. The box is there only if setup added starter rules, and it is gone once someone uses <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. Without it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. One way in the app: only we can switch a property back. Read [Going live](/docs/live/going-live).
+**Go live.** Switching a property from simulation to live, so its changed prices are sent to Cloudbeds or ThinkReservations every cycle (nothing is sent to Mews yet). A General Manager or Hotel Admin does it with <Ui>Turn them on for real</Ui>, in the starter rules box on the review screen. The box is there only if setup added starter rules, and it stays after someone uses <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab. Without it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Go%20live) and we switch the property live. One way in the app: only we can switch a property back. Read [Going live](/docs/live/going-live).
 
 **Guardrails** (screen, in the Rate Simulator). A room type's floor and ceiling, shown together as a range.
 
@@ -102,8 +101,6 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 **Hotel Admin** (screen, a role). Everything, including managing General Managers. The person who creates the account and pays is a property's first Hotel Admin. Read [Roles](/docs/team/roles).
 
 **Hotel day.** A calendar date in your property's own time zone. The window, booking windows, "past week", pickup count lookbacks and rule waits all count in hotel days. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
-
-**How did we know?** (screen). The link under a booking speed change in the change log. It opens the counts behind the change, the nights MAYA compared with, and the way to set one aside. Read [How did we know?](/docs/watch/how-did-we-know).
 
 ## L to P
 
@@ -169,7 +166,9 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Set aside** (screen: Set this date aside). Marking a past night as not a fair comparison so it is left out of comparisons from the next run. Read [Not a fair comparison](/docs/watch/not-a-fair-comparison).
 
-**Similar nights.** The up to eight past nights MAYA compares a night with, from the last three years: same weekday (or, near a holiday, the same position around it) and same time of year. A night near a holiday has at most three, one a year. Read [Similar nights](/docs/rules/similar-nights).
+**Show the numbers** (screen). The link under a booking speed change in the change log. It opens the counts behind the change, the nights MAYA compared with, and the way to set one aside. Read [The numbers behind a change](/docs/watch/how-did-we-know).
+
+**Similar nights.** The up to eight past nights MAYA compares a night with, from the last three years: same weekday (or, near a holiday, the same position around it) and same time of year. When too few match, other nights of the same kind are added: weekend nights (Friday and Saturday) for a weekend night, the other weekday nights for a weekday night. A night near a holiday has at most three, one a year. Read [Similar nights](/docs/rules/similar-nights).
 
 **Simulation mode.** The starting state of every property. Everything runs and is written to the change log, and nothing is sent to your property system. Read [Simulation mode](/docs/live/simulation-mode).
 
@@ -185,7 +184,9 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Three-times question.** Another name for the Rules that keep adjusting banner.
 
-**Trial.** Free days before your first charge. Properties that arrive from the Cloudbeds Marketplace get a 7-day free trial. A code can carry its own trial, which replaces the Marketplace one rather than adding to it. A card is taken and nothing is charged until the trial ends. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
+**Trial.** Free days before your first charge. Properties that arrive from the Cloudbeds Marketplace get a 7-day free trial at their first signup, never on a restart. A code can carry its own trial, which replaces the Marketplace one rather than adding to it, and also counts at the first signup only: a restart gets no trial of any kind. A card is taken and nothing is charged until the trial ends. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
+
+**Usual number** (in explanations). What similar past nights had received over the same stretch of their own run-up, averaged with the highest and lowest dropped once there are five or more. It can be a fraction, such as 0.4. On screen it reads "nights like this one usually get about 5 bookings", or "almost no bookings" under 1, and is rounded to a whole number otherwise. Read [Similar nights](/docs/rules/similar-nights).
 
 **Viewer** (screen, a role). Can look at everything and change nothing. Read [Roles](/docs/team/roles).
 

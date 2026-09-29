@@ -28,6 +28,7 @@ import {
   undoOnCancellationError,
 } from "@/lib/rule-form";
 import { createRule, legacyConditionRows, uiActionToDb, updateRule } from "@/lib/rules-store";
+import { isDowMask } from "@/lib/rule-suggestion-draft";
 import type { RuleAction, RuleCondition } from "@/types/domain";
 
 export type RuleIntent = "create" | "edit" | "enable";
@@ -43,6 +44,12 @@ export type RuleDraft = {
   undo_on_cancellation: boolean;
   /** A suggestion's own priority (rule-suggestion-draft.ts); the builder leaves it out (100). */
   priority?: number;
+  /**
+   * A suggestion's own days (a rule copied from the owner's weekend or
+   * weekday moves), for a new rule only; the builder leaves it out (every
+   * day) and an edit keeps the rule's days.
+   */
+  dow_mask?: number;
 };
 
 /** A refused save or preview, with the status and the words to show. */
@@ -120,6 +127,7 @@ export function parseDraft(body: Record<string, unknown>): RuleDraft {
   const priority = Number(body.priority);
   return {
     ...(body.priority !== undefined && Number.isInteger(priority) && priority >= 0 && priority <= 10_000 ? { priority } : {}),
+    ...(isDowMask(body.dow_mask) ? { dow_mask: body.dow_mask } : {}),
     rule_name: name,
     condition,
     action: rounded,
@@ -223,13 +231,14 @@ export async function planRuleChange(
     const condition = fullCondition(draft.condition as Record<string, unknown>);
     const isPickup = !!draft.condition.pickup_operator || !!draft.condition.booking_speed_operator;
     const priority = draft.priority ?? 100;
+    const dowMask = draft.dow_mask ?? 127;
     const fields = {
       name: draft.rule_name,
       priority,
       start_date: null,
       end_date: null,
       is_annual: false,
-      dow_mask: 127,
+      dow_mask: dowMask,
       ...action,
       is_pickup_rule: isPickup,
       undo_on_cancellation: draft.undo_on_cancellation,
@@ -254,7 +263,7 @@ export async function planRuleChange(
         start_date: null,
         end_date: null,
         is_annual: false,
-        dow_mask: 127,
+        dow_mask: dowMask,
         ...action,
         is_pickup_rule: isPickup,
         created_at: input.at,
@@ -468,6 +477,7 @@ async function legacyCommit(
         undo_on_cancellation: d.undo_on_cancellation,
         is_active: on !== false,
         ...(d.priority !== undefined ? { priority: d.priority } : {}),
+        ...(d.dow_mask !== undefined ? { dow_mask: d.dow_mask } : {}),
       },
       userClient,
       plan.hotelId,

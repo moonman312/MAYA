@@ -40,7 +40,7 @@ export const HOTEL_ROLES: HotelRoleInfo[] = [
     label: "General Manager",
     rank: 30,
     description:
-      "Everything except managing Hotel Admins or removing other General Managers: pricing, taking it live, the property system, billing, and the rest of the team."
+      "Everything except managing Hotel Admins: pricing, taking it live, the property system, billing, and the rest of the team."
   },
   {
     key: "revenue_manager",

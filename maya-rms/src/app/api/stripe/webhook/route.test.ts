@@ -29,6 +29,27 @@ const state = vi.hoisted(() => ({
   sendError: null as Error | null,
   firstPaid: { stamped: true, hotelId: "hotel-1" } as Record<string, unknown>,
   firstPaidInvoices: [] as { id?: string; amount_paid?: number }[],
+  /** The customer as Stripe holds it now, for customer.updated. */
+  customer: { id: "cus_1", invoice_settings: { default_payment_method: "pm_new" } } as Record<string, unknown>,
+  unpaidSubs: [] as Record<string, unknown>[],
+  openInvoices: [] as Record<string, unknown>[],
+  payError: null as Error | null,
+  paid: [] as { id: string; params: unknown }[],
+  /** What the webhook handed the account-ready email, and what it answers. */
+  readyCalls: [] as { sub: string; hotel: string; status: string }[],
+  readyOutcome: { sent: true } as Record<string, unknown>,
+}));
+
+vi.mock("@/lib/billing/account-ready", () => ({
+  sendAccountReadyOnce: async (
+    _admin: unknown,
+    _stripe: unknown,
+    sub: { id: string },
+    row: { hotel_id: string; status: string },
+  ) => {
+    state.readyCalls.push({ sub: sub.id, hotel: row.hotel_id, status: row.status });
+    return state.readyOutcome;
+  },
 }));
 
 vi.mock("@/lib/billing/reverify", () => ({
@@ -61,6 +82,17 @@ vi.mock("@/lib/billing/stripe", async () => {
         retrieve: async () => {
           if (state.retrieveError) throw state.retrieveError;
           return state.retrieved;
+        },
+        list: async () => ({ data: state.unpaidSubs }),
+        update: async (id: string) => ({ id }),
+      },
+      customers: { retrieve: async () => state.customer },
+      invoices: {
+        list: async () => ({ data: state.openInvoices }),
+        pay: async (id: string, params: unknown) => {
+          if (state.payError) throw state.payError;
+          state.paid.push({ id, params });
+          return { id, status: "paid" };
         },
       },
     }),
@@ -142,6 +174,8 @@ beforeEach(() => {
   state.insertError = null;
   state.upserts = [];
   state.upsertError = null;
+  state.readyCalls = [];
+  state.readyOutcome = { sent: true };
 });
 
 describe("signature enforcement", () => {
@@ -249,6 +283,44 @@ describe("subscription events", () => {
       signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }),
     );
     expect(res.status).toBe(500);
+  });
+});
+
+describe("the account ready email", () => {
+  it("is offered the re-fetched subscription once it is recorded", async () => {
+    state.retrieved = subscription({ status: "trialing" });
+    const res = await POST(
+      signedRequest({ id: "evt_1", type: "customer.subscription.created", data: { object: subscription() } }),
+    );
+    expect(res.status).toBe(200);
+    expect(state.upserts).toHaveLength(1);
+    expect(state.readyCalls).toEqual([{ sub: "sub_1", hotel: "hotel-1", status: "trialing" }]);
+  });
+
+  it("is offered it from checkout.session.completed too", async () => {
+    const res = await POST(
+      signedRequest({
+        id: "evt_2",
+        type: "checkout.session.completed",
+        data: { object: { id: "cs_1", object: "checkout.session", subscription: "sub_1", metadata: { hotel_id: "hotel-1" } } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(state.readyCalls).toEqual([{ sub: "sub_1", hotel: "hotel-1", status: "active" }]);
+  });
+
+  it("does not hold up the webhook when the email fails", async () => {
+    state.readyOutcome = { sent: false, reason: "send_failed" };
+    const res = await POST(
+      signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("is not offered anything the database did not record", async () => {
+    state.upsertError = { message: "deadlock detected" };
+    await POST(signedRequest({ id: "evt_1", type: "customer.subscription.updated", data: { object: subscription() } }));
+    expect(state.readyCalls).toHaveLength(0);
   });
 });
 
@@ -414,6 +486,82 @@ describe("invoice.payment_succeeded records the first payment", () => {
     state.firstPaid = { stamped: false, reason: "column_missing" };
     const res = await POST(signedRequest({ id: "evt_nocol", type: "invoice.payment_succeeded", data: { object: paidInvoice() } }));
     expect(res.status).toBe(200);
+  });
+});
+
+describe("customer.updated pays an unpaid subscription on the new card", () => {
+  const cardChange = (previous: Record<string, unknown> = { invoice_settings: { default_payment_method: "pm_old" } }) => ({
+    id: "evt_card",
+    type: "customer.updated",
+    data: {
+      object: { id: "cus_1", object: "customer", invoice_settings: { default_payment_method: "pm_new" } },
+      previous_attributes: previous,
+    },
+  });
+
+  beforeEach(() => {
+    state.unpaidSubs = [
+      { id: "sub_1", status: "unpaid", default_payment_method: "pm_old", metadata: { hotel_id: "hotel-1" } },
+    ];
+    state.openInvoices = [{ id: "in_open", status: "open", created: CREATED }];
+    state.payError = null;
+    state.paid = [];
+    // The hotel is on the subscription that went unpaid.
+    state.subRow = { stripe_subscription_id: "sub_1" };
+  });
+
+  it("pays the open invoice with the card the owner just saved", async () => {
+    const res = await POST(signedRequest(cardChange()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, paid: 1, notPaid: 0 });
+    expect(state.paid).toEqual([{ id: "in_open", params: { payment_method: "pm_new", off_session: true } }]);
+  });
+
+  it("ignores a customer change that is not the default card", async () => {
+    const res = await POST(signedRequest(cardChange({ email: "old@driftwood.example" })));
+    expect(await res.json()).toMatchObject({ ignored: "no_card_change" });
+    expect(state.paid).toHaveLength(0);
+  });
+
+  it("acknowledges a decline instead of making Stripe retry it", async () => {
+    state.payError = Object.assign(new Error("Your card was declined."), {
+      type: "StripeCardError",
+      rawType: "card_error",
+      code: "card_declined",
+      decline_code: "insufficient_funds",
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, paid: 0, notPaid: 1 });
+    errorSpy.mockRestore();
+  });
+
+  it("asks Stripe to redeliver when Stripe itself could not be reached", async () => {
+    state.payError = Object.assign(new Error("connection reset"), { type: "StripeConnectionError" });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(res.status).toBe(500);
+    errorSpy.mockRestore();
+  });
+
+  it("leaves an unpaid subscription alone once the hotel is on a newer one", async () => {
+    // A second checkout moved the hotel onto sub_2. Paying sub_1 now would
+    // bill the property on both.
+    state.subRow = { stripe_subscription_id: "sub_2" };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, unpaid: "superseded" });
+    expect(state.paid).toHaveLength(0);
+    errorSpy.mockRestore();
+  });
+
+  it("does nothing when nothing is unpaid", async () => {
+    state.unpaidSubs = [];
+    const res = await POST(signedRequest(cardChange()));
+    expect(await res.json()).toMatchObject({ received: true, unpaid: "nothing_unpaid" });
+    expect(state.paid).toHaveLength(0);
   });
 });
 

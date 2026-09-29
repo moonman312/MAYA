@@ -3,7 +3,7 @@ title: Room types and rooms out of service
 summary: The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.
 section: watch
 order: 70
-readingTime: 12
+readingTime: 13
 keywords: [counts as a room, unanswered, not billed, new room type not billed, not a room, meeting room, spa, court, parking, boardroom, units, unit count, rooms out of service, block, blocked rooms, out of order, renovation, repair, clear a block, more rooms than I have, 100 rooms, room type deleted, room type removed, old room type still showing, removed room type still priced, new room type, room type added, rename, switch off a room type, occupancy divides by, sellable, billed rooms, rebuilt room type, recreated, deleted and created again, two room types with the same name, do my rules cover it, rules missing a room type, new room type not in my rules, new room type history, new room type floor, new room type ceiling, $1.00 floor, 99999.99 ceiling, Mews room count, Mews units, room category units, same size, 30 room nights, 200 room nights, no floor card]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -23,8 +23,8 @@ questions:
   - 'Can I switch a room type off in MAYA?' {#something-to-try}
   - 'Can I rename room types in MAYA?' {#something-to-try}
   - 'The unit count for a room type is wrong, how do I fix it?' {#something-to-try}
-  - 'Why is a room type that shows ticked not in my bill?' {#counts-as-a-room/a-ticked-room}
-updated: 2026-09-24
+  - 'Why is a room type tagged "needs your answer"?' {#counts-as-a-room/a-room-type}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -37,7 +37,7 @@ Open the <Ui>PMS</Ui> tab. Under the connection cards sits a section headed <Ui>
 
 ## The list
 
-One row per active room type, in name order. Each row shows the room type's name, its unit count ("12 units"), a small "not a room" tag when it is unticked, and the checkbox <Ui>Counts as a room</Ui>. A room type that does not count is dimmed.
+One row per active room type, in name order. Each row shows the room type's name, its unit count ("12 units"), a small tag when it is unticked, and the checkbox <Ui>Counts as a room</Ui>. The tag reads "not a room" when the room type has been unticked, and "needs your answer" when nobody has ticked or unticked it yet. A room type that is not ticked is dimmed.
 
 While the list loads you see a grey placeholder. If it cannot load: "Couldn't load room types." with <Ui>Try again</Ui>. Before the first sync: "No room types have synced yet."
 
@@ -49,23 +49,23 @@ A ticked room type is one guests sleep in. Ticked room types are what MAYA divid
 - the room count behind the calendar's colours (revenue per room),
 - the room count you are billed for.
 
-One exception on the bill: a room type nobody has answered for yet, whose name reads like something nobody sleeps in, shows ticked but is left out of your bill until you answer (see "How MAYA proposes the answer" below).
+A room type tagged "needs your answer" is one nobody has ticked or unticked yet, whose name reads like something nobody sleeps in (see "How MAYA proposes the answer" below). It shows unticked and is left out of your bill until you answer. Until then it still counts in occupancy and in the calendar's revenue per room. Tick it if guests sleep there and it joins your bill. If they do not, tick it and untick it again: it then shows "not a room" and leaves occupancy and the calendar's count too. The <Ui>?</Ui> beside the heading says the same in one line.
 
-Untick a room type and it leaves all three. Its bookings also leave the history booking speed reads, so a court selling six slots a night cannot read as the hotel filling up. It is still priced, and sent when you are live, like any other room type, and its revenue still counts in the day card's dollar figure.
+Untick a room type and it leaves all three. Its bookings also leave the history booking speed reads, so a court selling six slots a night cannot read as the hotel filling up. It is still priced, and sent when you are live, like any other room type, and its revenue still counts in the day card's revenue figure.
 
 A rule cannot measure an unticked room type. A rule that measures only unticked types measures nothing and never fires. When an occupancy rule measured a mix, the change log says which were left out: "That 82% leaves out Meeting Room." [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another) has the detail.
 
 Tick or untick and the change saves at once. If it does not save you see "That didn't save" with a note to try again, and the box goes back to where it was. Your rules then run again across the 396-night window, since every occupancy figure has moved: within a few minutes for the coming nights, and over the next few cycles for the furthest, nearest nights first. Each change is recorded with who made it.
 
 <Example title="The Harbour Inn's meeting room">
-Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the dollar figure, and the percentage stays 60%. Sam is billed for 20 rooms.
+Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the revenue figure, and the percentage stays 60%. Sam is billed for 20 rooms.
 </Example>
 
 ## How MAYA proposes the answer
 
-When your history is first imported, MAYA reads each room type's name. A name that is certainly not a bedroom (parking, a boardroom, a pickleball court) is proposed as not a room and shown unticked on the review screen, where one click puts it right. A name that only might be (a "Pool Cabana", a "Spa Deluxe") stays ticked, and the review asks "Is "Pool Cabana" actually a room?".
+When your history is first imported, MAYA reads each room type's name. A name that is certainly not a bedroom (parking, a boardroom, a pickleball court) is proposed as not a room and shown unticked on the review screen, where one click puts it right. A name that only might be (a "Pool Cabana", a "Spa Deluxe") waits for your answer: the review screen shows it unticked with a "needs your answer" tag, and asks "Is "Pool Cabana" actually a room?".
 
-After that, MAYA never unticks a room type on its own. A new room type from your system arrives counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it shows ticked and counts in occupancy (your existing rules do not include it, see "What a new room type starts with" below), but it is left out of your bill until you answer. To answer, untick it, or, if it is a room, untick it and tick it again. A sync never overwrites an answer you have given. You can change any room type from the <Ui>PMS</Ui> tab at any time.
+After that, MAYA never unticks a room type on its own. A new room type from your system whose name reads like a bedroom arrives ticked as a room. If its name reads like something nobody sleeps in, it waits for your answer: it shows unticked, tagged "needs your answer", and counts in occupancy (your existing rules do not include it, see "What a new room type starts with" below), but it is left out of your bill until you answer. To answer, tick it if it is a room, or, if it is not, tick it and untick it again. A sync never overwrites an answer you have given. You can change any room type from the <Ui>PMS</Ui> tab at any time.
 
 ## Rooms out of service
 
@@ -117,15 +117,15 @@ MAYA reads bookings and rates from your system, not room blocks, out-of-order ro
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A changed unit count is picked up on the next cycle, from the count Cloudbeds reports for the room type. A renamed room type shows its new name on the next cycle.
+A new room type appears in MAYA on the next cycle, about five minutes, ticked as a room. If its name reads like something nobody sleeps in, it shows unticked instead, with a "needs your answer" tag: it counts in occupancy but is left out of your bill until you answer on the <Ui>PMS</Ui> tab. A changed unit count is picked up on the next cycle, from the count Cloudbeds reports for the room type. A renamed room type shows its new name on the next cycle.
 
 A room type you remove in Cloudbeds is not removed in MAYA: it stays listed, on the calendar and priced until it is switched off for you. Its old stays still count. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) with its name and we switch it off. Until then its units still count in occupancy and in the room count you are billed for. Nights that enter the 396-night window after you remove it have no Cloudbeds rate to start from, so they are left unpriced. Its prices cannot reach Cloudbeds. Once you are live and MAYA tries to send one, the change log says "Cloudbeds can't find the rate MAYA changes for" that room type.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A room type you remove stays in MAYA with its history. MAYA counts each room type's units from ThinkReservations' list of rooms on every cycle, leaving out rooms marked there as inactive, as not a room, or as not included in occupancy. A renamed room type shows its new name on the next cycle.
+A new room type appears in MAYA on the next cycle, about five minutes, ticked as a room. If its name reads like something nobody sleeps in, it shows unticked instead, with a "needs your answer" tag: it counts in occupancy but is left out of your bill until you answer on the <Ui>PMS</Ui> tab. A room type you remove stays in MAYA with its history. MAYA counts each room type's units from ThinkReservations' list of rooms on every cycle, leaving out rooms marked there as inactive, as not a room, or as not included in occupancy. A renamed room type shows its new name on the next cycle.
 </PmsTab>
 <PmsTab pms="mews">
-A new space category appears in MAYA as a room type on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A category you remove stays in MAYA with its history. Mews does not report how many rooms a category has, so MAYA gives every Mews category the same number of units: the number we set with you when we connect Mews, or 100 if it was never set. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20room%20counts) your counts. Once we have set the number, occupancy is right from the next run if your categories are all the same size. A renamed category shows its new name on the next cycle.
+A new space category appears in MAYA as a room type on the next cycle, about five minutes, ticked as a room. If its name reads like something nobody sleeps in, it shows unticked instead, with a "needs your answer" tag: it counts in occupancy but is left out of your bill until you answer on the <Ui>PMS</Ui> tab. A category you remove stays in MAYA with its history. Mews does not report how many rooms a category has, so MAYA gives every Mews category the same number of units: the number we set with you when we connect Mews, or 100 if it was never set. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20room%20counts) your counts. Once we have set the number, occupancy is right from the next run if your categories are all the same size. A renamed category shows its new name on the next cycle.
 </PmsTab>
 </PmsTabs>
 

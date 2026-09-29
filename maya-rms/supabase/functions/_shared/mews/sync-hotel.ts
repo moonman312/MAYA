@@ -17,6 +17,8 @@ import {
 } from "../pms/row-diff.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { DEFAULT_SYNC_DAYS_FORWARD } from "../pms/pricing-window.ts";
+import { noteAuthFailure } from "../pms/connection-health.ts";
+import { isMewsAuthFailure, MEWS_AUTH_FAILURES_BEFORE_ERROR } from "./auth-failure.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 
@@ -24,7 +26,10 @@ const RECONCILE_IN_CHUNK = 200;
  * The statuses a healthy run is allowed to turn back into 'connected'.
  * 'pending' waits on payment and only activation makes it live; 'disconnected'
  * means the grant was withdrawn. A sync that happens to succeed proves neither
- * has changed. Same rule as the Cloudbeds and Think syncs.
+ * has changed. Same rule as the Cloudbeds and Think syncs. 'error' is what a
+ * run of refused keys leaves (see the catch below), so a good read after new
+ * keys are saved is what clears it; the refusal count goes back to 0 in the
+ * same write, because last_sync_at moves.
  */
 const SYNC_MAY_MARK_CONNECTED = ["connected", "degraded", "error"];
 
@@ -231,6 +236,10 @@ export async function runMewsSyncForHotel(
   hotelId: string,
   options?: MewsSyncHotelOptions,
 ): Promise<MewsSyncHotelSuccess | MewsSyncHotelFailure> {
+  // Whether this run read with the keys saved on the connection. Only those
+  // refusals count against it: keys typed into a test, or the env fallback,
+  // say nothing about the connection's own.
+  let savedKeys = false;
   try {
     const resolved = await resolveMewsCredentials(
       supabase,
@@ -240,6 +249,7 @@ export async function runMewsSyncForHotel(
     if ("error" in resolved) {
       return { ok: false, error: resolved.error };
     }
+    savedKeys = resolved.source === "database" && resolved.connectionId != null;
 
     const { data: hotelRow, error: hotelErr } = await supabase
       .from("hotels")
@@ -549,6 +559,12 @@ export async function runMewsSyncForHotel(
     };
   } catch (error) {
     if (error instanceof MewsHttpError) {
+      // Keys that stop working used to leave the connection reading Connected
+      // forever: nothing else ever moves a Mews status. A run of refusals marks
+      // it Error, and the stamp after the next good read clears both.
+      if (savedKeys && isMewsAuthFailure(error.status, error.message)) {
+        await noteAuthFailure(supabase, hotelId, "mews", MEWS_AUTH_FAILURES_BEFORE_ERROR, error.message);
+      }
       return {
         ok: false,
         error: error.message,

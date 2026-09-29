@@ -3,15 +3,16 @@ title: The history import
 summary: What MAYA reads from your property system after you connect, in what order, what it keeps, how long it takes, and what you can do while it runs.
 section: review
 order: 10
-readingTime: 12
-keywords: [import, 18 months, less than three years, short history, new property, no banner, claim the property, history, importing, reading your bookings, how long, progress bar, room-nights, years covered, oldest stay, import stopped, import complete, first results ready, ten years, three years, stuck, still importing, part 2, close the page, reconnected, reconnect, amber dot, did not carry on, not resuming, restart import, group login, several properties, cancelled bookings, no-show]
+readingTime: 13
+keywords: [import, 18 months, less than three years, short history, new property, no banner, claim the property, history, importing, reading your bookings, how long, progress bar, room-nights, years covered, oldest stay, import stopped, import paused, tries again by itself, we've been told, import complete, first results ready, ten years, three years, stuck, still importing, part 2, close the page, reconnected, reconnect, amber dot, did not carry on, not resuming, restart import, group login, several properties, cancelled bookings, no-show]
 questions:
   - What happens during the import? {#what-it-reads-in-order/reading-your-property}
   - How long does the import take? {#how-long-it-takes}
   - How far back does MAYA read my bookings? {#what-it-reads-in-order/importing-past-years}
   - Can I use MAYA while it is still importing? {#your-first-day-using-maya-while-it-runs}
   - It says "Import stopped". What do I do? {#import-stopped/if-the-bar}
-  - I reconnected. Why has the import not carried on? {#import-stopped/if-the-bar}
+  - It says "Import paused". Will it carry on by itself? {#import-stopped/when-it-stops}
+  - I reconnected. Does the import carry on? {#import-stopped/reconnecting-picks-the}
   - Does MAYA keep my guests' details? {#what-is-kept}
   - Why does it say part 2 while reading my bookings? {#what-it-reads-in-order/reading-your-current}
   - We only have 18 months of history. Will the review still open? {#what-it-reads-in-order/checking-your-full}
@@ -89,25 +90,29 @@ The progress page has a link, <Ui>Go to my dashboard →</Ui>, at the bottom.
 
 The progress bar sits under the five questions and on the progress page. It shows the current step on the left and, on the right, how many room-nights have been read and, once an oldest stay is known, "back to" that month (for example "back to 2019-03").
 
-The dot beside the step pulses while the import runs, turns green when it is complete, and turns amber if it has stopped.
+The dot beside the step pulses while the import runs, turns green when it is complete, and turns amber if it has paused or stopped.
 
 The progress page adds three tiles: <Ui>Room-nights</Ui>, <Ui>Years covered</Ui> (the span between your oldest and newest stay, at least 1) and <Ui>Oldest stay</Ui>. It moves on by itself: to the review as soon as there is something to review, or to the dashboard if the import finished with nothing to review. If the work was already done when you arrived, it moves on straight away. Otherwise it waits a moment so you can see it finish.
 
 <Callout kind="good-to-know">
-Until your first results are ready, the heading on the progress page says the work is under way. MAYA is reading your bookings, and the review lists what it found.
+Until your first results are ready, the heading on the progress page says the work is under way. MAYA is reading your bookings, and the review lists what it found. If the import pauses or stops, the heading says so instead ("Your import is paused" or "Your import has stopped"), and the bar says what happens next.
 </Callout>
 
 ## "Import stopped"
 
-If the bar reads "Import stopped" with an amber dot, the import gave up: your property system stopped answering for a long stretch, or a read kept ending in the same place. It will not restart on its own.
+If the bar reads "Import paused" or "Import stopped" with an amber dot, the import has stopped trying for now: your property system stopped answering for a long stretch, or refused MAYA's access, or a read kept ending in the same place. Your connection, your rules and everything already read are safe. When your system refused MAYA's access, reconnecting picks it up again (see below).
 
-The screen says we have been told, but nothing reaches us automatically. Please [email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped) so we can restart it for you. Your connection, your rules and everything already read are safe.
+When it stops, an automatic alert goes to our team. Then the import tries again by itself, up to three times, each time from where it had got to. It waits an hour before the first try, four hours before the second and twelve hours before the third. While it waits, the bar says when the next try is, for example "Import paused. We've been told, and it tries again by itself around 3:40 PM." Once a try is under way, the bar shows the step it is on again.
+
+If the third try stops too, the bar reads "Import stopped. We've been told." and the import does not try again by itself. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped) and we will restart it from where it left off.
+
+"We've been told" appears only when the alert reached us. If the bar says "Import stopped. Email us and we'll restart it." instead, nothing reached us, so please [email us](mailto:info@modern-hospitality-solutions.com?subject=Import%20stopped). A Cloudbeds Marketplace property you have not paid for yet does not try again by itself: paying for it (a free trial counts) starts the import again from where it stopped.
 
 If your connection drops while the import runs, the dot turns amber, the bar keeps the name of the step it had reached, and the reconnect prompt appears on your dashboard. Read [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect).
 
-Reconnecting brings the connection back, but the import does not carry on by itself. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20my%20import) and we will restart it from where it left off. Everything it had already read is kept.
+Reconnecting picks the import up where it left off. A General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) on the <Ui>PMS</Ui> tab and signs in, and the import carries on from the step it had reached, usually within a minute. Everything it had already read is kept, and an import that is still running is left to finish: reconnecting never starts a second one. This also covers an import that paused or stopped because your system kept refusing MAYA's access while the connection was down. If the dot is still amber a few minutes after you reconnect, [email us](mailto:info@modern-hospitality-solutions.com?subject=Restart%20my%20import) and we will restart it.
 
-A Cloudbeds Marketplace property is the exception. If you pay for it (a free trial counts), clicking <Ui>Connect App</Ui> for MAYA in the Marketplace again picks the import up where it left off. If you have not paid yet, it picks up when the property next comes up on the payment screen.
+On a Cloudbeds Marketplace property you have paid for (a free trial counts), clicking <Ui>Connect App</Ui> for MAYA in the Marketplace again also picks up an import the disconnect stopped. If you have not paid yet, the import picks up when the property next comes up on the payment screen.
 
 The prompt takes the bar's place in one case only: a Cloudbeds Marketplace property you never paid for, left unused for 180 days, whose connection was removed (see [Reading again later](#reading-again-later)).
 
@@ -118,7 +123,7 @@ When the read has run, you have:
 - your room types with their unit counts, and MAYA's first proposal for which of them are rooms,
 - the review cards: closures, room types that may not be rooms, duplicates, rates that look like typos, stays with no rate, stays that point at deleted room types,
 - floors and ceilings for room types that were still at their defaults,
-- five starter rules, if you have enough history and no rules yet.
+- starter rules, if you have enough history and no rules yet.
 
 Your property's own rates (the starting point your rules work from) are not part of the import. The regular cycle reads them once your property is paid for. A free trial counts.
 
@@ -145,7 +150,7 @@ One listing carries the booking, its status and its line items, so there is no f
 MAYA counts each room type's rooms from ThinkReservations' list of rooms, so your occupancy percentages are right from the first read. A room marked inactive, as not a room, or as not included in occupancy is left out. [ThinkReservations](/docs/connect/thinkreservations) has the details.
 </PmsTab>
 <PmsTab pms="mews">
-MAYA does not read Mews history yet. A Mews property has no import, no review cards, no starter rules and no floors or ceilings from data. Occupancy and booking window rules work from the bookings MAYA reads each cycle. Booking speed rules fire less often at first: with little history a reading stays within one step of Normal, so rules set to Much Faster Than Normal, Surging, Much Slower Than Normal or Stalled stay quiet. <Ui>Get suggestions from my data</Ui> cannot complete on a Mews property. Email us if you want history read by hand.
+MAYA does not read Mews history yet. A Mews property has no import, no review cards, no starter rules and no floors or ceilings from data. Occupancy and booking window rules work from the bookings MAYA reads each cycle. Booking speed rules fire less often at first: with little history a reading stays within one step of Normal, so rules set to Much Faster Than Normal, Surging, Much Slower Than Normal or Stalled stay quiet. <Ui>Get suggestions from my data</Ui> is greyed out on a Mews property. Email us if you want history read by hand.
 </PmsTab>
 </PmsTabs>
 
@@ -154,7 +159,7 @@ There is no button to start, pause or restart the import by hand. It starts when
 </Callout>
 
 <Example title="The Harbour Inn's import">
-Sam connects The Harbour Inn (20 rooms) on a Tuesday evening. The bar reads "Reading your property setup", then "Reading your current bookings". Within a few minutes the calendar shows the coming nights with real occupancy. The bar moves to "Importing past years" and the right side counts up: "4,120 room-nights · back to 2024-09". After three past years it reads "First results ready. Importing older years", and the review opens with two closure cards and the five starter rules. Sam closes the laptop. In the morning the bar reads "Import complete", "Years covered" says 7, and one extra card has appeared: a seasonal closure that only showed once four years of history were in.
+Sam connects The Harbour Inn (20 rooms) on a Tuesday evening. The bar reads "Reading your property setup", then "Reading your current bookings". Within a few minutes the calendar shows the coming nights with real occupancy. The bar moves to "Importing past years" and the right side counts up: "4,120 room-nights · back to 2024-09". After three past years it reads "First results ready. Importing older years", and the review opens with two closure cards and the starter rules. Sam closes the laptop. In the morning the bar reads "Import complete", "Years covered" says 7, and one extra card has appeared: a seasonal closure that only showed once four years of history were in.
 </Example>
 
 <Related>

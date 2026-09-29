@@ -67,7 +67,7 @@ export interface ChallengeReason {
 }
 
 export const CHALLENGE_REASONS: ChallengeReason[] = [
-  { key: "holiday", label: "Holiday We Don't Have Modeled", category: "calendar", suggestedScopes: ["this_date", "annual", "improve_future"] },
+  { key: "holiday", label: "Holiday Not on MAYA's List", category: "calendar", suggestedScopes: ["this_date", "annual", "improve_future"] },
   { key: "local_event", label: "Local Event or Festival", category: "calendar", suggestedScopes: ["this_date", "annual", "improve_future"] },
   { key: "sporting_event", label: "Sporting Event or Tournament", category: "calendar", suggestedScopes: ["this_date", "annual", "improve_future"] },
   { key: "conference", label: "Conference or Convention", category: "market", suggestedScopes: ["this_date", "annual", "improve_future"] },

@@ -15,7 +15,14 @@ export type SuggestionDraft = {
   affected_room_type_ids: string[];
   undo_on_cancellation: boolean;
   priority?: number;
+  /** The days a rule copied from the owner's own weekend or weekday moves runs on. */
+  dow_mask?: number;
 };
+
+/** A weekday mask a rule can carry: some days, at most all seven. */
+export function isDowMask(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 127;
+}
 
 function signed(kind: unknown, direction: unknown, value: unknown): RuleAction {
   const v = Math.abs(Number(value));
@@ -29,6 +36,7 @@ export function suggestionDraft(payload: Record<string, unknown>, fallback: stri
     | {
         name?: unknown;
         priority?: unknown;
+        dow_mask?: unknown;
         condition?: Record<string, unknown>;
         action?: { action_type?: unknown; action_direction?: unknown; action_value?: unknown };
       }
@@ -44,6 +52,9 @@ export function suggestionDraft(payload: Record<string, unknown>, fallback: stri
     // A suggestion the owner accepts is ticked, like every new rule.
     undo_on_cancellation: true,
     ...(Number.isInteger(Number(spec.priority)) ? { priority: Number(spec.priority) } : {}),
+    // Set on a rule copied from the owner's own weekend or weekday moves;
+    // anything that doesn't fit is every day.
+    ...(isDowMask(spec.dow_mask) && spec.dow_mask !== 127 ? { dow_mask: spec.dow_mask } : {}),
   };
 }
 

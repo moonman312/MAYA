@@ -251,7 +251,11 @@ describe("POST — validation", () => {
     ["zero units", { ...GOOD, units: 0 }, /at least 1/],
     ["fractional units", { ...GOOD, units: 1.5 }, /whole number/],
     ["a missing unit count", { ...GOOD, units: undefined }, /whole number/],
-    ["more units than the type has, naming the bound", { ...GOOD, units: 21 }, /Standard has 20 rooms/],
+    [
+      "more units than the type has, naming the bound",
+      { ...GOOD, units: 21 },
+      /^Standard has 20 rooms, so you can't block more than that\.$/,
+    ],
     ["a reason over 200 characters", { ...GOOD, reason: "x".repeat(201) }, /under 200 characters/],
     ["a room type from another property", { ...GOOD, roomTypeId: "77777777-7777-4777-8777-777777777777" }, /isn't on this property/],
   ];
@@ -305,7 +309,9 @@ describe("POST — the block", () => {
     // would sell -1 rooms on Oct 10-14. The message says how many are left.
     const res = await post({ ...GOOD, startDate: "2026-10-10", endDate: "2026-10-20", units: 17 });
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toMatch(/already has 4 rooms out of service.*16 you can still block/);
+    expect((await res.json()).error).toBe(
+      "Standard already has 4 rooms out of service on some of those nights. That leaves 16 you can still block.",
+    );
     expect(fake().tables.get("room_type_out_of_service")).toHaveLength(1);
     // Exactly what is left is fine, and a range that only touches a
     // different block's nights is not stacked with it.
@@ -318,7 +324,7 @@ describe("POST — the block", () => {
       state.fake = seed({ missingTables: ["room_type_out_of_service"], missingTableShape: shape });
       const res = await post(GOOD);
       expect(res.status).toBe(503);
-      expect((await res.json()).error).toBe("This needs a database update first.");
+      expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
     }
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("pre-migration"));
   });
@@ -378,6 +384,6 @@ describe("GET", () => {
     state.fake = seed({ missingTables: ["room_type_out_of_service"] });
     const res = await get();
     expect(res.status).toBe(503);
-    expect((await res.json()).error).toBe("This needs a database update first.");
+    expect((await res.json()).error).toBe("Something on our side isn't ready yet. Email us and tell us which page you were on.");
   });
 });

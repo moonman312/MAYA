@@ -31,7 +31,7 @@ export function ConnectPms({
       </h1>
       <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-slate-400">
         Last thing. Pick your property management system, sign in on their
-        site, and you&apos;ll be brought right back — no keys to copy, nothing
+        site, and you&apos;ll be brought right back. No keys to copy, nothing
         to configure on their end.
       </p>
 
@@ -41,9 +41,9 @@ export function ConnectPms({
           What happens when you connect
         </div>
         <p className="mt-1.5 text-[13px] leading-relaxed text-amber-100/80">
-          We&apos;ll pull your reservation history and analyze it to suggest
-          the best yield automation strategy for your property. This runs in
-          the background — you can keep going while it works. We never store
+          We&apos;ll read your reservation history and use it to suggest the
+          best yield automation strategy for your property. This runs in the
+          background, so you can keep going while it works. We never store
           guest personal data, and we won&apos;t change any of your prices
           without your say-so.
         </p>

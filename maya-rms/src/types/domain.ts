@@ -347,7 +347,8 @@ export type CalendarRoomType = {
   total_rooms: number;
   occupancy_pct: number;
   booked: number;
-  rate: number;
+  /** Average rate of the night's bookings (ADR). Null when nothing is booked. */
+  rate: number | null;
   revenue: number;
   /**
    * Engine-published price for this night (from `published_price`), i.e. the
@@ -416,6 +417,10 @@ export type CalendarResponse = {
    * for the hotel; the demo window when no Supabase data backs the calendar.
    */
   range: { min: string; max: string };
+  /** Today on the property's calendar (YYYY-MM-DD). Older servers omit it. */
+  today?: string;
+  /** The property's currency code ("USD", "EUR"); null when it has none set. Older servers omit it. */
+  currency?: string | null;
   days: Record<string, CalendarDay>;
 };
 
@@ -453,7 +458,7 @@ export type ChangelogEntry = {
   /** Keys for fetching the drill-down (/api/explain). Absent in demo shapes. */
   evaluation_run_id?: string;
   room_type_id?: string;
-  /** True when the audit row carries booking-speed observation snapshots — the "How did we know?" expander only shows then. */
+  /** True when the audit row carries booking-speed observation snapshots — the "Show the numbers" expander only shows then. */
   has_booking_speed_details?: boolean;
 };
 
@@ -461,7 +466,12 @@ export type ChangelogCycle = {
   cycle: number;
   timestamp: string;
   has_changes: boolean;
+  /** The run's biggest changes, at most MAX_ENTRIES_PER_CYCLE. */
   changes: ChangelogEntry[];
+  /** Every change the run made, when that is more than `changes` shows. */
+  total_changes?: number;
+  /** total_changes is a minimum: some nights were not checked. */
+  total_is_minimum?: boolean;
 };
 
 /** Tries at a push problem that went the same way, condensed to one line. */

@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
   "limits": {
     "rawQueryChars": 1024,
@@ -83,7 +83,8 @@
         "role-rules",
         "role-price",
         "role-suggestions",
-        "entry-gone"
+        "entry-gone",
+        "reconnected"
       ],
       "use": "once",
       "go": false
@@ -737,7 +738,7 @@
     },
     "changelog.entry": {
       "label": "Open this change",
-      "opens": "Change Log scrolled to one change with How did we know? opened, while it is still in the list. Otherwise the Change Log with a short note.",
+      "opens": "Change Log scrolled to one change with Show the numbers opened, while it is still in the list. Otherwise the Change Log with a short note.",
       "target": {
         "path": "/",
         "set": {

@@ -40,3 +40,10 @@ export function dbErrorResponse(error: unknown): { status: number; message: stri
   }
   return { status: 500, message: "Something went wrong on our side. Try again in a moment." };
 }
+
+/**
+ * What a route says when it runs ahead of its migration. The details go to
+ * the logs; the owner only needs to know it is ours to fix and how to tell us.
+ */
+export const NOT_READY_YET =
+  "Something on our side isn't ready yet. Email us and tell us which page you were on.";

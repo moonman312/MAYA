@@ -28,6 +28,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     Object.entries(seed).map(([k, v]) => [k, v.map((r) => ({ ...r }))]),
   );
   const failInsertFor = new Set<string>();
+  const failSelectFor = new Set<string>();
   let nextId = 0;
   const tableOf = (name: string) => {
     if (!tables.has(name)) tables.set(name, []);
@@ -134,6 +135,9 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
         );
         return { data: null, error: null };
       }
+      if (failSelectFor.has(table)) {
+        return { data: null, error: { message: `select from ${table} timed out` } };
+      }
       let rows = tableOf(table).filter((r) => matches(r, filters));
       if (cap != null) rows = rows.slice(0, cap);
       if (counting) return { data: null, count: rows.length, error: null };
@@ -153,7 +157,7 @@ function fakeSupabase(seed: Record<string, Row[]> = {}) {
     rpc: async (name: string, args: Record<string, unknown>) => state.rpc(name, args, tables),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { client: client as any, tables, failInsertFor };
+  return { client: client as any, tables, failInsertFor, failSelectFor };
 }
 
 const USER = "user-1";
@@ -164,6 +168,7 @@ const state = vi.hoisted(() => ({
   hotelId: null as string | null,
   rank: true,
   sessions: [] as Record<string, unknown>[],
+  sessionOpts: [] as Record<string, unknown>[],
   customers: [] as Record<string, unknown>[],
   customerOpts: [] as Record<string, unknown>[],
   customerSearches: [] as string[],
@@ -234,8 +239,9 @@ vi.mock("@/lib/billing/stripe", () => ({
     },
     checkout: {
       sessions: {
-        create: async (args: Record<string, unknown>) => {
+        create: async (args: Record<string, unknown>, opts?: Record<string, unknown>) => {
           state.sessions.push(args);
+          state.sessionOpts.push(opts ?? {});
           return { id: "cs_test", url: "https://checkout.stripe.test/pay" };
         },
       },
@@ -275,6 +281,7 @@ beforeEach(() => {
   state.hotelId = null;
   state.rank = true;
   state.sessions = [];
+  state.sessionOpts = [];
   state.customers = [];
   state.customerOpts = [];
   state.customerSearches = [];
@@ -364,6 +371,9 @@ describe("a first-time signup, with no property yet", () => {
     const res = await post({ rooms: 0, interval: "month", code: "MHSFOUNDER" });
     expect(res.status).toBe(400);
     expect(tables.get("hotels") ?? []).toHaveLength(0);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Tell us how many rooms you have: any number from 1 to 500.",
+    );
   });
 
   it("refuses a second subscription for a property that already has one", async () => {
@@ -387,11 +397,10 @@ describe("a first-time signup, with no property yet", () => {
 
   it("lets a property retry after a subscription that never came to anything", async () => {
     // Testing "not canceled" instead of "entitled" trapped every dead-but-not-
-    // canceled state: incomplete (they closed the card form), incomplete_expired,
-    // unpaid after dunning gave up. Each one produced a 409 telling the owner to
-    // manage a subscription in billing settings that would never charge or serve
-    // them — a hotel with no way forward and nothing to cancel.
-    for (const deadStatus of ["incomplete", "incomplete_expired", "unpaid", "canceled"]) {
+    // canceled state: incomplete (they closed the card form), incomplete_expired.
+    // Each one produced a 409 telling the owner to manage a subscription that
+    // would never charge or serve them, a hotel with no way forward.
+    for (const deadStatus of ["incomplete", "incomplete_expired", "canceled"]) {
       state.sessions = [];
       seed({
         hotels: [{ id: "hotel-pending", is_active: false, setup_pending_at: "2026-07-01T00:00:00Z" }],
@@ -426,6 +435,71 @@ describe("a first-time signup, with no property yet", () => {
       expect(res.status, `status ${liveStatus} should block`).toBe(409);
       expect(state.sessions).toHaveLength(0);
     }
+  });
+
+  it("refuses a new subscription beside a paused one, and says to email us", async () => {
+    // Paused is on hold in Stripe, not gone: a second checkout would bill the
+    // property twice once someone resumes the first.
+    seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [{ hotel_id: "hotel-live", stripe_subscription_id: "sub_paused", status: "paused" }],
+    });
+    state.hotelId = "hotel-live";
+    const res = await post();
+    expect(res.status).toBe(409);
+    expect(state.sessions).toHaveLength(0);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("Your subscription is on hold.");
+    expect(body.error).toContain("info@modern-hospitality-solutions.com");
+  });
+
+  it("refuses a new subscription beside an unpaid one, and says to update the card", async () => {
+    // Unpaid is still alive in Stripe with its invoice open. A new card pays
+    // that invoice and revives it, so a second checkout would bill twice.
+    for (const hotel of [
+      { id: "hotel-pending", is_active: false, setup_pending_at: "2026-07-01T00:00:00Z" },
+      { id: "hotel-live", name: "Driftwood", is_active: true },
+    ]) {
+      state.sessions = [];
+      seed({
+        hotels: [hotel],
+        hotel_memberships: [{ hotel_id: hotel.id, user_id: USER, role: "hotel_admin", status: "active" }],
+        hotel_subscriptions: [
+          { hotel_id: hotel.id, stripe_customer_id: "cus_old", stripe_subscription_id: "sub_unpaid", status: "unpaid" },
+        ],
+      });
+      state.hotelId = hotel.is_active ? hotel.id : null;
+      const res = await post();
+      expect(res.status, hotel.id).toBe(409);
+      expect(state.sessions).toHaveLength(0);
+      expect(state.customers).toHaveLength(0);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe(
+        "Your subscription is waiting on a card update. Update your card from billing and the subscription restarts where it left off.",
+      );
+    }
+  });
+
+  it("stops before Stripe when the subscription on record cannot be read", async () => {
+    // Reading a failure as "nothing on record" would skip the guards against a
+    // second subscription and could give a restart the first signup's trial.
+    const { failSelectFor } = seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-live", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    failSelectFor.add("hotel_subscriptions");
+    state.hotelId = "hotel-live";
+    const res = await post();
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "We couldn't load your account just now. Please try again in a moment.",
+    );
+    expect(state.sessions).toHaveLength(0);
+    expect(state.customers).toHaveLength(0);
   });
 
   it("reports a failure to provision rather than starting a payment with nowhere to land", async () => {
@@ -839,6 +913,8 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     seed(arrival);
     const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
+    // A first signup keeps the key it always had.
+    expect(state.sessionOpts.at(-1)?.idempotencyKey).toBe("maya_checkout_hotel-mkt_month_24_none");
     expect(lastSession()?.subscription_data).toMatchObject({
       trial_period_days: 7,
       metadata: { hotel_id: "hotel-mkt", via: "marketplace_flow_a" },
@@ -896,6 +972,71 @@ describe("a property that arrived from the Cloudbeds Marketplace", () => {
     const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
     expect(res.status).toBe(200);
     expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+  });
+
+  it("gets no Marketplace trial on a restart, because that trial is for the first signup only", async () => {
+    // The restart screen says "Billed when you finish checkout", and it has to
+    // be true: a subscription on record means this property signed up before.
+    seed({
+      ...arrival,
+      hotels: [{ ...arrival.hotels[0], is_active: true, setup_pending_at: null }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-mkt", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    state.hotelId = "hotel-mkt";
+    const res = await post({ rooms: 24, interval: "month", code: "", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    const text = String(((lastSession()?.custom_text as Row).submit as Row).message);
+    expect(text).not.toContain("free trial");
+    // A different offer from the first signup's, so a different session.
+    expect(state.sessionOpts.at(-1)?.idempotencyKey).toBe("maya_checkout_hotel-mkt_month_24_none_after_sub_old");
+  });
+
+  it("gives no trial on a restart even when a code grants free days of its own", async () => {
+    // Every trial is for a first signup. The restart screen says "Billed when
+    // you finish checkout" whatever code is typed, and that has to be true.
+    seed({
+      ...arrival,
+      hotels: [{ ...arrival.hotels[0], is_active: true, setup_pending_at: null }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-mkt", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    state.hotelId = "hotel-mkt";
+    const res = await post({ rooms: 24, interval: "month", code: "MHSFOUNDER", pmsType: "cloudbeds" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    // The code is still recorded against the new subscription.
+    expect(lastSession()?.subscription_data).toMatchObject({ metadata: { signup_code_id: "code-1" } });
+    const text = String(((lastSession()?.custom_text as Row).submit as Row).message);
+    expect(text).not.toContain("free trial");
+  });
+
+  it("keeps a code's discount on a restart, without its free days", async () => {
+    const { tables } = seed({
+      hotels: [{ id: "hotel-live", name: "Driftwood", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-live", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    tables.get("signup_codes")!.push({
+      id: "code-2",
+      code: "WELCOME20",
+      kind: "percent_off",
+      percent_off: 20,
+      duration_months: 3,
+      trial_days: 14,
+      stripe_coupon_id: "coupon_cached",
+      is_active: true,
+    });
+    state.hotelId = "hotel-live";
+    const res = await post({ rooms: 24, interval: "month", code: "WELCOME20" });
+    expect(res.status).toBe(200);
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
+    expect(lastSession()?.discounts).toEqual([{ coupon: "coupon_cached" }]);
   });
 
   it("still rejects a typo'd code — the gate bypass never skips validating text they typed", async () => {

@@ -3,17 +3,23 @@ import {
   historicalWindow,
   effectiveRowCap,
   nextAfterWindow,
+  AUTO_RETRY_DELAYS_MS,
   CURRENT_SYNC_GRACE_MS,
+  importStopOf,
   processJob,
+  requeueDueImports,
+  stopCause,
   type CurrentSyncResult,
   type ImportJobRow,
   type WorkerDeps,
 } from "../../../supabase/functions/_shared/onboarding/worker-core";
-import type {
-  AdapterCursor,
-  AdapterReservationRow,
-  OnboardingPmsAdapter,
+import {
+  createOnboardingAdapter,
+  type AdapterCursor,
+  type AdapterReservationRow,
+  type OnboardingPmsAdapter,
 } from "../../../supabase/functions/_shared/pms/onboarding-adapter";
+import { raiseAlert, type Alert } from "../../../supabase/functions/_shared/pms/alerting";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 describe("historicalWindow", () => {
@@ -379,6 +385,7 @@ function makeDeps(adapter: OnboardingPmsAdapter): WorkerDeps {
     analyze: vi.fn(async () => {}),
     now: () => Date.now(),
     todayYmd: () => TODAY,
+    alert: vi.fn(async () => ({ sent: true })),
   };
 }
 
@@ -1226,7 +1233,352 @@ describe("processJob killed current-window passes", () => {
     expect(await processJob(supabase, job, deps, 60_000)).toBe("failed");
     expect(deps.runCurrentSync).not.toHaveBeenCalled();
     expect(supabase.jobRow.status).toBe("failed");
+    // A stop like any other: one alert, and a retry booked.
+    expect(deps.alert).toHaveBeenCalledOnce();
+    expect(importStopOf(supabase.jobRow.stats as Record<string, unknown>)?.retryAt).toBeTruthy();
     warn.mockRestore();
+  });
+});
+
+/* ── Stopping: one alert per stop, then a few automatic retries ───────────── */
+
+describe("processJob when an import stops", () => {
+  const T = Date.parse("2026-09-29T10:00:00.000Z");
+  const HOUR = 60 * 60_000;
+  /** A PMS error whose body carries things that must never reach the alert channel. */
+  const LEAKY =
+    "Cloudbeds getReservations failed (503): guest Jane Doe <jane.doe@example.com> +1 555 0100, " +
+    "see https://api.cloudbeds.com/api/v1.3/getReservations?access_token=SECRET123";
+
+  function failingDeps(error: unknown = new Error(LEAKY)) {
+    const deps = makeDeps(makeAdapter(new Map()));
+    deps.createAdapter = async () => {
+      throw error;
+    };
+    deps.now = () => T;
+    return deps;
+  }
+
+  function quiet() {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    return () => {
+      warn.mockRestore();
+      error.mockRestore();
+    };
+  }
+
+  function sentAlerts(deps: WorkerDeps): Alert[] {
+    return vi.mocked(deps.alert!).mock.calls.map((c) => c[1]);
+  }
+
+  function stopOn(supabase: { jobRow: Record<string, unknown> }) {
+    return importStopOf(supabase.jobRow.stats as Record<string, unknown>);
+  }
+
+  it("stops at the no-progress limit: failed, one alert, and a retry booked an hour out", async () => {
+    const restore = quiet();
+    const supabase = makeSupabaseStub();
+    const deps = failingDeps();
+    const job = makeJob({ stats: { errorStreak: 49 } });
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("failed");
+
+    expect(supabase.jobRow.status).toBe("failed");
+    expect(supabase.jobRow.last_error).toBe(LEAKY);
+    expect(stopOn(supabase)).toEqual({
+      count: 1,
+      at: new Date(T).toISOString(),
+      retryAt: new Date(T + HOUR).toISOString(),
+      alerted: true,
+    });
+    const alerts = sentAlerts(deps);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatchObject({ severity: "critical", key: "import_stopped:job-1:1", hotelId: "hotel-1" });
+    expect(alerts[0].title).toContain(`goes back in the queue at ${new Date(T + HOUR).toISOString()}`);
+    expect(alerts[0].title).toContain("automatic retry 1 of 3");
+    expect(alerts[0].detail).toContain("the PMS answered HTTP 503");
+    restore();
+  });
+
+  it("keeps secrets and guest details out of the alert", async () => {
+    const restore = quiet();
+    const supabase = makeSupabaseStub();
+    const deps = failingDeps();
+    await processJob(supabase, makeJob({ stats: { errorStreak: 49 } }), deps, 60_000);
+    const posted = JSON.stringify(sentAlerts(deps));
+    for (const leak of ["Jane", "jane.doe", "555 0100", "SECRET123", "access_token", "https://"]) {
+      expect(posted).not.toContain(leak);
+    }
+    restore();
+  });
+
+  it("sends nothing on the runs before the stop", async () => {
+    const restore = quiet();
+    const supabase = makeSupabaseStub();
+    const deps = failingDeps();
+    const job = makeJob({ stats: { errorStreak: 10 } });
+
+    expect(await processJob(supabase, job, deps, 60_000)).toBe("budget_exhausted");
+
+    expect(deps.alert).not.toHaveBeenCalled();
+    expect(supabase.jobRow.status).toBe("running");
+    expect(job.stats.stop).toBeUndefined();
+    restore();
+  });
+
+  it("waits longer before each later retry, then gives up after the third", async () => {
+    const restore = quiet();
+    const booked: Array<string | null> = [];
+    const keys: string[] = [];
+    for (const count of [1, 2, 3]) {
+      const supabase = makeSupabaseStub();
+      const deps = failingDeps();
+      const job = makeJob({ stats: { errorStreak: 49, stop: { count, at: "x", retryAt: null, alerted: true } } });
+      expect(await processJob(supabase, job, deps, 60_000)).toBe("failed");
+      booked.push(stopOn(supabase)!.retryAt);
+      keys.push(sentAlerts(deps)[0].key);
+      if (count === 3) {
+        expect(sentAlerts(deps)[0].title).toContain("gave up");
+        expect(sentAlerts(deps)[0].title).toContain("It needs a person");
+      }
+    }
+    expect(booked).toEqual([new Date(T + 4 * HOUR).toISOString(), new Date(T + 12 * HOUR).toISOString(), null]);
+    expect(keys).toEqual(["import_stopped:job-1:2", "import_stopped:job-1:3", "import_stopped:job-1:4"]);
+    expect(AUTO_RETRY_DELAYS_MS).toHaveLength(3);
+    restore();
+  });
+
+  it("books no retry for a property nobody has paid for: payment re-queues it", async () => {
+    const restore = quiet();
+    const supabase = makeSupabaseStub(undefined, undefined, {
+      hotel: { is_active: false, setup_deferred_at: null },
+      connection: { status: "pending" },
+      claim: { token: "tok" },
+    });
+    const deps = failingDeps();
+    expect(await processJob(supabase, makeJob({ stats: { errorStreak: 49 } }), deps, 60_000)).toBe("failed");
+    expect(stopOn(supabase)?.retryAt).toBeNull();
+    expect(sentAlerts(deps)[0].title).toContain("unpaid");
+    restore();
+  });
+
+  it("stops on the first error no retry can fix, such as a PMS with no history import", async () => {
+    const restore = quiet();
+    const supabase = makeSupabaseStub();
+    const noAdapter = await createOnboardingAdapter(supabase, "hotel-1", "mews").catch((e: unknown) => e);
+    expect((noAdapter as { permanent?: boolean }).permanent).toBe(true);
+    const deps = failingDeps(noAdapter);
+
+    expect(await processJob(supabase, makeJob({ pms_type: "mews" }), deps, 60_000)).toBe("failed");
+
+    expect(supabase.jobRow.status).toBe("failed");
+    expect(stopOn(supabase)?.retryAt).toBeNull();
+    expect(sentAlerts(deps)).toHaveLength(1);
+    expect(sentAlerts(deps)[0].title).toContain("will not retry");
+    expect(sentAlerts(deps)[0].detail).toContain("this PMS has no history import");
+    restore();
+  });
+
+  it("still stops the job when the alert throws or does not get through", async () => {
+    const restore = quiet();
+    for (const alert of [
+      vi.fn(async () => {
+        throw new Error("webhook down");
+      }),
+      vi.fn(async () => ({ sent: false, reason: "no_webhook_configured" })),
+    ]) {
+      const supabase = makeSupabaseStub();
+      const deps = { ...failingDeps(), alert };
+      expect(await processJob(supabase, makeJob({ stats: { errorStreak: 49 } }), deps, 60_000)).toBe("failed");
+      expect(supabase.jobRow.status).toBe("failed");
+      // The screen only says we were told when we were.
+      expect(stopOn(supabase)?.alerted).toBe(false);
+      expect(stopOn(supabase)?.retryAt).toBe(new Date(T + HOUR).toISOString());
+      expect(alert).toHaveBeenCalledOnce();
+    }
+    restore();
+  });
+
+  it("sends nothing when another worker has re-claimed the job", async () => {
+    const restore = quiet();
+    // The row's lease is further out than ours: someone else owns it now.
+    const supabase = makeSupabaseStub({ id: "job-1", status: "running", lease_expires_at: leaseIn(600_000) });
+    const deps = failingDeps();
+    const job = makeJob({ lease_expires_at: leaseIn(180_000), stats: { errorStreak: 49 } });
+
+    await processJob(supabase, job, deps, 60_000);
+
+    expect(deps.alert).not.toHaveBeenCalled();
+    expect(supabase.jobRow.status).toBe("running");
+    restore();
+  });
+
+  it("posts exactly one message to the alert channel", async () => {
+    const restore = quiet();
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.com/services/T0/B0/HOOKSECRET";
+    const posts: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: { body?: string }) => {
+      posts.push({ url, body: String(init?.body ?? "") });
+      return new Response("ok", { status: 200 });
+    });
+    // raiseAlert's own dedupe read and audit write, with nothing on record.
+    const audit = {
+      from() {
+        const q: Record<string, unknown> = {};
+        for (const m of ["select", "eq", "gte"]) q[m] = () => q;
+        q.limit = async () => ({ data: [] });
+        return q;
+      },
+      rpc: async () => ({ data: null, error: null }),
+    } as unknown as SupabaseClient;
+    try {
+      const supabase = makeSupabaseStub();
+      const deps = { ...failingDeps(), alert: (_sb: SupabaseClient, a: Alert) => raiseAlert(audit, a) };
+
+      expect(await processJob(supabase, makeJob({ stats: { errorStreak: 49 } }), deps, 60_000)).toBe("failed");
+
+      expect(posts).toHaveLength(1);
+      expect(posts[0].url).toBe("https://hooks.example.com/services/T0/B0/HOOKSECRET");
+      const text = String(JSON.parse(posts[0].body).text);
+      expect(text).toContain("History import stopped for a cloudbeds property");
+      expect(text).toContain("hotel-1");
+      for (const leak of ["Jane", "jane.doe", "SECRET123", "HOOKSECRET"]) expect(text).not.toContain(leak);
+      expect(stopOn(supabase)?.alerted).toBe(true);
+    } finally {
+      delete process.env.MAYA_ALERT_WEBHOOK;
+      vi.unstubAllGlobals();
+      restore();
+    }
+  });
+});
+
+describe("stopCause", () => {
+  it("names the kind of failure without repeating the message", () => {
+    expect(stopCause("Think /reservations failed (401): Unauthorized for jane@example.com")).toBe("the PMS answered HTTP 401");
+    expect(stopCause("the current-window sync started at 2026-09-16T00:00:00Z never finished")).toBe(
+      "a current-window pass was killed before it finished",
+    );
+    expect(stopCause("current-window sync stopped short 3 runs in a row without moving past 2026-01-01")).toBe(
+      "the current-window sync kept stopping without moving on",
+    );
+    expect(stopCause("reservations upsert failed: value too long")).toBe("a database read or write failed");
+    expect(stopCause("Cloudbeds credentials unavailable: refresh token revoked")).toBe("the PMS credentials could not be read");
+    expect(stopCause("something odd with Jane's booking")).toBe("an unclassified error");
+  });
+});
+
+/* ── Putting stopped jobs back in the queue when their retry is due ──────── */
+
+describe("requeueDueImports", () => {
+  const NOW = Date.parse("2026-09-29T12:00:00.000Z");
+
+  function queueStub(
+    rows: Array<{ id: string; hotel_id: string; stats: Record<string, unknown> }>,
+    opts: { readError?: { message: string }; moveError?: { code?: string; message: string } } = {},
+  ) {
+    const reads: Array<Array<[string, string, unknown]>> = [];
+    const writes: Array<{ patch: Record<string, unknown>; filters: Array<[string, string, unknown]> }> = [];
+    const supabase = {
+      from() {
+        const filters: Array<[string, string, unknown]> = [];
+        let patch: Record<string, unknown> | null = null;
+        const settle = async () => {
+          const p = patch!;
+          writes.push({ patch: p, filters });
+          if (p.status === "queued" && opts.moveError) return { data: null, error: opts.moveError };
+          return { data: [{ id: "x" }], error: null };
+        };
+        const chain: Record<string, unknown> = {
+          select: () => (patch ? settle() : chain),
+          eq: (c: string, v: unknown) => {
+            filters.push(["eq", c, v]);
+            return chain;
+          },
+          lte: (c: string, v: unknown) => {
+            filters.push(["lte", c, v]);
+            return chain;
+          },
+          limit: async () => {
+            reads.push(filters);
+            return opts.readError ? { data: null, error: opts.readError } : { data: rows, error: null };
+          },
+          update: (p: Record<string, unknown>) => {
+            patch = p;
+            return chain;
+          },
+          then: (resolve: (v: unknown) => void, reject: (e: unknown) => void) => settle().then(resolve, reject),
+        };
+        return chain;
+      },
+    } as unknown as SupabaseClient;
+    return { supabase, reads, writes };
+  }
+
+  const stopped = (retryAt: string | null, count = 1) => ({
+    errorStreak: 50,
+    currentSync: { covered: true },
+    stop: { count, at: "2026-09-29T10:00:00.000Z", retryAt, alerted: true },
+  });
+
+  it("puts a job whose retry is due back in the queue, with a fresh error streak and its stop count kept", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const { supabase, reads, writes } = queueStub([
+      { id: "job-1", hotel_id: "hotel-1", stats: stopped("2026-09-29T11:00:00.000Z") },
+    ]);
+
+    expect(await requeueDueImports(supabase, NOW)).toBe(1);
+
+    // Only stopped jobs whose retry time has come are read.
+    expect(reads[0]).toEqual([
+      ["eq", "status", "failed"],
+      ["lte", "stats->stop->>retryAt", new Date(NOW).toISOString()],
+    ]);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].patch).toMatchObject({
+      status: "queued",
+      finished_at: null,
+      lease_expires_at: null,
+      stats: {
+        errorStreak: 0,
+        currentSync: { covered: true },
+        stop: { count: 1, retryAt: null, alerted: true },
+      },
+    });
+    // Fenced, so a job someone else re-queued meanwhile is left alone.
+    expect(writes[0].filters).toEqual([
+      ["eq", "id", "job-1"],
+      ["eq", "status", "failed"],
+    ]);
+    log.mockRestore();
+  });
+
+  it("leaves a job whose retry is not due yet, and one that has given up", async () => {
+    const { supabase, writes } = queueStub([
+      { id: "job-1", hotel_id: "hotel-1", stats: stopped("2026-09-29T13:00:00.000Z") },
+      { id: "job-2", hotel_id: "hotel-2", stats: stopped(null, 4) },
+    ]);
+    expect(await requeueDueImports(supabase, NOW)).toBe(0);
+    expect(writes).toHaveLength(0);
+  });
+
+  it("drops the retry when another import for the property is already queued or running", async () => {
+    const { supabase, writes } = queueStub(
+      [{ id: "job-1", hotel_id: "hotel-1", stats: stopped("2026-09-29T11:00:00.000Z") }],
+      { moveError: { code: "23505", message: "duplicate key value violates unique constraint" } },
+    );
+    expect(await requeueDueImports(supabase, NOW)).toBe(0);
+    expect(writes).toHaveLength(2);
+    expect(writes[1].patch).toMatchObject({ stats: { stop: { count: 1, retryAt: null } } });
+    expect(writes[1].patch).not.toHaveProperty("status");
+  });
+
+  it("never throws, so the worker still claims its next job", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { supabase } = queueStub([], { readError: { message: "connection reset" } });
+    expect(await requeueDueImports(supabase, NOW)).toBe(0);
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
   });
 });
 

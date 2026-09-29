@@ -55,9 +55,21 @@ export type RenewalNudgeInput = {
   isFirstCharge: boolean;
 };
 
+/**
+ * Where a reply goes. The Mews line asks for one, and a reply that landed on
+ * the sending address would reach nobody.
+ */
+export const NUDGE_REPLY_TO = "info@modern-hospitality-solutions.com";
+
+/**
+ * Nothing here knows which system the property uses: a paid property with no
+ * connection has told us nothing we kept. So the two-minute connect is not
+ * promised in the subject, and the body says what a Mews property does
+ * instead, since Mews is one we connect for them.
+ */
 export function renewalNudgeSubject(input: RenewalNudgeInput): string {
   return input.isFirstCharge
-    ? `Your MAYA subscription starts ${input.chargeDate} — you're two minutes from switching it on`
+    ? `Your MAYA subscription starts ${input.chargeDate} and isn't connected to your PMS yet`
     : `MAYA renews ${input.chargeDate} and isn't connected to your PMS yet`;
 }
 
@@ -68,14 +80,16 @@ export function renewalNudgeText(input: RenewalNudgeInput): string {
       ? `Your first MAYA payment of ${input.amount} is scheduled for ${input.chargeDate}.`
       : `Your MAYA subscription renews on ${input.chargeDate} for ${input.amount}.`,
     "",
-    "MAYA isn't connected to your property management system yet, so it hasn't been able to price anything for you. Connecting takes about two minutes and it is the only setup step that matters — MAYA builds your rules from your own booking history once it can see it.",
+    "MAYA isn't connected to your property management system yet, so your rules haven't been able to run. Connecting takes about two minutes, and it's the only setup step that matters: once you're connected, MAYA reads your own booking history and builds your starter rules from it.",
+    "",
+    `On Mews? We connect it for you. Reply to this email or write to ${NUDGE_REPLY_TO} and we'll set it up with you.`,
     "",
     `Finish setting up: ${input.resumeUrl}`,
     "",
     `What you're paying for: ${input.roomCount} rooms at ${input.perRoom} per room, per ${per}.`,
-    `If ${input.roomCount} isn't right, connect first — that opens your billing page (${input.billingUrl}), where you can change it before the ${input.chargeDate} charge and we'll bill the corrected number.`,
+    `If ${input.roomCount} isn't right, connect first. That opens your billing page (${input.billingUrl}), where you can change it before the ${input.chargeDate} charge and we'll bill the corrected number.`,
     "",
-    "— MAYA",
+    "The MAYA team",
   ].join("\n");
 }
 
@@ -94,11 +108,17 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
           ${emailBrandHeader(input.resumeUrl)}
           <p style="margin:0 0 18px;font-size:15px;line-height:1.6;color:${COLORS.body};">${lead}</p>
 
+          <p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:${COLORS.body};">
+            MAYA isn&rsquo;t connected to your property management system yet, so your rules
+            haven&rsquo;t been able to run. Connecting takes about two minutes, and it&rsquo;s
+            the only setup step that matters: once you&rsquo;re connected, MAYA reads your own
+            booking history and builds your starter rules from it.
+          </p>
+
           <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:${COLORS.body};">
-            MAYA isn&rsquo;t connected to your property management system yet, so it hasn&rsquo;t
-            been able to price anything for you. Connecting takes about two minutes, and it&rsquo;s
-            the only setup step that matters &mdash; MAYA builds your rules from your own booking
-            history once it can see it.
+            On Mews? We connect it for you. Reply to this email or write to
+            <a href="mailto:${NUDGE_REPLY_TO}?subject=Connect%20Mews" style="color:${COLORS.cta}">${NUDGE_REPLY_TO}</a>
+            and we&rsquo;ll set it up with you.
           </p>
 
           <p style="margin:0 0 26px;">
@@ -119,11 +139,11 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
                   ${input.roomCount} rooms
                 </p>
                 <p style="margin:0 0 14px;font-size:13px;line-height:1.5;color:${COLORS.muted};">
-                  ${input.perRoom} per room, per ${per} &mdash; ${input.amount} total.
+                  ${input.perRoom} per room, per ${per}, ${input.amount} in total.
                 </p>
                 <p style="margin:0;font-size:13px;line-height:1.6;color:${COLORS.body};">
                   If <strong style="color:${COLORS.heading}">${input.roomCount}</strong> isn&rsquo;t right,
-                  connect first &mdash; that opens your
+                  connect first. That opens your
                   <a href="${input.billingUrl}" style="color:${COLORS.cta}">billing page</a>,
                   where you can change it before the ${input.chargeDate} charge and
                   we&rsquo;ll bill the corrected number.
@@ -134,7 +154,7 @@ export function renewalNudgeHtml(input: RenewalNudgeInput): string {
         </td>
       </tr>
       <tr>
-        <td style="padding:16px 4px 0;font-size:11px;color:${COLORS.muted};">MAYA &mdash; Machine Assisted Yield Automation</td>
+        <td style="padding:16px 4px 0;font-size:11px;color:${COLORS.muted};">MAYA &middot; Machine Assisted Yield Automation</td>
       </tr>
     </table>
   </body>

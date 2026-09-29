@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
@@ -15,9 +16,10 @@ import {
   type OnboardingStatus,
 } from "@/components/onboarding/import-progress";
 import {
-  COUNTS_AS_ROOM_HELP,
+  ROOM_TYPES_HELP,
   RoomCountHelp,
   isCountingRoom,
+  needsAnswer,
   roomCountQuestion,
   saveCountsAsRoom,
   type RoomTypeOption,
@@ -37,6 +39,8 @@ type Finding = {
   created_at: string;
 };
 
+const FINISH_FAILED = "Couldn't finish the review. Try again.";
+
 export function ReviewFindings({
   initialStep = "assumptions",
 }: {
@@ -49,6 +53,7 @@ export function ReviewFindings({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<{ message: string; refused: boolean } | null>(null);
   const [step, setStep] = useState<"assumptions" | "recommendations">(initialStep);
   // A rule suggestion's activation popup (the Rules tab's suggestions only).
   const [activation, setActivation] = useState<{
@@ -186,11 +191,11 @@ export function ReviewFindings({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "That didn't save — try again.");
+        throw new Error(body?.error ?? "That didn't save. Try again.");
       }
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "That didn't save — try again.");
+      setError(e instanceof Error ? e.message : "That didn't save. Try again.");
       // A 409 means another tab or an earlier retry already resolved this
       // one — refresh so the stale card doesn't sit there looking actionable.
       await load();
@@ -201,10 +206,23 @@ export function ReviewFindings({
 
   async function finish() {
     setFinishing(true);
+    setFinishError(null);
+    let refusal: { message: string; refused: boolean } | null = null;
     try {
-      await fetch("/api/onboarding/complete", { method: "POST" });
+      const res = await fetch("/api/onboarding/complete", { method: "POST" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        refusal = { message: body?.error ?? FINISH_FAILED, refused: res.status === 403 };
+      }
     } catch {
-      // completion is best-effort; dashboard is still usable
+      refusal = { message: FINISH_FAILED, refused: false };
+    }
+    // Only once the server says the review is marked done. Moving on without
+    // it looked finished while the dashboard banner kept pointing back here.
+    if (refusal) {
+      setFinishError(refusal);
+      setFinishing(false);
+      return;
     }
     router.push("/");
   }
@@ -277,7 +295,7 @@ export function ReviewFindings({
               First: does this match reality?
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              A quick sanity check so your pricing runs on clean data — and so
+              A quick sanity check so your pricing runs on clean data, and so
               the recommendations on the next screen are built on facts you
               have confirmed. Confirm what we got right, dismiss what we got
               wrong.
@@ -312,7 +330,7 @@ export function ReviewFindings({
               Continue to recommendations
             </button>
             <p className="mt-2 text-[11px] text-slate-600">
-              Anything you skip stays available later — this isn&apos;t your only chance.
+              Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
         </>
@@ -323,7 +341,7 @@ export function ReviewFindings({
               Recommendations from your data
             </h1>
             <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
-              Rules and guardrails your booking history supports — including
+              Rules and guardrails your booking history supports, including
               anything that would conflict with them. Approve what you like,
               ignore the rest; nothing changes without your say-so.
             </p>
@@ -349,7 +367,7 @@ export function ReviewFindings({
             <div className="h-24 animate-pulse rounded-lg bg-slate-900" />
           ) : recommendations.length === 0 && open.length === 0 ? (
             <div className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-5 py-4 text-sm text-emerald-200">
-              Nothing left to review — your data looks clean.
+              Nothing left to review. Your data looks clean.
             </div>
           ) : recommendations.length === 0 ? (
             <div className="rounded-lg border border-slate-800 bg-slate-950/60 px-5 py-4 text-sm text-slate-400">
@@ -394,10 +412,23 @@ export function ReviewFindings({
               onClick={finish}
               className="cursor-pointer rounded bg-sky-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-sky-400 disabled:opacity-60"
             >
-              {finishing ? "Finishing up…" : "Finish — take me to my dashboard"}
+              {finishing ? "Finishing up…" : "Finish and take me to my dashboard"}
             </button>
+            {finishError ? (
+              <p role="alert" className="mt-2 text-xs text-rose-300">
+                {finishError.message}
+                {finishError.refused ? (
+                  <>
+                    {" "}
+                    <Link href="/" className="underline decoration-rose-300/50 underline-offset-2 hover:text-rose-200">
+                      Go to my dashboard
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             <p className="mt-2 text-[11px] text-slate-600">
-              Anything you skip stays available later — this isn&apos;t your only chance.
+              Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
         </>
@@ -415,11 +446,15 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rules = (status?.job?.stats?.starterRules ?? []) as Array<{
+  // From the import that built them, not the newest job: a later "Get
+  // suggestions from my data" read builds none, and taking its empty list
+  // here took the go-live button away with it.
+  const rules = (status?.starterRules ?? status?.job?.stats?.starterRules ?? []) as Array<{
     name: string;
     explanation: string;
   }>;
   if (rules.length === 0) return null;
+  const note = status?.starterRulesNote ?? status?.job?.stats?.starterRulesNote;
 
   const inSimulation = !live && status?.simulationMode !== false;
 
@@ -454,11 +489,12 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
         While you were here, we built your first pricing rules
       </h2>
       <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
-        Based on your own booking history — they&apos;re already running in{" "}
+        Based on your own booking history, and already running in{" "}
         <span className="text-slate-300">simulation mode</span>: watching every
         night and showing what they <em>would</em> do, without touching a
         single price.
       </p>
+      {note ? <p className="mt-2 text-[13px] leading-relaxed text-slate-400">{note}</p> : null}
 
       <div className="mt-4 space-y-2.5">
         {rules.map((r) => (
@@ -538,8 +574,11 @@ export function GoLiveConfirmation() {
 
 /**
  * The import's guess at which room types are rooms, shown as ticked chips
- * with the suspects already unticked. A tick is a save; there is no confirm
- * and nothing here gates Finish. The same switch lives in the PMS tab later.
+ * with the suspects already unticked. Ticked only on a yes, as on the PMS
+ * tab: a type nobody has answered for is out of the bill, so it shows
+ * unticked with the "needs your answer" tag and is not in the count. A tick
+ * is a save; there is no confirm and nothing here gates Finish. The same
+ * switch lives in the PMS tab later.
  */
 function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
   const [types, setTypes] = useState<RoomTypeOption[] | null>(null);
@@ -564,7 +603,7 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
   }, []);
 
   if (!types || types.length === 0) return null;
-  const counting = types.filter(isCountingRoom).length;
+  const counting = types.filter((t) => t.counts_as_room === true).length;
 
   async function toggle(rt: RoomTypeOption, next: boolean) {
     if (!hotelId) return;
@@ -584,11 +623,11 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
     <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-slate-200">{roomCountQuestion(counting)}</p>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
+        <RoomCountHelp {...ROOM_TYPES_HELP} docs="counts-as-room" />
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {types.map((rt) => {
-          const on = isCountingRoom(rt);
+          const on = rt.counts_as_room === true;
           return (
             <label
               key={rt.id}
@@ -606,6 +645,11 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
               />
               {rt.name}
               <span className="text-slate-500">{rt.total_rooms}</span>
+              {needsAnswer(rt) ? (
+                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                  needs your answer
+                </span>
+              ) : null}
             </label>
           );
         })}
@@ -652,7 +696,7 @@ export function FindingCard({
           <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{c.body}</p>
           {finding.status === "auto_applied" ? (
             <p className="mt-1.5 text-[11px] text-slate-400">
-              We already did this for you — dismiss to undo it.
+              We already did this for you. Dismiss to undo it.
             </p>
           ) : null}
         </div>
@@ -723,14 +767,14 @@ export function describeFinding(f: Finding): {
         const years = Number(p.years_observed ?? 0);
         return {
           title: `Is your property normally closed ${String(p.season_label)}?`,
-          body: `We see the same closure ${years} years running. One confirmation covers all of them — we'll keep those stretches from skewing your pricing analysis.`,
+          body: `This closure appears in ${years} different years. One confirmation covers all of them, and those stretches are left out when your nights are compared.`,
           confirmLabel: "Yes, that's our season",
           dismissLabel: "No, we were open",
         };
       }
       return {
         title: `Were you closed ${String(p.start_date)} → ${String(p.end_date)}?`,
-        body: `We found ${String(p.days)} straight days with zero occupancy, with normal bookings on both sides. If the property was closed (renovation, season, anything), confirming keeps this stretch from skewing your pricing analysis.`,
+        body: `We found ${String(p.days)} straight days with zero occupancy, with normal bookings on both sides. If the property was closed (renovation, season, anything), confirming leaves this stretch out when your nights are compared.`,
         confirmLabel: "Yes, we were closed",
         dismissLabel: "No, we were open",
       };
@@ -739,8 +783,8 @@ export function describeFinding(f: Finding): {
       const reasons = Array.isArray(p.reasons) ? (p.reasons as string[]).join("; ") : "";
       return {
         title: `Is "${String(p.name)}" actually a room?`,
-        body: `Some systems list every bookable space as a room — event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming takes it out of your occupancy, RevPAR and the room count you're billed for. It can still be priced if a rule targets it.`,
-        confirmLabel: "Not a room — exclude it",
+        body: `Some systems list every bookable space as a room: event rooms, spa slots, courts. This one caught our eye: ${reasons}. Confirming takes it out of your occupancy, RevPAR and the room count you're billed for. It can still be priced if a rule targets it.`,
+        confirmLabel: "Not a room, exclude it",
         dismissLabel: "It's a real room",
       };
     }
@@ -749,19 +793,19 @@ export function describeFinding(f: Finding): {
         title: `Hid duplicate room type "${String(p.name)}"`,
         body: "Two room types shared the same name and this one had zero bookings, so we set it aside to keep your occupancy math honest.",
         confirmLabel: "Good call",
-        dismissLabel: "Undo — bring it back",
+        dismissLabel: "Undo and bring it back",
       };
     case "rate_outlier":
       return {
         title: `Some "${String(p.name)}" rates look like typos`,
-        body: `The highest rate we saw (${Number(p.max_rate).toLocaleString()}) is far beyond this room's normal range (median ${Number(p.median_rate).toLocaleString()}). Usually a test booking or a fat-fingered rate. Confirming just notes it — we'll ignore extreme values in analysis.`,
+        body: `The highest rate we saw (${Number(p.max_rate).toLocaleString()}) is far beyond this room's normal range (median ${Number(p.median_rate).toLocaleString()}). Usually a test booking or a fat-fingered rate. Confirming just notes it. A single extreme rate like this never sets a ceiling.`,
         confirmLabel: "Probably a typo",
         dismissLabel: "Those are real",
       };
     case "zero_rate_rows":
       return {
         title: "Some stays have a $0 rate",
-        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate — usually comps or data gaps. Nothing you have to do — we'll ignore them for the purpose of this analysis.`,
+        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate, usually comps or data gaps. Nothing you have to do: they're left out when your floors and ceilings are worked out.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
         acknowledgeOnly: true,
@@ -806,7 +850,7 @@ export function describeFinding(f: Finding): {
     case "unmapped_room_type":
       return {
         title: "Some old stays reference deleted room types",
-        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced. Nothing you have to do here — we've already accounted for them.`,
+        body: `${Number(p.count).toLocaleString()} room-nights point at room types that no longer exist in your PMS. They still count toward history totals but can't be priced. Nothing you have to do here. We've already accounted for them.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
         acknowledgeOnly: true,

@@ -4,7 +4,7 @@ summary: Your 10 most recent pricing runs that changed a price, newest first, wi
 section: watch
 order: 20
 readingTime: 19
-keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, +00:00, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
+keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
@@ -14,6 +14,7 @@ questions:
   - 'Why is the change log empty?' {#the-two-views}
   - 'A change from this morning is missing from the change log. Where did it go?' {#a-change-that-has-left-the-log}
   - 'Why are only some of a run''s changes listed?' {#moves-the-log-does-not-list/the-log-lists}
+  - 'What does "And 23 more changes in this run" mean?' {#a-run-entry/under-the-first}
   - 'A price went back down. What does the change log say?' {#moves-the-log-does-not-list/a-price-going}
   - 'What does "Prices checked 47 times, nothing needed to change" mean?' {#the-two-views}
   - 'What does "Cancellations meant ... was no longer true" mean?' {#a-change-line-by-line/then-come-the}
@@ -32,13 +33,13 @@ questions:
   - 'Whose time zone are the change log times in?' {#a-run-entry}
   - 'Can I get the change log by email or notification?' {#something-to-try}
   - 'Can I export the change log?' {#something-to-try}
-  - 'Why does the log use a different currency sign from the calendar?' {#money-and-names}
+  - 'Why does the bold line use a different currency sign from the calendar?' {#money-and-names}
   - 'Why does the bold line show $ when the sentences show my currency?' {#money-and-names}
   - 'What happens in the change log when I delete a rule?' {#prices-people-set}
   - 'Why does my revenue pickup rule''s sentence talk about bookings?' {#pickup-count}
-  - 'Why is "How did we know?" under a change an occupancy rule made?' {#a-change-line-by-line/a-fallback}
-  - 'Why did a problem sending prices take hours to show in the change log?' {#rates-not-reaching-your-property-system/a-problem-that-often}
-updated: 2026-09-27
+  - 'Why is "Show the numbers" under a change an occupancy rule made?' {#a-change-line-by-line/a-fallback}
+  - 'Why did a problem sending prices take hours to show in the change log?' {#prices-not-reaching-your-property-system/a-problem-that-often}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -61,10 +62,10 @@ A run that finds nothing to change is counted into a quiet line between the runs
 
 The button in the top right toggles between the two views:
 
-- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Rates not reaching" problem, and every answer you gave to a rule that kept adjusting.
+- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, and every answer you gave to a rule that kept adjusting.
 - <Ui>Show Changes Only</Ui> is what the button says once you have opened the full view. The full view adds the quiet lines. Each counts a stretch of runs in a row that changed nothing, with when the first and last of them ran, in small grey type: "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM (4 min ago), nothing needed to change." A stretch of one reads "Prices checked once at Sep 24, 1:55 PM". The line under the oldest change shown starts "Just before that, prices were checked 12 times".
 
-When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Rates not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
+When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Prices not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
 
 Under the heading sits the <Ui>Your corrections</Ui> panel, closed by default. It lists the past nights you have set aside as not a fair comparison. [Setting a date aside](/docs/watch/not-a-fair-comparison) explains it.
 
@@ -78,9 +79,9 @@ Each run is a box. The first line reads:
 
 "Pricing run · Fri, Oct 2, 2026, 3:05 PM PDT (4 min ago)"
 
-The time is shown in your browser's time zone, with the zone's abbreviation, so two people in different places see different clock times for the same run. Hover the line and the exact moment shows as a raw timestamp in UTC, the world reference time, such as 2026-10-02T22:05:12.345+00:00 (3:05 PM in US Pacific time). The part in brackets says how long ago: "just now", "4 min ago", "2 hr ago", "yesterday", "3 days ago", up to 6 days. Older runs carry no bracket.
+The time is shown in your browser's time zone, with the zone's abbreviation, so two people in different places see different clock times for the same run. Hover the line and the exact moment shows, to the second, on the same clock: "Oct 2, 2026, 3:05:12 PM PDT". The part in brackets says how long ago: "just now", "4 min ago", "2 hr ago", "yesterday", "3 days ago", up to 6 days. Older runs carry no bracket.
 
-Under the first line comes the list of changes.
+Under the first line comes the list of changes, the biggest moves first. A run that made more than 40 changes lists its 40 biggest and ends with a line counting the rest, such as "And 23 more changes in this run."
 
 ## A change, line by line
 
@@ -107,7 +108,7 @@ When the run put the night back at its starting point, with nothing left on it, 
 
 Only one booking speed or pickup rule can fire on a night for one room type in one run. So when two are listed, the first fired on an earlier run and still applies. Its reason then carries no numbers, because those were read on the run it fired.
 
-Under the sentences, a change carries a <Ui>How did we know?</Ui> button when the run read booking speed for that night. With a booking speed rule that measures the whole property (every starter rule does), that is nearly every change, whichever rule made it, typed prices included. [The numbers behind a change](/docs/watch/how-did-we-know) covers what it opens.
+Under the sentences, a change carries a <Ui>Show the numbers</Ui> button when the run read booking speed for that night. With a booking speed rule that measures the whole property (every booking speed starter rule does), that is nearly every change, whichever rule made it, typed prices included. [The numbers behind a change](/docs/watch/how-did-we-know) covers what it opens.
 
 ## The sentences, by kind of rule
 
@@ -160,7 +161,7 @@ The count can read "none" or, after cancellations, "more cancelled than booked".
 
 "in a whole week" is for a rule that raises on a fast pace: those bookings alone had to beat a whole window of a similar night. Any other rule reads "usually gets in those days". When only the day of the raise has been counted so far, it reads "later on the day of this rule or a stronger one's latest raise still on this night" and, for any other rule, "usually gets in a day". After a cut the count starts on the day after it, in full days: "in the 3 full days after this rule or a stronger one's latest cut still on this night". [How rules run](/docs/rules/how-rules-run#counting-after-a-change) explains why the count restarts.
 
-When the rule measures other room types than the ones it changes, the subject changes: "Standard and Deluxe bookings came in faster than normal this past week: ...". A rule that measures and changes the same room types reads "Bookings", with no names, even when those are only some of your room types. <Ui>How did we know?</Ui> names the room types whenever a rule measures only some of them.
+When the rule measures other room types than the ones it changes, the subject changes: "Standard and Deluxe bookings came in faster than normal this past week: ...". A rule that measures and changes the same room types reads "Bookings", with no names, even when those are only some of your room types. <Ui>Show the numbers</Ui> names the room types whenever a rule measures only some of them.
 
 ### A room type left out
 
@@ -197,9 +198,9 @@ When you answer the <Ui>Rules that keep adjusting</Ui> banner, the answer is log
 
 A deleted rule reads "A rule" here. At most 20 answers are shown, within the span of the runs on screen. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains the banner and the choices.
 
-## Rates not reaching your property system
+## Prices not reaching your property system
 
-When you are live and a price cannot be delivered, the log carries an amber item headed "Rates not reaching Cloudbeds" (or "Think Reservations"). How soon it appears depends on the cause:
+When you are live and a price cannot be delivered, the log carries an amber item headed "Prices not reaching Cloudbeds" (or "Think Reservations"). How soon it appears depends on the cause:
 
 - **A problem that needs you**, such as lost access or a price your system refuses: at once.
 - **Your system cannot find the rate MAYA writes to**: after one more try. MAYA reads your list of rates again and sends once more on the next run, about five minutes later. If the rate is still missing, the item appears then.
@@ -216,10 +217,10 @@ The item names the cause in one sentence, counts the nights and room types affec
 | Limit | Value |
 |---|---|
 | Runs on screen | The 10 most recent that changed a price, however long ago. Quiet runs between them are counted into one line per stretch, shown under <Ui>Show All Cycles</Ui>. |
-| Changes per run | The 40 biggest moves, largest first, each measured as the whole move from the night's starting point. A run with more changes shows 40 and nothing says how many more there were. |
+| Changes per run | The 40 biggest moves, largest first, each measured as the whole move from the night's starting point. A run with more changes shows its 40 biggest, then a line under them such as "And 23 more changes in this run." In a very large run, where more than about 1,000 nights ended at their starting point and not every one was checked for a move back, the count is a minimum and the line reads "And at least 23 more changes in this run." |
 | What counts as a change | A night whose price differs from its starting point by at least one cent, has a rule still on it, or has a price someone set, and a night put back at its starting point. |
 | Problems and answers | Up to 20 problems still happening, and up to 20 that have ended and 20 answers within the span of the runs shown. |
-| Detail behind a change | Kept for 90 days. That is how long <Ui>How did we know?</Ui> can open for a change. |
+| Detail behind a change | Kept for 90 days. That is how long <Ui>Show the numbers</Ui> can open for a change. |
 
 How far back 10 changes reach depends on your property: on a busy day perhaps an hour, on a quiet week several days. Older runs are not lost the moment they leave the screen, but there is no way to page back to them in the app.
 
@@ -230,7 +231,7 @@ The log lists nearly every price move:
 - **A price going back to its starting point** is listed, from the price it had: the only rule on the night stops holding (for "Busy nights", the night falls to 80% full or less), cancellations take its only change off, or you clear a price you set on a night no rule is on. The entry names what came off and ends "That took this night from $165.00 to $150.00."
 - **A price that moves only because its starting point moved**, on a night no rule is on, reads "The base rate for this night changed from $150.00 to $160.00." On Cloudbeds and ThinkReservations that includes a new rate MAYA reads from your system (about once an hour). On Mews, it is a newer booking with a different rate.
 
-Two things are left out: moves past the 40 biggest of a run, and a night arriving in the 396-night window at its starting point with nothing on it. To see where a night stands now, open the <Ui>Calendar</Ui> tab.
+Two things are left out: moves past the 40 biggest of a run, which are only counted ("And 23 more changes in this run."), and a night arriving in the 396-night window at its starting point with nothing on it. To see where a night stands now, open the <Ui>Calendar</Ui> tab.
 
 ## A change that has left the log
 
@@ -240,7 +241,7 @@ There is no screen that shows one night's price history. The <Ui>Calendar</Ui> t
 
 ## Money and names
 
-The sentences under each change follow your property's currency: "$" for US dollars, "€" for euros, "£" for pounds, and the three-letter code in front of the amount for any other currency. The bold line above them, like the calendar and the simulator, always shows "$". So a property in euros sees "€150.00" in a sentence and "$150.00" in the bold line for the same price.
+The sentences under each change follow your property's currency: "$" for US dollars, "€" for euros, "£" for pounds, and the three-letter code in front of the amount for any other currency. The calendar and the Rate Simulator use the same sign. The bold line above the sentences always shows "$", so a property in euros sees "€150.00" in a sentence and "$150.00" in the bold line for the same price.
 
 Everyone on the property can read the change log, whatever their role.
 

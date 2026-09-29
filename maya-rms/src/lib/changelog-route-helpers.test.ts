@@ -21,6 +21,8 @@ import {
   isQuietChecks,
   isRevertRow,
   isRuleAlertChoice,
+  MAX_ENTRIES_PER_CYCLE,
+  moreChangesLine,
   planQuietGaps,
   priorAuditRowFrom,
   type PriorAuditRow,
@@ -1120,5 +1122,54 @@ describe("a night put back at its base", () => {
       .flatMap((e) => e.narrative ?? [])
       .join(" ");
     expect(words).not.toMatch(/[\u2014!<>=]/);
+  });
+});
+
+describe("moreChangesLine", () => {
+  const shown = (n: number) => Array.from({ length: n }, () => ({}) as never);
+
+  it("counts the changes a run made past the ones it shows", () => {
+    expect(moreChangesLine({ changes: shown(40), total_changes: 63 })).toBe("And 23 more changes in this run.");
+    expect(moreChangesLine({ changes: shown(40), total_changes: 41 })).toBe("And 1 more change in this run.");
+  });
+
+  it("says at least when some nights were not checked", () => {
+    expect(moreChangesLine({ changes: shown(40), total_changes: 480, total_is_minimum: true })).toBe(
+      "And at least 440 more changes in this run.",
+    );
+  });
+
+  it("says nothing when every change is shown, or the server gave no count", () => {
+    expect(moreChangesLine({ changes: shown(12), total_changes: 12 })).toBeNull();
+    expect(moreChangesLine({ changes: shown(40) })).toBeNull();
+  });
+
+  it("shows the biggest changes and counts every one, without the audit read", () => {
+    const rows: AuditChangeRow[] = Array.from({ length: MAX_ENTRIES_PER_CYCLE + 5 }, (_, i) => ({
+      evaluation_run_id: "run-1",
+      stay_date: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`,
+      room_type_id: `rt-${i}`,
+      evaluated_at: "2026-09-28T10:00:00Z",
+      base_price: 100,
+      final_price: 101 + i,
+      pre_clamp_price: 101 + i,
+      floor_price: 50,
+      ceiling_price: 900,
+      details: { application_order: [], matched_ladder_rules: [] } as unknown as EvaluationAuditDetails,
+    }));
+    const lookups: ChangelogLookups = {
+      roomTypeNames: new Map(),
+      rules: new Map(),
+      conditions: new Map(),
+      currencySymbol: "$",
+    };
+    const [cycle] = buildCyclesFromAudit(rows, lookups);
+    expect(cycle.changes).toHaveLength(MAX_ENTRIES_PER_CYCLE);
+    expect(cycle.total_changes).toBe(MAX_ENTRIES_PER_CYCLE + 5);
+    expect(cycle.total_is_minimum).toBeUndefined();
+    // A read that stopped at its limit may have cut its oldest run short.
+    expect(buildCyclesFromAudit(rows, lookups, [], true)[0].total_is_minimum).toBe(true);
+    // Nothing more to say when all fit.
+    expect(buildCyclesFromAudit(rows.slice(0, 3), lookups)[0].total_changes).toBeUndefined();
   });
 });

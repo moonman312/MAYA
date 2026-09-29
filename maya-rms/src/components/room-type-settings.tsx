@@ -39,9 +39,21 @@ export function isCountingRoom(rt: { counts_as_room?: boolean | null }): boolean
   return rt.counts_as_room !== false;
 }
 
+/**
+ * Nobody has said whether guests sleep here: the flag is still null. Every
+ * sync marks a name that reads as a bedroom as a room, so what is left is a
+ * name that doesn't, and the bill leaves it out until someone ticks it. The
+ * settings list and the review's room count strip show it unticked with a
+ * "needs your answer" tag, so the box says what the bill does and the
+ * shortfall email's "tick it" works.
+ */
+export function needsAnswer(rt: { counts_as_room?: boolean | null }): boolean {
+  return rt.counts_as_room == null;
+}
+
 /** The strip's question, with the count as the owner will read it. */
 export function roomCountQuestion(counting: number): string {
-  return `We're counting ${counting} room type${counting === 1 ? "" : "s"} as rooms — anything here that isn't?`;
+  return `We're counting ${counting} room type${counting === 1 ? "" : "s"} as rooms. Anything here that isn't?`;
 }
 
 async function readError(res: Response, fallback: string): Promise<string> {
@@ -61,10 +73,10 @@ export async function saveCountsAsRoom(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hotelId, roomTypeId, countsAsRoom }),
     });
-    if (!res.ok) return readError(res, "That didn't save — try again.");
+    if (!res.ok) return readError(res, "That didn't save. Try again.");
     return null;
   } catch {
-    return "That didn't save — try again.";
+    return "That didn't save. Try again.";
   }
 }
 
@@ -179,8 +191,17 @@ export const COUNTS_AS_ROOM_HELP = {
   title: "What counts as a room",
   lines: [
     "Ticked types are what MAYA divides by: sellable occupancy, RevPAR, and the room count you're billed for.",
-    "Untick anything nobody sleeps in — a meeting room, a spa slot, a court. It still gets priced if you want it to.",
+    "Untick anything nobody sleeps in, like a meeting room, a spa slot or a court. It still gets priced if you want it to.",
     "You can change this any time from the PMS tab.",
+  ],
+};
+
+/** For the lists that carry the "needs your answer" tag: the settings list and the review strip. */
+export const ROOM_TYPES_HELP = {
+  ...COUNTS_AS_ROOM_HELP,
+  lines: [
+    ...COUNTS_AS_ROOM_HELP.lines,
+    'A type tagged "needs your answer" is one nobody has ticked or unticked yet. Until you answer, it counts in occupancy but not in your bill.',
   ],
 };
 
@@ -188,7 +209,7 @@ const OUT_OF_SERVICE_HELP = {
   label: "What rooms out of service changes",
   title: "Rooms out of service",
   lines: [
-    "Units you take off sale for a stretch — a renovation, a repair — come off the sellable count for those nights only.",
+    "Units you take off sale for a stretch (a renovation, a repair) come off the sellable count for those nights only.",
     "Occupancy then reads against what you can actually sell, so occupancy rules don't under-fire.",
     "Nothing is sent to your property system.",
   ],
@@ -279,12 +300,12 @@ export function RoomTypeSettings({
           reason: input.reason || undefined,
         }),
       });
-      if (!res.ok) return readError(res, "That didn't save — try again.");
+      if (!res.ok) return readError(res, "That didn't save. Try again.");
       await load();
       onChanged?.();
       return null;
     } catch {
-      return "That didn't save — try again.";
+      return "That didn't save. Try again.";
     }
   }
 
@@ -298,13 +319,13 @@ export function RoomTypeSettings({
         body: JSON.stringify({ hotelId, id }),
       });
       if (!res.ok) {
-        setError(await readError(res, "That didn't clear — try again."));
+        setError(await readError(res, "That didn't clear. Try again."));
         return;
       }
       setBlocks((prev) => prev?.filter((b) => b.id !== id) ?? prev);
       onChanged?.();
     } catch {
-      setError("That didn't clear — try again.");
+      setError("That didn't clear. Try again.");
     } finally {
       setBusyId(null);
     }
@@ -314,7 +335,7 @@ export function RoomTypeSettings({
     <section data-deeplink="pms.room-types" className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-lg font-semibold">Room types</h2>
-        <RoomCountHelp {...COUNTS_AS_ROOM_HELP} docs="counts-as-room" />
+        <RoomCountHelp {...ROOM_TYPES_HELP} docs="counts-as-room" />
       </div>
 
       {loadFailed ? (
@@ -382,7 +403,10 @@ function RoomTypeRow({
   onAdd: (input: { startDate: string; endDate: string; units: string; reason: string }) => Promise<string | null>;
   onClear: (id: string) => void;
 }) {
-  const counting = isCountingRoom(rt);
+  // Ticked only on a yes. An unanswered type is out of the bill, so it shows
+  // unticked, and ticking it is the answer that brings it in.
+  const unanswered = needsAnswer(rt);
+  const counting = rt.counts_as_room === true;
   const [adding, setAdding] = useState(false);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -416,7 +440,11 @@ function RoomTypeRow({
           <span className="ml-2 text-xs text-slate-500">
             {rt.total_rooms} unit{rt.total_rooms === 1 ? "" : "s"}
           </span>
-          {!counting ? (
+          {unanswered ? (
+            <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+              needs your answer
+            </span>
+          ) : !counting ? (
             <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
               not a room
             </span>

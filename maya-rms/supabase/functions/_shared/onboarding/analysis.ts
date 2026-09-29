@@ -16,10 +16,20 @@ import {
   computeOccupancyReference,
   computeStarterRules,
   generateStarterRules,
+  loadCountingRoomTypeIds,
   loadDailyRoomNights,
   MIN_HISTORY_DAYS_FOR_STARTERS,
   type StarterRuleSpec,
 } from "./generate-rules.ts";
+import {
+  loadRateHistory,
+  pricingConfidenceOf,
+  readRateMoves,
+  starterRuleSets,
+  type PricingConfidence,
+  type StarterRuleSetKey,
+  type StarterRuleSets,
+} from "./rate-moves.ts";
 import {
   computeGuardrailSuggestions,
   computeInitialGuardrails,
@@ -1217,6 +1227,11 @@ export async function analyzeImport(
  * Create the starter rules once per import and note them on the job for the
  * review screen.
  *
+ * Which rules depends on the owner's answer to the last onboarding question
+ * (rate-moves.ts). All three sets go on the job with the one built, because
+ * the answer often comes after the rules: saving it swaps an untouched set
+ * for the one it calls for (src/lib/onboarding/starter-swap.ts).
+ *
  * Once a pass has created them, later passes leave rules alone even if there
  * are none by then: an owner who deleted the starter set after the early pass
  * made a decision, and recreating it would undo that. A pass that created
@@ -1224,34 +1239,91 @@ export async function analyzeImport(
  */
 async function recordStarterRules(supabase: SupabaseClient, job: ImportJobRow): Promise<void> {
   if (typeof job.stats.starterRulesAt === "string") return;
-  let rules = await generateStarterRules(supabase, job.hotel_id);
-  if (rules.length === 0 && !Array.isArray(job.stats.starterRules)) {
-    rules = await starterRulesOnRecord(supabase, job);
+  const answer = await loadPricingConfidence(supabase, job.hotel_id);
+  const built: { rules: StarterRuleSpec[]; sets: StarterRuleSets | null; builtFor: StarterRuleSetKey } = {
+    rules: [],
+    sets: null,
+    builtFor: answer ?? "none",
+  };
+  built.rules = await generateStarterRules(supabase, job.hotel_id, async (daysOfHistory) => {
+    const sets = await buildStarterRuleSets(supabase, job.hotel_id, daysOfHistory);
+    built.sets = sets;
+    return sets[built.builtFor].rules;
+  });
+  if (built.rules.length === 0 && !Array.isArray(job.stats.starterRules)) {
+    Object.assign(built, await starterRulesOnRecord(supabase, job, answer));
   }
+  const { rules, sets, builtFor } = built;
   if (rules.length === 0) return;
+  const note = sets?.[builtFor].note;
   job.stats = {
     ...job.stats,
     starterRules: rules.map((r) => ({ name: r.name, explanation: r.explanation })),
+    ...(note ? { starterRulesNote: note } : {}),
+    ...(sets ? { starterRuleSets: sets, starterRulesFor: builtFor } : {}),
     starterRulesAt: new Date().toISOString(),
   };
+}
+
+/** The answer to the last onboarding question, or null when there is none. */
+async function loadPricingConfidence(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<PricingConfidence | null> {
+  const { data, error } = await supabase
+    .from("hotel_settings")
+    .select("pricing_confidence")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error) throw new Error(`pricing answer read failed: ${error.message}`);
+  return pricingConfidenceOf((data as { pricing_confidence?: unknown } | null)?.pricing_confidence);
+}
+
+/**
+ * The three starter sets for this hotel. The past year's bookings are read
+ * only when there is enough history for starter rules at all.
+ */
+async function buildStarterRuleSets(
+  supabase: SupabaseClient,
+  hotelId: string,
+  daysOfHistory: number,
+): Promise<StarterRuleSets> {
+  if (daysOfHistory < MIN_HISTORY_DAYS_FOR_STARTERS) {
+    return starterRuleSets({ daysOfHistory, moves: readRateMoves([], 0) });
+  }
+  const roomTypeIds = await loadCountingRoomTypeIds(supabase, hotelId);
+  const today = new Date().toISOString().slice(0, 10);
+  const { rows, rooms } = await loadRateHistory(supabase, hotelId, roomTypeIds, today);
+  return starterRuleSets({ daysOfHistory, moves: readRateMoves(rows, rooms) });
 }
 
 async function starterRulesOnRecord(
   supabase: SupabaseClient,
   job: ImportJobRow,
-): Promise<StarterRuleSpec[]> {
-  const specs = computeStarterRules({ daysOfHistory: MIN_HISTORY_DAYS_FOR_STARTERS });
+  answer: PricingConfidence | null,
+): Promise<{ rules: StarterRuleSpec[]; sets: StarterRuleSets | null; builtFor: StarterRuleSetKey }> {
   let q = supabase
     .from("pricing_rules")
     .select("name")
-    .eq("hotel_id", job.hotel_id)
-    .in("name", specs.map((s) => s.name));
+    .eq("hotel_id", job.hotel_id);
   // Only this import's: a hotel keeping the set from an earlier import did not
   // just have it built for them.
   if (job.created_at) q = q.gte("created_at", job.created_at);
   const { data } = await q;
   const names = new Set((data ?? []).map((r: { name: unknown }) => String(r.name)));
-  return specs.filter((s) => names.has(s.name));
+  if (names.size === 0) return { rules: [], sets: null, builtFor: answer ?? "none" };
+  // The sets depend on the history only through the minimum, which a set on
+  // record already passed.
+  const sets = await buildStarterRuleSets(supabase, job.hotel_id, MIN_HISTORY_DAYS_FOR_STARTERS);
+  const order: StarterRuleSetKey[] = [answer ?? "none", "none", "automate_current", "find_upside"];
+  for (const key of order) {
+    const present = sets[key].rules.filter((s) => names.has(s.name));
+    if (present.length > 0) return { rules: present, sets, builtFor: key };
+  }
+  // Names that match no set this history gives (it changed since): the
+  // ladder's, as before the sets existed.
+  const ladder = computeStarterRules({ daysOfHistory: MIN_HISTORY_DAYS_FOR_STARTERS });
+  return { rules: ladder.filter((s) => names.has(s.name)), sets: null, builtFor: "none" };
 }
 
 /** Refresh-mode: compare data-derived config against what exists; emit suggestions. */
@@ -1273,7 +1345,7 @@ async function buildSuggestionDrafts(
       supabase
         .from("pricing_rules")
         .select(
-          "id, name, is_active, is_pickup_rule, start_date, end_date, is_annual, dow_mask, rule_condition(occupancy_operator, occupancy_threshold, pickup_operator, pickup_threshold, booking_speed_operator), rule_signal_room_type(room_type_id), rule_affected_room_type(room_type_id)",
+          "id, name, is_active, is_pickup_rule, start_date, end_date, is_annual, dow_mask, rule_condition(occupancy_operator, occupancy_threshold, dta_operator, pickup_operator, pickup_threshold, booking_speed_operator), rule_signal_room_type(room_type_id), rule_affected_room_type(room_type_id)",
         )
         .eq("hotel_id", hotelId),
       supabase
@@ -1310,6 +1382,7 @@ async function buildSuggestionDrafts(
       occupancy_threshold: rc?.occupancy_threshold != null ? Number(rc.occupancy_threshold) : null,
       pickup_operator: (rc?.pickup_operator as string | null) ?? null,
       pickup_threshold: rc?.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+      dta_operator: (rc?.dta_operator as string | null) ?? null,
       has_booking_speed: rc?.booking_speed_operator != null,
       start_date: r.start_date != null ? String(r.start_date) : null,
       end_date: r.end_date != null ? String(r.end_date) : null,
@@ -1333,7 +1406,17 @@ async function buildSuggestionDrafts(
   const statsById = new Map(parsedStats.map((s) => [s.room_type_id, s]));
   const suspectIds = new Set(findSuspectRoomTypes(parsedStats).map((f) => f.room_type_id));
 
-  const ruleSuggestions = computeRuleSuggestions(existing, paceSpecs, occupancyRef);
+  // With an answer to the last onboarding question, the rules offered are the
+  // set it calls for, which reads the past year's bookings; without one, the
+  // ladder, as always.
+  const answer = pricingConfidenceOf(settings?.pricing_confidence);
+  let offered = paceSpecs;
+  if (answer && paceSpecs.length > 0) {
+    const roomTypeIds = await loadCountingRoomTypeIds(supabase, hotelId);
+    const { rows, rooms } = await loadRateHistory(supabase, hotelId, roomTypeIds, today);
+    offered = starterRuleSets({ daysOfHistory: historyDays.length, moves: readRateMoves(rows, rooms) })[answer].rules;
+  }
+  const ruleSuggestions = computeRuleSuggestions(existing, offered, occupancyRef);
   // The median rides along so an unset floor gets the same data-derived
   // suggestion a first import would have written, not silence.
   const guardrailSuggestions = computeGuardrailSuggestions(
