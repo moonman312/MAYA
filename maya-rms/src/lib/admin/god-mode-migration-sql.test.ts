@@ -75,6 +75,7 @@ const RM = "33333333-3333-4333-8333-333333333333";
 const OTHER = "44444444-4444-4444-8444-444444444444";
 const RT1 = "55555555-5555-4555-8555-555555555551";
 const RULE = "66666666-6666-4666-8666-666666666666";
+const SPEED_RULE = "66666666-6666-4666-8666-666666666667";
 
 describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
   let db: Db;
@@ -341,6 +342,59 @@ describe.skipIf(!PGLITE_DIR)("the God Mode migration in PGlite", () => {
       await expect(q(`select public.platform_set_membership_role($1, $2, 'viewer')`, [H, RM])).rejects.toThrow(/Not authorized/);
     });
     expect(await q(`select count(*)::int as n from public.hotels where id = $1`, [H])).toEqual([{ n: 1 }]);
+  });
+
+  it("holds save_rule to God Mode too: switching a rule on with Skip is refused outside it, recorded inside it, and a member's save is theirs", async () => {
+    // A pickup rule that is off, so a Skip writes rule_skip_hold days.
+    await asService(() =>
+      db.exec(`
+        insert into public.pricing_rules (id, hotel_id, name, action_type, action_direction, action_value, is_active, is_pickup_rule)
+          values ('${SPEED_RULE}', '${H}', 'Rush', 'percent', 'increase', 8, false, true);
+        insert into public.rule_affected_room_type (rule_id, room_type_id) values ('${SPEED_RULE}', '${RT1}');
+      `),
+    );
+    const before = (await changes()).length;
+    const skipOn = () =>
+      q(
+        `select public.save_rule($1, $2, false, null, null, 'skip', now(), '{}'::date[], '[]'::jsonb, array['2026-12-01', '2026-12-02']::date[]) as r`,
+        [H, SPEED_RULE],
+      );
+    const switchOff = () =>
+      q(`select public.save_rule($1, $2, false, null, null, 'off', now(), '{}'::date[], '[]'::jsonb, '{}'::date[]) as r`, [H, SPEED_RULE]);
+    const rule = async () => (await q(`select is_active, skip_at is not null as skipped from public.pricing_rules where id = $1`, [SPEED_RULE]))[0];
+    const holds = async () => (await q(`select count(*)::int as n from public.rule_skip_hold where rule_id = $1`, [SPEED_RULE]))[0].n;
+
+    for (const aal of ["aal1", "aal2"] as const) {
+      await as(ADMIN, aal, async () => {
+        await expect(skipOn()).rejects.toThrow(/Revenue Manager or above/);
+      });
+    }
+    expect(await rule()).toEqual({ is_active: false, skipped: false });
+    expect(await holds()).toBe(0);
+
+    let sessionId = "";
+    await as(ADMIN, "aal2", async () => {
+      sessionId = String((await q(`select (public.god_mode_start()).id as id`))[0].id);
+      await skipOn();
+      await q(`select public.god_mode_end()`);
+      await expect(switchOff()).rejects.toThrow(/Revenue Manager or above/);
+    });
+    expect(await rule()).toEqual({ is_active: true, skipped: true });
+    expect(await holds()).toBe(2);
+    const recorded = (await changes()).slice(before);
+    expect(recorded.map((r) => [r.session_id, r.user_id, r.hotel_id, r.table_name, r.op])).toEqual([
+      [sessionId, ADMIN, H, "pricing_rules", "update"],
+      [sessionId, ADMIN, H, "rule_skip_hold", "insert"],
+      [sessionId, ADMIN, H, "rule_skip_hold", "insert"],
+    ]);
+    expect(recorded[0].summary).toMatch(/^Changed the pricing rule "Rush": is_active from false to true, skip_at from nothing to /);
+    expect(recorded[1].summary).toBe("Added a held day of a rule.");
+
+    // The property's own Revenue Manager saves as always, and it is not support's change.
+    await as(RM, "aal1", async () => {
+      expect((await switchOff())[0].r).toMatchObject({ is_active: false });
+    });
+    expect((await changes()).length).toBe(before + 3);
   });
 
   it("names every migration before it, so the base this test builds is production's", () => {

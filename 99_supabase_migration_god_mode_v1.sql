@@ -43,7 +43,12 @@
 --    (is_hotel_accessible) governed DELETE and the UPDATE row filter, so any
 --    member and a read-only admin could delete base rates. Split per command.
 --
--- Run after 99_supabase_migration_connection_outage_notice_v1.sql. Idempotent.
+-- Run after 99_supabase_migration_rule_activation_v1.sql. save_rule (from that
+-- file) checks can_manage_hotel() under the caller's own JWT, so saving a rule,
+-- switching one on, and the activation popup's Apply or Skip all need God Mode
+-- for an admin, and the rows it writes (the rule, its condition and room types,
+-- a Skip's ladder marks and rule_skip_hold days) are recorded like any other.
+-- Idempotent.
 -- Supabase dashboard: Authentication -> Multi-Factor Authentication -> TOTP on,
 -- or god_mode_start() can never see aal2.
 
@@ -586,6 +591,7 @@ begin
     when 'pricing_rule_conditions' then 'a rule condition'
     when 'pricing_rule_room_types' then 'a room type of a rule'
     when 'ladder_rule_state'       then 'the ladder state of a rule'
+    when 'rule_skip_hold'          then 'a held day of a rule'
     when 'pickup_event'            then 'a pickup event'
     when 'hotel_settings'          then 'the property settings'
     when 'room_types'              then 'the room type'
@@ -711,6 +717,7 @@ begin
     'pricing_rule_conditions',
     'pricing_rule_room_types',
     'ladder_rule_state',
+    'rule_skip_hold',
     'pickup_event',
     'hotel_settings',
     'room_types',

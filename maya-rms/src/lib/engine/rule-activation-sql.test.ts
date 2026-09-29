@@ -43,8 +43,10 @@ const SPEED_RULE = "55555555-5555-4555-8555-555555555557";
 const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
 describe("the migration file", () => {
-  it("is listed last in the order the SQL tests build production's base in", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is listed right after the file production ran before it, in the order the SQL tests build production's base in", () => {
+    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBe(
+      MIGRATION_ORDER.indexOf("99_supabase_migration_connection_outage_notice_v1.sql") + 1,
+    );
   });
 
   it("keeps the Skip columns, save_rule and its checks together", () => {
@@ -147,7 +149,7 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
     db = new mod.PGlite({ extensions: { pgcrypto, citext } }) as Db;
     await db.exec(PLATFORM);
     // Production's order: everything before this file, the cadence migration, then this file twice.
-    const before = MIGRATION_ORDER.filter((m) => m !== MIGRATION);
+    const before = MIGRATION_ORDER.slice(0, MIGRATION_ORDER.indexOf(MIGRATION));
     for (const name of ["01_supabase_base_schema.sql", "02_supabase_schema.sql", ...before, CADENCE, MIGRATION, MIGRATION]) {
       try {
         await db.exec(fileSql(name));
