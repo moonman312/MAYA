@@ -34,10 +34,15 @@ export type PreviewOutcome =
   | { status: "ready"; preview: CalendarPreview }
   | { status: "not_needed" }
   | { status: "unavailable" }
-  /** `refused`: the save would be refused too (a role, the 40-rule cap, a setting): nothing to try again. */
-  | { status: "error"; message: string; refused?: boolean };
+  /**
+   * `refused`: the save would be refused too (a role, the 40-rule cap, a
+   * setting): nothing to try again. `detail`: the server's own words, when
+   * they say more than the popup's line (too many checks at once).
+   */
+  | { status: "error"; message: string; refused?: boolean; detail?: string };
 
-export const DAYS_NOT_CHECKED = "The days could not be checked. Try again.";
+/** The popup's line when the days could not be worked out (an error or a time-out): Jake's words, 2026-09-29. */
+export const DAYS_NOT_CALCULATED = "We weren't able to calculate how many days would be affected by this rule.";
 
 const DAY_MS = 86_400_000;
 
@@ -120,7 +125,7 @@ export async function fetchRulePreview(
             body: JSON.stringify({ ...request, ...part }),
           });
         } catch {
-          got.failure ??= { status: "error", message: DAYS_NOT_CHECKED };
+          got.failure ??= { status: "error", message: DAYS_NOT_CALCULATED };
           return;
         }
         const body = (await res.json().catch(() => ({}))) as PartAnswer;
@@ -129,11 +134,14 @@ export async function fetchRulePreview(
           return;
         }
         if (!res.ok) {
-          got.failure ??= {
-            status: "error",
-            message: res.status === 500 || !body.error ? DAYS_NOT_CHECKED : body.error,
-            ...(res.status >= 400 && res.status < 500 && res.status !== 429 ? { refused: true } : {}),
-          };
+          const refused = res.status >= 400 && res.status < 500 && res.status !== 429;
+          got.failure ??= refused
+            ? { status: "error", message: body.error || DAYS_NOT_CALCULATED, refused: true }
+            : {
+                status: "error",
+                message: DAYS_NOT_CALCULATED,
+                ...(res.status === 429 && body.error ? { detail: body.error } : {}),
+              };
           return;
         }
         if (body.needsActivation === false) {
@@ -149,7 +157,7 @@ export async function fetchRulePreview(
     const fingerprints = new Set(answers.map((a) => a.fingerprint));
     if (fingerprints.size === 1 && got.partial) return { status: "ready", preview: got.partial };
   }
-  return { status: "error", message: DAYS_NOT_CHECKED };
+  return { status: "error", message: DAYS_NOT_CALCULATED };
 }
 
 function merge(answers: PartAnswer[], parts: number): CalendarPreview {
@@ -171,8 +179,13 @@ function merge(answers: PartAnswer[], parts: number): CalendarPreview {
   };
 }
 
-/** "41 days will be affected by this rule." with "1 day" for one. */
+/**
+ * "41 days will be affected by this rule." with "1 day" for one, and "0
+ * prices will be affected by this rule." when nothing would change (Jake,
+ * 2026-09-29: the popup then only turns the rule on).
+ */
 export function affectedSentence(days: number): string {
+  if (days === 0) return "0 prices will be affected by this rule.";
   return `${days} ${days === 1 ? "day" : "days"} will be affected by this rule.`;
 }
 

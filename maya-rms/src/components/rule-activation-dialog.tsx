@@ -11,16 +11,22 @@
  * The days come from the engine itself (POST /api/rules/preview: dry runs of
  * the same code the scheduled sync runs), never an estimate, and the number
  * shows only once every part of the answer is in. Apply and Skip send the
- * fingerprint of what the answer was worked out on; when something changed
- * since, the days are worked out again, and the save goes ahead at once if
- * they are the same, or the new days are shown.
+ * fingerprint of what the answer was worked out on (and Skip the days it
+ * holds); when something changed since, the days are worked out again, and
+ * the save goes ahead at once if they are the same, or the new days are
+ * shown.
+ *
+ * Jake, 2026-09-29: when no price would change, "0 prices will be affected
+ * by this rule." and one button turns the rule on; when the days could not
+ * be worked out, "We weren't able to calculate how many days would be
+ * affected by this rule." with Try again, Skip (every day the rule could
+ * change is held) and Cancel.
  */
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { RoomCountHelp } from "@/components/room-type-settings";
 import { track } from "@/lib/analytics/track";
 import {
-  DAYS_NOT_CHECKED,
   addDays,
   affectedSentence,
   browserToday,
@@ -36,6 +42,10 @@ export type ActivationChoice = {
   activation: "apply" | "skip";
   fingerprint: string;
   touched: string[];
+  /** Skip: the days it holds (the ones shown). */
+  held?: string[];
+  /** Skip with no days worked out: hold every day the rule could change. */
+  hold_all?: boolean;
   days: number;
   refreshed: boolean;
 };
@@ -51,10 +61,15 @@ export const ACTIVATION_HELP = {
     "A day counts when the rule changes the price of at least one room type that night, after every other rule, typed prices, floors and ceilings.",
     "The days come from a trial run of your rules on your bookings as they are now. Nothing is saved until you choose.",
     "Apply price adjustments: the rule changes those days' prices on the next pricing run.",
-    "Skip price adjustments: the rule is on, and those days keep their prices. It acts only on what changes from now on, and a booking speed or pickup rule counts bookings from now.",
+    "Skip price adjustments: the rule is on, and those days keep their prices until the rule stops being true on a day and then becomes true again. Every other day works as if you had applied it.",
+    "Booking speed and pickup rules count every booking on the books, including the ones made before the rule.",
+    "When the days can't be worked out, Skip price adjustments holds every day the rule could change.",
     "Nights further ahead than the calendar are priced as they come into it.",
   ],
 };
+
+/** A save that failed with no words of its own. */
+const SAVE_FAILED = "That didn't save. Try again.";
 
 export const DAYS_CHANGED_LINE = "Your bookings changed while this was open, so the days were checked again.";
 
@@ -98,6 +113,7 @@ export function RuleActivationDialog({
   const [preview, setPreview] = useState<CalendarPreview | null>(null);
   const [partial, setPartial] = useState<CalendarPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const [saving, setSaving] = useState<"apply" | "skip" | null>(null);
   const [refreshed, setRefreshed] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -107,6 +123,7 @@ export function RuleActivationDialog({
   const check = useCallback(async (): Promise<CalendarPreview | null> => {
     const mine = ++run.current;
     setError(null);
+    setErrorDetail(null);
     setPreview(null);
     setPartial(null);
     started.current = Date.now();
@@ -128,6 +145,7 @@ export function RuleActivationDialog({
     }
     if (outcome.status === "error") {
       setError(outcome.message);
+      setErrorDetail(outcome.detail ?? null);
       track("rule.preview_failed", { from: source });
       return null;
     }
@@ -183,19 +201,15 @@ export function RuleActivationDialog({
     if (!preview && activation === "apply") return;
     setSaving(activation);
     setSaveError(null);
-    let current: CalendarPreview = preview ?? {
-      today,
-      lastNight,
-      affected: [],
-      roomTypesChanged: {},
-      touched: [],
-      fingerprint: "",
-      kind,
-      ms: 0,
-      nightsChecked: 0,
-      done: 0,
-      parts: 0,
-    };
+    // No days worked out: Skip holds every day the rule could change.
+    if (!preview) {
+      const answer = await save({ activation: "skip", fingerprint: "", touched: [], hold_all: true, days: 0, refreshed });
+      setSaving(null);
+      if (answer.ok) onSaved(true);
+      else setSaveError(answer.error || SAVE_FAILED);
+      return;
+    }
+    let current: CalendarPreview = preview;
     let wasRefreshed = refreshed;
     // At most one fresh look: if the days are the same, save; if not, show them.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -203,6 +217,7 @@ export function RuleActivationDialog({
         activation,
         fingerprint: current.fingerprint,
         touched: current.touched,
+        ...(activation === "skip" ? { held: current.affected } : {}),
         days: current.affected.length,
         refreshed: wasRefreshed,
       });
@@ -228,7 +243,7 @@ export function RuleActivationDialog({
         continue;
       }
       setSaving(null);
-      setSaveError(answer.error || DAYS_NOT_CHECKED);
+      setSaveError(answer.error || SAVE_FAILED);
       return;
     }
     setSaving(null);
@@ -240,6 +255,8 @@ export function RuleActivationDialog({
   const affected = new Set(preview?.affected ?? partial?.affected ?? []);
   const blocks = monthBlocks(today, lastNight);
   const ready = preview !== null;
+  // Nothing would change: the popup only turns the rule on.
+  const nothing = ready && preview.affected.length === 0;
 
   return (
     <div
@@ -303,30 +320,46 @@ export function RuleActivationDialog({
         {ready && preview.affected.length > 0 ? (
           <p className="sr-only">Days affected: {dateRanges(preview.affected)}</p>
         ) : null}
+        {error && errorDetail ? <p className="mt-2 text-sm text-amber-300">{errorDetail}</p> : null}
         {refreshed && ready ? <p className="mt-2 text-sm text-amber-300">{DAYS_CHANGED_LINE}</p> : null}
         {saveError ? <p className="mt-2 text-sm text-rose-400">{saveError}</p> : null}
 
         <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
-          <button
-            type="button"
-            disabled={!ready || saving !== null}
-            onClick={() => void choose("apply")}
-            className="cursor-pointer rounded bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-50"
-          >
-            {saving === "apply" ? "Applying…" : "Apply price adjustments"}
-          </button>
-          <button
-            type="button"
-            // Skip moves no price, so it stays on offer when the days could not be worked out.
-            disabled={(!ready && !error) || saving !== null}
-            onClick={() => void choose("skip")}
-            className="cursor-pointer rounded bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600 disabled:cursor-default disabled:opacity-50"
-          >
-            {saving === "skip" ? "Saving…" : "Skip price adjustments"}
-          </button>
+          {nothing ? (
+            <button
+              type="button"
+              disabled={saving !== null}
+              onClick={() => void choose("apply")}
+              className="cursor-pointer rounded bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-50"
+            >
+              {saving === "apply" ? "Turning it on…" : "Turn it on"}
+            </button>
+          ) : null}
+          {!nothing && !error ? (
+            <button
+              type="button"
+              disabled={!ready || saving !== null}
+              onClick={() => void choose("apply")}
+              className="cursor-pointer rounded bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-50"
+            >
+              {saving === "apply" ? "Applying…" : "Apply price adjustments"}
+            </button>
+          ) : null}
+          {!nothing ? (
+            <button
+              type="button"
+              // Skip moves no price, so it stays on offer when the days could not be worked out.
+              disabled={(!ready && !error) || saving !== null}
+              onClick={() => void choose("skip")}
+              className="cursor-pointer rounded bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600 disabled:cursor-default disabled:opacity-50"
+            >
+              {saving === "skip" ? "Saving…" : "Skip price adjustments"}
+            </button>
+          ) : null}
           {error ? (
             <button
               type="button"
+              disabled={saving !== null}
               onClick={() => void check()}
               className="cursor-pointer rounded border border-slate-600 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800"
             >

@@ -27,7 +27,8 @@ describe("the popup's calendar", () => {
 
 describe("the words", () => {
   it("counts days, one day as one day", () => {
-    expect(affectedSentence(0)).toBe("0 days will be affected by this rule.");
+    // Nothing to change: the popup only turns the rule on (Jake, 2026-09-29).
+    expect(affectedSentence(0)).toBe("0 prices will be affected by this rule.");
     expect(affectedSentence(1)).toBe("1 day will be affected by this rule.");
     expect(affectedSentence(41)).toBe("41 days will be affected by this rule.");
   });

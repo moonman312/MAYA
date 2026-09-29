@@ -178,7 +178,19 @@ describe("the rules list's switch", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Skip price adjustments" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(saves()).toEqual([
-      { url: "/api/rules/r2/toggle", method: "POST", body: { on: true, activation: "skip", fingerprint: "fp", touched: ["2026-10-03", "2026-10-04"], days: 2, refreshed: false } },
+      {
+        url: "/api/rules/r2/toggle",
+        method: "POST",
+        body: {
+          on: true,
+          activation: "skip",
+          fingerprint: "fp",
+          touched: ["2026-10-03", "2026-10-04"],
+          held: ["2026-10-03", "2026-10-04"],
+          days: 2,
+          refreshed: false,
+        },
+      },
     ]);
   });
 

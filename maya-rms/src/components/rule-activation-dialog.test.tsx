@@ -3,14 +3,17 @@
  * The activation popup: a square for every night of the pricing window,
  * the days the rule will change filled in, "X days will be affected by this
  * rule." only once every part of the answer is in, Apply and Skip sent with
- * what the days were worked out on, Cancel saving nothing, and the days
- * worked out again (and shown, when they changed) if something moved before
- * the owner chose.
+ * what the days were worked out on (Skip with the days it holds), Cancel
+ * saving nothing, and the days worked out again (and shown, when they
+ * changed) if something moved before the owner chose. With no days, "0
+ * prices will be affected by this rule." and one button that turns the rule
+ * on; when the days can't be worked out, Jake's sentence with Try again,
+ * Skip and Cancel (Jake, 2026-09-29).
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RuleActivationDialog, DAYS_CHANGED_LINE, type ActivationChoice, type SaveAnswer } from "./rule-activation-dialog";
-import { DAYS_NOT_CHECKED } from "@/lib/rule-activation-client";
+import { DAYS_NOT_CALCULATED } from "@/lib/rule-activation-client";
 
 const TODAY = "2026-10-01";
 const LAST = "2027-10-31";
@@ -117,12 +120,47 @@ describe("the activation popup", () => {
     expect(screen.getByText(/Days affected: 3 to 4 October 2026, 25 December 2026, 31 October 2027/)).toBeTruthy();
   });
 
-  it("says 0 days, and still offers both choices", async () => {
+  it("with nothing to change: says 0 prices, and one button turns the rule on", async () => {
     const { impl } = previewRoute([]);
-    renderDialog({ fetchImpl: impl as unknown as typeof fetch });
-    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("0 days will be affected by this rule."));
+    const { save, onSaved, onCancel } = renderDialog({ fetchImpl: impl as unknown as typeof fetch });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("0 prices will be affected by this rule."));
+    expect(screen.queryByRole("button", { name: "Apply price adjustments" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip price adjustments" })).toBeNull();
+    expect(screen.getAllByRole("button").map((b) => b.textContent).filter((t) => t !== "?" && !/What the days mean/.test(t ?? ""))).toEqual([
+      "Turn it on",
+      "Cancel",
+    ]);
+    fireEvent.click(button("Turn it on"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false));
+    expect(save).toHaveBeenCalledWith({ activation: "apply", fingerprint: "fp-1", touched: [], days: 0, refreshed: false } satisfies ActivationChoice);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
+  it("with nothing to change, Cancel still backs out", async () => {
+    const { impl } = previewRoute([]);
+    const { save, onCancel } = renderDialog({ fetchImpl: impl as unknown as typeof fetch });
+    await waitFor(() => expect(button("Turn it on").disabled).toBe(false));
+    fireEvent.click(button("Cancel"));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it("Turn it on shows the days first if they are no longer 0", async () => {
+    let days: string[] = [];
+    let fp = "fp-1";
+    const { impl } = previewRoute(() => days, { fingerprint: () => fp });
+    const save = vi.fn(async (): Promise<SaveAnswer> => ({ ok: false, status: 409, code: "stale", error: DAYS_CHANGED_LINE }));
+    const { onSaved } = renderDialog({ fetchImpl: impl as unknown as typeof fetch, save });
+    await waitFor(() => expect(button("Turn it on").disabled).toBe(false));
+    days = ["2026-10-06"];
+    fp = "fp-2";
+    fireEvent.click(button("Turn it on"));
+    await waitFor(() => expect(screen.getByText(DAYS_CHANGED_LINE)).toBeTruthy());
+    expect(screen.getByTestId("activation-summary").textContent).toBe("1 day will be affected by this rule.");
     expect(button("Apply price adjustments").disabled).toBe(false);
     expect(button("Skip price adjustments").disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Turn it on" })).toBeNull();
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it("Apply sends the owner's choice with what the days were worked out on", async () => {
@@ -140,13 +178,20 @@ describe("the activation popup", () => {
     } satisfies ActivationChoice);
   });
 
-  it("Skip sends skip", async () => {
-    const { impl } = previewRoute(["2026-10-03"]);
+  it("Skip sends skip, with the days it holds: the ones shown", async () => {
+    const { impl } = previewRoute(["2026-10-03", "2026-11-12"]);
     const { save, onSaved } = renderDialog({ fetchImpl: impl as unknown as typeof fetch });
     await waitFor(() => expect(button("Skip price adjustments").disabled).toBe(false));
     fireEvent.click(button("Skip price adjustments"));
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true));
-    expect(save).toHaveBeenCalledWith(expect.objectContaining({ activation: "skip" }));
+    expect(save).toHaveBeenCalledWith({
+      activation: "skip",
+      fingerprint: "fp-1",
+      touched: ["2026-10-03", "2026-11-12"],
+      held: ["2026-10-03", "2026-11-12"],
+      days: 2,
+      refreshed: false,
+    } satisfies ActivationChoice);
   });
 
   it("Cancel, Esc and a click outside save nothing", async () => {
@@ -159,19 +204,48 @@ describe("the activation popup", () => {
     expect(save).not.toHaveBeenCalled();
   });
 
-  it("when the days can't be worked out: says so, Try again, and Skip (which moves no price) stays", async () => {
+  it("when the days can't be worked out: says so, and offers Try again, Skip and Cancel, no Apply", async () => {
     let fail = true;
     const { impl: ok } = previewRoute(["2026-10-03"]);
     const impl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) =>
-      fail ? json({ error: "The days could not be checked. Try again." }, 500) : ok(url, init),
+      fail ? json({ error: DAYS_NOT_CALCULATED }, 500) : ok(url, init),
     );
     renderDialog({ fetchImpl: impl as unknown as typeof fetch });
-    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe(DAYS_NOT_CHECKED));
-    expect(button("Apply price adjustments").disabled).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByTestId("activation-summary").textContent).toBe(
+        "We weren't able to calculate how many days would be affected by this rule.",
+      ),
+    );
+    expect(screen.queryByRole("button", { name: "Apply price adjustments" })).toBeNull();
+    expect(screen.getAllByRole("button").map((b) => b.textContent).filter((t) => t !== "?" && !/What the days mean/.test(t ?? ""))).toEqual([
+      "Skip price adjustments",
+      "Try again",
+      "Cancel",
+    ]);
     expect(button("Skip price adjustments").disabled).toBe(false);
+    expect(button("Cancel").disabled).toBe(false);
     fail = false;
     fireEvent.click(button("Try again"));
     await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("1 day will be affected by this rule."));
+    expect(button("Apply price adjustments").disabled).toBe(false);
+  });
+
+  it("the same for a time-out or a lost connection, and Skip there holds every day the rule could change", async () => {
+    const impl = vi.fn(async () => {
+      throw new TypeError("Failed to fetch");
+    });
+    const { save, onSaved } = renderDialog({ fetchImpl: impl as unknown as typeof fetch });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe(DAYS_NOT_CALCULATED));
+    fireEvent.click(button("Skip price adjustments"));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(true));
+    expect(save).toHaveBeenCalledWith({ activation: "skip", fingerprint: "", touched: [], hold_all: true, days: 0, refreshed: false } satisfies ActivationChoice);
+  });
+
+  it("too many checks at once: the same sentence, with the server's own words under it", async () => {
+    const impl = vi.fn(async () => json({ error: "That's a lot of checks at once. Give it a minute and try again." }, 429));
+    renderDialog({ fetchImpl: impl as unknown as typeof fetch });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe(DAYS_NOT_CALCULATED));
+    expect(screen.getByText("That's a lot of checks at once. Give it a minute and try again.")).toBeTruthy();
   });
 
   it("asks a booking speed rule's days in three parts and counts them only once all are in", async () => {
