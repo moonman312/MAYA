@@ -179,11 +179,21 @@ describe("a stopped import says what happens next, and only that", () => {
     );
   });
 
-  it("shows on the progress bar with the amber dot", async () => {
+  it("shows on the progress bar with the amber dot, under a heading that no longer says it is reading", async () => {
     responses = [statusWith({ status: "failed", phase: "historical", stats: { stop: { count: 4, retryAt: null, alerted: true } } }, 0)];
     const view = render(<ImportProgressView />);
     await waitFor(() => expect(view.container.textContent).toContain("Import stopped. We've been told."));
     expect(view.container.querySelector(".bg-amber-500")).toBeTruthy();
     expect(view.container.querySelector(".animate-ping")).toBeNull();
+    expect(view.getByRole("heading", { level: 1 }).textContent).toBe("Your import has stopped");
+    expect(view.container.textContent).toContain("Everything read so far is kept.");
+  });
+
+  it("calls a stop with a retry booked a pause", async () => {
+    const retryAt = new Date(Date.now() + 60 * 60_000).toISOString();
+    responses = [statusWith({ status: "failed", phase: "historical", stats: { stop: { count: 1, retryAt, alerted: true } } }, 0)];
+    const view = render(<ImportProgressView />);
+    await waitFor(() => expect(view.getByRole("heading", { level: 1 }).textContent).toBe("Your import is paused"));
+    expect(view.container.textContent).toContain("Import paused. We've been told, and it tries again by itself around");
   });
 });
