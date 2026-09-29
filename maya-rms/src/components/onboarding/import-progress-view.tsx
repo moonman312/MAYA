@@ -53,7 +53,7 @@ export function ImportProgressView() {
               ? "All done!"
               : moveOn
                 ? "Your first results are ready"
-                : "We're studying your booking history"}
+                : "We're reading your booking history"}
         </h1>
         {reconnect ? null : (
           <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-slate-400">

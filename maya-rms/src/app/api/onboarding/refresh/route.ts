@@ -36,7 +36,7 @@ export async function POST() {
   });
   if (!canManage) {
     return NextResponse.json(
-      { error: "You need admin access on this property to run an analysis." },
+      { error: "You need Revenue Manager access or higher to run this." },
       { status: 403 },
     );
   }
@@ -50,7 +50,7 @@ export async function POST() {
   const throttled = await enforceRateLimit(
     "reanalyse",
     hotelId,
-    "An analysis was just run. Let that one finish before starting another.",
+    "A read was just started. Let that one finish before starting another.",
   );
   if (throttled) return throttled;
 
@@ -64,7 +64,7 @@ export async function POST() {
     .maybeSingle();
   if (!conn) {
     return NextResponse.json(
-      { error: "Connect your property system first — there's nothing to analyze yet." },
+      { error: "Connect your property system first. There's nothing to read yet." },
       { status: 400 },
     );
   }

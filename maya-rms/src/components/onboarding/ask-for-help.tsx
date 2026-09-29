@@ -30,12 +30,12 @@ export function AskForHelp() {
       const res = await fetch("/api/onboarding/refresh", { method: "POST" });
       if (!res.ok) {
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Couldn't start the analysis — try again.");
+        throw new Error(body?.error ?? "Couldn't start the read. Try again.");
       }
       setKicked(true);
       setConfirmOpen(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't start the analysis — try again.");
+      setError(e instanceof Error ? e.message : "Couldn't start the read. Try again.");
     }
   }
 
@@ -57,7 +57,7 @@ export function AskForHelp() {
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-sky-400 opacity-60" />
           <span className="relative inline-flex size-2 rounded-full bg-sky-500" />
         </span>
-        Studying your data…
+        Reading your history…
       </span>
     );
   }
@@ -90,7 +90,7 @@ export function AskForHelp() {
               onClick={start}
               className="cursor-pointer rounded bg-sky-500 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-sky-400"
             >
-              Sounds good — analyze
+              Sounds good, read it
             </button>
             <button
               type="button"

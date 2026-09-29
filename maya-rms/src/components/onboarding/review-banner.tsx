@@ -51,7 +51,7 @@ export function OnboardingReviewBanner() {
     >
       <div>
         <div className="text-sm font-semibold text-sky-200">
-          Your booking history analysis is ready
+          Your booking history has been read
         </div>
         <div className="mt-0.5 text-xs text-sky-200/70">
           We found {show.count} thing{show.count === 1 ? "" : "s"} worth a quick

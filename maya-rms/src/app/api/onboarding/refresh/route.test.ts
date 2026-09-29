@@ -116,9 +116,11 @@ describe("POST /api/onboarding/refresh", () => {
     expect(state.insertedJobs).toHaveLength(0);
   });
 
-  it("403 without manage rights", async () => {
+  it("403 without manage rights, naming the rank it needs", async () => {
     state.canManage = false;
-    expect((await POST()).status).toBe(403);
+    const res = await POST();
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("You need Revenue Manager access or higher to run this.");
     expect(state.insertedJobs).toHaveLength(0);
   });
 
@@ -142,12 +144,15 @@ describe("POST /api/onboarding/refresh", () => {
     const res = await POST();
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBeTruthy();
+    expect((await res.json()).error).toBe("A read was just started. Let that one finish before starting another.");
     expect(state.insertedJobs).toHaveLength(0);
   });
 
   it("400 with nothing connected to re-pull from", async () => {
     state.pmsConnection = null;
-    expect((await POST()).status).toBe(400);
+    const res = await POST();
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Connect your property system first. There's nothing to read yet.");
     expect(state.insertedJobs).toHaveLength(0);
   });
 

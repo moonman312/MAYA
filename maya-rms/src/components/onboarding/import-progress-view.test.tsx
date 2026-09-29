@@ -74,6 +74,14 @@ describe("ImportProgressView", () => {
     await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/onboarding/review"));
   });
 
+  it("says the booking history is being read while it runs", async () => {
+    responses = [statusWith({ status: "running", phase: "historical" }, 0)];
+    const view = render(<ImportProgressView />);
+    await waitFor(() =>
+      expect(view.getByRole("heading", { level: 1 }).textContent).toBe("We're reading your booking history"),
+    );
+  });
+
   it("still shows the moment it finishes to someone watching it run", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     responses = [
@@ -115,7 +123,7 @@ describe("a paid property with no connection left", () => {
     expect(link.getAttribute("href")).toBe("/api/pms/cloudbeds/connect?hotelId=hotel-1");
     expect(view.getByRole("heading", { level: 1 }).textContent).toBe("Reconnect Cloudbeds to continue");
     expect(view.container.textContent).toContain("your booking history comes back once you reconnect");
-    expect(view.container.textContent).not.toContain("studying your booking history");
+    expect(view.container.textContent).not.toContain("reading your booking history");
     expect(view.container.textContent).not.toContain("Room-nights");
     expect(router.replace).not.toHaveBeenCalled();
     expect(router.push).not.toHaveBeenCalled();
