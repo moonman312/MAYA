@@ -394,23 +394,32 @@ export function Dashboard({
     })();
   }, []);
 
+  // Read when the dashboard opens, not only on the PMS tab: the lost-connection
+  // banner sits above every tab. Opening the PMS tab reads it again.
+  const onPmsTab = tab === "pms";
   useEffect(() => {
-    if (tab !== "pms" || !activeHotelId) {
+    if (!activeHotelId) {
       return;
     }
+    let alive = true;
     void (async () => {
       try {
         const res = await fetch("/api/pms/activity");
+        if (!alive) return;
         if (!res.ok) {
           setPmsActivity(null);
           return;
         }
-        setPmsActivity((await res.json()) as PmsActivity);
+        const body = (await res.json()) as PmsActivity;
+        if (alive) setPmsActivity(body);
       } catch {
-        setPmsActivity(null);
+        if (alive) setPmsActivity(null);
       }
     })();
-  }, [tab, activeHotelId]);
+    return () => {
+      alive = false;
+    };
+  }, [onPmsTab, activeHotelId]);
 
   // Month responses cached client-side so Prev/Next renders instantly from
   // the last known data, with three guards that keep fast clicking from
