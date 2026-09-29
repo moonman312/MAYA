@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { TermsGate } from "@/components/legal/terms-gate";
 import { ThemeGuard } from "@/components/docs/theme-guard";
 import { ThemeScript } from "@/components/docs/theme-script";
+import { WheelGuard } from "@/components/wheel-guard";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,6 +46,7 @@ export default function RootLayout({
         {children}
         <ThemeGuard />
         <TermsGate />
+        <WheelGuard />
       </body>
     </html>
   );
