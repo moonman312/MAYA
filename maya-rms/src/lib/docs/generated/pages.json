@@ -2208,7 +2208,7 @@
   "order": 50,
   "title": "Your starter rules",
   "summary": "The rules MAYA builds during a first import, which depend on your answer to the last of the five questions, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
-  "readingTime": 19,
+  "readingTime": 20,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [],
@@ -6582,7 +6582,7 @@
   "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. When to do it, and what clears the warning.",
   "readingTime": 3,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
