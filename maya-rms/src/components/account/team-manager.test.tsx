@@ -53,4 +53,20 @@ describe("after Send invitation", () => {
     expect(screen.queryByText(/Invitation sent/)).toBeNull();
     expect(screen.queryByText(/get an email/)).toBeNull();
   });
+
+  it("shows the server's plain sentence when sending fails", async () => {
+    inviteAnswer = async () => json({ error: "Could not send that invitation. Try again in a minute." }, 500);
+    await sendTo("night@harbour.example");
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not send that invitation. Try again in a minute.",
+    );
+  });
+
+  it("shows a plain sentence, not the browser's words, when the connection drops", async () => {
+    inviteAnswer = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    await sendTo("night@harbour.example");
+    expect((await screen.findByRole("alert")).textContent).toBe("Could not send that invitation.");
+  });
 });

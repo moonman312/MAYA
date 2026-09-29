@@ -60,13 +60,18 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
         body: JSON.stringify({ email: email.trim(), role }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string; inviteSent?: boolean };
-      if (!res.ok) throw new Error(body.error ?? "Could not send that invitation.");
+      if (!res.ok) {
+        setError(body.error ?? "Could not send that invitation.");
+        return;
+      }
       setSent({ email: email.trim(), emailed: body.inviteSent === true });
       setEmail("");
       setRoleFromLink(false);
       await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not send that invitation.");
+    } catch {
+      // Only the server's own sentences are shown; a dropped connection reads
+      // as the plain version, not the browser's wording for it.
+      setError("Could not send that invitation.");
     } finally {
       setBusy(null);
     }
@@ -79,10 +84,13 @@ export function TeamManager({ initialInviteRole = null }: { initialInviteRole?: 
     try {
       const res = await fetch(`/api/account/team/${id}`, init);
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) throw new Error(body.error ?? label);
+      if (!res.ok) {
+        setError(body.error ?? label);
+        return;
+      }
       await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : label);
+    } catch {
+      setError(label);
     } finally {
       setBusy(null);
     }

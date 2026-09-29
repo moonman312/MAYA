@@ -4,7 +4,7 @@
  * A General Manager may change or remove anyone up to their own level, other
  * General Managers included, and never a Hotel Admin.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const HOTEL = "hotel-1";
 
@@ -79,5 +79,42 @@ describe("a General Manager acting on the team", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "That's above your own access level." });
     expect(state.removeMembership).not.toHaveBeenCalled();
+  });
+});
+
+describe("when the change itself fails", () => {
+  let logged: string[] = [];
+  beforeEach(() => {
+    logged = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      logged.push(String(line));
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("answers a failed removal with a plain sentence and logs the detail", async () => {
+    state.removeMembership.mockRejectedValue(new Error("platform_remove_membership: permission denied for table hotel_memberships"));
+    const res = await del("m-gm2");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Could not remove them." });
+    expect(logged.join("\n")).toContain("platform_remove_membership: permission denied");
+  });
+
+  it("answers a failed role change with a plain sentence and logs the detail", async () => {
+    state.setMembershipRole.mockRejectedValue(new Error("platform_set_membership_role: JWT expired"));
+    const res = await patch("m-gm2", "viewer");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Could not change that role." });
+    expect(logged.join("\n")).toContain("platform_set_membership_role: JWT expired");
+  });
+
+  it("answers a failed cancellation with a plain sentence and logs the detail", async () => {
+    state.revokePendingInvite.mockRejectedValue(new Error("platform_revoke_pending: Pending invite not found"));
+    const res = await del("pending-1", "invite");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Could not cancel that invitation." });
+    expect(logged.join("\n")).toContain("platform_revoke_pending");
   });
 });
