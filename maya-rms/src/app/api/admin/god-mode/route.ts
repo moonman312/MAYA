@@ -1,7 +1,7 @@
 /**
  * God Mode for platform admins: GET says whether it is on for the caller and
- * until when (the banner reads this on every page, so it costs nothing for
- * everyone else), POST opens a window, DELETE closes it.
+ * until when (the banner reads this on each page, and the banner is only
+ * rendered for platform admins), POST opens a window, DELETE closes it.
  *
  * Everything runs through the caller's own session client: the database
  * functions decide from the verified token (a platform admin, and aal2 after

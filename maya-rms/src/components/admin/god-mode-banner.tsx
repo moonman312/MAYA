@@ -24,10 +24,12 @@ export function timeLeftWords(msLeft: number): string {
 }
 
 /**
- * The red banner across the top of every page while God Mode is on for the
- * signed-in platform admin: that it covers every property, how long is left,
- * and the way out. Mounted once in the root layout beside TermsGate. For everyone else
- * the server answers { admin: false } in one cheap call and nothing renders.
+ * The red banner across the top of the signed-in pages while God Mode is on
+ * for the signed-in platform admin: that it covers every property, how long is
+ * left, and the way out. Only ever rendered for a platform admin: the server
+ * decides that in GodModeBannerSlot, so nobody else loads or asks anything.
+ * For the admin it asks /api/admin/god-mode on each page and shows nothing
+ * while no window is open.
  *
  * The time left counts down from the window's expires_at, which is the
  * database's own; when it reaches zero the banner says so and reloads the

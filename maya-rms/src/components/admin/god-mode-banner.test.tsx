@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
- * The God Mode banner: nothing for everyone else, the property and the time
- * left for an admin with a window open, a countdown from the window's own
+ * The God Mode banner (only ever rendered for a platform admin, see
+ * god-mode-banner-slot): nothing while no window is open, the property and
+ * the time left with a window open, a countdown from the window's own
  * expires_at, "ended" and a reload when it runs out, and the way out.
  */
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -56,7 +57,8 @@ const settle = () => act(async () => {
 });
 
 describe("GodModeBanner", () => {
-  it("renders nothing for everyone else, after one cheap call", async () => {
+  it("renders nothing for an admin with no window open, after one call", async () => {
+    answer = () => ({ admin: true, active: false, expiresAt: null, hotel: null });
     render(<GodModeBanner />);
     await settle();
     expect(screen.queryByRole("status")).toBeNull();

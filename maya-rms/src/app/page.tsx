@@ -1,3 +1,4 @@
+import { GodModeBannerSlot } from "@/components/admin/god-mode-banner-slot";
 import { Dashboard, type SupportView } from "@/components/dashboard";
 import { godModeStatus } from "@/lib/admin/god-mode";
 import { memberRole } from "@/lib/deep-links/member-role";
@@ -63,5 +64,10 @@ export default async function Home({
   }
   const initialSearch = query.size ? `?${query.toString()}` : "";
 
-  return <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} />;
+  return (
+    <>
+      <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} />
+      <GodModeBannerSlot isPlatformAdmin={isPlatformAdmin} />
+    </>
+  );
 }

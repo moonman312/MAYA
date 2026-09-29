@@ -1,4 +1,5 @@
 import { AdminTopNav } from "@/components/admin/admin-top-nav";
+import { GodModeBannerSlot } from "@/components/admin/god-mode-banner-slot";
 import { createClient } from "@/utils/supabase/server";
 import { isAdminConfigured } from "@/utils/supabase/admin";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -48,6 +49,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <AdminTopNav userEmail={user.email ?? ""} />
       <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
+      <GodModeBannerSlot isPlatformAdmin />
     </div>
   );
 }

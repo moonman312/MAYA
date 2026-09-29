@@ -1,3 +1,4 @@
+import { GodModeBannerSlot } from "@/components/admin/god-mode-banner-slot";
 import { MayaLockup } from "@/components/brand/logo";
 import { OnboardingHelpLink } from "@/components/deep-links/onboarding-help-link";
 import { createClient } from "@/utils/supabase/server";
@@ -39,6 +40,7 @@ export default async function OnboardingLayout({
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 pb-16">
         {children}
       </main>
+      <GodModeBannerSlot />
     </div>
   );
 }

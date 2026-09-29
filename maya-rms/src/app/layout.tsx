@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { GodModeBanner } from "@/components/admin/god-mode-banner";
 import { TermsGate } from "@/components/legal/terms-gate";
 import { ThemeGuard } from "@/components/docs/theme-guard";
 import { ThemeScript } from "@/components/docs/theme-script";
@@ -48,7 +47,6 @@ export default function RootLayout({
         <ThemeGuard />
         <TermsGate />
         <WheelGuard />
-        <GodModeBanner />
       </body>
     </html>
   );
