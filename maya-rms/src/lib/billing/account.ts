@@ -31,6 +31,13 @@ export type AccountBilling = {
    */
   chargeCents: number | null;
   renewsAt: string | null;
+  /**
+   * When the run of unpaid invoices began, read off Stripe. Only for an
+   * "unpaid" subscription, whose period end is no help here: Stripe keeps
+   * opening periods on it, so that date is usually still to come. Null when
+   * Stripe can't be asked.
+   */
+  unpaidSince: string | null;
   trialEndsAt: string | null;
   cancelAtPeriodEnd: boolean;
   /** Set only once the card check has actually failed, not while it retries. */
@@ -79,6 +86,30 @@ async function previewChargeCents(subscriptionId: string): Promise<number | null
 }
 
 /**
+ * The date of the oldest invoice still owed since the last one that was paid,
+ * which is when an unpaid subscription stopped being paid for. Stripe lists
+ * newest first; drafts and voided invoices were never owed, so they are
+ * stepped over. Same short leash as the preview.
+ */
+async function unpaidSinceFor(subscriptionId: string): Promise<string | null> {
+  if (!isStripeConfigured()) return null;
+  try {
+    const invoices = await stripeClient().invoices.list(
+      { subscription: subscriptionId, limit: 24 },
+      { timeout: 3000 },
+    );
+    let since: number | null = null;
+    for (const invoice of invoices.data) {
+      if (invoice.status === "paid") break;
+      if (invoice.status === "open" || invoice.status === "uncollectible") since = invoice.created;
+    }
+    return since == null ? null : new Date(since * 1000).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Null means this property never went through checkout — an admin-created hotel,
  * or a deployment with no Stripe. Callers must treat that as "billing does not
  * apply here" rather than as "unpaid", which is the same rule splitByEntitlement
@@ -121,6 +152,10 @@ export async function loadAccountBilling(
     entitled && data.stripe_subscription_id
       ? await previewChargeCents(String(data.stripe_subscription_id))
       : null;
+  const unpaidSince =
+    String(data.status) === "unpaid" && data.stripe_subscription_id
+      ? await unpaidSinceFor(String(data.stripe_subscription_id))
+      : null;
 
   return {
     hotelId,
@@ -130,6 +165,7 @@ export async function loadAccountBilling(
     periodCents: priceCents(rooms, interval),
     chargeCents,
     renewsAt: data.current_period_end ? String(data.current_period_end) : null,
+    unpaidSince,
     trialEndsAt: data.trial_end ? String(data.trial_end) : null,
     cancelAtPeriodEnd: data.cancel_at_period_end === true,
     cardTrouble: data.card_verify_failed_at
@@ -315,15 +351,38 @@ export function offersRestart(billing: AccountBilling): boolean {
 }
 
 /**
+ * "Was" only once the subscription is over: cancelled, or a checkout that never
+ * completed. Unpaid and paused can both still come back, and "Was" told their
+ * owners it had ended.
+ */
+export function priceLabel(billing: AccountBilling): string {
+  return billing.entitled || billing.status === "unpaid" || billing.status === "paused" ? "Price" : "Was";
+}
+
+/**
  * What the period-end date actually means, which depends on whether anything is
  * still going to be charged. Calling it "Next charge" on a cancelled
- * subscription promises a payment that will never be taken.
+ * subscription promises a payment that will never be taken, and calling an
+ * unpaid one "Ended" says it cannot come back when a working card revives it.
  */
 export function periodEndLabel(billing: AccountBilling): string {
+  if (billing.status === "unpaid") return "Unpaid since";
   if (!billing.entitled) return "Ended";
   if (billing.cancelAtPeriodEnd) return "Access ends";
   if (billing.status === "past_due") return "Retrying payment until";
   return "Next charge";
+}
+
+/**
+ * The date that goes beside periodEndLabel, or null for no row. Unpaid shows
+ * when it stopped being paid for rather than its period end, which Stripe
+ * keeps moving forward. Paused has no date that means anything to the owner:
+ * it is on hold until we resume it.
+ */
+export function periodEndDate(billing: AccountBilling): string | null {
+  if (billing.status === "unpaid") return billing.unpaidSince;
+  if (billing.status === "paused") return null;
+  return billing.renewsAt;
 }
 
 /**

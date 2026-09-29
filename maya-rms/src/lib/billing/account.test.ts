@@ -5,7 +5,14 @@
  * told everything is fine.
  */
 import { describe, expect, it } from "vitest";
-import { headlineFor, offersRestart, periodEndLabel, type AccountBilling } from "./account";
+import {
+  headlineFor,
+  offersRestart,
+  periodEndDate,
+  periodEndLabel,
+  priceLabel,
+  type AccountBilling,
+} from "./account";
 import { describeRoomChange, priceCents } from "./tiers";
 
 const NOW = new Date("2026-07-30T12:00:00Z");
@@ -19,6 +26,7 @@ function billing(o: Partial<AccountBilling> = {}): AccountBilling {
     periodCents: priceCents(40, "month"),
     chargeCents: null,
     renewsAt: "2026-08-30T12:00:00Z",
+    unpaidSince: null,
     trialEndsAt: null,
     cancelAtPeriodEnd: false,
     cardTrouble: null,
@@ -234,6 +242,41 @@ describe("periodEndLabel", () => {
 
   it("is a next charge when a charge is actually next", () => {
     expect(periodEndLabel(billing())).toBe("Next charge");
+  });
+
+  it("does not call an unpaid subscription ended, because a card revives it", () => {
+    const unpaid = billing({ entitled: false, status: "unpaid", unpaidSince: "2026-07-01T09:00:00Z" });
+    expect(periodEndLabel(unpaid)).toBe("Unpaid since");
+    // Its period end is usually still to come; the date is when it stopped
+    // being paid for.
+    expect(periodEndDate(unpaid)).toBe("2026-07-01T09:00:00Z");
+    expect(periodEndDate({ ...unpaid, unpaidSince: null })).toBeNull();
+  });
+
+  it("keeps Ended for what really has ended", () => {
+    for (const status of ["canceled", "incomplete", "incomplete_expired"]) {
+      const over = billing({ entitled: false, status });
+      expect(periodEndLabel(over), status).toBe("Ended");
+      expect(periodEndDate(over), status).toBe(over.renewsAt);
+    }
+  });
+
+  it("shows no date for a paused subscription, which is on hold rather than over", () => {
+    expect(periodEndDate(billing({ entitled: false, status: "paused" }))).toBeNull();
+  });
+});
+
+describe("priceLabel", () => {
+  it("says Price while the subscription can still come back", () => {
+    expect(priceLabel(billing())).toBe("Price");
+    expect(priceLabel(billing({ entitled: false, status: "unpaid" }))).toBe("Price");
+    expect(priceLabel(billing({ entitled: false, status: "paused" }))).toBe("Price");
+  });
+
+  it("says Was once it is cancelled or never completed", () => {
+    for (const status of ["canceled", "incomplete", "incomplete_expired"]) {
+      expect(priceLabel(billing({ entitled: false, status })), status).toBe("Was");
+    }
   });
 });
 

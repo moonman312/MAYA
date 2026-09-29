@@ -11,7 +11,9 @@ import {
   loadAccountBilling,
   longDate,
   offersRestart,
+  periodEndDate,
   periodEndLabel,
+  priceLabel,
   type BillingTone,
 } from "@/lib/billing/account";
 import { SUPPORT_EMAIL } from "@/lib/docs/home";
@@ -83,6 +85,7 @@ export default async function BillingPage() {
   }
 
   const headline = headlineFor(billing);
+  const periodEnd = periodEndDate(billing);
 
   return (
     <Shell>
@@ -119,14 +122,14 @@ export default async function BillingPage() {
         <dl className="divide-y divide-slate-800">
           <Row label="Status" value={STATUS_LABELS[billing.status] ?? billing.status} />
           <Row
-            label={billing.entitled ? "Price" : "Was"}
+            label={priceLabel(billing)}
             value={`${formatUsd(billing.chargeCents ?? billing.periodCents)} per ${billing.interval === "year" ? "year" : "month"}`}
             hint={`${billing.rooms} room${billing.rooms === 1 ? "" : "s"} at MAYA's ${billing.interval === "year" ? "annual" : "monthly"} rate${billing.chargeCents != null && billing.chargeCents !== billing.periodCents ? ", with your code applied" : ""}.`}
           />
           {billing.trialEndsAt && billing.entitled && (
             <Row label="Trial ends" value={longDate(billing.trialEndsAt)} />
           )}
-          {billing.renewsAt && <Row label={periodEndLabel(billing)} value={longDate(billing.renewsAt)} />}
+          {periodEnd && <Row label={periodEndLabel(billing)} value={longDate(periodEnd)} />}
           {billing.signupCode && <Row label="Signup code" value={billing.signupCode} />}
         </dl>
       </section>
