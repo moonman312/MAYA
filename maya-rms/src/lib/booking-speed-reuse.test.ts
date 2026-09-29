@@ -22,12 +22,14 @@
  *     bookings arriving, some on nights already over, publish the same
  *     prices and leave every table (rules' changes, fires, snapshots, the
  *     audit and its booking speed readings) exactly as runs without it,
- *     while the store is read back on most runs.
+ *     while the store is read back on most runs;
+ *   - before the migration, runs price as without the store and say once
+ *     that the file needs running.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
 import { dryRunCapture } from "@/lib/engine/evaluate";
-import { fakeSupabase, type FakeRow } from "@/lib/engine/fake-supabase.test";
+import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "@/lib/engine/fake-supabase.test";
 import { historyCacheGet } from "@/lib/engine/history-cache-rpc-model.test";
 import { historyReuse, type HistoryLoad } from "@/lib/engine/booking-speed-provider";
 import { previewRule, readOnlyClient, type EngineRuleRow, type EvaluateFn, type PreviewResult } from "@/lib/rule-preview";
@@ -47,6 +49,7 @@ import {
   TODAY,
   churn,
   clone,
+  published,
   rng,
   ruleRow,
   seedHotel,
@@ -385,5 +388,32 @@ describe("what the runs read", () => {
     const asked = reads(later.calls, "booking_speed_windows").flatMap((c) => (c.payload as { p_dates: string[] }).p_dates);
     expect(asked.length).toBeGreaterThan(0);
     expect(asked.filter((d) => d < TODAY)).toEqual([]);
+  }, 120_000);
+});
+
+describe("before the migration", () => {
+  it("reads the history afresh, prices as without the store, and says so once", async () => {
+    const engine = ENGINES[0];
+    engine.reset();
+    const t = await settled(engine.evaluate, 3, 0);
+    const missing = fakeSupabase(clone(t), {
+      maxRows: 1000,
+      rpc: (fn) => (fn === "engine_run_gaps" ? [] : fn.startsWith("booking_history_cache_") ? new FakeRpcError(missingFunction(fn)) : undefined),
+    });
+    const plain = db(clone(t));
+    for (const at of [T10, "2026-10-01T14:15:00.000Z"]) {
+      vi.setSystemTime(new Date(at));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await engine.evaluate(missing.client as any, H, at, HORIZON, { history: { store: "write" } });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await engine.evaluate(plain.client as any, H, at, HORIZON);
+      expect(published(missing.tables)).toEqual(published(plain.tables));
+    }
+    const said = vi
+      .mocked(console.error)
+      .mock.calls.map((c) => String(c[0]))
+      .filter((line) => line.includes("booking_history_cache"));
+    expect(said).toHaveLength(1);
+    expect(said[0]).toContain("99_supabase_migration_booking_history_cache_v1.sql");
   }, 120_000);
 });
