@@ -81,7 +81,7 @@ describe("the Rate Simulator's amounts", () => {
     await screen.findByText("No rule fires on this night");
     const change = screen.getByText("No rule fires on this night").closest("td")?.previousElementSibling;
     expect(change?.textContent).toBe("–");
-    expect(view.container.textContent).not.toContain("—");
+    expect(view.container.textContent).not.toContain("\u2014");
   });
 });
 

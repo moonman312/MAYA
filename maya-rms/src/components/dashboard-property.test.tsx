@@ -187,7 +187,7 @@ describe("the PMS tab's Health card and request list", () => {
     render(<Dashboard initialSearch={window.location.search} />);
     expect(await screen.findByText("No requests recorded yet. The log fills as syncs run.")).toBeTruthy();
     expect(screen.getByText("Last sync").nextElementSibling?.textContent).toBe("–");
-    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("\u2014");
   });
 });
 
@@ -268,6 +268,6 @@ describe("the calendar's amounts", () => {
     render(<Dashboard initialSearch={window.location.search} />);
     expect(await screen.findByText(/^Current price\s*–$/)).toBeTruthy();
     expect(screen.getByText(/^Measured by revenue per room/)).toBeTruthy();
-    expect(document.body.textContent).not.toContain("—");
+    expect(document.body.textContent).not.toContain("\u2014");
   });
 });
