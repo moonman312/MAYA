@@ -4,8 +4,10 @@
  * The PMS sync routes moved their pipeline onto the service-role client
  * (Vault RPCs are service-role-only), which makes this app-layer check the
  * only authorization left — so the boundary itself gets pinned here:
- * revenue_manager and up pass, staff/viewer do not, membership-less platform
- * admins pass via the RPC fallback, and every failure mode denies.
+ * revenue_manager and up pass, staff/viewer do not, a membership-less
+ * platform admin passes only in God Mode (the god_mode_active RPC, decided
+ * by the database), the user id comes from the verified user and never the
+ * cookie, and every failure mode denies.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -13,9 +15,12 @@ type Membership = { hotel_id: string; user_id: string; status: string; role: str
 
 function fakeClient(opts: {
   userId?: string | null;
+  /** What the cookie claims, when a test wants it to differ from the verified user. */
+  cookieUserId?: string | null;
   memberships?: Membership[];
   membershipError?: string;
   platformAdmin?: boolean;
+  godMode?: boolean;
 }) {
   function membershipQuery() {
     const filters: Record<string, unknown> = {};
@@ -45,16 +50,22 @@ function fakeClient(opts: {
     return api;
   }
 
+  const cookieUser = opts.cookieUserId === undefined ? opts.userId : opts.cookieUserId;
   const client = {
     auth: {
       getUser: async () => ({ data: { user: opts.userId ? { id: opts.userId } : null } }),
       getSession: async () => ({
-        data: { session: opts.userId ? { user: { id: opts.userId } } : null },
+        data: { session: cookieUser ? { user: { id: cookieUser } } : null },
       }),
     },
     from: () => membershipQuery(),
     rpc: async (fn: string) => ({
-      data: fn === "is_platform_admin" ? Boolean(opts.platformAdmin) : null,
+      data:
+        fn === "is_platform_admin"
+          ? Boolean(opts.platformAdmin)
+          : fn === "god_mode_active"
+            ? Boolean(opts.platformAdmin && opts.godMode)
+            : null,
       error: null,
     }),
   };
@@ -109,9 +120,22 @@ describe("hasHotelRank at the revenue_manager floor", () => {
     expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
   });
 
-  it("lets a membership-less platform admin through", async () => {
-    const client = fakeClient({ userId: "user-1", memberships: [], platformAdmin: true });
-    expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(true);
+  it("lets a membership-less platform admin through only in God Mode", async () => {
+    const off = fakeClient({ userId: "user-1", memberships: [], platformAdmin: true, godMode: false });
+    expect(await hasHotelRank(off, HOTEL, "revenue_manager")).toBe(false);
+    const on = fakeClient({ userId: "user-1", memberships: [], platformAdmin: true, godMode: true });
+    expect(await hasHotelRank(on, HOTEL, "revenue_manager")).toBe(true);
+    expect(await hasHotelRank(on, HOTEL, "hotel_admin")).toBe(true);
+  });
+
+  it("takes the person from the verified user, never from the cookie", async () => {
+    // The cookie names a General Manager; the auth service says this is a Viewer.
+    const client = fakeClient({
+      userId: "user-1",
+      cookieUserId: "user-2",
+      memberships: [member("viewer"), member("general_manager", { user_id: "user-2" })],
+    });
+    expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
   });
 
   it("denies when there is no membership and no platform role", async () => {
@@ -119,8 +143,8 @@ describe("hasHotelRank at the revenue_manager floor", () => {
     expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
   });
 
-  it("denies without a session", async () => {
-    const client = fakeClient({ userId: null, memberships: [member("hotel_admin")] });
+  it("denies without a signed-in user, whatever the cookie says", async () => {
+    const client = fakeClient({ userId: null, cookieUserId: "user-1", memberships: [member("hotel_admin")] });
     expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
   });
 
@@ -136,20 +160,46 @@ describe("hasHotelRank at the revenue_manager floor", () => {
 });
 
 describe("requireSupabaseHotelRank", () => {
-  it("returns the hotel context for a revenue_manager", async () => {
+  it("returns the hotel context, with the verified user, for a revenue_manager", async () => {
     state.client = fakeClient({ userId: "user-1", memberships: [member("revenue_manager")] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
     expect(ctx.ok).toBe(true);
-    if (ctx.ok) expect(ctx.hotelId).toBe(HOTEL);
+    if (ctx.ok) {
+      expect(ctx.hotelId).toBe(HOTEL);
+      expect(ctx.userId).toBe("user-1");
+    }
   });
 
-  it("responds 403 for staff", async () => {
+  it("responds 403 for staff, naming the role it takes", async () => {
     state.client = fakeClient({ userId: "user-1", memberships: [member("staff")] });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
     expect(ctx.ok).toBe(false);
-    if (!ctx.ok) expect(ctx.response.status).toBe(403);
+    if (!ctx.ok) {
+      expect(ctx.response.status).toBe(403);
+      expect(await ctx.response.json()).toEqual({ error: "This needs Revenue Manager access or higher on this property." });
+    }
+  });
+
+  it("tells a platform admin outside God Mode how to turn it on", async () => {
+    state.client = fakeClient({ userId: "user-1", memberships: [], platformAdmin: true, godMode: false });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
+    expect(ctx.ok).toBe(false);
+    if (!ctx.ok) {
+      expect(ctx.response.status).toBe(403);
+      expect(await ctx.response.json()).toEqual({
+        error: "God Mode is off. Turn it on from the Command Center to change this property.",
+      });
+    }
+  });
+
+  it("lets a platform admin in God Mode through", async () => {
+    state.client = fakeClient({ userId: "user-1", memberships: [], platformAdmin: true, godMode: true });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ctx = await requireSupabaseHotelRank({} as any, "general_manager");
+    expect(ctx.ok).toBe(true);
   });
 
   it("still responds 401 when signed out", async () => {

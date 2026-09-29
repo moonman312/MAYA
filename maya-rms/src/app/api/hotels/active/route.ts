@@ -1,4 +1,9 @@
-import { activeHotelCookieOptions, listAccessibleHotels, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
+import {
+  activeHotelCookieOptions,
+  listAccessibleHotels,
+  MAYA_ACTIVE_HOTEL_COOKIE,
+  supportViewHotel,
+} from "@/lib/hotel-context";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -24,8 +29,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "hotelId required." }, { status: 400 });
     }
 
+    // A member picks among their properties; a platform admin may open any
+    // active property to view it (supportViewHotel asks the database who
+    // they are, so the id in the body buys nobody else anything).
     const hotels = await listAccessibleHotels(supabase);
-    if (!hotels.some((h) => h.id === hotelId)) {
+    if (!hotels.some((h) => h.id === hotelId) && !(await supportViewHotel(supabase, hotelId))) {
       return NextResponse.json({ error: "Hotel not accessible." }, { status: 403 });
     }
 

@@ -23,7 +23,15 @@ export function activeHotelCookieOptions() {
   };
 }
 
-export type AccessibleHotel = { id: string; name: string };
+export type AccessibleHotel = {
+  id: string;
+  name: string;
+  /**
+   * A property the signed-in platform admin opened to view, not one they
+   * belong to. Reading is theirs; changing anything needs God Mode.
+   */
+  supportView?: boolean;
+};
 
 // The env fallback exists so a fresh clone with seed data works before any
 // membership rows do. In production it would hand this hotel to every
@@ -61,16 +69,46 @@ export async function listAccessibleHotels(
     .eq("status", "active")
     .eq("hotels.is_active", true);
 
-  if (error || !rows?.length) return [];
-
   const byId = new Map<string, AccessibleHotel>();
-  for (const r of rows) {
+  for (const r of error ? [] : (rows ?? [])) {
     const h = (Array.isArray(r.hotels) ? r.hotels[0] : r.hotels) as
       | { id: string; name: string }
       | undefined;
     if (h?.id) byId.set(String(h.id), { id: String(h.id), name: String(h.name) });
   }
+
+  // A platform admin may open any active property to view it. The one the
+  // active-property cookie names joins the list, marked as a support view,
+  // so the picker, the dashboard and the API all agree on it.
+  const cookieStore = await cookies();
+  const fromCookie = cookieStore.get(MAYA_ACTIVE_HOTEL_COOKIE)?.value ?? null;
+  if (fromCookie && !byId.has(fromCookie)) {
+    const viewed = await supportViewHotel(supabase, fromCookie);
+    if (viewed) byId.set(viewed.id, viewed);
+  }
+
   return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The property a platform admin may open to view, or null: they hold the
+ * platform role (asked of the database, so a forged cookie names nothing) and
+ * the property exists and is active. Never a property for anyone else.
+ */
+export async function supportViewHotel(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<AccessibleHotel | null> {
+  const { data: isAdmin } = await supabase.rpc("is_platform_admin");
+  if (isAdmin !== true) return null;
+  const { data: hotel } = await supabase
+    .from("hotels")
+    .select("id, name")
+    .eq("id", hotelId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!hotel?.id) return null;
+  return { id: String(hotel.id), name: String(hotel.name), supportView: true };
 }
 
 /**

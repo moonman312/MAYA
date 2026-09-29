@@ -77,5 +77,5 @@ async function requireNamedHotel(
       response: NextResponse.json({ error: "No access to that property." }, { status: 403 }),
     };
   }
-  return { ok: true, supabase, hotelId };
+  return { ok: true, supabase, hotelId, userId: user.id };
 }

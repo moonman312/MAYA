@@ -12,6 +12,8 @@ function fakeUserClient(opts: {
   userId?: string | null;
   role?: string | null;
   platformAdmin?: boolean;
+  /** A platform admin with a God Mode window open (god_mode_active). */
+  godMode?: boolean;
   /** Omitted means no subscription row at all, which is the entitled default. */
   subscriptionStatus?: string;
 }) {
@@ -42,7 +44,10 @@ function fakeUserClient(opts: {
       }),
     },
     from: (name: string) => table(name),
-    rpc: async () => ({ data: Boolean(opts.platformAdmin), error: null }),
+    rpc: async (fn: string) => ({
+      data: fn === "god_mode_active" ? Boolean(opts.platformAdmin && opts.godMode) : Boolean(opts.platformAdmin),
+      error: null,
+    }),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return client as any;
@@ -143,11 +148,19 @@ describe("POST /api/pms/mews/sync rank gate", () => {
     expect(runMewsSyncForHotel.mock.calls[0][1]).toBe("hotel-1");
   });
 
-  it("lets a membership-less platform admin through", async () => {
-    state.userClient = fakeUserClient({ userId: "user-1", role: null, platformAdmin: true });
+  it("lets a membership-less platform admin through only in God Mode", async () => {
+    state.userClient = fakeUserClient({ userId: "user-1", role: null, platformAdmin: true, godMode: true });
     const res = await post();
     expect(res.status).toBe(200);
     expect(runMewsSyncForHotel).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells a platform admin outside God Mode how to turn it on, and runs nothing", async () => {
+    state.userClient = fakeUserClient({ userId: "user-1", role: null, platformAdmin: true, godMode: false });
+    const res = await post();
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "God Mode is off. Turn it on from the Command Center to change this property." });
+    expect(runMewsSyncForHotel).not.toHaveBeenCalled();
   });
 
   it.each(["canceled", "unpaid"])("refuses to run for a %s subscription", async (status) => {

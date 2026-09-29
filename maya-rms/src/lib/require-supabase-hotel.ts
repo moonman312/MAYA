@@ -1,3 +1,4 @@
+import { GOD_MODE_OFF } from "@/lib/admin/god-mode";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { roleLabel, roleRank, type HotelRole } from "@/lib/roles";
 import { createClient } from "@/utils/supabase/server";
@@ -11,6 +12,8 @@ export type CookieStore = Awaited<ReturnType<typeof cookies>>;
 export type SupabaseHotelContext = {
   supabase: SupabaseClient;
   hotelId: string;
+  /** The signed-in person, as the auth service verified them. */
+  userId: string;
 };
 
 export async function requireSupabaseHotel(
@@ -48,26 +51,27 @@ export async function requireSupabaseHotel(
     };
   }
 
-  return { ok: true, supabase, hotelId };
+  return { ok: true, supabase, hotelId, userId: user.id };
 }
 
 /**
- * Whether the caller holds `minRole` or higher at this hotel. Membership-less
- * platform operators pass via is_platform_admin (self-scoped since the
- * helpers lockdown).
+ * Whether the caller holds `minRole` or higher at this hotel. A platform
+ * admin with no membership passes only in God Mode (god_mode_active(),
+ * decided by the database from their verified token and open window).
  */
 export async function hasHotelRank(
   supabase: SupabaseClient,
   hotelId: string,
   minRole: HotelRole,
 ): Promise<boolean> {
-  // Cookie read only — requireSupabaseHotel already ran getUser() for this
-  // request, and repeat auth round-trips trip the rate limiter (see
-  // hotel-context.ts).
+  // Verified by the auth service, not read off the cookie: the browser can
+  // edit the cookie, and the select policy lets any member read every
+  // membership row of their hotel, so a Viewer could otherwise pass this
+  // check under a General Manager's id.
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const userId = session?.user?.id;
+    data: { user },
+  } = await supabase.auth.getUser();
+  const userId = user?.id;
   if (!userId) return false;
 
   // Must filter on user_id: the select policy lets any member read the whole
@@ -83,11 +87,15 @@ export async function hasHotelRank(
   const best = Math.max(-1, ...(rows ?? []).map((r) => roleRank(String(r.role))));
   if (best >= roleRank(minRole)) return true;
 
-  const { data: isAdmin } = await supabase.rpc("is_platform_admin");
-  return Boolean(isAdmin);
+  const { data: active } = await supabase.rpc("god_mode_active");
+  return active === true;
 }
 
-/** requireSupabaseHotel plus a rank floor; 403 below it. */
+/**
+ * requireSupabaseHotel plus a rank floor; 403 below it. A platform admin
+ * outside God Mode is told how to turn it on rather than which role they
+ * lack.
+ */
 export async function requireSupabaseHotelRank(
   cookieStore: CookieStore,
   minRole: HotelRole,
@@ -96,10 +104,16 @@ export async function requireSupabaseHotelRank(
   if (!ctx.ok) return ctx;
 
   if (!(await hasHotelRank(ctx.supabase, ctx.hotelId, minRole))) {
+    const { data: isAdmin } = await ctx.supabase.rpc("is_platform_admin");
     return {
       ok: false,
       response: NextResponse.json(
-        { error: `This needs ${roleLabel(minRole)} access or higher on this property.` },
+        {
+          error:
+            isAdmin === true
+              ? GOD_MODE_OFF
+              : `This needs ${roleLabel(minRole)} access or higher on this property.`,
+        },
         { status: 403 },
       ),
     };
