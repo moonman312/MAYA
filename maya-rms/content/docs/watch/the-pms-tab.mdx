@@ -3,7 +3,7 @@ title: "The PMS tab: connection health"
 summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, and the reconnect link.
 section: watch
 order: 80
-readingTime: 6
+readingTime: 7
 keywords: [PMS tab, property system tab, UTC, +00:00, raw timestamp, last sync time looks odd, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, sync now, force a sync, refresh, is it connected]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -44,7 +44,7 @@ A single word, colour-coded. It is the state of the connection as MAYA last reco
 | Connected (green) | Healthy. MAYA reads bookings and, when you are live, sends prices. | Nothing. |
 | Pending (amber) | Connected but not yet paid for. Nothing runs. | Finish setting up payment. |
 | Degraded (amber) | Still working. MAYA keeps reading bookings and, when you are live, sending prices. Cloudbeds and ThinkReservations only. | Usually nothing: it tends to clear by itself on the next read. If it is still there in an hour, click Reconnect. It does no harm. |
-| Error (red) | Your system rejected MAYA's saved access. Syncing has stopped. | Reconnect. |
+| Error (red) | Your system rejected MAYA's saved access. Nothing is read or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, click Reconnect. It does no harm sooner. |
 | Disconnected (red) | MAYA's access is gone: the app was uninstalled, its permission removed, or your system refused it. Nothing runs until someone reconnects. | Reconnect. |
 | unknown (grey) | MAYA has no status on file for the connection yet. | Open the tab again in a few minutes. If it stays, [email us](mailto:info@modern-hospitality-solutions.com?subject=Connection%20status%20unknown). |
 

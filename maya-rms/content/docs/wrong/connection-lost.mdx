@@ -3,7 +3,7 @@ title: Connection lost
 summary: What the "MAYA has lost its connection" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, and how to tell when Mews reads have stopped with no banner.
 section: wrong
 order: 70
-readingTime: 9
+readingTime: 10
 keywords: [lost its connection, connection lost, disconnected, reconnect, reconnect cloudbeds, reconnect think reservations, uninstalled, uninstalled the app, removed the app, marketplace, connect app, permission to update rates, removed permission, general manager, ask your general manager, degraded, error, pending, connected, unknown, mews keys, keys re-entered, api keys, mews keys stopped working, mews not updating, mews still connected, mews no banner, last sync, last sync old, having trouble, health, no banner, reconnect on the pms tab, different property, this login is for a different property, subscription changed, cloudbeds subscription, password changed, landed on the dashboard, no message after reconnecting]
 questions:
   - It says MAYA has lost its connection to Cloudbeds {#it-says-maya-has-lost-its-connection-to-cloudbeds/your-system-no}
@@ -15,6 +15,7 @@ questions:
   - It says Mews needs its keys re-entered {#it-says-mews-needs-its-keys-re-entered}
   - My Mews property still reads Connected but Last sync is old {#why-is-last-sync-old}
   - What do Degraded, Error and Pending mean? {#what-connected-pending-degraded-error-and-disconnected-mean}
+  - Does a connection that reads Error come back by itself? {#it-says-maya-has-lost-its-connection-to-cloudbeds/when-the-connection}
   - Why is Last sync old? {#why-is-last-sync-old}
   - Why does Health say Having trouble? {#why-does-health-say-having-trouble}
   - The log says reconnect on the PMS tab but I see no banner {#the-log-says-reconnect-on-the-pms-tab-but-i-see-no-banner}
@@ -35,7 +36,7 @@ Your system no longer accepts MAYA's connection. The usual causes: the app was u
 
 The same banner can show while the connection reads Degraded on the <Ui>PMS</Ui> tab. Then MAYA is still reading and sending, and nothing has stopped. If the banner is still there in an hour, reconnect with a login for this property only. It does no harm.
 
-When the connection reads Error or Disconnected, here is what stops: reading bookings, running rules and sending prices, all of it, until someone reconnects. What stays: the rates already in your system (MAYA reverts nothing), your rules, your history, your room type answers and your manual prices.
+When the connection reads Error or Disconnected, here is what stops: reading bookings, running rules and sending prices, all of it. Disconnected stays that way until someone reconnects. Error does not have to: MAYA keeps trying on its own, waiting longer after each failed try (twice as long each time, up to an hour between tries). The first try that works turns the card back to Connected, and reading, pricing and sending carry on by themselves, including any prices that were held back. If your system goes on refusing, the card stays at Error until someone reconnects. What stays: the rates already in your system (MAYA reverts nothing), your rules, your history, your room type answers and your manual prices.
 
 What to do: a General Manager or Hotel Admin presses <Ui>Reconnect Cloudbeds</Ui> on the banner or on the <Ui>PMS</Ui> tab. It sends you to Cloudbeds to sign in and confirm, then back to MAYA. The banner text says the same: "Reconnecting takes one click and sends you to Cloudbeds to confirm. Your rules, history and settings are all untouched." Read [Reconnect your property system](/docs/recipes/reconnect-your-property-system).
 
@@ -90,7 +91,7 @@ The <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab shows one of these.
 | Connected | Healthy. Bookings are read every cycle. | Nothing. |
 | Pending | Connected but not yet paid for. Nothing is read or priced until the subscription starts. | Finish setting up payment. |
 | Degraded | MAYA is still reading and sending. The lost-connection banner may show. | If it is still there in an hour, reconnect with a login for this property only. It does no harm. |
-| Error | Your system rejected MAYA's saved sign-in. A person must reconnect. | Press <Ui>Reconnect</Ui>. |
+| Error | Your system rejected MAYA's saved sign-in. Nothing is read, priced or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, press <Ui>Reconnect</Ui>. Reconnecting sooner does no harm. |
 | Disconnected | The connection is gone. The property is off the schedule. | Press <Ui>Reconnect</Ui>. |
 | unknown | MAYA has no status on file. | Open the tab again in a moment, then reconnect if it stays. |
 

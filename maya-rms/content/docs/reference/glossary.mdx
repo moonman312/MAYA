@@ -3,7 +3,7 @@ title: Glossary
 summary: Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.
 section: reference
 order: 10
-readingTime: 19
+readingTime: 20
 keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, expected, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
 questions:
   - What does this word mean? {#in-plain-words}
@@ -79,7 +79,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Disconnected** (screen, on the PMS tab). MAYA's access to your property system is gone: the app was uninstalled, its permission was removed, or your system refused it. Nothing is read or sent until a General Manager or Hotel Admin reconnects. Nothing is deleted. Read [Reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
-**Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped. A General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
+**Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped for now. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. If it does not clear, a General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
 
 **Expected** (in explanations). What similar past nights had received over the same stretch of their own run-up, averaged with the highest and lowest dropped once there are five or more. It can be a fraction, such as 0.4. On screen it reads "almost none" under 1 and is rounded to a whole number otherwise. Read [Similar nights](/docs/rules/similar-nights).
 
