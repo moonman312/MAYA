@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   /** The property ID kept with the hotel's current credential, if any. */
   storedProperty: null as string | null,
   secretReadFails: false,
+  from: undefined as "admin" | undefined,
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
@@ -36,10 +37,18 @@ vi.mock("@/lib/onboarding/connect", () => ({ handleOnboardingConnect: async () =
 vi.mock("@/lib/pms/oauth-state", () => ({
   signOnboardingState: () => "s",
   signState: () => "s",
-  verifyState: () => ({ ok: true, intent: "hotel", hotelId: "hotel-1", pmsType: "cloudbeds" }),
+  verifyState: () => ({
+    ok: true,
+    intent: "hotel",
+    hotelId: "hotel-1",
+    pmsType: "cloudbeds",
+    ...(state.from ? { from: state.from } : {}),
+  }),
 }));
 
 const { handleOAuthCallback } = await import("./oauth-flow");
+const { links } = await import("@/lib/deep-links");
+const { NOTE_TEXT } = await import("@/lib/deep-links/notes");
 
 type Cookies = Parameters<typeof handleOAuthCallback>[0];
 
@@ -106,6 +115,7 @@ beforeEach(() => {
   state.claimsReadFails = false;
   state.storedProperty = null;
   state.secretReadFails = false;
+  state.from = undefined;
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -263,5 +273,37 @@ describe("reconnecting a Cloudbeds property connected from inside MAYA", () => {
     expect(res.status).toBe(400);
     expect(await res.text()).toContain("Cloudbeds didn't answer");
     expect(storedSecret()).toBeUndefined();
+  });
+});
+
+describe("where a successful reconnect lands", () => {
+  // It used to be the staff console's page for the hotel, with no word that
+  // anything had worked.
+  it("opens the dashboard's PMS tab on that property with a short Reconnected note", async () => {
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.status).toBe(302);
+    const location = res.headers.get("location") ?? "";
+    expect(location).toBe("https://app.example/?tab=pms&dl=pms&note=reconnected");
+    expect(location).not.toContain("/admin");
+    expect(res.headers.get("set-cookie")).toContain("maya_active_hotel=hotel-1");
+
+    // What the dashboard reads on arrival, and the line it shows.
+    const arrival = links.readArrival(new URL(location).search);
+    expect(arrival).toMatchObject({ dest: "pms", note: "reconnected", keep: "tab=pms" });
+    expect(NOTE_TEXT[arrival.note!]).toBe("Reconnected.");
+  });
+
+  it("sends a reconnect started in the staff console back there", async () => {
+    state.from = "admin";
+    property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+    const res = await callback();
+    expect(res.headers.get("location")).toBe("https://app.example/admin/hotels/hotel-1?pmsConnected=1");
+  });
+
+  it("sends a parked Marketplace property back to its payment screen", async () => {
+    property({ claimed: true, purged: false });
+    const res = await callback();
+    expect(res.headers.get("location")).toBe("https://app.example/onboarding");
   });
 });

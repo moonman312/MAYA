@@ -14,5 +14,7 @@ export async function GET(req: Request) {
   if (!hotelId) {
     return NextResponse.json({ error: "hotelId query param required" }, { status: 400 });
   }
-  return buildAuthorizeRedirect(await cookies(), "cloudbeds", { kind: "hotel", hotelId });
+  // The staff console marks its own links, so the callback returns there.
+  const from = url.searchParams.get("from") === "admin" ? "admin" : undefined;
+  return buildAuthorizeRedirect(await cookies(), "cloudbeds", { kind: "hotel", hotelId, from });
 }

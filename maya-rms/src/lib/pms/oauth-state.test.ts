@@ -79,6 +79,12 @@ describe("oauth state", () => {
     expect(verifyState(expired, "cloudbeds")).toMatchObject({ ok: false, expired: true });
   });
 
+  it("carries a staff console start through to the callback, and nothing else", async () => {
+    const { signState, verifyState } = await mod();
+    expect(verifyState(signState("hotel-123", "cloudbeds", "admin"), "cloudbeds")).toMatchObject({ ok: true, from: "admin" });
+    expect(verifyState(signState("hotel-123", "cloudbeds"), "cloudbeds")).not.toHaveProperty("from");
+  });
+
   it("only calls a state expired when it is ours and too old", async () => {
     const { signState, verifyState } = await mod();
     const state = signState("hotel-123", "think");

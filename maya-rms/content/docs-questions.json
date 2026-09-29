@@ -530,7 +530,7 @@
 {"q":"I changed my Cloudbeds password","page":"connect/cloudbeds","anchor":"disconnecting-and-reconnecting/you-disconnect-in","bankSection":14},
 {"q":"Someone at the PMS removed MAYA's permission to update rates","page":"wrong/connection-lost","anchor":"someone-removed-mayas-permission-to-update-rates","bankSection":14},
 {"q":"Will reconnecting lose my rules or history?","page":"connect/reconnect-and-disconnect","bankSection":14},
-{"q":"After reconnecting I landed on the dashboard with no message","page":"wrong/connection-lost","bankSection":14},
+{"q":"After reconnecting, how do I know it worked?","page":"wrong/connection-lost","bankSection":14},
 {"q":"It says \"Your Cloudbeds connection is active again\"","page":"wrong/messages-explained","anchor":"sign-in-and-account/your-cloudbeds-connection","bankSection":14},
 {"q":"How long until sync resumes after reconnecting?","page":"connect/reconnect-and-disconnect","anchor":"reconnecting/1-open-the","bankSection":14},
 {"q":"It says \"This login is for a different property\"","page":"wrong/connection-lost","bankSection":14},

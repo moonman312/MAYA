@@ -5,6 +5,8 @@ import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { isStripeConfigured } from "@/lib/billing/stripe";
 import { handleOnboardingConnect } from "@/lib/onboarding/connect";
+import { links } from "@/lib/deep-links";
+import { activeHotelCookieOptions, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
@@ -31,7 +33,7 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
  *   the callback creates the hotel from PMS data.
  */
 export type OAuthTarget =
-  | { kind: "hotel"; hotelId: string }
+  | { kind: "hotel"; hotelId: string; from?: "admin" }
   | { kind: "onboarding" };
 
 /**
@@ -145,7 +147,7 @@ export async function buildAuthorizeRedirect(
   const state =
     target.kind === "onboarding"
       ? signOnboardingState(user.id, pmsType)
-      : signState(target.hotelId, pmsType);
+      : signState(target.hotelId, pmsType, target.from);
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -393,9 +395,30 @@ export async function handleOAuthCallback(
     p_detail: { pms_type: pmsType, via: "oauth" },
   });
 
-  return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
-    status: 302,
-  });
+  if (verified.from === "admin") {
+    return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
+      status: 302,
+    });
+  }
+  // A parked property is not on the dashboard yet: back to the payment
+  // screen its reconnect prompt was on.
+  if (parked) return NextResponse.redirect(`${base}/onboarding`, { status: 302 });
+  return reconnectedRedirect(base, hotelId);
+}
+
+/**
+ * Back to the dashboard's PMS tab on the property just reconnected, with the
+ * short note that says it worked. The property is made the active one, so
+ * the note sits over the right connection; the cookie is only ever honoured
+ * for a property the person belongs to (hotel-context.ts).
+ */
+function reconnectedRedirect(base: string, hotelId: string): Response {
+  const res = NextResponse.redirect(
+    `${base}${links.internalHref({ dest: "pms", params: {} }, { note: "reconnected" })}`,
+    { status: 302 },
+  );
+  res.cookies.set(MAYA_ACTIVE_HOTEL_COOKIE, hotelId, activeHotelCookieOptions());
+  return res;
 }
 
 /**
