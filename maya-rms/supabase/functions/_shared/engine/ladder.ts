@@ -166,7 +166,8 @@ export async function evaluateLadderTriple(
     // A change left on at its old amount by the Skip, where the rule was
     // not true then: once the rule is true, it is the rule's change.
     if (ruleConditionsMatch(rule, metrics)) {
-      transition = "activate";
+      const moves = priorRow?.amount !== `${rule.action_type}|${rule.action_direction}|${Number(rule.action_value)}`;
+      if (moves) transition = "activate";
       if (batch) batch.restampKept(rule, hotelId, stayDate, affectedRoomTypeId, metrics, evalTs);
       else {
         await supabase
@@ -294,6 +295,8 @@ export type LadderState = {
   suppressed_at?: string | null;
   skip_state?: "held" | "kept" | null;
   skip_at?: string | null;
+  /** A marked row's adjustment, `kind|direction|value` (read only with the Skip columns). */
+  amount?: string;
 };
 
 /** Two timestamps naming the same instant, however each is spelled. */
@@ -500,8 +503,10 @@ export async function createLadderPassBatch(
   let supportsSkip = true;
   if (ruleIds.length > 0) {
     const base = "rule_id, stay_date, room_type_id, is_active, rule_version";
+    // With the Skip columns, the amount too: a kept change the rule is true
+    // for again moves the price only when the rule's amount differs.
     const columns = (skip: boolean) =>
-      `${base}${opts.supportsSuppression ? ", suppressed_at" : ""}${skip ? ", skip_state, skip_at" : ""}`;
+      `${base}${opts.supportsSuppression ? ", suppressed_at" : ""}${skip ? ", skip_state, skip_at, action_kind, action_direction, action_value" : ""}`;
     const read = (ids: string[], skip: boolean) =>
       fetchAllRows(() =>
         filterNights(
@@ -536,7 +541,13 @@ export async function createLadderPassBatch(
           is_active: Boolean(r.is_active),
           rule_version: r.rule_version != null ? Number(r.rule_version) : null,
           ...(opts.supportsSuppression ? { suppressed_at: r.suppressed_at != null ? String(r.suppressed_at) : null } : {}),
-          ...(skipState ? { skip_state: skipState, skip_at: r.skip_at != null ? String(r.skip_at) : null } : {}),
+          ...(skipState
+            ? {
+                skip_state: skipState,
+                skip_at: r.skip_at != null ? String(r.skip_at) : null,
+                amount: `${r.action_kind}|${r.action_direction}|${Number(r.action_value)}`,
+              }
+            : {}),
         });
       }
     }
@@ -637,7 +648,10 @@ export async function createLadderPassBatch(
     restampKept(rule, hotelId, stayDate, roomTypeId, metrics, evalTs) {
       const key = `${rule.id}|${stayDate}|${roomTypeId}`;
       const prior = states.get(key);
-      events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
+      // The rule acts only where its amount differs from the kept one.
+      if (prior?.amount !== `${rule.action_type}|${rule.action_direction}|${Number(rule.action_value)}`) {
+        events.push(transitionEventRow(rule, hotelId, stayDate, roomTypeId, "activate", metrics, evalTs));
+      }
       queueUpdate(rule.id, roomTypeId, { ...restampPatch(rule), ...CLEAR_SKIP }, stayDate);
       states.set(key, { is_active: true, rule_version: rule.version, suppressed_at: prior?.suppressed_at ?? null });
       log.push({ kind: "restamp", rule, stayDate, roomTypeId, hadEffect: movesPrice(prior) });

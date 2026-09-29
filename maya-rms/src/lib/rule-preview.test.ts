@@ -390,3 +390,60 @@ describe("which nights the preview runs", () => {
     expect(RT.length).toBe(4);
   });
 });
+
+describe("the popup's days on other hotels, with rules drawn at random", () => {
+  // Two more seeded hotels and random rules of each kind: whole and in
+  // parts, the days shown are the days a full "after" against a full
+  // "before" gives, and the days Apply changes.
+  const engine = ENGINES[0];
+  const random = (seed: number) => {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  const LEVELS = ["much_slower", "slower", "faster", "much_faster", "surging"];
+  const drawRule = (r: () => number, i: number): FakeRow => {
+    const kind = i % 3;
+    const up = r() < 0.6;
+    const base = { ...created, action_type: r() < 0.7 ? "percent" : "fixed", action_direction: up ? "increase" : "decrease", action_value: 3 + Math.floor(r() * 20) };
+    if (kind === 0) {
+      return ruleRow(NEW, { ...base, cond: { occupancy_operator: up ? "gt" : "lt", occupancy_threshold: Math.round((0.2 + r() * 0.6) * 100) / 100, ...(r() < 0.5 ? { dta_operator: "lt", dta_threshold_days: 5 + Math.floor(r() * 30) } : {}) } });
+    }
+    if (kind === 1) {
+      const level = LEVELS[Math.floor(r() * LEVELS.length)];
+      const faster = ["faster", "much_faster", "surging"].includes(level);
+      return ruleRow(NEW, { ...base, action_direction: faster ? "increase" : "decrease", priority: 100 + Math.floor(r() * 40), cond: { booking_speed_operator: faster ? "at_least" : "at_most", booking_speed_level: level, booking_speed_window_days: [1, 7, 30][Math.floor(r() * 3)], booking_speed_cooldown_days: [1, 2, 3, 7][Math.floor(r() * 4)] } });
+    }
+    return ruleRow(NEW, { ...base, priority: 100 + Math.floor(r() * 40), cond: { pickup_operator: "gt", pickup_threshold: Math.floor(r() * 3), pickup_window_days: [1, 3, 7][Math.floor(r() * 3)], pickup_metric: "room_nights" }, affected: r() < 0.5 ? [KING, QUEEN] : RT });
+  };
+
+  it.each([3, 19])("hotel seed %i", async (seedNo) => {
+    engine.reset();
+    vi.setSystemTime(new Date(T10));
+    const t = await settle(engine.evaluate, seedNo);
+    const r = random(seedNo * 7 + 1);
+    for (let i = 0; i < 3; i++) {
+      const after = drawRule(r, i);
+      const truth = nightsDiffering(await fullDry(engine.evaluate, t, T10, after), await fullDry(engine.evaluate, t, T10));
+      vi.setSystemTime(new Date(T10));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const client = fake(clone(t)).client as any;
+      const input = { hotelId: H, after: after as EngineRuleRow, at: T10, horizonDays: HORIZON };
+      const whole = await previewRule(client, input, engine.evaluate);
+      const parts = [
+        await previewRule(client, { ...input, to: addDays(TODAY, 14) }, engine.evaluate),
+        await previewRule(client, { ...input, from: addDays(TODAY, 15) }, engine.evaluate),
+      ];
+      expect({ rule: after.rule_condition, days: whole.affected }).toEqual({ rule: after.rule_condition, days: truth });
+      expect(parts.flatMap((p) => p.affected)).toEqual(truth);
+      const applied = published(await realRun(engine.evaluate, saveApply(t, after), T10));
+      const without = published(await realRun(engine.evaluate, t, T10));
+      expect(nightsDiffering(applied, without)).toEqual(truth);
+    }
+  }, 120_000);
+});
