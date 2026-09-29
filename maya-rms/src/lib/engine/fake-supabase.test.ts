@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runGapsRpc } from "./cadence-rpc-model.test";
+import { historyCacheRpc } from "./history-cache-rpc-model.test";
 import { manualPriceRpc } from "./manual-price-rpc-model.test";
 import { scaleRpc } from "./scale-rpc-model.test";
 import { stackingRpc } from "./pickup-stacking-rpc-model.test";
@@ -425,7 +426,8 @@ export function fakeSupabase(
             manualPriceRpc(fn, args, tables) ??
             stackingRpc(fn, args, tables) ??
             undoRpc(fn, args, tables) ??
-            runGapsRpc(fn, args, tables))
+            runGapsRpc(fn, args, tables) ??
+            historyCacheRpc(fn, args, tables))
           : custom;
       if (out instanceof FakeRpcError) return { data: null, error: out.error };
       if (!Array.isArray(out)) return { data: out, error: null };
