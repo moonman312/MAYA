@@ -129,10 +129,13 @@ export async function POST(request: Request) {
     try {
       const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
       if (swap.swapped) {
-        await supabase
+        // If this note is lost, saving the answer again finds the new set
+        // already on the property and writes it then.
+        const { error: noteErr } = await supabase
           .from("onboarding_states")
           .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
           .eq("hotel_id", hotelId);
+        if (noteErr) throw new Error(`starterRulesFor not recorded: ${noteErr.message}`);
       }
     } catch (e) {
       console.error(

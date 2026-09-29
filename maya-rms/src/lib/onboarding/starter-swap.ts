@@ -14,6 +14,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   insertStarterRules,
   loadCountingRoomTypeIds,
+  type StarterRuleSpec,
 } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 import type {
   PricingConfidence,
@@ -70,8 +71,9 @@ export type SwapOutcome =
  * - the person saving is a Revenue Manager or higher, as for any rule change,
  * - the rules on the property are exactly the set built: same names, all on,
  *   never edited, and nothing added.
- * The old rules go the way Delete does (their simulated changes with them),
- * and the next run prices the nights with the new ones.
+ * The new rules are written first and the old ones then go the way Delete
+ * does (their simulated changes with them); the next run prices the nights
+ * with the new ones. A failure anywhere leaves the old set in place.
  */
 export async function swapStarterRulesForAnswer(
   supabase: SupabaseClient,
@@ -122,35 +124,104 @@ export async function swapStarterRulesForAnswer(
     : (Array.isArray(stats.starterRules) ? stats.starterRules : []).map((r) => String(record(r).name));
   const { data: rules, error: rulesErr } = await supabase
     .from("pricing_rules")
-    .select("id, name, is_active, version")
+    .select("id, name, is_active, version, action_value, action_direction, dow_mask")
     .eq("hotel_id", hotelId);
   if (rulesErr || !rules) return { swapped: false, reason: "failed" };
   const sorted = (names: string[]) => [...names].sort().join("\u0000");
-  const untouched =
-    builtNames.length > 0 &&
-    rules.length === builtNames.length &&
-    sorted(rules.map((r) => String(r.name))) === sorted(builtNames) &&
+  const exactly = (names: string[]) =>
+    names.length > 0 &&
+    rules.length === names.length &&
+    sorted(rules.map((r) => String(r.name))) === sorted(names) &&
     rules.every((r) => r.is_active === true && Number(r.version ?? 1) === 1);
-  if (!untouched) return { swapped: false, reason: "changed" };
+  // Already swapped, and only the note of it was lost: say so, and the
+  // answer route records it. Sizes and days count as well as names, since
+  // the ladder's names come in two sizes.
+  const isTargetSet =
+    exactly(targetSet.rules.map((r) => r.name)) &&
+    rules.every((r) => {
+      const spec = targetSet.rules.find((t) => t.name === String(r.name));
+      return (
+        spec != null &&
+        Number(r.action_value) === spec.action.action_value &&
+        String(r.action_direction) === spec.action.action_direction &&
+        Number(r.dow_mask ?? 127) === (spec.dow_mask ?? 127)
+      );
+    });
+  if (isTargetSet) return { swapped: true, builtFor: target };
+  if (!exactly(builtNames)) return { swapped: false, reason: "changed" };
 
-  try {
-    for (const r of rules) {
-      if (!(await deleteRule(String(r.id), supabase))) throw new Error(`could not delete rule ${String(r.id)}`);
-    }
-    const roomTypeIds = await loadCountingRoomTypeIds(supabase, hotelId);
-    if (roomTypeIds.length === 0) throw new Error("no room type counts as a room");
-    await insertStarterRules(supabase, hotelId, targetSet.rules, roomTypeIds);
-  } catch (e) {
+  const failed = (step: string, e: unknown): SwapOutcome => {
     console.error(
       JSON.stringify({
         fn: "swapStarterRulesForAnswer",
         hotelId,
         from: current,
         to: target,
+        step,
         error: e instanceof Error ? e.message : String(e),
       }),
     );
     return { swapped: false, reason: "failed" };
+  };
+
+  // Everything the new set needs is read before anything changes.
+  let roomTypeIds: string[];
+  try {
+    roomTypeIds = await loadCountingRoomTypeIds(supabase, hotelId);
+  } catch (e) {
+    return failed("room_types", e);
+  }
+  if (roomTypeIds.length === 0) return failed("room_types", "no room type counts as a room");
+
+  // The new set goes in first and the old one comes out after, so a failure
+  // at any point leaves the property with the set it had, the review still
+  // lists what is there, and saving the answer again tries once more.
+  let added: string[];
+  try {
+    added = await insertStarterRules(supabase, hotelId, targetSet.rules, roomTypeIds);
+  } catch (e) {
+    // insertStarterRules has already taken back what it wrote.
+    return failed("insert", e);
+  }
+
+  const removed: string[] = [];
+  for (const r of rules) {
+    if (await deleteRule(String(r.id), supabase)) {
+      removed.push(String(r.name));
+      continue;
+    }
+    await putBack(supabase, hotelId, added, setOf(stats, current)?.rules ?? [], removed, roomTypeIds);
+    return failed("delete", `could not delete rule ${String(r.id)}`);
   }
   return { swapped: true, builtFor: target };
+}
+
+/**
+ * Undo a swap that failed halfway through taking the old set out: the new
+ * rules go, and the old ones already deleted are written again from the set
+ * they were built from (same names, all on, version 1), so the property
+ * reads as untouched and the swap can be tried again.
+ */
+async function putBack(
+  supabase: SupabaseClient,
+  hotelId: string,
+  added: string[],
+  oldSet: StarterRuleSpec[],
+  removedNames: string[],
+  roomTypeIds: string[],
+): Promise<void> {
+  const problems: string[] = [];
+  for (const id of added) {
+    if (!(await deleteRule(id, supabase))) problems.push(`could not delete new rule ${id}`);
+  }
+  const specs = oldSet.filter((spec) => removedNames.includes(spec.name));
+  if (specs.length !== removedNames.length) problems.push("old set not on the job");
+  try {
+    if (specs.length > 0) await insertStarterRules(supabase, hotelId, specs, roomTypeIds);
+  } catch (e) {
+    problems.push(e instanceof Error ? e.message : String(e));
+  }
+  if (problems.length > 0) {
+    console.error(JSON.stringify({ fn: "swapStarterRulesForAnswer", hotelId, step: "put_back", problems }));
+  }
 }

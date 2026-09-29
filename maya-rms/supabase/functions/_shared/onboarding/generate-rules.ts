@@ -341,57 +341,73 @@ export async function generateStarterRules(
 }
 
 /**
- * Write a set of starter rules, each measuring and changing `roomTypeIds`.
+ * Write a set of starter rules, each measuring and changing `roomTypeIds`,
+ * and return their ids in the order of `specs`.
  * Shared by the import and by the swap when the owner answers the last
  * question after the rules were built (src/lib/onboarding/starter-swap.ts).
- * Throws on the first failure, leaving any rule it had started without its
- * condition deleted, so nothing live is left matching every night.
+ * All or nothing: on the first failure it deletes every rule this call wrote
+ * (their conditions and room types go with them), then throws. So nothing
+ * half-built is left matching every night, and a retry starts clean.
  */
 export async function insertStarterRules(
   supabase: SupabaseClient,
   hotelId: string,
   specs: StarterRuleSpec[],
   roomTypeIds: string[],
-): Promise<void> {
-  for (const spec of specs) {
-    const { data: ruleRow, error: insErr } = await supabase
-      .from("pricing_rules")
-      .insert({
-        hotel_id: hotelId,
-        name: spec.name,
-        priority: spec.priority,
-        is_active: true, // live logic, but the hotel is in simulation mode
-        version: 1,
-        start_date: null,
-        end_date: null,
-        is_annual: false,
-        dow_mask: spec.dow_mask ?? 127,
-        action_type: spec.action.action_type,
-        action_direction: spec.action.action_direction,
-        action_value: spec.action.action_value,
-        is_pickup_rule: spec.is_pickup_rule,
-        // Ticked, like every rule (the column's default says the same).
-        undo_on_cancellation: true,
-      })
-      .select("id")
-      .single();
-    if (insErr || !ruleRow) {
-      throw new Error(`starter rule insert failed: ${insErr?.message}`);
-    }
-    const ruleId = String(ruleRow.id);
+): Promise<string[]> {
+  const written: string[] = [];
+  try {
+    for (const spec of specs) {
+      const { data: ruleRow, error: insErr } = await supabase
+        .from("pricing_rules")
+        .insert({
+          hotel_id: hotelId,
+          name: spec.name,
+          priority: spec.priority,
+          is_active: true, // live logic, but the hotel is in simulation mode
+          version: 1,
+          start_date: null,
+          end_date: null,
+          is_annual: false,
+          dow_mask: spec.dow_mask ?? 127,
+          action_type: spec.action.action_type,
+          action_direction: spec.action.action_direction,
+          action_value: spec.action.action_value,
+          is_pickup_rule: spec.is_pickup_rule,
+          // Ticked, like every rule (the column's default says the same).
+          undo_on_cancellation: true,
+        })
+        .select("id")
+        .single();
+      if (insErr || !ruleRow) {
+        throw new Error(`starter rule insert failed: ${insErr?.message}`);
+      }
+      const ruleId = String(ruleRow.id);
+      written.push(ruleId);
 
-    const { error: condErr } = await supabase
-      .from("rule_condition")
-      .insert({ rule_id: ruleId, ...spec.condition });
-    if (condErr) {
-      await supabase.from("pricing_rules").delete().eq("id", ruleId);
-      throw new Error(`rule_condition insert failed: ${condErr.message}`);
-    }
+      const { error: condErr } = await supabase
+        .from("rule_condition")
+        .insert({ rule_id: ruleId, ...spec.condition });
+      if (condErr) throw new Error(`rule_condition insert failed: ${condErr.message}`);
 
-    const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
-    const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
-    if (sigErr) throw new Error(`rule_signal_room_type insert failed: ${sigErr.message}`);
-    const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
-    if (affErr) throw new Error(`rule_affected_room_type insert failed: ${affErr.message}`);
+      const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
+      const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
+      if (sigErr) throw new Error(`rule_signal_room_type insert failed: ${sigErr.message}`);
+      const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
+      if (affErr) throw new Error(`rule_affected_room_type insert failed: ${affErr.message}`);
+    }
+  } catch (e) {
+    // Nothing has fired on a rule this young, so a plain delete is the whole
+    // undo; the condition and room type rows cascade.
+    if (written.length > 0) {
+      const { error: undoErr } = await supabase.from("pricing_rules").delete().in("id", written);
+      if (undoErr) {
+        console.error(
+          JSON.stringify({ fn: "insertStarterRules", hotelId, step: "undo", ruleIds: written, error: undoErr.message }),
+        );
+      }
+    }
+    throw e;
   }
+  return written;
 }

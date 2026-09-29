@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyzeImport } from "../../../supabase/functions/_shared/onboarding/analysis";
 import { loadRateHistory, MAX_RATE_ROWS } from "../../../supabase/functions/_shared/onboarding/rate-moves";
 import type { ImportJobRow } from "../../../supabase/functions/_shared/onboarding/worker-core";
-import { fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
+import { fakeSupabase, type FakeCall, type FakeError, type FakeRow } from "../engine/fake-supabase.test";
 import { INN, seasonal, usualLead, year, TODAY } from "./__fixtures__/rate-history";
 import { starterStatsForStatus, swapStarterRulesForAnswer } from "./starter-swap";
 
@@ -33,6 +33,9 @@ const OWNER = year({
   price: ({ plan, full, daysAhead }) => (full > 0.7 ? plan * 1.15 : daysAhead < 7 && full < 0.5 ? plan * 0.9 : plan),
   seed: 7,
 });
+
+/** Switched on by a test once the import has built the rules. */
+const faults: { on: ((call: FakeCall) => FakeError | null) | null } = { on: null };
 
 function hotel(opts: { answer?: string | null; rules?: FakeRow[]; simulation?: boolean } = {}) {
   const reservations = OWNER.rows.map((r, i) => ({
@@ -67,6 +70,7 @@ function hotel(opts: { answer?: string | null; rules?: FakeRow[]; simulation?: b
       pricing_rules: opts.rules ?? [],
     },
     {
+      fault: (call) => faults.on?.(call) ?? null,
       rpc: (fn) => {
         if (fn === "onboarding_daily_room_nights") return daily;
         if (fn !== "onboarding_room_type_stats") return null;
@@ -219,6 +223,62 @@ describe("answering after the rules were built", () => {
 
     const same = await built();
     expect(await swapStarterRulesForAnswer(same.client, HOTEL, null)).toEqual({ swapped: false, reason: "same" });
+  });
+
+  it("leaves the old set in place when the swap fails, and saving the answer again swaps it", async () => {
+    rank.allowed = true;
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const failures: Array<[string, (call: FakeCall, n: number) => boolean]> = [
+        ["the first new rule", (c) => c.table === "pricing_rules" && c.op === "insert"],
+        ["the second new rule", (c, n) => c.table === "pricing_rules" && c.op === "insert" && n === 2],
+        ["a new rule's condition", (c) => c.table === "rule_condition" && c.op === "insert"],
+        ["the third old rule's delete", (c, n) => c.table === "pricing_rules" && c.op === "delete" && n === 3],
+      ];
+      for (const [what, when] of failures) {
+        const db = await built();
+        const counts = new Map<string, number>();
+        faults.on = (call) => {
+          const key = `${call.table}:${call.op}`;
+          const n = (counts.get(key) ?? 0) + 1;
+          counts.set(key, n);
+          return when(call, n) ? { code: "57014", message: "canceling statement due to statement timeout" } : null;
+        };
+        expect(await swapStarterRulesForAnswer(db.client, HOTEL, "automate_current"), what).toEqual({
+          swapped: false,
+          reason: "failed",
+        });
+        faults.on = null;
+
+        // The property still has the whole set the review lists, untouched.
+        expect(ruleNames(db), what).toEqual(LADDER);
+        expect(db.tables.pricing_rules.every((r) => r.is_active === true && r.version === 1), what).toBe(true);
+        const ids = new Set(db.tables.pricing_rules.map((r) => r.id));
+        expect(db.tables.rule_condition.filter((c) => ids.has(c.rule_id)), what).toHaveLength(LADDER.length);
+        const shown = starterStatsForStatus(db.tables.import_jobs[0].stats as Record<string, unknown>, { floor: 80 })!;
+        expect((shown.starterRules as Array<{ name: string }>).map((r) => r.name).sort(), what).toEqual(LADDER);
+
+        // Saving the answer again swaps it.
+        expect(await swapStarterRulesForAnswer(db.client, HOTEL, "automate_current"), what).toEqual({
+          swapped: true,
+          builtFor: "automate_current",
+        });
+        expect(ruleNames(db), what).toEqual(["Filling-up raise", "Last-minute cut"]);
+      }
+    } finally {
+      faults.on = null;
+      errorLog.mockRestore();
+    }
+  });
+
+  it("an answer whose set is already on the property is recorded, not swapped again", async () => {
+    rank.allowed = true;
+    const db = await built();
+    expect(await swapStarterRulesForAnswer(db.client, HOTEL, "automate_current")).toEqual({ swapped: true, builtFor: "automate_current" });
+    const ids = db.tables.pricing_rules.map((r) => r.id);
+    // The note of the swap was lost: the next save finds the set there.
+    expect(await swapStarterRulesForAnswer(db.client, HOTEL, "automate_current")).toEqual({ swapped: true, builtFor: "automate_current" });
+    expect(db.tables.pricing_rules.map((r) => r.id)).toEqual(ids);
   });
 
   it("does nothing before the import has built them", async () => {
