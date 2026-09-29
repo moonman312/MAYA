@@ -1,17 +1,20 @@
+import { recordSupportChange, requireGodMode } from "@/lib/admin/god-mode";
 import { removeMembership, setMembershipRole } from "@/lib/admin/memberships";
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
 import type { HotelRole } from "@/lib/admin/types";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-/** PATCH body: { userId, role } */
+/** PATCH body: { userId, role }. A team edit: God Mode, and recorded. */
 export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ hotelId: string; membershipId: string }> },
 ) {
   const ctx = await requirePlatformAdmin(await cookies());
   if (!ctx.ok) return ctx.response;
-  const { hotelId } = await params;
+  const god = await requireGodMode(ctx.ssr);
+  if (!god.ok) return god.response;
+  const { hotelId, membershipId } = await params;
 
   let body: { userId: string; role: HotelRole };
   try {
@@ -29,6 +32,16 @@ export async function PATCH(
       userId: body.userId,
       role: body.role,
     });
+    await recordSupportChange(ctx.admin, {
+      sessionId: god.session.id,
+      userId: ctx.user.id,
+      hotelId,
+      tableName: "hotel_memberships",
+      rowId: membershipId,
+      op: "update",
+      after: { user_id: body.userId, role: body.role },
+      summary: `Changed a team member's role to ${body.role.replace(/_/g, " ")}.`,
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
@@ -38,14 +51,16 @@ export async function PATCH(
   }
 }
 
-/** DELETE body: { userId } */
+/** DELETE body: { userId }. A team edit: God Mode, and recorded. */
 export async function DELETE(
   req: Request,
   { params }: { params: Promise<{ hotelId: string; membershipId: string }> },
 ) {
   const ctx = await requirePlatformAdmin(await cookies());
   if (!ctx.ok) return ctx.response;
-  const { hotelId } = await params;
+  const god = await requireGodMode(ctx.ssr);
+  if (!god.ok) return god.response;
+  const { hotelId, membershipId } = await params;
 
   let body: { userId: string };
   try {
@@ -59,6 +74,16 @@ export async function DELETE(
 
   try {
     await removeMembership(ctx.admin, { hotelId, userId: body.userId });
+    await recordSupportChange(ctx.admin, {
+      sessionId: god.session.id,
+      userId: ctx.user.id,
+      hotelId,
+      tableName: "hotel_memberships",
+      rowId: membershipId,
+      op: "delete",
+      before: { user_id: body.userId },
+      summary: "Removed a team member.",
+    });
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

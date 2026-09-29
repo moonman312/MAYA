@@ -3,6 +3,7 @@ import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { classifyRoomType } from "../../../room-types/classify";
@@ -407,6 +408,22 @@ export async function POST(
       await revertClaim();
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+  }
+
+  // The finding itself was claimed under the caller's session, which the
+  // database records on its own in God Mode; the side effects above run with
+  // the service role, so the answer as a whole is recorded here as well.
+  if (isAdminConfigured()) {
+    await recordIfSupport(supabase, createAdminClient(), {
+      userId: user.id,
+      hotelId,
+      tableName: "onboarding_findings",
+      rowId: findingId,
+      op: "update",
+      before: { status: originalStatus },
+      after: { status: newStatus },
+      summary: `${action === "confirm" ? "Confirmed" : "Dismissed"} the setup finding "${String(finding.kind).replace(/_/g, " ")}".`,
+    });
   }
 
   return NextResponse.json({ ok: true });

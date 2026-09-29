@@ -47,7 +47,7 @@ export async function testMewsConnection(
 export async function saveMewsCredentials(
   admin: SupabaseClient,
   input: SetMewsCredentialsInput,
-  opts: { markConnected?: boolean } = {},
+  opts: { markConnected?: boolean; godModeSessionId?: string | null } = {},
 ): Promise<void> {
   const secret = {
     clientToken: input.clientToken,
@@ -84,13 +84,14 @@ export async function saveMewsCredentials(
     p_entity_type: "pms_connection",
     p_entity_id: input.hotelId,
     p_hotel_id: input.hotelId,
-    p_detail: { env: input.env },
+    p_detail: { env: input.env, ...(opts.godModeSessionId ? { god_mode_session_id: opts.godModeSessionId } : {}) },
   });
 }
 
 export async function deleteMewsCredentials(
   admin: SupabaseClient,
   hotelId: string,
+  opts: { godModeSessionId?: string | null } = {},
 ): Promise<void> {
   const { error: secErr } = await admin.rpc("pms_secret_delete", {
     p_hotel_id: hotelId,
@@ -114,5 +115,6 @@ export async function deleteMewsCredentials(
     p_entity_type: "pms_connection",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
+    ...(opts.godModeSessionId ? { p_detail: { god_mode_session_id: opts.godModeSessionId } } : {}),
   });
 }

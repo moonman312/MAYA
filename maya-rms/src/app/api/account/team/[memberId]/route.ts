@@ -1,6 +1,7 @@
 import { loadTeam } from "@/lib/account/team";
 import { removeMembership, revokePendingInvite, setMembershipRole } from "@/lib/admin/memberships";
 import { HOTEL_ROLES, type HotelRole } from "@/lib/roles";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { hasHotelRank, requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
@@ -72,6 +73,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
     // hotelId comes from the session, not the request — the id in the path
     // only ever selects WHICH member, never which property.
     await setMembershipRole(admin, { hotelId: ctx.hotelId, userId: member.userId, role });
+    await recordIfSupport(ctx.supabase, admin, {
+      userId: ctx.userId,
+      hotelId: ctx.hotelId,
+      tableName: "hotel_memberships",
+      rowId: memberId,
+      op: "update",
+      before: { role: member.role },
+      after: { role },
+      summary: `Changed ${member.email}'s role to ${role.replace(/_/g, " ")}.`,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     // Detail to the log only; the page gets a plain sentence (see ../route.ts).
@@ -133,6 +144,15 @@ export async function DELETE(request: Request, { params }: Ctx) {
 
   try {
     await removeMembership(admin, { hotelId: ctx.hotelId, userId: member.userId });
+    await recordIfSupport(ctx.supabase, admin, {
+      userId: ctx.userId,
+      hotelId: ctx.hotelId,
+      tableName: "hotel_memberships",
+      rowId: memberId,
+      op: "delete",
+      before: { email: member.email, role: member.role },
+      summary: `Removed ${member.email} from the team.`,
+    });
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

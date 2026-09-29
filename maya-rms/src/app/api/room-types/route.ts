@@ -8,6 +8,7 @@ import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { classifyRoomType } from "./classify";
@@ -227,6 +228,17 @@ export async function PATCH(req: Request) {
       case "unchanged":
         // Same denominator as before: nothing to re-price.
         break;
+    }
+    if (outcome.kind === "changed") {
+      await recordIfSupport(supabase, admin, {
+        userId: user.id,
+        hotelId,
+        tableName: "room_types",
+        rowId: roomTypeId,
+        op: "update",
+        after: { counts_as_room: countsAsRoom },
+        summary: countsAsRoom ? "Counted a room type as a room." : "Stopped counting a room type as a room.",
+      });
     }
 
     return NextResponse.json({ ok: true });

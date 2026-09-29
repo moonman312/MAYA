@@ -5,6 +5,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -129,6 +130,16 @@ export async function POST() {
       headers: { "x-onboarding-cron-secret": secret },
     }).catch(() => {});
   }
+
+  await recordIfSupport(supabase, admin, {
+    userId: user.id,
+    hotelId,
+    tableName: "import_jobs",
+    rowId: String(job.id),
+    op: "insert",
+    after: { mode: "refresh", pms_type: conn.pms_type },
+    summary: "Started a fresh read of the booking history.",
+  });
 
   return NextResponse.json({ ok: true, jobId: job.id });
 }

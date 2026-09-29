@@ -70,6 +70,7 @@ vi.mock("@/utils/supabase/server", () => ({
   },
 }));
 vi.mock("@/utils/supabase/admin", () => ({
+  isAdminConfigured: () => true,
   createAdminClient: () => ({
     from: () => ({
       select: () => ({

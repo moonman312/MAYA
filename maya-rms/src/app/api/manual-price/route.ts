@@ -39,6 +39,7 @@ import { hotelToday } from "@/lib/simulator";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { bad, gate, readBody } from "./gate";
@@ -407,6 +408,19 @@ export async function POST(req: Request) {
       clamped_by: clamp.clamped_by,
     }));
 
+    await recordIfSupport(gated.supabase, admin, {
+      userId,
+      hotelId: range.hotelId,
+      tableName: "manual_price",
+      rowId: `${range.roomTypeId}:${range.dateFrom}:${range.dateTo}`,
+      op: "insert",
+      after: { room_type_id: range.roomTypeId, date_from: range.dateFrom, date_to: range.dateTo, price },
+      summary:
+        dates.length === 1
+          ? `Set a manual price of ${price} on ${range.dateFrom}.`
+          : `Set a manual price of ${price} on ${dates.length} nights from ${range.dateFrom} to ${range.dateTo}.`,
+    });
+
     return NextResponse.json({
       ok: true,
       cells: dates.length,
@@ -478,6 +492,16 @@ export async function DELETE(req: Request) {
     }
 
     await republish(admin, range, today, now);
+
+    await recordIfSupport(gated.supabase, admin, {
+      userId,
+      hotelId: range.hotelId,
+      tableName: "manual_price",
+      rowId: `${range.roomTypeId}:${range.dateFrom}:${range.dateTo}`,
+      op: "update",
+      after: { room_type_id: range.roomTypeId, date_from: range.dateFrom, date_to: range.dateTo, cleared: (cleared ?? []).length },
+      summary: `Cleared the manual price on ${(cleared ?? []).length} night${(cleared ?? []).length === 1 ? "" : "s"} from ${range.dateFrom} to ${range.dateTo}.`,
+    });
 
     return NextResponse.json({ ok: true, cells: (cleared ?? []).length });
   } catch (error) {

@@ -7,15 +7,19 @@
  * also corrects last week's chart.
  */
 
+import { recordSupportChange, requireGodMode } from "@/lib/admin/god-mode";
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
+/** A change to the hotel's row, so it needs God Mode and is recorded like any other. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ hotelId: string }> }) {
   const ctx = await requirePlatformAdmin(await cookies());
   if (!ctx.ok) return ctx.response;
+  const god = await requireGodMode(ctx.ssr);
+  if (!god.ok) return god.response;
 
   const { hotelId } = await params;
   const body = (await request.json().catch(() => null)) as { isTest?: boolean } | null;
@@ -25,6 +29,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ho
 
   const { error } = await ctx.admin.from("hotels").update({ is_test: body.isTest }).eq("id", hotelId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  await recordSupportChange(ctx.admin, {
+    sessionId: god.session.id,
+    userId: ctx.user.id,
+    hotelId,
+    tableName: "hotels",
+    rowId: hotelId,
+    op: "update",
+    after: { is_test: body.isTest },
+    summary: body.isTest ? "Marked the property as a test property." : "Marked the property as a real customer.",
+  });
 
   const { error: histErr } = await ctx.admin
     .from("hotel_metrics_daily")

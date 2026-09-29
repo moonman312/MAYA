@@ -20,6 +20,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -74,6 +75,16 @@ export async function POST() {
     const requested = !requestError;
 
     const pushed = isAdminConfigured() ? await nudgeHotelSync(createAdminClient(), hotelId) : "next_cycle";
+    if (requested && isAdminConfigured()) {
+      await recordIfSupport(supabase, createAdminClient(), {
+        userId: user.id,
+        hotelId,
+        tableName: "hotel_pricing_state",
+        rowId: hotelId,
+        op: "update",
+        summary: "Asked for every night's price to be worked out again.",
+      });
+    }
     return NextResponse.json({ ok: true, hotel_id: hotelId, requested, pushed });
   } catch (error) {
     return NextResponse.json(

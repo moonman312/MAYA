@@ -16,7 +16,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 export type Gate =
-  | { ok: true; userId: string; admin: SupabaseClient }
+  | { ok: true; userId: string; admin: SupabaseClient; supabase: SupabaseClient }
   | { ok: false; response: NextResponse };
 
 export function bad(message: string): NextResponse {
@@ -90,5 +90,5 @@ export async function gate(hotelId: unknown): Promise<Gate> {
     };
   }
 
-  return { ok: true, userId: user.id, admin: createAdminClient() };
+  return { ok: true, userId: user.id, admin: createAdminClient(), supabase };
 }

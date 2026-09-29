@@ -140,13 +140,15 @@ export async function getHotelSimulationMode(
  *
  * `actorUserId` is the platform admin who flipped it. It rides in the audit
  * event's detail, as every service-role audit write does: platform_log_event
- * stores auth.uid(), which is null under the service role.
+ * stores auth.uid(), which is null under the service role. `godModeSessionId`
+ * is the God Mode window it was flipped in, beside it.
  */
 export async function setHotelSimulationMode(
   admin: SupabaseClient,
   hotelId: string,
   simulationMode: boolean,
   actorUserId: string | null = null,
+  godModeSessionId: string | null = null,
 ): Promise<void> {
   const { error } = await admin
     .from("hotel_settings")
@@ -159,6 +161,10 @@ export async function setHotelSimulationMode(
     p_entity_type: "hotel",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
-    p_detail: { simulation_mode: simulationMode, ...(actorUserId ? { actor_user_id: actorUserId } : {}) },
+    p_detail: {
+      simulation_mode: simulationMode,
+      ...(actorUserId ? { actor_user_id: actorUserId } : {}),
+      ...(godModeSessionId ? { god_mode_session_id: godModeSessionId } : {}),
+    },
   });
 }

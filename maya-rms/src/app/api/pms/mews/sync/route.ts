@@ -3,6 +3,7 @@ import { runMewsSyncForHotel } from "@/lib/mews/sync-hotel";
 import { requireEntitledHotel } from "@/lib/billing/require-entitled";
 import { hotelsImportingNow } from "@/lib/pms/parked";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
@@ -117,6 +118,17 @@ export async function POST(req: Request) {
     } finally {
       // Released however the run ends, so a thrown sync never pins the claim.
       await releaseClaim(result?.ok ?? false);
+    }
+
+    if (result.ok) {
+      await recordIfSupport(ctx.supabase, admin, {
+        userId: ctx.userId,
+        hotelId: ctx.hotelId,
+        tableName: "pms_connections",
+        rowId: ctx.hotelId,
+        op: "update",
+        summary: "Ran a sync with Mews.",
+      });
     }
 
     if (!result.ok) {

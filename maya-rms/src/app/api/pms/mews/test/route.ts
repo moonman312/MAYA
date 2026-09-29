@@ -1,4 +1,5 @@
 import { mewsConfigurationGet } from "@/lib/mews/client";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { resolveMewsCredentials, summarizeEnterprise } from "@/lib/mews/resolve-credentials";
 import type { MewsCredentialsInput } from "@/lib/mews/types";
@@ -51,6 +52,15 @@ export async function POST(req: Request) {
           updated_at: new Date().toISOString(),
         })
         .eq("id", resolved.connectionId);
+      await recordIfSupport(ctx.supabase, admin, {
+        userId: ctx.userId,
+        hotelId: ctx.hotelId,
+        tableName: "pms_connections",
+        rowId: String(resolved.connectionId),
+        op: "update",
+        after: { status: "connected" },
+        summary: "Tested the Mews connection and marked it connected.",
+      });
     }
 
     return NextResponse.json({

@@ -3,6 +3,7 @@ import { inviteUserToHotel } from "@/lib/admin/memberships";
 import { seatLimitMessage } from "@/lib/billing/seats";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { HOTEL_ROLES, type HotelRole } from "@/lib/roles";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { hasHotelRank, requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { cookies } from "next/headers";
@@ -115,6 +116,17 @@ export async function POST(request: Request) {
       // Named in the invitation, so it reads as a colleague adding them rather
       // than an unexplained email from a product they have never heard of.
       inviterEmail: user?.email ?? null,
+    });
+    await recordIfSupport(ctx.supabase, admin, {
+      userId: ctx.userId,
+      hotelId: ctx.hotelId,
+      tableName: result.existingUser ? "hotel_memberships" : "pending_memberships",
+      rowId: result.pendingId,
+      op: "insert",
+      after: { email, role },
+      summary: result.existingUser
+        ? `Added ${email} to the team as ${role.replace(/_/g, " ")}.`
+        : `Invited ${email} to the team as ${role.replace(/_/g, " ")}.`,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {

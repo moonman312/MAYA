@@ -1,5 +1,6 @@
 import "server-only";
-import { createAdminClient } from "@/utils/supabase/admin";
+import { recordIfSupport } from "@/lib/admin/god-mode";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient as createSSRClient } from "@/utils/supabase/server";
 import { findPendingHotelForUser } from "@/lib/billing/pending-hotel";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
@@ -59,6 +60,20 @@ export async function buildAuthorizeRedirect(
     // link used to reconnect for someone who was never shown the button.
     if (!(await canReconnectHotel(ssr, target.hotelId))) {
       return renderNotice("Reconnecting needs General Manager access or higher on this property.", 403);
+    }
+    // The connection itself is written by the vendor's callback with the
+    // service role and no session to ask, so support's reconnect is recorded
+    // here, where the person and their window are known.
+    if (isAdminConfigured()) {
+      await recordIfSupport(ssr, createAdminClient(), {
+        userId: user.id,
+        hotelId: target.hotelId,
+        tableName: "pms_connections",
+        rowId: target.hotelId,
+        op: "update",
+        after: { pms_type: pmsType },
+        summary: `Started reconnecting the property system (${pmsType}).`,
+      });
     }
   } else {
     // The paywall. Connecting a PMS is what turns a signup into a working

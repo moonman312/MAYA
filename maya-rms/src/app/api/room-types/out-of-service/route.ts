@@ -20,6 +20,7 @@ import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { isPreMigration, scheduleReprice } from "../reprice";
@@ -41,7 +42,7 @@ type Body = {
 };
 
 type Gate =
-  | { ok: true; userId: string; admin: SupabaseClient }
+  | { ok: true; userId: string; admin: SupabaseClient; supabase: SupabaseClient }
   | { ok: false; response: NextResponse };
 
 function bad(message: string): NextResponse {
@@ -122,7 +123,7 @@ async function gate(hotelId: unknown): Promise<Gate> {
       ),
     };
   }
-  return { ok: true, userId: user.id, admin: createAdminClient() };
+  return { ok: true, userId: user.id, admin: createAdminClient(), supabase };
 }
 
 /**
@@ -267,6 +268,15 @@ export async function POST(req: Request) {
       reason,
     });
     await scheduleReprice(admin, hotelId, "room-types/out-of-service");
+    await recordIfSupport(gated.supabase, admin, {
+      userId,
+      hotelId,
+      tableName: "room_type_out_of_service",
+      rowId: id,
+      op: "insert",
+      after: { room_type_id: roomTypeId, start_date: startDate, end_date: endDate, units, name },
+      summary: `Blocked ${units} room${units === 1 ? "" : "s"} from ${startDate} to ${endDate}.`,
+    });
 
     return NextResponse.json({ ok: true, id });
   } catch (error) {
@@ -308,6 +318,16 @@ export async function DELETE(req: Request) {
       units: row.units,
     });
     await scheduleReprice(admin, hotelId, "room-types/out-of-service");
+    await recordIfSupport(gated.supabase, admin, {
+      userId,
+      hotelId,
+      tableName: "room_type_out_of_service",
+      rowId: id,
+      op: "update",
+      before: { start_date: row.start_date, end_date: row.end_date, units: row.units },
+      after: { cleared_at: now },
+      summary: `Cleared a room block from ${row.start_date} to ${row.end_date}.`,
+    });
 
     return NextResponse.json({ ok: true, id, cleared_at: now, cleared_by: userId });
   } catch (error) {

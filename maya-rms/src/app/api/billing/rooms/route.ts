@@ -1,5 +1,7 @@
 import { requireEntitledHotel } from "@/lib/billing/require-entitled";
+import { recordIfSupport } from "@/lib/admin/god-mode";
 import { requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
 import { isBillableRoomCount, MAX_ROOMS } from "@/lib/billing/tiers";
 import { cookies } from "next/headers";
@@ -76,6 +78,19 @@ export async function PATCH(req: Request) {
       // never to touch this screen again.
       proration_behavior: "create_prorations",
     });
+
+    if (isAdminConfigured()) {
+      await recordIfSupport(ctx.supabase, createAdminClient(), {
+        userId: ctx.userId,
+        hotelId: ctx.hotelId,
+        tableName: "hotel_subscriptions",
+        rowId: String(sub.stripe_subscription_id),
+        op: "update",
+        before: { billed_rooms: Number(sub.billed_rooms) },
+        after: { billed_rooms: rooms },
+        summary: `Changed the billed room count from ${Number(sub.billed_rooms)} to ${rooms}.`,
+      });
+    }
 
     return NextResponse.json({ ok: true, rooms });
   } catch (error) {

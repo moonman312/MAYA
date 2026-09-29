@@ -1,3 +1,4 @@
+import { recordSupportChange, requireGodMode } from "@/lib/admin/god-mode";
 import { inviteUserToHotel } from "@/lib/admin/memberships";
 import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
 import type { HotelRole } from "@/lib/admin/types";
@@ -9,9 +10,12 @@ type Body = {
   role: HotelRole;
 };
 
+/** Adding someone to a property's team is a hotel edit: God Mode, and recorded. */
 export async function POST(req: Request, { params }: { params: Promise<{ hotelId: string }> }) {
   const ctx = await requirePlatformAdmin(await cookies());
   if (!ctx.ok) return ctx.response;
+  const god = await requireGodMode(ctx.ssr);
+  if (!god.ok) return god.response;
   const { hotelId } = await params;
 
   let body: Body;
@@ -30,6 +34,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ hotelId
       hotelId,
       role: body.role,
       inviterEmail: ctx.user.email ?? null,
+    });
+    await recordSupportChange(ctx.admin, {
+      sessionId: god.session.id,
+      userId: ctx.user.id,
+      hotelId,
+      tableName: result.existingUser ? "hotel_memberships" : "pending_memberships",
+      rowId: result.pendingId,
+      op: "insert",
+      after: { email: body.email.trim().toLowerCase(), role: body.role },
+      summary: result.existingUser
+        ? `Added ${body.email.trim().toLowerCase()} to the team as ${body.role.replace(/_/g, " ")}.`
+        : `Invited ${body.email.trim().toLowerCase()} to the team as ${body.role.replace(/_/g, " ")}.`,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
