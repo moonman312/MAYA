@@ -177,6 +177,9 @@ export type BillingTone = "ok" | "warn" | "stopped";
 
 export type BillingHeadline = { tone: BillingTone; title: string; detail: string };
 
+/** What has stopped, said the same way on every stopped card. */
+const STOPPED = "Your rules no longer run on a schedule and nothing is sent to your PMS.";
+
 /**
  * The one sentence at the top of the billing page.
  *
@@ -195,8 +198,8 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
       tone: "stopped",
       title: "MAYA has paused work on this property",
       detail: recoverable
-        ? "Prices are no longer being calculated or sent to your PMS. Update your card and the subscription restarts where it left off."
-        : "Prices are no longer being calculated or sent to your PMS. Your subscription was cancelled, so starting again means a new one — restart below whenever you're ready.",
+        ? `${STOPPED} Update your card and the subscription restarts where it left off.`
+        : `${STOPPED} Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready.`,
     };
   }
 

@@ -37,11 +37,22 @@ describe("headlineFor", () => {
     // Two different fixes hide under "not entitled" — the wrong pointer wastes
     // the owner's time, and pointing unpaid at a new checkout double-bills.
     const cancelled = headlineFor(billing({ entitled: false, status: "canceled" }), NOW);
-    expect(cancelled.detail).toContain("restart below");
+    expect(cancelled.detail).toMatch(/restart below/i);
 
     const unpaid = headlineFor(billing({ entitled: false, status: "unpaid" }), NOW);
     expect(unpaid.detail).toContain("card");
-    expect(unpaid.detail).not.toContain("restart below");
+    expect(unpaid.detail).not.toMatch(/restart below/i);
+  });
+
+  it("says what stopped in the owner's terms, with no dashes", () => {
+    for (const status of ["canceled", "unpaid"]) {
+      const h = headlineFor(billing({ entitled: false, status }), NOW);
+      expect(h.detail).toMatch(
+        /^Your rules no longer run on a schedule and nothing is sent to your PMS\. /,
+      );
+      expect(h.detail).not.toMatch(/calculated/i);
+      expect(h.detail).not.toContain("—");
+    }
   });
 
 
@@ -58,7 +69,7 @@ describe("headlineFor", () => {
     );
     expect(h.tone).toBe("stopped");
     expect(h.title).toMatch(/paused/i);
-    expect(h.detail).toMatch(/no longer being calculated/i);
+    expect(h.detail).toMatch(/no longer run on a schedule/i);
   });
 
   it("points an unpaid property at its card, which genuinely revives it", async () => {
