@@ -33,16 +33,15 @@ import { isMissingColumnError, isMissingRelationError } from "@/lib/engine/snaps
 import { hotelRuleIds, setManualPrices } from "@/lib/pms/manual-price";
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { lastNightOf, MAX_PRICING_HORIZON_DAYS } from "@/lib/pms/pricing-window";
+import { SENDS_PRICES } from "@/lib/pms/send-status";
 import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
-import { enforceRateLimit } from "@/lib/rate-limit";
-import { roleLabel } from "@/lib/roles";
 import { hotelToday } from "@/lib/simulator";
-import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { bad, gate, readBody } from "./gate";
 
 // The save itself is quick; the re-evaluation behind it is not. Same cap as
 // /api/evaluate rather than whatever the platform default happens to be.
@@ -70,8 +69,12 @@ const MAX_PRICE = 99_999_999.99;
  * "billing_paused": the subscription has stopped, and the scheduled syncs
  * skip the hotel (splitByEntitlement), so nothing goes out. The response
  * carries billingStatus, because the way back differs by status.
- * "reconnect": the hotel's connection is Disconnected or Error, and the
- * syncs never claim it, so nothing goes out until the owner reconnects.
+ * "reconnect": the hotel's connection is Disconnected, which the syncs never
+ * claim, so nothing goes out until the owner reconnects.
+ * "connection_error": the connection reads Error. The syncs keep claiming it
+ * and trying to read (claim_pms_sync_batch skips only Disconnected and
+ * Pending); the first read that works turns it Connected and that same tick
+ * sends the price. No nudge: a read is what it is waiting for.
  * "saved": the hotel's mode or its connection could not be read just now, so
  * the line promises nothing about sending.
  */
@@ -83,6 +86,7 @@ type Pushed =
   | "zero_not_sent"
   | "billing_paused"
   | "reconnect"
+  | "connection_error"
   | "saved";
 
 /**
@@ -105,14 +109,6 @@ type PostBody = {
 
 type Range = { hotelId: string; roomTypeId: string; dateFrom: string; dateTo: string };
 
-type Gate =
-  | { ok: true; userId: string; admin: SupabaseClient }
-  | { ok: false; response: NextResponse };
-
-function bad(message: string): NextResponse {
-  return NextResponse.json({ error: message }, { status: 400 });
-}
-
 /**
  * The route's failure shape. One case is not a fault: manual_price arrives in
  * its own migration, and this code can be deployed ahead of it. Then the save
@@ -132,15 +128,6 @@ function failed(error: unknown, step: string): NextResponse {
   }
   const { status, message } = dbErrorResponse(error);
   return NextResponse.json({ error: message }, { status });
-}
-
-async function readBody(req: Request): Promise<PostBody> {
-  try {
-    const text = await req.text();
-    return text ? (JSON.parse(text) as PostBody) : {};
-  } catch {
-    return {};
-  }
 }
 
 function isoDatePlus(iso: string, days: number): string {
@@ -177,67 +164,6 @@ function splitByPushWindow(range: Range, today: string, days: number): PushWindo
   const inside = daysBetween(range.dateFrom, lastPushed) + 1;
   const now = Math.max(0, Math.min(nights, inside));
   return { now, later: nights - now, days };
-}
-
-/**
- * Sign-in, hotel rank, service-role availability, and the per-user budget —
- * in that order, so a signed-out caller can't spend rate-limit hits and a
- * viewer can't learn whether the server is fully configured.
- */
-async function gate(hotelId: unknown): Promise<Gate> {
-  if (!isSupabaseConfigured()) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Supabase is required to set a manual price." },
-        { status: 501 },
-      ),
-    };
-  }
-
-  const supabase = createClient(await cookies());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
-
-  if (typeof hotelId !== "string" || !isUuid(hotelId)) {
-    return { ok: false, response: bad("Pick a property first.") };
-  }
-
-  const { data: canManage } = await supabase.rpc("can_manage_hotel", {
-    target_hotel_id: hotelId,
-  });
-  if (!canManage) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: `This needs ${roleLabel("revenue_manager")} access or higher on this property.` },
-        { status: 403 },
-      ),
-    };
-  }
-
-  const throttled = await enforceRateLimit(
-    "manualPrice",
-    user.id,
-    "That's a lot of price changes at once. Give it a minute and try again.",
-  );
-  if (throttled) return { ok: false, response: throttled };
-
-  if (!isAdminConfigured()) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: "Manual prices need SUPABASE_SERVICE_ROLE_KEY set on the server." },
-        { status: 503 },
-      ),
-    };
-  }
-
-  return { ok: true, userId: user.id, admin: createAdminClient() };
 }
 
 /** Shape checks that need no database: ids, dates, ordering, span. */
@@ -306,19 +232,16 @@ async function stoppedSubscription(admin: SupabaseClient, hotelId: string): Prom
 }
 
 /**
- * The systems a price is sent to. Mews is read-only for now (G2, on hold), so
- * a Mews property's line stays as it is until sending to Mews is built.
+ * How the hotel's connection is down, when nothing of its works: "error"
+ * when a connection MAYA sends to reads Error (the syncs keep trying it, and
+ * the first read that works sends the price), "disconnected" when one reads
+ * Disconnected (the syncs never claim it, so the price waits for a
+ * reconnect), false otherwise. A working connection beside a stale one
+ * decides it, as it does for the nudge (hotelPmsType); Pending, or no
+ * connection, is not down. Null when the connections could not be read:
+ * nobody can say.
  */
-const SENDS_PRICES = new Set(["cloudbeds", "think"]);
-
-/**
- * True when the hotel's connection is Disconnected or Error and nothing else
- * of its works: the syncs never claim such a connection, so a price waits
- * for a reconnect. A working connection beside a stale one decides it, as it
- * does for the nudge (hotelPmsType); Pending, or no connection, is not down.
- * Null when the connections could not be read: nobody can say.
- */
-async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<boolean | null> {
+async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<"disconnected" | "error" | false | null> {
   const { data, error } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
   if (error) return null;
   const rows = ((data ?? []) as { pms_type?: unknown; status?: unknown }[]).map((r) => ({
@@ -326,7 +249,9 @@ async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<b
     status: String(r.status),
   }));
   if (rows.some((r) => r.status === "connected" || r.status === "degraded")) return false;
-  return rows.some((r) => (r.status === "disconnected" || r.status === "error") && SENDS_PRICES.has(r.pms));
+  const sending = rows.filter((r) => SENDS_PRICES.has(r.pms));
+  if (sending.some((r) => r.status === "error")) return "error";
+  return sending.some((r) => r.status === "disconnected") ? "disconnected" : false;
 }
 
 async function pushFor(
@@ -369,7 +294,10 @@ async function pushFor(
   // Same reading as the push gate itself: no settings row is not Live.
   if (settings?.simulation_mode !== false) return { pushed: "simulation" };
   if (down === null) return { pushed: "saved" };
-  // Nothing goes out until the owner reconnects, so no nudge either.
+  // On Error the syncs are already trying to read; the read that works
+  // sends the price on that tick, so a nudge would only add a call to a
+  // system that is not answering. Disconnected is never claimed at all.
+  if (down === "error") return { pushed: "connection_error" };
   if (down) return { pushed: "reconnect" };
   // Only when NOTHING in the range is pushable. A range that straddles the
   // horizon is nudged for the near nights; the far ones go as they come into
@@ -382,7 +310,7 @@ async function pushFor(
 
 export async function POST(req: Request) {
   try {
-    const body = await readBody(req);
+    const body = await readBody<PostBody>(req);
     const gated = await gate(body.hotelId);
     if (!gated.ok) return gated.response;
     const { userId, admin } = gated;
@@ -498,7 +426,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const body = await readBody(req);
+    const body = await readBody<PostBody>(req);
     const gated = await gate(body.hotelId);
     if (!gated.ok) return gated.response;
     const { userId, admin } = gated;

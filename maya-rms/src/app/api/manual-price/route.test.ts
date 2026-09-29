@@ -599,17 +599,28 @@ describe("POST /api/manual-price — pushed", () => {
     expect(body).toMatchObject({ pushed: "simulation", pushWindow: { now: 2, later: 2 } });
   });
 
-  it("reconnect, with no nudge, when the connection is Disconnected or Error", async () => {
-    for (const status of ["disconnected", "error"]) {
+  it("reconnect when the connection is Disconnected, connection_error when it reads Error, neither nudged", async () => {
+    for (const [status, pushed] of [
+      ["disconnected", "reconnect"],
+      ["error", "connection_error"],
+    ]) {
       state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status }] });
       const body = await (await post()).json();
-      expect(body.pushed).toBe("reconnect");
+      expect(body.pushed, status).toBe(pushed);
       expect(body.billingStatus).toBeUndefined();
     }
     expect(fetchSpy).not.toHaveBeenCalled();
     // The price is still saved and priced.
     expect(tables().get("manual_price")).toHaveLength(1);
     expect(evaluateHotel).toHaveBeenCalled();
+    // A stale Disconnected row beside an Error one: MAYA is still trying the Error one.
+    state.fake = seed({
+      pms_connections: [
+        { hotel_id: HOTEL, pms_type: "think", status: "disconnected" },
+        { hotel_id: HOTEL, pms_type: "cloudbeds", status: "error" },
+      ],
+    });
+    expect((await (await post()).json()).pushed).toBe("connection_error");
   });
 
   it("a Degraded or Pending connection, or a working one beside a stale one, is not down", async () => {
