@@ -198,6 +198,12 @@ export async function handleOAuthCallback(
   // URL. A forged state therefore buys nothing a bare Flow A callback does not
   // already allow.
   const verified = state ? verifyState(state, pmsType) : null;
+  // Except a link we signed that simply ran out: that one is ours, so it is
+  // no Marketplace grant. Taken as one, it ended ThinkReservations on a
+  // Marketplace error with a link to the staff console. Nothing is exchanged.
+  if (verified != null && !verified.ok && verified.expired) {
+    return renderNotice("That sign-in link ran out after 15 minutes. Start again from MAYA.");
+  }
   const isMarketplace = !state || (verified != null && !verified.ok);
   if (verified != null && !verified.ok) {
     console.warn(

@@ -76,6 +76,15 @@ describe("oauth state", () => {
       nonce: "abc",
       exp: Date.now() - 1000,
     });
-    expect(verifyState(expired, "cloudbeds").ok).toBe(false);
+    expect(verifyState(expired, "cloudbeds")).toMatchObject({ ok: false, expired: true });
+  });
+
+  it("only calls a state expired when it is ours and too old", async () => {
+    const { signState, verifyState } = await mod();
+    const state = signState("hotel-123", "think");
+    const [, sig] = state.split(".");
+    const forged = `${b64url(Buffer.from(JSON.stringify({ hotelId: "h", pmsType: "think", nonce: "n", exp: 1 }), "utf-8"))}.${sig}`;
+    expect(verifyState(forged, "think")).not.toHaveProperty("expired");
+    expect(verifyState(state, "think")).not.toHaveProperty("expired");
   });
 });

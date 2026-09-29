@@ -87,7 +87,7 @@ export function signOnboardingState(userId: string, pmsType: string): string {
 export type StateVerification =
   | { ok: true; intent: "hotel"; hotelId: string; pmsType: string }
   | { ok: true; intent: "onboarding"; userId: string; pmsType: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; expired?: true };
 
 export function verifyState(state: string, expectedPmsType: string): StateVerification {
   const parts = state.split(".");
@@ -118,8 +118,11 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (payload.pmsType !== expectedPmsType) {
     return { ok: false, error: `State was signed for '${payload.pmsType}' not '${expectedPmsType}'` };
   }
-  if (typeof payload.exp !== "number" || payload.exp < Date.now()) {
-    return { ok: false, error: "State expired" };
+  if (typeof payload.exp !== "number") return { ok: false, error: "State expired" };
+  if (payload.exp < Date.now()) {
+    // Signed by us and simply too old: the one failure the person at the
+    // browser caused themselves, by taking longer than STATE_TTL_MS to sign in.
+    return { ok: false, error: "State expired", expired: true };
   }
 
   if (payload.intent === "onboarding") {
