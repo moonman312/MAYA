@@ -25,6 +25,8 @@ export type OnboardingStatus = {
     finished_at: string | null;
     stats?: {
       starterRules?: Array<{ name: string; explanation: string }>;
+      /** Why the starter rules are not what the last question's answer asked for. */
+      starterRulesNote?: string;
       /** Stamped once findings and starter rules exist for the first three years. */
       earlyAnalysisAt?: string;
       currentSync?: { covered?: boolean; passes?: number };

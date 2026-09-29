@@ -428,6 +428,21 @@ describe("changelog route: a large property's runs", () => {
     expect(current.body[0].changes).toHaveLength(36); // 45 rows, one in five unchanged
   });
 
+  it("says how many more changes a run made than the 40 it shows", async () => {
+    const seed = hotelWithRuns((run) => (run === 11 ? 2500 : 30));
+    const current = await getWith(seed);
+    // 2,500 rows, one in five a night's first row at its base.
+    expect(current.body[0].changes).toHaveLength(40);
+    expect(current.body[0]).toMatchObject({ total_changes: 2000 });
+    expect(current.body[0].total_is_minimum).toBeUndefined();
+    // A run that shows every change it made carries no count.
+    expect(current.body[1].total_changes).toBeUndefined();
+    // Without the run log the one read stops at 600 rows, so it can only say "at least".
+    const legacy = await getWith(seed, { noRunLog: true });
+    expect(legacy.body[0]).toMatchObject({ total_is_minimum: true });
+    expect(legacy.body[0].total_changes).toBeGreaterThan(40);
+  });
+
   it("still shows older runs' changes when the newest run alone wrote thousands of rows", async () => {
     const seed = hotelWithRuns((run) => (run === 11 ? 2500 : 30));
     const legacy = await getWith(seed, { noRunLog: true });

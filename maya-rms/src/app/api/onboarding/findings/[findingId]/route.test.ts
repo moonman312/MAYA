@@ -301,6 +301,37 @@ describe("add_rule: an accepted suggestion", () => {
     expect(res.status).toBe(200);
     expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Busy nights", undo_on_cancellation: true });
   });
+
+  it("keeps the days of a rule copied from the owner's weekend moves, and every day otherwise", async () => {
+    const finding = (id: string, spec: Record<string, unknown>) => ({
+      id,
+      hotel_id: HOTEL,
+      kind: "rule_suggestion",
+      status: "proposed",
+      payload: {
+        suggestion_type: "add_rule",
+        room_type_ids: ["rt1"],
+        spec: {
+          priority: 100,
+          condition: { occupancy_operator: "gt", occupancy_threshold: 0.6 },
+          action: { action_type: "percent", action_direction: "increase", action_value: 20 },
+          is_pickup_rule: false,
+          ...spec,
+        },
+      },
+    });
+    const { client, tables } = fakeSupabase({
+      onboarding_findings: [finding("f1", { name: "Filling-up raise (Fri and Sat)", dow_mask: 48 })],
+    });
+    state.client = client;
+    expect((await post({ action: "confirm" })).status).toBe(200);
+    expect(tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Filling-up raise (Fri and Sat)", dow_mask: 48 });
+
+    const bad = fakeSupabase({ onboarding_findings: [finding("f1", { name: "Odd days", dow_mask: 400 })] });
+    state.client = bad.client;
+    expect((await post({ action: "confirm" })).status).toBe(200);
+    expect(bad.tables.get("pricing_rules")?.[0]).toMatchObject({ name: "Odd days", dow_mask: 127 });
+  });
 });
 
 describe("remove_rule: delete vs turn-it-off", () => {

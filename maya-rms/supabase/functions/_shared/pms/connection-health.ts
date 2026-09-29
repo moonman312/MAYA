@@ -55,6 +55,77 @@ export function isAuthRevocation(
 }
 
 /**
+ * Count one read the PMS refused as bad credentials, and mark the connection
+ * Error once `threshold` have come in a row (pms_note_auth_failure in
+ * 99_supabase_migration_connection_outage_notice_v1.sql). A good read sets the
+ * count back to 0: the trigger there resets it whenever last_sync_at moves.
+ *
+ * For a PMS whose credentials are keys rather than a grant. Nothing on the
+ * vendor's side ever tells MAYA a key was revoked, so a string of refusals is
+ * the only signal, and one refusal alone is not trusted with a status change.
+ * Error rather than Disconnected, because the scheduler keeps retrying Error
+ * connections and the first read that works puts it back to Connected.
+ *
+ * Never throws, for the same reason as markConnectionDisconnected.
+ */
+export async function noteAuthFailure(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsTypeName,
+  threshold: number,
+  reason: string,
+): Promise<{ failures: number; status: string } | null> {
+  try {
+    const { data, error } = await supabase.rpc("pms_note_auth_failure", {
+      p_hotel_id: hotelId,
+      p_pms_type: pmsType,
+      p_threshold: threshold,
+    });
+    if (error) throw new Error(error.message);
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { failures?: unknown; new_status?: unknown }
+      | null
+      | undefined;
+    // No row: the connection is pending or disconnected, so nothing counts.
+    if (!row) return null;
+    const failures = Number(row.failures);
+    const status = String(row.new_status);
+    const markedError = status === "error" && failures === Math.max(1, threshold);
+    console.log(
+      JSON.stringify({
+        fn: "noteAuthFailure",
+        hotelId,
+        pmsType,
+        failures,
+        status,
+        reason: reason.slice(0, 300),
+        event: markedError ? "marked_error" : "auth_refused",
+      }),
+    );
+    if (markedError) {
+      await supabase.rpc("platform_log_event", {
+        p_event_type: "pms.auth_failing",
+        p_entity_type: "pms_connection",
+        p_entity_id: hotelId,
+        p_hotel_id: hotelId,
+        p_detail: { pms_type: pmsType, failures, reason: reason.slice(0, 300) },
+      });
+    }
+    return { failures, status };
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "noteAuthFailure",
+        hotelId,
+        pmsType,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return null;
+  }
+}
+
+/**
  * Record that a property's connection is no longer authorised. Idempotent, and
  * never throws: this runs inside failure handling, and a bookkeeping write that
  * fails must not replace the original error with its own.

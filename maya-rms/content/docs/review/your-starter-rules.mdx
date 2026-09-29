@@ -1,10 +1,10 @@
 ---
 title: Your starter rules
-summary: The five booking speed rules MAYA builds during a first import, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.
+summary: The rules MAYA builds during a first import, which depend on your answer to the last of the five questions, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.
 section: review
 order: 50
-readingTime: 12
-keywords: [starter rules, rebuild a starter rule, copy a starter rule, slow-date trim in the builder, changed the rate in cloudbeds, cut came off, first pricing rules, we built your first pricing rules, slow-date rescue, slow-date trim, warm-date bump, hot-week surge, sudden-spike catcher, five rules, booking speed rules, why no starter rules, no rules were built, not enough history, 60 days, two months, turn off starter rule, delete starter rule, priority, which room types, every day, simulation, three times, rules that keep adjusting, raise came off, cancelled]
+readingTime: 20
+keywords: [starter rules, rebuild a starter rule, copy a starter rule, slow-date trim in the builder, changed the rate in cloudbeds, cut came off, first pricing rules, we built your first pricing rules, slow-date rescue, slow-date trim, warm-date bump, hot-week surge, sudden-spike catcher, five rules, booking speed rules, why no starter rules, no rules were built, not enough history, 60 days, two months, turn off starter rule, delete starter rule, priority, which room types, every day, simulation, three times, rules that keep adjusting, raise came off, cancelled, my pricing works, automate it, copy my rates, my own raises and cuts, find money, leaving on the table, filling-up raise, last-minute cut, last-minute raise, nearly-full raise, early guests, fri and sat, sun to thu, weekend only rule, bigger raises, 15%, 30%, nothing of yours to copy, usual five, answered the last question later, changed my answer, rules swapped, different rules]
 questions:
   - What are starter rules? {#in-plain-words}
   - Why did I not get starter rules? {#why-you-may-not-have-starter-rules}
@@ -15,20 +15,27 @@ questions:
   - Which room types do the starter rules cover? {#which-room-types-which-days}
   - Why did a starter rule fire before one of my own rules? {#how-they-rank-against-your-own-rules}
   - Can I edit a starter rule? {#turning-one-off-or-deleting-it/not-yet-a}
+  - What starter rules do I get if I pick "My pricing works"? {#if-you-picked-my-pricing-works}
+  - What starter rules do I get if I pick "Find money I'm leaving on the table"? {#if-you-picked-find-money-im-leaving-on-the-table}
+  - I picked "My pricing works". Why did I get the usual five rules? {#when-nothing-of-yours-can-be-copied}
+  - What happens if I answer the last question after the starter rules were built? {#answering-after-they-were-built}
+  - Why does a starter rule only apply on Fridays and Saturdays? {#weekends-and-weekdays}
 updated: 2026-09-28
 ---
 
 <InPlainWords>
-If your property has about two months of booking history or more, and no rules yet, MAYA adds five booking speed rules during the import: two that cut a night booking slower than similar nights had, and three that raise a night booking faster. They start switched on, in simulation, so they change nothing in your system until you go live. Turn any of them off, or delete it, from the <Ui>Rules</Ui> tab.
+If your property has about two months of booking history or more, and no rules yet, MAYA adds starter rules during the import. Which ones depends on your answer to the last of the five questions. With no answer, five booking speed rules: two that cut a night booking slower than similar nights had, and three that raise a night booking faster. "My pricing works" gets rules that copy the raises and cuts your own rates made in the past year. "Find money I'm leaving on the table" gets the five with bigger raises where your nights filled early, and can add a raise for nearly full nights. They start switched on, in simulation, so they change nothing in your system until you go live. Turn any of them off, or delete it, from the <Ui>Rules</Ui> tab.
 </InPlainWords>
 
 ## Where you see them
 
-On the review, a green box headed "While you were here, we built your first pricing rules" lists each rule with a sentence about what it does, then the <Ui>Turn them on for real</Ui> button. Read [Going live](/docs/live/going-live) for that button. The box stays on the review after anyone on your team runs <Ui>Get suggestions from my data</Ui>, and so do the rules.
+On the review, a green box headed "While you were here, we built your first pricing rules" lists each rule with a sentence about what it does, then the <Ui>Turn them on for real</Ui> button. If you picked "My pricing works" and there was nothing of yours to copy, a line under the heading says so. Read [Going live](/docs/live/going-live) for that button. The box stays on the review after anyone on your team runs <Ui>Get suggestions from my data</Ui>, and so do the rules.
 
 After that they live on the <Ui>Rules</Ui> tab like any rule you build yourself, with a <Ui>Fired</Ui> count, an <Ui>On</Ui> / <Ui>Off</Ui> switch and a <Ui>Delete</Ui> button. Every change they make is written in the <Ui>Change Log</Ui> tab with the rule's name.
 
 ## The five rules
+
+These are the starter rules when you did not answer the last question. "Find money I'm leaving on the table" gets the same five, with bigger raises when your nights filled early. "My pricing works" gets them only when nothing of yours could be copied.
 
 Each is a [booking speed](/docs/rules/booking-speed) rule. Booking speed compares how many bookings a night received recently with how many similar past nights had received at the same point before arrival, and reads as one of seven levels from Stalled to Surging. The <Ui>Conditions</Ui> column on the <Ui>Rules</Ui> tab shows each rule like this:
 
@@ -62,7 +69,58 @@ When a night's past week runs much faster than similar nights had at the same po
 
 When bookings pour in for a night within a single day (Surging, over the past day), the rule raises it 25%, and can raise again each day while the rush lasts. Your ceiling is the cap, and MAYA asks you once three of its raises are on the same night.
 
+## If you picked "My pricing works"
+
+MAYA reads your past year of bookings, night by night, and copies the raises and cuts you made on top of your own rate. Each booking's rate is compared with what the same room type sold for on the same night to its early guests: those who booked a week or more ahead, while the night was under 40% booked. Whatever weekday, weekend and season differences your own rates hold are already in the rate every rule starts from, so comparing within the same night leaves them out and copies only the moves you made as a night filled up or got close.
+
+For each booking, MAYA also counts how full the night already was: the rooms booked for it on earlier days, among bookings still on record, over the rooms of the room types that count as rooms.
+
+It looks for two moves:
+
+- **Filling-up raise.** Guests who booked once the night was more than a certain share booked paid more than its early guests. MAYA reads the bookings in steps of 10 points (more than 40% booked, more than 50%, and so on up to more than 90%). A step counts once it has 8 bookings or more. The raise starts at the lowest step where guests paid at least 5% more, as long as no higher step that counts shows less. Its size is what guests paid, in the middle, once the night was past that point. The rule: <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> that step, raise by that percent.
+- **Last-minute cut** (or **Last-minute raise**). Guests who booked fewer than 7 days ahead, while the night was still under half booked, paid at least 5% less (or more) than its early guests. If only bookings fewer than 3 days ahead show it, the window is 3 days. The rule: <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 7 (or 3) and <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50, cut (or raise) by that percent.
+
+A move needs at least 20 bookings over at least 10 nights behind it. A raise bigger than 50% or a cut bigger than 40% is left out, because a gap that size is more likely a different rate plan than a move you made. Sizes are rounded to a whole percent. Each rule's sentence on the review says how many of your nights showed it and what guests paid.
+
+These are standard rules, not booking speed rules: each puts one change on the price while its conditions hold and takes it off when they stop. Read [How rules run](/docs/rules/how-rules-run#two-kinds-of-rule).
+
+### Weekends and weekdays
+
+Each move is read on Friday and Saturday nights and on the other nights. If both show the same move, at the same step or window and within 3 points of each other, one rule covers every night. If they differ, each gets its own rule, and its name ends in "(Fri and Sat)" or "(Sun to Thu)": that rule applies only on those nights. If only one of them shows the move, only that one gets a rule. If neither has enough bookings on its own but all nights together do, one rule covers every night. The Rules tab does not show a rule's days, so the name is where you see them.
+
+One raise step only. If you raise in several steps, you get one rule at the point your raises start, sized at the middle of them.
+
+### When nothing of yours can be copied
+
+If no move of 5% or more shows up across at least 10 nights, your starter rules are the usual five. The review says so under its heading: "In the past year of your bookings, no raise or cut of 5% or more showed up across at least 10 nights, so there was nothing of yours to copy. These are the usual five starting rules."
+
+<Example title="The Harbour Inn, with My pricing works">
+Over the past year, guests who booked a night once it was more than 70% booked paid about 15% more than its early guests, on 77 nights. Guests who booked fewer than 7 days ahead while the night was still under half booked paid about 10% less, on 231 nights. Weekends and weekdays showed the same. So the inn gets two starter rules. "Filling-up raise": more than 70% booked, raise 15%. "Last-minute cut": fewer than 7 days away and under half booked, cut 10%. The inn's summer and weekend rates are already in its own rates, so no rule copies them.
+</Example>
+
+## If you picked "Find money I'm leaving on the table"
+
+You get the five booking speed rules, with two changes that depend on your past year:
+
+- **Bigger raises when your nights filled early.** If at least 10 of your nights, and at least 1 in 10 of the nights read, were already 90% booked two weeks or more before arrival, the three raise rules go up a step: Warm-date bump raises 15% instead of 10%, and Hot-week surge and Sudden-spike catcher raise 30% instead of 25%. Their sentence on the review ends by saying how many nights filled that early. The two cuts stay as they are.
+- **Nearly-full raise.** If guests who booked once a night was more than 80% booked paid within 2% of what its early guests paid (at least 20 bookings over at least 10 nights), and no filling-up raise shows in your bookings, a sixth rule is added: <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> 80, raise 10%. It is a standard rule like the ones above.
+
+If neither shows up, you get the five as they are.
+
+## Answering after they were built
+
+The import often finishes before you reach the last question. When you answer it then, MAYA swaps the starter rules for the ones your answer calls for, if all of these hold:
+
+- the starter rules on your property are exactly the ones the import built: none switched off, deleted or edited, and no other rule added,
+- nobody has pressed <Ui>Get suggestions from my data</Ui> since the import,
+- your property is still in simulation,
+- you are a Revenue Manager or higher.
+
+The old ones are removed with every change they made, as <Ui>Delete</Ui> would, and the new ones are switched on. The box on the review then shows the new ones. Answering again later swaps again, under the same conditions. Otherwise nothing changes, and your answer is used when anyone presses <Ui>Get suggestions from my data</Ui>. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
+
 ## How they count
+
+This section is about the booking speed rules.
 
 A booking with several rooms counts once. A 20-room wedding booking is one booking for booking speed (and 20 booked rooms for occupancy). Only bookings in the room types a rule measures are counted.
 
@@ -81,23 +139,27 @@ A price you type on a night takes its adjustments off and starts the wait over f
 
 Every starter rule has its undo box ticked. A raise made by Warm-date bump, Hot-week surge or Sudden-spike catcher comes off when bookings it counted cancel and the rule is no longer true for the night: the bookings it counted that are still booked no longer reach the rule's speed, and the bookings made since do not keep it true either. The change log then reads: Cancellations meant "Warm-date bump" was no longer true, so its 10% raise came off. A saved rule's box cannot be changed. For raises that cancellations never take off, add the rule again yourself with the box unticked. Read [Changing a rule](/docs/rules/off-delete-or-change#changing-a-rule).
 
-A cut never comes off for cancellations, because guests cancelling only make a slow night slower. A night Slow-date rescue cut stays cut until you set a price yourself (in MAYA, or by changing the rate in Cloudbeds or ThinkReservations on a night MAYA has sent to), delete the rule, or the night passes. Turning the rule off freezes the cut in place.
+A Filling-up raise or Nearly-full raise comes off when cancellations take the night back to its step or below, and goes on again if bookings bring it back over. A Last-minute cut comes off once the night is half booked.
+
+A booking speed cut never comes off for cancellations, because guests cancelling only make a slow night slower. A night Slow-date rescue cut stays cut until you set a price yourself (in MAYA, or by changing the rate in Cloudbeds or ThinkReservations on a night MAYA has sent to), delete the rule, or the night passes. Turning the rule off freezes the cut in place.
 
 ## The three-times question
 
-Once three of one of these rules' changes are on the same night, an amber banner appears at the top of the dashboard (the Rules that keep adjusting banner). It is headed with a sentence naming the rule and how many of its changes are on the price, such as "\"Slow-date rescue\" would have 3 cuts on each of 3 nights." While you are in simulation it says "would have". Once you are live it says "has".
+Once three of one of the booking speed rules' changes are on the same night, an amber banner appears at the top of the dashboard (the Rules that keep adjusting banner). It is headed with a sentence naming the rule and how many of its changes are on the price, such as "\"Slow-date rescue\" would have 3 cuts on each of 3 nights." While you are in simulation it says "would have". Once you are live it says "has".
 
 The banner asks you, night by night: keep adjusting, or stop for this night. Until you answer, the rule keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 ## Which room types, which days
 
-The starter rules measure and change every room type that counted as a room when they were built. A meeting room or court you had unticked is left out of both. They apply every day of the week, with no date range.
+The starter rules measure and change every room type that counted as a room when they were built. A meeting room or court you had unticked is left out of both. They apply every day of the week, with no date range, except a copied rule whose name ends in "(Fri and Sat)" or "(Sun to Thu)".
 
 A room type your system adds later is not added to them. Build a rule of your own for it.
 
 ## How they rank against your own rules
 
 When two booking speed or pickup rules both want to act on the same night and room type, only one fires per run: the stronger one. The bigger change to the price comes first, then, at the same change, a rule that watches booking speed, and of two that do, the faster speed (the slower one for cuts), then the pickup count harder to meet. Only after those do starter rules rank above rules you build, in this order: Sudden-spike catcher, Hot-week surge, Warm-date bump, Slow-date rescue, Slow-date trim. So a rule of yours that raises 30% fires before Hot-week surge's 25%.
+
+Filling-up raise, Last-minute cut and Nearly-full raise are standard rules, which never compete: each applies whenever its conditions hold, on top of whatever else applies.
 
 While a stronger rule waits and would be true again on the bookings since its own latest change, it holds the night and a weaker rule that moves the price the same way does not fire under it. Read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match).
 
@@ -109,6 +171,8 @@ MAYA builds them once per first import, and only when all of these hold:
 - the property has no rules at all, not even one switched off (someone built a rule before the import finished, or an earlier import left one),
 - at least one room type counts as a room,
 - the history import ran at all. Mews has no import yet, so no starter rules.
+
+The rules copied for "My pricing works", and the checks for "Find money", read the past year only: nights from 365 days ago up to yesterday. On a very large property they read its newest nights, up to about 50,000 booked room-nights. Once your property is live, they count only bookings made two or more days before MAYA first tried to send a price to your system, because a later booking may carry MAYA's price rather than yours.
 
 <Ui>Let Me Drive</Ui> does not stop them. If you delete them, the same import does not build them again. Later, <Ui>Get suggestions from my data</Ui> offers all five again whenever your property has no booking speed rule at all. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
@@ -123,7 +187,9 @@ A night with fewer than five similar past nights reads at most one step from Nor
 
 You need to be a Revenue Manager or higher for either.
 
-To rebuild one your way, the rule builder's <Ui>Speed</Ui> dropdown, <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> can set the same condition, window and wait as four of the five. Slow-date trim is the exception. The builder turns a slow level into "at most", so the closest you can build is "at most Slower Than Normal", which also fires on Much Slower and Stalled nights. When everything else is equal, a rule you build ranks below the starter rules you keep, so a rebuilt copy can wait behind one where the original would not.
+A Filling-up raise, Last-minute cut or Nearly-full raise for every night can be rebuilt exactly in the rule builder, from the conditions above. One limited to "(Fri and Sat)" or "(Sun to Thu)" cannot, because the builder has no weekday choice.
+
+To rebuild a booking speed one your way, the rule builder's <Ui>Speed</Ui> dropdown, <Ui>Measured over</Ui> and <Ui>Then waits (advanced)</Ui> can set the same condition, window and wait as four of the five. Slow-date trim is the exception. The builder turns a slow level into "at most", so the closest you can build is "at most Slower Than Normal", which also fires on Much Slower and Stalled nights. When everything else is equal, a rule you build ranks below the starter rules you keep, so a rebuilt copy can wait behind one where the original would not.
 
 <Callout kind="not-yet">
 A starter rule cannot be edited, and neither can any rule. To change its number, its wait or its room types, delete it and build your own with the rule builder. Read [The rule builder](/docs/rules/the-rule-builder).

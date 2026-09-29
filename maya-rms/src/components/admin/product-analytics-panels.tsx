@@ -427,7 +427,7 @@ export function EngagementPanel({ events }: { events: EventCountRow[] }) {
           line("Change log opened", "dashboard.tab_opened", "changelog"),
           line("Simulator opened", "dashboard.tab_opened", "simulator"),
           line("Simulator used", "simulator.used"),
-          line('"How did we know?" opened', "explain.opened"),
+          line('"Show the numbers" opened', "explain.opened"),
           line("Went live", "property.went_live"),
           line("Back to simulation", "property.back_to_simulation"),
           line("Room types classified", "room_type.classified"),

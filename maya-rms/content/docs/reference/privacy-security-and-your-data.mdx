@@ -4,7 +4,7 @@ summary: What MAYA keeps and never keeps, where it is hosted, how long each thin
 section: reference
 order: 50
 readingTime: 18
-keywords: [privacy, security, data, my data, guest data, guest names, personal data, GDPR, UK GDPR, Swiss, Europe, EU, EEA, UK, data processing agreement, DPA, standard contractual clauses, SCC, transfers, hosted, hosting, region, where is my data, servers, United States, US, encrypted, encryption, at rest, in transit, token, credentials, password, changed password, reconnect, secrets, revoke, withdraw access, disconnect, SOC 2, ISO 27001, certification, pen test, penetration test, security questionnaire, controller, processor, privacy notice, guests, sell my data, share my data, other hotels, competitors, aggregated, de-identified, subprocessors, service providers, vendors, Stripe, how long, retention, kept, delete, deletion, 90 days, 180 days, 10 years, 3 years, copy of my data, export, portability, access request, cookies, cookie banner, cookie settings, IP address, allowlist, whitelist, firewall, fixed IP, static IP, breach, incident, security incident, notify, how would you tell us, keep email current, report a security problem, security problem, security bug, report a vulnerability, vulnerability, responsible disclosure, bug bounty, reward, can we test, scan, probe, staff access, request log, docs helper, backup, backups, disaster recovery, data loss, restore, lost data]
+keywords: [privacy, security, data, my data, guest data, guest names, personal data, GDPR, UK GDPR, Swiss, Europe, EU, EEA, UK, data processing agreement, DPA, standard contractual clauses, SCC, transfers, hosted, hosting, region, where is my data, servers, United States, US, encrypted, encryption, at rest, in transit, token, credentials, password, changed password, reconnect, secrets, revoke, withdraw access, disconnect, SOC 2, ISO 27001, certification, pen test, penetration test, security questionnaire, controller, processor, privacy notice, guests, sell my data, share my data, other hotels, competitors, aggregated, de-identified, subprocessors, service providers, vendors, Stripe, how long, retention, kept, delete, deletion, 90 days, 180 days, 10 years, 3 years, copy of my data, export, portability, access request, cookies, cookie banner, cookie settings, IP address, allowlist, whitelist, firewall, fixed IP, static IP, breach, incident, security incident, notify, how would you tell us, keep email current, report a security problem, security problem, security bug, report a vulnerability, vulnerability, responsible disclosure, bug bounty, reward, can we test, scan, probe, staff access, request log, docs helper, backup, backups, daily backup, how often backed up, backup retention, 7 days, point-in-time recovery, point in time restore, Ohio, Amazon Web Services, AWS, disaster recovery, data loss, restore, lost data]
 questions:
   - What data does MAYA store? {#in-plain-words}
   - Does MAYA store guest personal data? {#guest-data-never-kept}
@@ -23,7 +23,8 @@ questions:
   - Who else handles our data (subprocessors)? {#who-else-handles-your-data/service-providers}
   - Does MAYA sell my data, share it, or use it to price other hotels? {#selling-and-sharing-what-never-happens/we-do-not}
   - How long do you keep my data? {#how-long-things-are-kept/nothing-is-deleted}
-  - What do you keep after deletion? {#how-long-things-are-kept/backups-until-they}
+  - What do you keep after deletion? {#how-long-things-are-kept/database-backups-until}
+  - How often do you back up our data, and for how long? {#security/do-you-back}
   - Do you back up our data, and what happens if your servers lose it? {#security/do-you-back}
   - Can I get a copy of my data? {#getting-a-copy-of-your-data}
   - Is there a cookie banner? {#cookies/in-the-maya}
@@ -31,7 +32,7 @@ questions:
   - Can your staff see my property? {#can-our-staff-see-your-property}
   - Does MAYA keep a log of its calls to my property system? {#the-log-of-mayas-calls-to-your-system}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -72,7 +73,7 @@ If a guest asks about their data, they should contact your property first, since
 
 ## Where your data is hosted
 
-Modern Hospitality Solutions is based in the United States, and your data is processed on servers in the United States (Privacy Policy section 9). There is no option to keep it in another country or region.
+Modern Hospitality Solutions is based in the United States, and your data is processed on servers in the United States (Privacy Policy section 9). The database and its backups are on Amazon Web Services servers in Ohio (Privacy Policy section 8). There is no option to keep it in another country or region.
 
 ## Using MAYA from Europe, the UK or Switzerland
 
@@ -138,7 +139,7 @@ The Privacy Policy (section 8) lists the safeguards:
 
 No system is completely secure, and neither the Terms nor the Privacy Policy guarantees it (Terms 8.7, Privacy Policy section 8).
 
-**Do you back up our data, and what if it were lost?** The Terms and the Privacy Policy both refer to backups that expire in their normal cycle, but neither says how often they are taken or how long they are kept. Two things help if data were ever lost. Your bookings and rates live in your property system, so MAYA can read them from there again. What lives only in MAYA is what you set there: your rules, floors and ceilings, typed prices, rooms out of service, dates you set aside, room type settings and your team. There is no export button, but you can [email us](mailto:info@modern-hospitality-solutions.com?subject=Copy%20of%20my%20data) for a copy at any time. MAYA is not a backup of your property system (Terms 8.8).
+**Do you back up our data, and what if it were lost?** Yes. MAYA's database is backed up once a day, and each backup is kept for 7 days and then deleted. The backups are in the United States, in Ohio, like the database (Terms 8.7, Privacy Policy section 8). There is no point-in-time restore: the database can go back only to the moment a daily backup was taken, so anything set in MAYA after the most recent backup could be lost. Two more things help if data were ever lost. Your bookings and rates live in your property system, so MAYA can read them from there again. What lives only in MAYA is what you set there: your rules, floors and ceilings, typed prices, rooms out of service, dates you set aside, room type settings and your team. There is no export button, but you can [email us](mailto:info@modern-hospitality-solutions.com?subject=Copy%20of%20my%20data) for a copy at any time. MAYA is not a backup of your property system (Terms 8.8).
 
 ## Certifications and security reviews
 
@@ -200,8 +201,9 @@ Nothing is deleted when you cancel or disconnect. MAYA keeps your data so that a
 |---|---|
 | Booking history read at setup | As far back as your system holds, up to about ten years. Kept until you ask us to delete it. |
 | History used for comparisons | The most recent three years of it |
-| The detail behind a change (<Ui>How did we know?</Ui>) | 90 days |
+| The detail behind a change (<Ui>Show the numbers</Ui>) | 90 days |
 | The log of MAYA's calls to your system (<Ui>PMS</Ui> tab) | 7 days |
+| Each daily backup of the database | 7 days |
 | Your rules, limits, typed prices and settings | Until you remove them, or until the property's data is deleted |
 | Your account information | For the life of the account |
 | Billing records | As long as tax law requires |
@@ -211,7 +213,7 @@ Nothing is deleted when you cancel or disconnect. MAYA keeps your data so that a
 
 Even after deletion we may keep (Terms 8.8, Privacy Policy section 7):
 
-- backups, until they expire in their normal cycle;
+- database backups, until they expire 7 days after each is taken;
 - billing, tax and transaction records;
 - records of Terms acceptance, audit logs and correspondence;
 - records of how MAYA was used, never with guest information;

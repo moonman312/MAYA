@@ -352,6 +352,8 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
       min: monthKey(windowStart.getUTCFullYear(), windowStart.getUTCMonth() + 1),
       max: monthKey(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth() + 1),
     },
+    today: todayStr,
+    currency: "USD",
     days,
   };
 }
@@ -769,6 +771,7 @@ async function getCalendarFromDb(
     first_weekday: firstWeekday,
     thresholds: { ...THRESHOLDS, ...scaleToThresholds(scale) },
     range,
+    today: todayStr,
     currency: hotelRow?.currency ? String(hotelRow.currency) : null,
     days,
   };

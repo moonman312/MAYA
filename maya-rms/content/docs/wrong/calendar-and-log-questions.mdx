@@ -3,8 +3,8 @@ title: Calendar and change log questions
 summary: Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
 section: wrong
 order: 80
-readingTime: 9
-keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, missing how did we know, how did we know on occupancy change, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history, not tracked for this system]
+readingTime: 10
+keywords: [amber, orange, every day amber, red, busy night red, green, colour, color, colour did not change, revenue per room, revpar, dollar sign, $, euro, €, pound, £, currency, wrong currency, bold line, change log dollar, ADR dash, ADR blank, no ADR, revenue on the books, revenue, today, UTC, weekday, no weekday headers, past months zeros, zeros, prices checked, so many entries, show all cycles, empty log, change log empty, nothing in the log, older change disappeared, 10 runs, 40 changes, only some changes, booking speed reading on a typed price, times wrong, time zone, browser time, no recent activity, no requests recorded yet, banner out of date, stale banner, billing banner, ongoing sending problem, switching property, property switch, reload, couldn't load your price history, not tracked for this system, and 23 more changes in this run, more changes in this run, missing show the numbers, show the numbers on occupancy change]
 questions:
   - Why is every day amber? {#why-is-every-day-amber}
   - Why is a busy night red? {#why-is-a-busy-night-red}
@@ -18,14 +18,14 @@ questions:
   - Why is the change log empty? {#why-is-the-change-log-empty/nothing-has-changed}
   - Why did an older change disappear? {#why-did-an-older-change-disappear}
   - Why are only some of a run's changes listed? {#why-are-only-some-of-a-runs-changes-listed}
-  - Why is "How did we know?" missing on some changes? {#why-is-how-did-we-know-missing-on-some-changes}
-  - Why does "How did we know?" show under a change a booking speed rule did not make? {#why-is-how-did-we-know-missing-on-some-changes}
+  - Why is "Show the numbers" missing on some changes? {#why-is-show-the-numbers-missing-on-some-changes}
+  - Why does "Show the numbers" show under a change a booking speed rule did not make? {#why-is-show-the-numbers-missing-on-some-changes}
   - Whose time zone are the log times in? {#whose-time-zone-are-the-log-times-in}
   - Why does the PMS tab say Not tracked for this system on ThinkReservations or Mews? {#why-does-the-pms-tab-say-not-tracked-for-this-system-on-thinkreservations-or-mews}
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -46,7 +46,7 @@ The booked counts and revenue on the visible month are always fresh, but the ran
 
 ## Why does the calendar show $ when my currency is euro?
 
-The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
+The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its <Ui>Manual</Ui> badge, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
 
 In the change log, one line shows $ whatever your currency: the bold line of each change. So a property in euros sees "$150.00 up to $165.00" in a change's bold line and "€150.00" in the sentence under it, for the same price. The numbers are in your own currency. Only that symbol is off. Your currency comes from your property system when you connect and cannot be changed in the app.
 
@@ -96,15 +96,15 @@ For an older change, check the night's <Ui>Current price</Ui> and any <Ui>Manual
 
 ## Why are only some of a run's changes listed?
 
-A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40 and does not say how many more there were.
+A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40, then a line counting the rest, such as "And 23 more changes in this run." In a very large run the count can be a minimum: "And at least 23 more changes in this run." The rest are not listed anywhere in the app. To see where a night stands now, open it on the <Ui>Calendar</Ui> tab.
 
 <Callout kind="not-yet">
 There is no export, no search and no filter by night or room type in the change log, and no way to see runs older than the 10 shown. For a change older than those, email us the night and room type and we read it for you.
 </Callout>
 
-## Why is "How did we know?" missing on some changes?
+## Why is "Show the numbers" missing on some changes?
 
-The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system.
+The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every booking speed starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system.
 
 Under those changes the reading is background, not the reason the price moved. The sentence under the change names what moved it. The button shows how the night was booking at the time of that run.
 

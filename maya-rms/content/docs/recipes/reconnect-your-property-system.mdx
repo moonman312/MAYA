@@ -3,8 +3,8 @@ title: Reconnect your property system
 summary: When MAYA loses its connection, a General Manager or Hotel Admin clicks Reconnect on the banner or the PMS tab, signs in at Cloudbeds or ThinkReservations, and lands back on the dashboard. Mews is reconnected by us.
 section: recipes
 order: 260
-readingTime: 4
-keywords: [reconnect, lost its connection, connection lost, disconnected, reconnect cloudbeds, reconnect think reservations, prices aren't updating, mews needs its keys, connect app again, banner, pms tab, error, degraded, uninstalled the app]
+readingTime: 5
+keywords: [reconnect, lost its connection, connection lost, disconnected, reconnect cloudbeds, reconnect think reservations, prices aren't updating, mews needs its keys, connect app again, banner, pms tab, error, degraded, uninstalled the app, email, emailed, connection down email, an hour]
 questions:
   - How do I reconnect my property system? {#reconnect/1-find-the}
   - It says MAYA has lost its connection to Cloudbeds, what do I do? {#in-plain-words}
@@ -12,6 +12,7 @@ questions:
   - I uninstalled the app in Cloudbeds by accident, how do I get it back? {#reconnect/cloudbeds-another-way}
   - What happens to my prices while the connection is down? {#while-it-is-down}
   - Why do I not see the reconnect banner? {#while-it-is-down}
+  - Will I get an email when the connection drops? {#while-it-is-down}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-29
 ---
@@ -44,13 +45,13 @@ Another way: in Cloudbeds, open <Ui>Marketplace</Ui> and click <Ui>Connect App</
 The button reads <Ui>Reconnect Think Reservations</Ui> and sends you to ThinkReservations' sign-in. ThinkReservations does not tell MAYA when access is removed. The next read fails, and MAYA tries again with a growing wait of up to an hour. The panel appears once the connection has stopped working. Until then the tab can still read <Ui>Connected</Ui>.
 </PmsTab>
 <PmsTab pms="mews">
-The panel reads "Mews needs its keys re-entered" with no button, for every role, because Mews connects with keys we enter rather than a login. It says "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com.", and the address opens an email to us. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we arrange new keys with you.
+The panel reads "Mews needs its keys re-entered" with no button, for every role, because Mews connects with keys we enter rather than a login. It appears once Mews has refused MAYA's keys three reads in a row, or after we remove the keys. It says "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com.", and the address opens an email to us. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we arrange new keys with you.
 </PmsTab>
 </PmsTabs>
 
 ## While it is down
 
-Nothing is read, priced or sent. The rates already in your system stay as they are. Your rules, history and settings are untouched. The <Ui>Change Log</Ui> tab may show an item headed "Prices not reaching Cloudbeds" with the action "Reconnect Cloudbeds on the PMS tab." It points to the same panel.
+Nothing is read, priced or sent. The rates already in your system stay as they are. Your rules, history and settings are untouched. If the <Ui>Connection</Ui> card has read <Ui>Error</Ui> or <Ui>Disconnected</Ui> for about an hour, every General Manager and Hotel Admin gets one email headed "MAYA has lost its connection to Cloudbeds" (or your system), with a button that opens the <Ui>PMS</Ui> tab. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email). The <Ui>Change Log</Ui> tab may show an item headed "Prices not reaching Cloudbeds" with the action "Reconnect Cloudbeds on the PMS tab." It points to the same panel.
 
 The banner shows only while the <Ui>Connection</Ui> card reads <Ui>Error</Ui> or <Ui>Disconnected</Ui>. If the change log says to reconnect and there is no banner, your system is most likely refusing the price write while it still lets MAYA read, so the card reads <Ui>Connected</Ui>. Open the <Ui>PMS</Ui> tab: a General Manager or Hotel Admin always finds the <Ui>Reconnect Cloudbeds</Ui> link there.
 
@@ -59,7 +60,7 @@ A property that came from the Cloudbeds Marketplace, never paid and sat unused f
 </Callout>
 
 <Callout kind="not-yet">
-There is no email or text when a connection drops, and no manual "sync now" button.
+The email waits until the connection has been down about an hour, never comes for <Ui>Degraded</Ui>, and there is no text message. There is no manual "sync now" button.
 </Callout>
 
 <Related>

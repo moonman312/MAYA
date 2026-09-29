@@ -1,10 +1,10 @@
 ---
 title: Setting a price yourself
-summary: How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, and how to hand the night back to MAYA.
+summary: How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, and how to hand the night back to your rules.
 section: watch
 order: 50
-readingTime: 12
-keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 399 days, 400 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, push window, 396-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out]
+readingTime: 13
+keywords: [manual price, type a price, set a price, override, through, range of nights, save, clear, hand back, comp night, free night, 0, zero, floor, ceiling, refused, below the floor, above the ceiling, paused rules, tonight onwards, a year ahead, 399 days, 400 nights, 366 nights, how many nights in one save, sending now, next cycle, simulation not sent, sent once you reconnect, reconnect, disconnected, error, nothing is sent while MAYA's work is paused, update your card, billing, subscription stopped, restart your subscription, on hold, night has passed, nothing to clear, no Clear button, currency, euro, pound, push window, 396-day, your PMS, note, rate plan, bulk upload, exactly that number, badge, manual, comma, decimal comma, point, decimal separator, 180,50, thousands separator, save greyed out]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'How do I set a price myself?' {#in-plain-words}
@@ -19,6 +19,9 @@ questions:
   - 'It says "MAYA doesn''t send a price of 0", what does that mean?' {#a-price-of-0-a-comp-night}
   - 'When is my typed price sent to my property system?' {#when-your-price-is-sent/cloudbeds-when-you}
   - 'It says "It will be sent when the date enters the 396-day push window", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'It says "It will be sent once you reconnect", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'It says "Nothing is sent while MAYA''s work is paused", what does that mean?' {#every-confirmation-line-and-what-it-means/example-the-lines}
+  - 'Why is there no Clear button on a night that has passed?' {#clear-handing-the-night-back/clear-removes-your}
   - 'What does Clear do to the rules that were paused?' {#clear-handing-the-night-back/clear-removes-your}
   - 'Can I clear a whole range of nights at once?' {#clear-handing-the-night-back/clear-removes-your}
   - 'Does typing a price restart a rule''s wait?' {#your-rules-after-your-price/a-booking-speed}
@@ -33,12 +36,12 @@ updated: 2026-09-29
 ---
 
 <InPlainWords>
-Click a night on the calendar, type a price in a room type's box and save. That number goes to your property system as typed. Rules that had already moved that night pause for that room type, and rules that fire later stack on top of your price. <Ui>Clear</Ui> hands the night back to MAYA.
+Click a night on the calendar, type a price in a room type's box and save. That number goes to your property system as typed. Rules that had already moved that night pause for that room type, and rules that fire later stack on top of your price. <Ui>Clear</Ui> hands the night back to your rules.
 </InPlainWords>
 
 ## Where it is
 
-Open the <Ui>Calendar</Ui> tab and click a day. Under the grid, one card per room type appears. At the bottom of each card sits the price editor: a box with your currency's sign, pre-filled with the night's current price (or the price already typed for it), a <Ui>through…</Ui> link, <Ui>Save</Ui>, and a <Ui>?</Ui> that opens a short explanation titled "Setting a price yourself". <Ui>Clear</Ui> appears only while a typed price is open on that night.
+Open the <Ui>Calendar</Ui> tab and click a day. Under the grid, one card per room type appears. At the bottom of each card sits the price editor: a box marked with your property's currency sign ($, € or £, or the currency's code, such as CAD), pre-filled with the night's current price (or the price already typed for it), a <Ui>through…</Ui> link, <Ui>Save</Ui>, and a <Ui>?</Ui> that opens a short explanation titled "Setting a price yourself". <Ui>Clear</Ui> appears only while a typed price is open on that night, and never on a night that has passed.
 
 Setting or clearing a price needs Revenue Manager access or higher. Everyone on the property can see the prices that have been set.
 
@@ -82,9 +85,15 @@ A week later the night passes 80% full. "Busy nights" (occupancy Greater than 80
 | "Saved. It will be sent when the date enters the 396-day push window." | Every night you saved is more than 395 nights ahead. MAYA sends a night once it enters the window. |
 | "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 396-day window." | Your run of nights crosses the edge of the window. |
 | "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." | You typed 0, a comp night. See below. |
+| "Saved. It will be sent once you reconnect." | You are live, and the connection to Cloudbeds or ThinkReservations reads Disconnected or Error. The price is saved and your rules run on it, and nothing is sent until the connection works again: after a reconnect, or, on Error, after MAYA's next try that works. [Reconnect your property system](/docs/recipes/reconnect-your-property-system) |
+| "Saved." | MAYA could not read your mode or your connection just then. The price is saved and your rules run on it. Whether it goes out is settled on the next cycle, as for any night. The <Ui>PMS</Ui> tab shows the connection. |
+| "Saved. Nothing is sent while MAYA's work is paused. Update your card on the Billing page." | Your subscription is Unpaid. The price is saved and your rules run on it once, and nothing is sent until your card works again. This line comes first, whatever else is true of the property. |
+| "Saved. Nothing is sent while MAYA's work is paused. Restart your subscription on the Billing page." | The same, when your subscription reads Cancelled or Never completed. |
+| "Saved. Nothing is sent while MAYA's work is paused. Email us and we'll get it running again." | The same, when your subscription is on hold. |
 | "... Paused 2 rules on this night for this room; new rules will apply on top." | Added when your price took a rule's change off. "on these 5 nights" for a run. |
 | "... No rule raises a night set to 0." | Added when you typed 0. |
-| "Cleared. MAYA is pricing this night again." | <Ui>Clear</Ui> worked. "Cleared 5 nights. MAYA is pricing them again." for a run. |
+| "Cleared. Your rules price this night again." | <Ui>Clear</Ui> worked. "Cleared 5 nights. Your rules price them again." for a run. |
+| "This night has passed, so there is nothing to clear." | The night passed while the calendar was open, so <Ui>Clear</Ui> was still showing. Nothing changed. |
 | "Couldn't save that price." or "Couldn't clear that price." | MAYA could not do it and gave no reason. Try again. |
 | "Couldn't reach MAYA. Try again." | Your browser could not reach MAYA. Check your connection and try again. |
 </Example>
@@ -123,7 +132,7 @@ In simulation the price is saved and shown, and nothing is sent. If you go live 
 
 A price outside the floor or ceiling is refused, not rounded to the limit. Type a number inside the limits, or change the limits first. [Floors and ceilings](/docs/review/floors-and-ceilings) explains where they are set.
 
-Prices in these messages show your property's currency sign, and so does the sign beside the box.
+Prices in these messages, the price box and the <Ui>Manual</Ui> badge show your property's currency sign.
 
 ## A price of 0: a comp night
 
@@ -145,7 +154,9 @@ A typed price of 0 stops every rule on that night for that room type, and nothin
 
 ## Clear: handing the night back
 
-<Ui>Clear</Ui> removes your price for that room type on that night. For a run of nights, open <Ui>through…</Ui>, pick the last night, and click <Ui>Clear</Ui>: "Cleared 5 nights. MAYA is pricing them again."
+<Ui>Clear</Ui> removes your price for that room type on that night. For a run of nights, open <Ui>through…</Ui>, pick the last night, and click <Ui>Clear</Ui>: "Cleared 5 nights. Your rules price them again."
+
+Clear reaches tonight onwards only, because your rules never price a night that has passed. A past night has no <Ui>Clear</Ui> button, and its typed price stays on it as the record of what it sold at. A run of nights that starts before tonight is cleared from tonight.
 
 After a clear, your rules run on the night again straight away. The starting point is the rate MAYA read from Cloudbeds or ThinkReservations for that night, otherwise the rate of the newest booking on it, otherwise the starting point saved on the last run. Mews properties start from the booking or that saved starting point, since MAYA does not read Mews rates.
 

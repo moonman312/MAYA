@@ -41,7 +41,7 @@ export const UI_EVENTS = {
   "billing.portal_opened": {},
   /** The onboarding review screen rendered. */
   "onboarding.review_viewed": {},
-  /** "How did we know?" was opened on a price explanation. */
+  /** "Show the numbers" was opened on a price explanation. */
   "explain.opened": {},
   /** The first change to any input on the rate simulator. */
   "simulator.used": {},

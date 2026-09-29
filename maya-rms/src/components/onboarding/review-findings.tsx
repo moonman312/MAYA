@@ -341,6 +341,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
     explanation: string;
   }>;
   if (rules.length === 0) return null;
+  const note = status?.job?.stats?.starterRulesNote;
 
   const inSimulation = !live && status?.simulationMode !== false;
 
@@ -380,6 +381,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
         night and showing what they <em>would</em> do, without touching a
         single price.
       </p>
+      {note ? <p className="mt-2 text-[13px] leading-relaxed text-slate-400">{note}</p> : null}
 
       <div className="mt-4 space-y-2.5">
         {rules.map((r) => (

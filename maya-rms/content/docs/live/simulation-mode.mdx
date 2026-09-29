@@ -34,7 +34,7 @@ Simulation is the state every property is in from the moment it connects. Nothin
 
 In simulation MAYA does everything it would do for a live property except the last step. About every five minutes it reads your bookings. About once an hour it reads your own rates for the nights ahead (Cloudbeds and ThinkReservations). Every cycle it runs every rule on the nights whose bookings changed, and once a day, just after midnight at your property, on every night from tonight to 395 nights ahead, and writes the result to the calendar and the change log. Then it stops. No price leaves MAYA.
 
-So you can read each night's Current price on the calendar, open the change log, follow "How did we know?" and answer the Rules that keep adjusting banner exactly as you would once live. Your property system keeps the rates you have there.
+So you can read each night's Current price on the calendar, open the change log, follow "Show the numbers" and answer the Rules that keep adjusting banner exactly as you would once live. Your property system keeps the rates you have there.
 
 ## Will MAYA change my prices the moment I connect?
 
@@ -80,7 +80,7 @@ There is no "Simulation" or "Live" badge on the dashboard yet. Two clues say whi
 1. **The review screen.** Open <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. If it opens on "First: does this match reality?", click <Ui>Continue to recommendations</Ui>. Near the end, under "While you were here, we built your first pricing rules", a green <Ui>Turn them on for real</Ui> button means you are simulating. A green pill reading "✓ Live: your rules are now managing prices" means you are live. The card is there only when setup built starter rules for you. A Mews property never has it.
 2. **The amber banner.** Once three of a booking speed or pickup rule's changes are on a night, the Rules that keep adjusting banner says "would have 3 raises" or "would have 3 cuts" in simulation, and "has 3 raises" or "has 3 cuts" when live.
 
-If you have typed a price for a real reason lately, its confirmation also said which mode you were in: it began "Saved (simulation: not sent to Cloudbeds)." in simulation, and "Saved. Sending to Cloudbeds now." when live. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
+If you have typed a price for a real reason lately, its confirmation also said which mode you were in: it began "Saved (simulation: not sent to Cloudbeds)." in simulation, and "Saved. Sending to Cloudbeds now." (or "Saved. It will be sent once you reconnect." with the connection down) when live. While MAYA's work is paused over your subscription it begins "Saved. Nothing is sent while MAYA's work is paused." in either mode. Do not type a price only to test this. On a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
 
 A third check needs no MAYA screen at all. Compare a night's Current price in MAYA with the same night's rate in your property system. If they differ night after night, you are simulating (for Cloudbeds and ThinkReservations; nothing is sent to Mews in either mode). And you can always [email us](mailto:info@modern-hospitality-solutions.com?subject=Am%20I%20live%3F) from your MAYA sign-in address and we will tell you.
 

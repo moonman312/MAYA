@@ -29,7 +29,7 @@ questions:
   - How do I stop using MAYA with ThinkReservations? {#disconnecting-and-reconnecting/thinkreservations-does-not}
   - It says the sign-in link ran out after 15 minutes, what now? {#connecting/3-sign-in}
 pms: [thinkreservations]
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -154,7 +154,7 @@ A refused write never disconnects a ThinkReservations property. The connection s
 
 ## Disconnecting and reconnecting
 
-ThinkReservations does not tell MAYA when access has been removed. MAYA reads the refusal when its next call fails. A failed read is tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while reads fail. When ThinkReservations refuses to renew MAYA's access, the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab reads <Ui>Error</Ui> and the banner "MAYA has lost its connection to Think Reservations" appears for a General Manager or Hotel Admin, with a <Ui>Reconnect Think Reservations</Ui> button. Until the status changes, the tab can still read <Ui>Connected</Ui> while calls are failing. If prices have stopped and the tab still reads <Ui>Connected</Ui>, a General Manager or Hotel Admin can click the quiet <Ui>Reconnect Think Reservations</Ui> link on the <Ui>PMS</Ui> tab anyway. Which ThinkReservations login you sign in with matters, so read the next paragraph first.
+ThinkReservations does not tell MAYA when access has been removed. MAYA reads the refusal when its next call fails. A failed read is tried again with a growing wait, up to an hour between tries, and nothing is priced or sent while reads fail. When ThinkReservations refuses to renew MAYA's access, the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab reads <Ui>Error</Ui> and the banner "MAYA has lost its connection to Think Reservations" appears for a General Manager or Hotel Admin, with a <Ui>Reconnect Think Reservations</Ui> button. If it still reads <Ui>Error</Ui> an hour later, every General Manager and Hotel Admin gets one email saying so. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email). Until the status changes, the tab can still read <Ui>Connected</Ui> while calls are failing. If prices have stopped and the tab still reads <Ui>Connected</Ui>, a General Manager or Hotel Admin can click the quiet <Ui>Reconnect Think Reservations</Ui> link on the <Ui>PMS</Ui> tab anyway. Which ThinkReservations login you sign in with matters, so read the next paragraph first.
 
 To reconnect, click <Ui>Reconnect Think Reservations</Ui> on the banner or on the <Ui>PMS</Ui> tab, sign in on ThinkReservations' site with a login that reaches this hotel and no other, and you are back on the dashboard's <Ui>PMS</Ui> tab with the note "Reconnected." Your rules, history and settings are untouched. Finish signing in within 15 minutes. If it takes longer, you see "That sign-in link ran out after 15 minutes. Start again from MAYA." Nothing has changed: click <Ui>Open MAYA</Ui> and start again from the <Ui>PMS</Ui> tab. Syncing resumes within about five minutes, or up to an hour if reads had been failing for a while. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 

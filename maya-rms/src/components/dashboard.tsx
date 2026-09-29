@@ -21,7 +21,7 @@ import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } 
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
-import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
@@ -1307,6 +1307,7 @@ export function Dashboard({
                                     calendarCacheRef.current.clear();
                                     void reloadCalendarQuiet();
                                   }}
+                                  hotelToday={calendar.today ?? null}
                                   initialThrough={
                                     arrival?.dest === "calendar.manual-price" &&
                                     arrival.params.roomType === rt.id &&
@@ -2110,6 +2111,9 @@ export function Dashboard({
                         </li>
                       ))}
                     </ul>
+                    {moreChangesLine(cycle) ? (
+                      <p className="mt-3 text-xs text-slate-400">{moreChangesLine(cycle)}</p>
+                    ) : null}
                   </div>
                 );
               })}

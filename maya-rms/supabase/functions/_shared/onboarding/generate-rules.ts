@@ -53,6 +53,11 @@
  * dead no matter what, so its cuts want more room between them. Floors and
  * ceilings (set alongside these) are the hard stops either way.
  *
+ * That is the set with no answer to the last onboarding question. "My
+ * pricing works" builds rules copying the owner's own raises and cuts
+ * instead, and "Find money" builds this ladder with bigger raises where
+ * nights filled early (rate-moves.ts); analysis.ts picks.
+ *
  * Never generates when the hotel already has ANY pricing rules — we don't
  * stomp on a revenue manager's work.
  */
@@ -91,8 +96,10 @@ export type StarterRuleSpec = {
   name: string;
   priority: number;
   condition: {
-    occupancy_operator?: "gt";
+    occupancy_operator?: "gt" | "lt";
     occupancy_threshold?: number; // FRACTION (0.75), matching rule_condition
+    dta_operator?: "lt";
+    dta_threshold_days?: number;
     pickup_operator?: "gt";
     pickup_threshold?: number;
     pickup_window_days?: 1 | 3 | 7;
@@ -109,7 +116,21 @@ export type StarterRuleSpec = {
   };
   is_pickup_rule: boolean;
   explanation: string; // shown to the user: WHY this rule, in their terms
+  /** Days of the week, as pricing_rules.dow_mask (Mon=1 ... Sun=64). Every day when absent. */
+  dow_mask?: number;
+  /**
+   * Where the rule came from: the usual booking speed ladder, a move the
+   * owner's own rates already made (rate-moves.ts), or a raise the data says
+   * was left on the table. Shapes the suggestion card's first sentence.
+   */
+  source?: "ladder" | "your_moves" | "upside";
 };
+
+/** The raise sizes of the ladder's three raise rules, in percent. */
+export type LadderRaises = { warm: number; hotWeek: number; spike: number };
+
+/** What the ladder raises by unless an answer and the data say otherwise. */
+export const LADDER_RAISES: LadderRaises = { warm: 10, hotWeek: 25, spike: 25 };
 
 /** Days of observed history below which we refuse to generate anything. */
 export const MIN_HISTORY_DAYS_FOR_STARTERS = 60;
@@ -120,8 +141,13 @@ export const MIN_HISTORY_DAYS_FOR_STARTERS = 60;
  * room type until the wait is over (escalation to a stronger rule stays
  * possible while it waits).
  */
-export function computeStarterRules(input: { daysOfHistory: number }): StarterRuleSpec[] {
+export function computeStarterRules(input: {
+  daysOfHistory: number;
+  /** Raise sizes; the usual ones (LADDER_RAISES) when absent. */
+  raises?: LadderRaises;
+}): StarterRuleSpec[] {
   if (input.daysOfHistory < MIN_HISTORY_DAYS_FOR_STARTERS) return [];
+  const { warm, hotWeek, spike } = input.raises ?? LADDER_RAISES;
 
   return [
     {
@@ -169,10 +195,10 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         booking_speed_window_days: 30,
         booking_speed_cooldown_days: 3,
       },
-      action: { action_type: "percent", action_direction: "increase", action_value: 10 },
+      action: { action_type: "percent", action_direction: "increase", action_value: warm },
       is_pickup_rule: true,
       explanation:
-        "A night booking ahead of the pace similar nights set can carry 10% more: the demand " +
+        `A night booking ahead of the pace similar nights set can carry ${warm}% more: the demand ` +
         "is already showing up in your own numbers. MAYA waits 3 days, then raises again only " +
         "if the bookings made since this rule or a stronger one's latest raise still on the night " +
         "are, on their own, ahead of what similar nights get in a whole month. If guests cancel " +
@@ -187,10 +213,10 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         booking_speed_window_days: 7,
         booking_speed_cooldown_days: 2,
       },
-      action: { action_type: "percent", action_direction: "increase", action_value: 25 },
+      action: { action_type: "percent", action_direction: "increase", action_value: hotWeek },
       is_pickup_rule: true,
       explanation:
-        "When the past week runs much faster than similar nights ever did, raise 25% and ride " +
+        `When the past week runs much faster than similar nights ever did, raise ${hotWeek}% and ride ` +
         "the wave. Every couple of days it steps up again if the bookings made since this rule " +
         "or a stronger one's latest raise still on the night are, on their own, far more than a " +
         "normal week brings, and MAYA tells you once three of its raises are on the same night. If " +
@@ -205,11 +231,11 @@ export function computeStarterRules(input: { daysOfHistory: number }): StarterRu
         booking_speed_window_days: 1,
         booking_speed_cooldown_days: 1,
       },
-      action: { action_type: "percent", action_direction: "increase", action_value: 25 },
+      action: { action_type: "percent", action_direction: "increase", action_value: spike },
       is_pickup_rule: true,
       explanation:
         "Bookings pouring in within a single day, a concert announcement or a viral mention, " +
-        "trigger an immediate 25% raise, repeated daily while the rush lasts. Your ceiling is the " +
+        `trigger an immediate ${spike}% raise, repeated daily while the rush lasts. Your ceiling is the ` +
         "cap, and MAYA tells you once three of its raises are on the same night. If guests cancel " +
         "and that leaves no rush to speak of, the raise comes back off.",
     },
@@ -241,7 +267,7 @@ export function computeOccupancyReference(
  * active type counts, which is what starter rules always did. Logged, never
  * thrown: onboarding must finish whichever of code or SQL deployed first.
  */
-async function loadCountingRoomTypeIds(
+export async function loadCountingRoomTypeIds(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<string[]> {
@@ -274,10 +300,18 @@ async function loadCountingRoomTypeIds(
   return (data ?? []).map((rt) => String(rt.id));
 }
 
-/** Create the rules for a hotel. Returns specs created, or [] if skipped. */
+/**
+ * Create the rules for a hotel. Returns specs created, or [] if skipped.
+ *
+ * `choose` picks the set from the days of history on record: the booking
+ * speed ladder unless the caller says otherwise (analysis.ts builds the set
+ * the owner's answer to the last question calls for).
+ */
 export async function generateStarterRules(
   supabase: SupabaseClient,
   hotelId: string,
+  choose: (daysOfHistory: number) => StarterRuleSpec[] | Promise<StarterRuleSpec[]> = (daysOfHistory) =>
+    computeStarterRules({ daysOfHistory }),
 ): Promise<StarterRuleSpec[]> {
   // Hard guard: never add to an existing rule set.
   const { count: existingRules } = await supabase
@@ -299,47 +333,81 @@ export async function generateStarterRules(
   const today = new Date().toISOString().slice(0, 10);
   const daysOfHistory = dailyRaw.filter((r) => r.stay_date < today).length;
 
-  const specs = computeStarterRules({ daysOfHistory });
+  const specs = await choose(daysOfHistory);
   if (specs.length === 0) return [];
 
-  for (const spec of specs) {
-    const { data: ruleRow, error: insErr } = await supabase
-      .from("pricing_rules")
-      .insert({
-        hotel_id: hotelId,
-        name: spec.name,
-        priority: spec.priority,
-        is_active: true, // live logic, but the hotel is in simulation mode
-        version: 1,
-        start_date: null,
-        end_date: null,
-        is_annual: false,
-        dow_mask: 127,
-        action_type: spec.action.action_type,
-        action_direction: spec.action.action_direction,
-        action_value: spec.action.action_value,
-        is_pickup_rule: spec.is_pickup_rule,
-        // Ticked, like every rule (the column's default says the same).
-        undo_on_cancellation: true,
-      })
-      .select("id")
-      .single();
-    if (insErr || !ruleRow) {
-      throw new Error(`starter rule insert failed: ${insErr?.message}`);
-    }
-    const ruleId = String(ruleRow.id);
-
-    const { error: condErr } = await supabase
-      .from("rule_condition")
-      .insert({ rule_id: ruleId, ...spec.condition });
-    if (condErr) throw new Error(`rule_condition insert failed: ${condErr.message}`);
-
-    const joins = allRoomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
-    const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
-    if (sigErr) throw new Error(`rule_signal_room_type insert failed: ${sigErr.message}`);
-    const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
-    if (affErr) throw new Error(`rule_affected_room_type insert failed: ${affErr.message}`);
-  }
-
+  await insertStarterRules(supabase, hotelId, specs, allRoomTypeIds);
   return specs;
+}
+
+/**
+ * Write a set of starter rules, each measuring and changing `roomTypeIds`,
+ * and return their ids in the order of `specs`.
+ * Shared by the import and by the swap when the owner answers the last
+ * question after the rules were built (src/lib/onboarding/starter-swap.ts).
+ * All or nothing: on the first failure it deletes every rule this call wrote
+ * (their conditions and room types go with them), then throws. So nothing
+ * half-built is left matching every night, and a retry starts clean.
+ */
+export async function insertStarterRules(
+  supabase: SupabaseClient,
+  hotelId: string,
+  specs: StarterRuleSpec[],
+  roomTypeIds: string[],
+): Promise<string[]> {
+  const written: string[] = [];
+  try {
+    for (const spec of specs) {
+      const { data: ruleRow, error: insErr } = await supabase
+        .from("pricing_rules")
+        .insert({
+          hotel_id: hotelId,
+          name: spec.name,
+          priority: spec.priority,
+          is_active: true, // live logic, but the hotel is in simulation mode
+          version: 1,
+          start_date: null,
+          end_date: null,
+          is_annual: false,
+          dow_mask: spec.dow_mask ?? 127,
+          action_type: spec.action.action_type,
+          action_direction: spec.action.action_direction,
+          action_value: spec.action.action_value,
+          is_pickup_rule: spec.is_pickup_rule,
+          // Ticked, like every rule (the column's default says the same).
+          undo_on_cancellation: true,
+        })
+        .select("id")
+        .single();
+      if (insErr || !ruleRow) {
+        throw new Error(`starter rule insert failed: ${insErr?.message}`);
+      }
+      const ruleId = String(ruleRow.id);
+      written.push(ruleId);
+
+      const { error: condErr } = await supabase
+        .from("rule_condition")
+        .insert({ rule_id: ruleId, ...spec.condition });
+      if (condErr) throw new Error(`rule_condition insert failed: ${condErr.message}`);
+
+      const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
+      const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
+      if (sigErr) throw new Error(`rule_signal_room_type insert failed: ${sigErr.message}`);
+      const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
+      if (affErr) throw new Error(`rule_affected_room_type insert failed: ${affErr.message}`);
+    }
+  } catch (e) {
+    // Nothing has fired on a rule this young, so a plain delete is the whole
+    // undo; the condition and room type rows cascade.
+    if (written.length > 0) {
+      const { error: undoErr } = await supabase.from("pricing_rules").delete().in("id", written);
+      if (undoErr) {
+        console.error(
+          JSON.stringify({ fn: "insertStarterRules", hotelId, step: "undo", ruleIds: written, error: undoErr.message }),
+        );
+      }
+    }
+    throw e;
+  }
+  return written;
 }

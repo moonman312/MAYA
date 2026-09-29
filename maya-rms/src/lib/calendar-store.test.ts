@@ -320,13 +320,20 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     expect(cal.days["20"].total).toBe(20);
   });
 
-  it("names the property's currency, so the day card can use its symbol", async () => {
-    const { client } = calendarDb({
-      hotels: [{ id: "h1", timezone: "UTC", currency: "EUR", total_rooms_per_type: 100 }],
-      room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
-    });
-    const cal = await getCalendar(2026, 10, client);
-    expect(cal.currency).toBe("EUR");
+  it("says the property's today and currency, so the day card can show both right", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-11T02:00:00Z"), toFake: ["Date"] });
+    try {
+      const { client } = calendarDb({
+        // 02:00 UTC on the 11th is still the 10th in New York.
+        hotels: [{ id: "h1", timezone: "America/New_York", total_rooms_per_type: 100, currency: "EUR" }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+      });
+      const cal = await getCalendar(2026, 10, client);
+      expect(cal.today).toBe("2026-10-10");
+      expect(cal.currency).toBe("EUR");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders on the physical count, once loudly, before the out-of-service table exists", async () => {

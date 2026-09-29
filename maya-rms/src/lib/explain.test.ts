@@ -48,8 +48,12 @@ describe("buildExplainView", () => {
     expect(view!.verdict).toContain("Much Faster Than Normal");
     expect(view!.guard_note).toBeNull();
     expect(view!.method).toBe("comparable");
-    expect(view!.assumptions.join(" ")).toContain("Friday");
-    expect(view!.assumptions.join(" ")).toContain("Summer");
+    expect(view!.assumptions).toContain(
+      "Only other Friday nights were compared, since each night of the week books in its own way.",
+    );
+    expect(view!.assumptions).toContain(
+      "Only nights in the same season of your history were compared: Summer (Jun 10 – Aug 24).",
+    );
     expect(view!.comparables).toHaveLength(3);
     // hasData false reads as "we don't know", never as zero bookings.
     expect(view!.comparables[2].summary).toBe("no history for this night");
@@ -67,24 +71,35 @@ describe("buildExplainView", () => {
     } as never;
     const view = buildExplainView(snap);
     const text = view!.assumptions.join(" ");
-    expect(text).toContain("Thanksgiving");
+    expect(view!.assumptions).toContain(
+      "This night is near Thanksgiving, so it is compared with the same days around Thanksgiving in earlier years, not the same date.",
+    );
     expect(text).not.toContain("Summer");
+    expect(text).not.toMatch(/orbit/);
   });
 
-  it("notes when strict matching was relaxed", () => {
+  it("notes when the search was widened", () => {
     const snap = structuredClone(comparableSnapshot);
     snap.selection.assumptions.relaxed = true;
-    expect(buildExplainView(snap)!.assumptions.join(" ")).toContain("relaxed");
+    expect(buildExplainView(snap)!.assumptions).toContain(
+      "Fewer than 4 nights matched closely, so the search was widened. Check the nights below and set aside any that were not normal.",
+    );
   });
 
   it("translates evidence guards into honesty notes", () => {
     const snap = structuredClone(comparableSnapshot);
     snap.classification.guard = "few_comparables";
-    expect(buildExplainView(snap)!.guard_note).toContain("only a few");
+    expect(buildExplainView(snap)!.guard_note).toBe(
+      "Only a few similar nights were found, so it stays within one step of Normal however strong the numbers look.",
+    );
     snap.classification.guard = "small_difference";
-    expect(buildExplainView(snap)!.guard_note).toContain("noise");
+    expect(buildExplainView(snap)!.guard_note).toBe(
+      "The numbers leaned away from Normal, but by too little to matter at this many bookings, so it stays Normal.",
+    );
     snap.classification.guard = "extreme_demoted";
-    expect(buildExplainView(snap)!.guard_note).toContain("softened");
+    expect(buildExplainView(snap)!.guard_note).toBe(
+      "The numbers pointed one step further from Normal, but not clearly enough, so it reads one step closer to Normal.",
+    );
   });
 
   it("renders the momentum story with matched pairs, direction, and challengeable evidence", () => {
@@ -141,7 +156,7 @@ describe("buildExplainView", () => {
       },
     });
     const notes = view!.momentum_notes.join(" ");
-    expect(notes).toContain("cannot say whether the pace has changed");
+    expect(notes).toContain("no telling whether the pace has changed");
     expect(notes).not.toContain("same pace as a year ago");
   });
 
@@ -186,11 +201,11 @@ describe("buildExplainView", () => {
       },
     });
     expect(view!.method).toBe("insufficient_data");
-    expect(view!.expected).toContain("not have enough history");
+    expect(view!.expected).toBe("There isn't enough booking history yet to say what is usual for this night.");
     expect(view!.verdict).not.toContain("Faster Than Normal");
-    expect(view!.verdict).toContain("No booking-speed call was made");
+    expect(view!.verdict).toBe("Booking speed wasn't rated for this night, so rules that watch booking speed left it alone.");
     expect(view!.guard_note).toBeNull();
-    expect(view!.assumptions.join(" ")).toContain("not enough history");
+    expect(view!.assumptions.join(" ")).toContain("wasn't enough history");
   });
 
   it("returns null for legacy or malformed snapshots", () => {
@@ -206,6 +221,114 @@ describe("buildExplainView", () => {
     const view = buildExplainView(comparableSnapshot)!;
     const all = [view.observed, view.expected, view.verdict, ...view.assumptions].join(" ");
     expect(all).not.toMatch(/[<>=≤≥]/);
+  });
+
+  it("says the usual number plainly, never what was expected or known", () => {
+    const snaps = [
+      comparableSnapshot,
+      { ...comparableSnapshot, expectedBookings: 0.4 },
+      { ...comparableSnapshot, method: "insufficient_data", perComparable: [] },
+      { ...comparableSnapshot, classification: { ...comparableSnapshot.classification, guard: "few_comparables" } },
+      {
+        ...comparableSnapshot,
+        method: "momentum",
+        perComparable: [],
+        momentum: { momentumRatio: 1.4, matchedPairs: 0, pairs: [], naiveBaselineBookings: 2.2, baselineSource: "neighbor_pace", baselineDate: null },
+      },
+      {
+        ...comparableSnapshot,
+        selection: {
+          ...comparableSnapshot.selection,
+          assumptions: { ...comparableSnapshot.selection.assumptions, relaxed: true, holiday: { label: "Thanksgiving" } },
+        },
+      },
+    ];
+    expect(buildExplainView(snaps[1])!.expected).toBe(
+      "By this point, nights like this one usually get almost no bookings over the same stretch.",
+    );
+    for (const snap of snaps) {
+      const view = buildExplainView(snap)!;
+      const all = [view.observed, view.expected, view.verdict, view.guard_note ?? "", ...view.assumptions, ...view.momentum_notes, ...view.comparables.map((c) => c.summary)].join(" ");
+      expect(all).not.toMatch(/\b(we|our|us|expect\w*|knew|know\w*|thinks?|learn\w*|analy[sz]\w*|model|call|held|softened|orbit)\b/i);
+      expect(all).not.toContain("\u2014");
+    }
+  });
+});
+
+describe("which nights were compared (G28)", () => {
+  // 2026-08-14 is a Friday.
+  const withNights = (nights: { date: string; tier?: number }[], assumptions: Record<string, unknown> = {}) => ({
+    ...comparableSnapshot,
+    perComparable: nights.map((n) => ({ date: n.date, bookings: 3, tier: n.tier ?? 1, reasons: [], hasData: true })),
+    selection: {
+      ...comparableSnapshot.selection,
+      assumptions: { ...comparableSnapshot.selection.assumptions, ...assumptions },
+    },
+  });
+  const lines = (snap: unknown) => buildExplainView(snap)!.assumptions;
+
+  it("names Saturday nights when too few Fridays matched, as the list under it shows", () => {
+    const view = buildExplainView(
+      withNights([{ date: "2025-08-15" }, { date: "2025-08-08" }, { date: "2025-08-16", tier: 2 }, { date: "2025-08-09", tier: 2 }], { relaxed: true }),
+    )!;
+    expect(view.assumptions[0]).toBe(
+      "Too few other Friday nights matched, so Saturday nights were compared too, since they are also weekend nights. Friday and Saturday nights count as weekend nights, the rest as weekday nights.",
+    );
+    expect(view.assumptions.join(" ")).not.toContain("Only other Friday");
+  });
+
+  it("says instead when no other night of its own weekday matched", () => {
+    expect(lines(withNights([{ date: "2025-08-16", tier: 2 }, { date: "2025-08-09", tier: 2 }]))[0]).toBe(
+      "No other Friday nights matched, so Saturday nights were compared instead, since they are also weekend nights. Friday and Saturday nights count as weekend nights, the rest as weekday nights.",
+    );
+  });
+
+  it("names the weekday nights used for a weekday night", () => {
+    // 2026-08-12 is a Wednesday.
+    const snap = {
+      ...withNights([{ date: "2025-08-13" }, { date: "2025-08-11", tier: 2 }, { date: "2025-08-14", tier: 2 }, { date: "2025-08-10", tier: 2 }]),
+      target: "2026-08-12",
+    };
+    expect(lines(snap)[0]).toBe(
+      "Too few other Wednesday nights matched, so Sunday, Monday and Thursday nights were compared too, since they are also weekday nights. Friday and Saturday nights count as weekend nights, the rest as weekday nights.",
+    );
+  });
+
+  it("around a holiday names the weekdays the nights fall on", () => {
+    const snap = withNights(
+      [{ date: "2025-07-03" }, { date: "2024-07-03" }, { date: "2023-07-03" }],
+      { holiday: { key: "us_independence_day", label: "Independence Day", offset: -1, placement: "weekday", holidayDate: "2026-07-04" } },
+    );
+    const view = buildExplainView({ ...snap, target: "2026-07-03" })!;
+    expect(view.assumptions[0]).toBe(
+      "Around Independence Day the day of the week changes from year to year, so the nights compared fall on Monday, Wednesday and Thursday.",
+    );
+    expect(view.assumptions[1]).toContain("near Independence Day");
+  });
+
+  it("around a holiday that keeps its weekday, says only that weekday", () => {
+    const snap = withNights([{ date: "2025-11-29" }, { date: "2024-11-30" }], {
+      holiday: { key: "us_thanksgiving", label: "Thanksgiving", offset: 2, placement: "thursday", holidayDate: "2026-11-26" },
+    });
+    expect(lines({ ...snap, target: "2026-11-28" })[0]).toBe(
+      "Only other Saturday nights were compared, since each night of the week books in its own way.",
+    );
+  });
+
+  it("says when nights from outside the season were added, or used instead", () => {
+    const mixed = lines(withNights([{ date: "2025-08-15" }, { date: "2023-06-02", tier: 3 }], { relaxed: true }));
+    expect(mixed).toContain(
+      "Nights in the same season of your history were compared: Summer (Jun 10 – Aug 24). Too few matched there, so nights within 45 days of the same time of year were added.",
+    );
+    const all = lines(withNights([{ date: "2023-06-02", tier: 3 }, { date: "2024-06-07", tier: 3 }], { relaxed: true }));
+    expect(all).toContain(
+      "Too few nights matched in the same season of your history, Summer (Jun 10 – Aug 24), so nights within 45 days of the same time of year were compared instead.",
+    );
+  });
+
+  it("leaves the weekday line out when nothing was compared", () => {
+    const view = buildExplainView(withNights([]))!;
+    expect(view.assumptions.join(" ")).not.toMatch(/Friday|weekday nights/);
   });
 });
 
@@ -256,7 +379,7 @@ describe("an observation cut short by the newest raise or cut by the rule or a s
     // 30 days, not the 4 it counted (expectedOverFullWindow).
     const view = buildExplainView({ ...raise, expectedOverFullWindow: true })!;
     expect(view.observed).toBe(buildExplainView(raise)!.observed);
-    expect(view.expected).toBe("By this point on nights like this one, we would expect about 4 bookings over a whole month.");
+    expect(view.expected).toBe("By this point, nights like this one usually get about 4 bookings over a whole month.");
     expect(view.expected).not.toContain("same stretch");
     expect(view.assumptions[0]).toBe(
       "Once a rule or a stronger one has raised this night, it counts only the bookings made after the newest of those raises still on the price, the rest of that day included, and those alone have to beat what the nights it is compared with get in a whole month. A weaker rule's raise, or any cut, doesn't move where it starts.",

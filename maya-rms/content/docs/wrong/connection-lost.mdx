@@ -1,10 +1,10 @@
 ---
 title: Connection lost
-summary: What the "MAYA has lost its connection" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, and how to tell when Mews reads have stopped with no banner.
+summary: What the "MAYA has lost its connection" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, how to tell when Mews reads have stopped with no banner, and the email that follows when the connection stays down.
 section: wrong
 order: 70
-readingTime: 11
-keywords: [lost its connection, connection lost, disconnected, reconnect, reconnect cloudbeds, reconnect think reservations, uninstalled, uninstalled the app, removed the app, marketplace, connect app, permission to update rates, removed permission, general manager, ask your general manager, degraded, error, pending, connected, unknown, mews keys, keys re-entered, api keys, mews keys stopped working, mews not updating, mews still connected, mews no banner, last sync, last sync old, having trouble, health, no banner, reconnect on the pms tab, different property, this login is for a different property, subscription changed, cloudbeds subscription, password changed, needs a refresh soon, prices are still updating, reconnected, did the reconnect work, how do I know it worked]
+readingTime: 13
+keywords: [lost its connection, connection lost, disconnected, reconnect, reconnect cloudbeds, reconnect think reservations, uninstalled, uninstalled the app, removed the app, marketplace, connect app, permission to update rates, removed permission, general manager, ask your general manager, degraded, error, pending, connected, unknown, mews keys, keys re-entered, api keys, mews keys stopped working, mews not updating, mews still connected, mews no banner, last sync, last sync old, having trouble, health, no banner, reconnect on the pms tab, different property, this login is for a different property, subscription changed, cloudbeds subscription, password changed, needs a refresh soon, prices are still updating, reconnected, did the reconnect work, how do I know it worked, email, emailed, connection-down email, an hour, three reads, keys refused]
 questions:
   - It says MAYA has lost its connection to Cloudbeds {#it-says-maya-has-lost-its-connection-to-cloudbeds/your-system-no}
   - It says my Cloudbeds connection needs a refresh soon {#it-says-your-cloudbeds-connection-needs-a-refresh-soon/the-connection-card}
@@ -23,12 +23,14 @@ questions:
   - After reconnecting, how do I know it worked? {#after-reconnecting-how-do-i-know-it-worked/a-successful-reconnect}
   - It says this login is for a different property {#it-says-this-login-is-for-a-different-property/a-property-on}
   - What happens to my prices while the connection is down? {#what-happens-to-my-prices-while-the-connection-is-down}
+  - Will I get an email when the connection is lost? {#will-i-get-an-email}
+  - I got an email saying MAYA has lost its connection {#will-i-get-an-email}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-29
 ---
 
 <InPlainWords>
-An amber banner reading "MAYA has lost its connection to Cloudbeds" means your system stopped accepting MAYA's connection: a General Manager or Hotel Admin presses <Ui>Reconnect Cloudbeds</Ui> and signs in at Cloudbeds again. When the <Ui>PMS</Ui> tab reads Degraded instead, MAYA is still reading and sending, and one calm line says "Your Cloudbeds connection needs a refresh soon. Prices are still updating." While the connection is down nothing is read, priced or sent, and the rates already in your system, your rules, history and settings stay as they are. Mews connects with keys rather than a login, so email us and we re-enter them with you.
+An amber banner reading "MAYA has lost its connection to Cloudbeds" means your system stopped accepting MAYA's connection: a General Manager or Hotel Admin presses <Ui>Reconnect Cloudbeds</Ui> and signs in at Cloudbeds again. When the <Ui>PMS</Ui> tab reads Degraded instead, MAYA is still reading and sending, and one calm line says "Your Cloudbeds connection needs a refresh soon. Prices are still updating." While the connection is down nothing is read, priced or sent, and the rates already in your system, your rules, history and settings stay as they are. Mews connects with keys rather than a login, so email us and we re-enter them with you. If the connection reads Error or Disconnected for about an hour, the General Managers and Hotel Admins get one email about it.
 </InPlainWords>
 
 ## It says "MAYA has lost its connection to Cloudbeds"
@@ -49,9 +51,9 @@ Cloudbeds tells MAYA when you uninstall or disable the app, usually within secon
 ThinkReservations does not tell MAYA when access is revoked. MAYA finds out when its calls fail, and shows the banner once the connection's status changes. Until then the <Ui>PMS</Ui> tab may still read "Connected" while <Ui>Last sync</Ui> falls behind. A refused rate write does not disconnect ThinkReservations; it appears in the change log as a permission problem instead.
 </PmsTab>
 <PmsTab pms="mews">
-Mews connects with keys rather than a login, and we enter them for you. MAYA does not mark a Mews connection as lost when its reads fail, so the <Ui>PMS</Ui> tab can keep reading "Connected" with no banner. <Ui>Health (last 24 hours)</Ui> reads "Not tracked for this system" on Mews, so <Ui>Last sync</Ui> is the one sign. If <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is more than an hour old, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys).
+Mews connects with keys rather than a login, and we enter them for you. When Mews refuses MAYA's keys three reads in a row, about half an hour after the first refusal, the connection reads Error and everyone on the property sees "Mews needs its keys re-entered", with no button and the line "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." A read that fails for another reason, such as Mews being down, leaves the status alone, so the <Ui>PMS</Ui> tab can keep reading "Connected" with no banner. <Ui>Health (last 24 hours)</Ui> reads "Not tracked for this system" on Mews, so then <Ui>Last sync</Ui> is the one sign. If <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab is more than an hour old, [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys).
 
-The status changes to Disconnected only when we remove the keys. Then everyone on the property sees "Mews needs its keys re-entered", with no button and the line "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." Email us and we arrange new keys with you. Read [When the keys stop working](/docs/connect/mews#when-the-keys-stop-working).
+The status also changes, to Disconnected, with the same panel, when we remove the keys. Either way, email us and we arrange new keys with you. Read [When the keys stop working](/docs/connect/mews#when-the-keys-stop-working).
 </PmsTab>
 </PmsTabs>
 
@@ -85,7 +87,7 @@ MAYA shows the banner and the <Ui>Reconnect Think Reservations</Ui> button when 
 
 Mews uses keys rather than a sign-in, and only we can enter them. The banner has no button, and everyone on the property sees the same words, whatever their role: "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." Click the address, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys), and it takes a couple of minutes together.
 
-This banner shows only after we remove the keys. If the keys stop working on their own, MAYA does not mark the connection as lost, so no banner appears and the <Ui>PMS</Ui> tab can keep reading "Connected". Watch <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab instead. If it is more than an hour old, email us.
+This banner shows once Mews has refused MAYA's keys three reads in a row, and after we remove the keys. For about the first half hour after the keys stop working, and whenever reads fail for another reason, no banner appears and the <Ui>PMS</Ui> tab can keep reading "Connected". Watch <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab then. If it is more than an hour old, email us.
 
 ## What Connected, Pending, Degraded, Error and Disconnected mean
 
@@ -96,11 +98,17 @@ The <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab shows one of these.
 | Connected | Healthy. Bookings are read every cycle. | Nothing. |
 | Pending | Connected but not yet paid for. Nothing is read or priced until the subscription starts. | Finish setting up payment. |
 | Degraded | MAYA is still reading and sending. One calm line says "Your Cloudbeds connection needs a refresh soon. Prices are still updating." | If it is still there in an hour, reconnect with a login for this property only. It does no harm. |
-| Error | Your system rejected MAYA's saved sign-in. Nothing is read, priced or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, press <Ui>Reconnect</Ui>. Reconnecting sooner does no harm. |
+| Error | Your system rejected MAYA's saved sign-in (on Mews, refused MAYA's keys three reads in a row). Nothing is read, priced or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, press <Ui>Reconnect</Ui> (on Mews, email us). Reconnecting sooner does no harm. |
 | Disconnected | The connection is gone. The property is off the schedule. | Press <Ui>Reconnect</Ui>. |
 | unknown | MAYA has no status on file. | Open the tab again in a moment, then reconnect if it stays. |
 
-The banner appears for Error and Disconnected. Degraded shows the calm line instead. A Mews connection never reads Degraded or Error. It keeps reading Connected even while its reads fail, so on Mews watch <Ui>Last sync</Ui>.
+The banner appears for Error and Disconnected. Degraded shows the calm line instead. A Mews connection never reads Degraded. It reads Error once Mews has refused MAYA's keys three reads in a row, and keeps reading Connected while reads fail for any other reason, so on Mews watch <Ui>Last sync</Ui> too.
+
+## Will I get an email?
+
+Yes, once the connection has read Error or Disconnected for about an hour. Every General Manager and Hotel Admin on the property gets one email, headed "MAYA has lost its connection to Cloudbeds" (or your system), saying when it went down, what happened, what it means for your prices and how to reconnect. Its button, <Ui>Open the PMS tab</Ui>, opens the tab where you reconnect. On Mews, reply to it and we arrange new keys with you.
+
+One email per outage. There is none for Degraded, for a break that leaves the card at Connected, for a property whose subscription has stopped, or when we remove Mews keys at your request. If you have reconnected since it was sent, the <Ui>PMS</Ui> tab shows the connection as it is now. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email).
 
 ## Why is "Last sync" old?
 

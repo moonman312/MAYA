@@ -1,4 +1,5 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { starterStatsForStatus } from "@/lib/onboarding/starter-swap";
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { marketplaceReconnectNeeded } from "@/lib/pms/purged";
@@ -53,7 +54,9 @@ export async function GET() {
       )
       .eq("id", state.import_job_id)
       .maybeSingle();
-    job = data;
+    // The starter rules actually on the property, after any swap the answer
+    // to the last question made, and none of the other sets.
+    job = data ? { ...data, stats: starterStatsForStatus(data.stats, state.questions) } : null;
   }
 
   // The go-live card on the review lists the starter rules an import built.

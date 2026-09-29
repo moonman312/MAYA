@@ -24,7 +24,7 @@
   ["room type", "room types", "room category", "room categories", "room class", "unit type", "accommodation type"],
   ["counts as a room", "not a room", "meeting room", "function room", "event space", "conference room", "parking space", "spa"],
   ["change log", "changelog", "history of changes", "audit trail", "audit log", "price history", "activity log"],
-  ["how did we know", "why did you expect", "explanation", "reasoning", "evidence", "the numbers behind"],
+  ["show the numbers", "which nights were compared", "explanation", "reasoning", "evidence", "the numbers behind"],
   ["calendar", "grid", "month view", "calendar view"],
   ["rule", "rules", "automation", "automations", "pricing rule", "yield rule"],
   ["fire", "fired", "fires", "kick in", "kicked in", "triggered", "trigger", "went off", "kicks in"],

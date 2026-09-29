@@ -599,6 +599,92 @@ describe("POST /api/manual-price — pushed", () => {
     expect(body).toMatchObject({ pushed: "simulation", pushWindow: { now: 2, later: 2 } });
   });
 
+  it("reconnect, with no nudge, when the connection is Disconnected or Error", async () => {
+    for (const status of ["disconnected", "error"]) {
+      state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status }] });
+      const body = await (await post()).json();
+      expect(body.pushed).toBe("reconnect");
+      expect(body.billingStatus).toBeUndefined();
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // The price is still saved and priced.
+    expect(tables().get("manual_price")).toHaveLength(1);
+    expect(evaluateHotel).toHaveBeenCalled();
+  });
+
+  it("a Degraded or Pending connection, or a working one beside a stale one, is not down", async () => {
+    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "degraded" }] });
+    expect((await (await post()).json()).pushed).toBe("nudged");
+    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "pending" }] });
+    expect((await (await post()).json()).pushed).toBe("nudged");
+    state.fake = seed({
+      pms_connections: [
+        { hotel_id: HOTEL, pms_type: "cloudbeds", status: "error" },
+        { hotel_id: HOTEL, pms_type: "cloudbeds", status: "connected" },
+      ],
+    });
+    expect((await (await post()).json()).pushed).toBe("nudged");
+  });
+
+  it("says only saved when the connection or the mode cannot be read, never that it is sending", async () => {
+    const down = { code: "57014", message: "canceling statement due to statement timeout" };
+    for (const table of ["pms_connections", "hotel_settings"]) {
+      state.fake = seed({}, { [table]: down });
+      const body = await (await post()).json();
+      expect(body.pushed, table).toBe("saved");
+      // The price is still saved and priced.
+      expect(tables().get("manual_price"), table).toHaveLength(1);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(evaluateHotel).toHaveBeenCalled();
+  });
+
+  it("leaves a Mews property's line as it was: nothing is sent to Mews either way", async () => {
+    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "error" }] });
+    expect((await (await post()).json()).pushed).toBe("next_cycle");
+  });
+
+  it("a comp night's 0 on a down connection still says to set it in the PMS", async () => {
+    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "disconnected" }] });
+    expect((await (await post({ ...GOOD, price: 0 })).json()).pushed).toBe("zero_not_sent");
+  });
+
+  it("simulation outranks a down connection: nothing was going out anyway", async () => {
+    state.fake = seed({
+      hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }],
+      pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "error" }],
+    });
+    expect((await (await post()).json()).pushed).toBe("simulation");
+  });
+
+  it("billing_paused with the status when the subscription has stopped, ahead of everything else", async () => {
+    for (const status of ["unpaid", "canceled", "paused", "incomplete_expired"]) {
+      state.fake = seed({
+        hotel_subscriptions: [{ hotel_id: HOTEL, status }],
+        // Neither a down connection, simulation, a 0 nor the window changes the answer.
+        pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "error" }],
+        hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }],
+      });
+      const body = await (await post({ ...GOOD, price: 0, dateFrom: "2026-12-01" })).json();
+      expect(body).toMatchObject({ pushed: "billing_paused", billingStatus: status });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a subscription still owed service, or none at all, sends as usual", async () => {
+    for (const status of ["active", "trialing", "past_due"]) {
+      state.fake = seed({ hotel_subscriptions: [{ hotel_id: HOTEL, status }] });
+      const body = await (await post()).json();
+      expect(body.pushed).toBe("nudged");
+      expect(body.billingStatus).toBeUndefined();
+    }
+  });
+
+  it("a failed subscription read does not claim billing has stopped", async () => {
+    state.fake = seed({}, { hotel_subscriptions: { code: "XX000", message: "boom" } });
+    expect((await (await post()).json()).pushed).toBe("nudged");
+  });
+
   it("a rejected nudge is swallowed", async () => {
     fetchSpy.mockRejectedValueOnce(new Error("offline"));
     const res = await post();
@@ -710,6 +796,37 @@ describe("DELETE /api/manual-price", () => {
     state.fake = seedOverridden();
     const res = await del({ hotelId: HOTEL, roomTypeId: ROOM, dateFrom: "2026-09-20" });
     expect(await res.json()).toEqual({ ok: true, cells: 1 });
+  });
+
+  it("clears nothing on nights that have passed, and says so", async () => {
+    state.fake = seed({
+      manual_price: [
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-14", price: 250, set_by: USER, cleared_at: null, cleared_by: null },
+      ],
+    });
+    const res = await del({ hotelId: HOTEL, roomTypeId: ROOM, dateFrom: "2026-09-14" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, cells: 0, passed: true });
+    // The row stays as the record of what that night sold at; nothing re-prices.
+    expect(tables().get("manual_price")![0].cleared_at).toBeNull();
+    expect(evaluateHotel).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a range reaching into the past clears from tonight on", async () => {
+    state.fake = seed({
+      manual_price: [
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-14", price: 250, set_by: USER, cleared_at: null, cleared_by: null },
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-15", price: 250, set_by: USER, cleared_at: null, cleared_by: null },
+        { hotel_id: HOTEL, room_type_id: ROOM, stay_date: "2026-09-16", price: 250, set_by: USER, cleared_at: null, cleared_by: null },
+      ],
+    });
+    const res = await del({ hotelId: HOTEL, roomTypeId: ROOM, dateFrom: "2026-09-10", dateTo: "2026-09-16" });
+    expect(await res.json()).toEqual({ ok: true, cells: 2 });
+    const rows = tables().get("manual_price")!;
+    expect(rows[0].cleared_at).toBeNull();
+    expect(rows[1].cleared_at).toBe(NOW.toISOString());
+    expect(rows[2].cleared_at).toBe(NOW.toISOString());
   });
 });
 

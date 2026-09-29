@@ -9,11 +9,19 @@ import { useEffect, useId, useRef, useState } from "react";
  * type, so it has to stay small: an amount, an optional end date, Save, Clear.
  *
  * What a manual price actually does (pauses rules that already fired, later
- * rules still apply on top, clearing hands the night back to MAYA) lives
+ * rules still apply on top, clearing hands the night back to your rules) lives
  * behind the "?" — it matters, but not on every card, every time.
  */
 
-type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window" | "zero_not_sent";
+type Pushed =
+  | "nudged"
+  | "next_cycle"
+  | "simulation"
+  | "beyond_window"
+  | "zero_not_sent"
+  | "billing_paused"
+  | "reconnect"
+  | "saved";
 
 type SaveResponse = {
   ok: boolean;
@@ -23,6 +31,8 @@ type SaveResponse = {
   /** Rules paused, counted once each. Older responses don't carry it. */
   pausedRules?: number;
   pushed: Pushed;
+  /** With billing_paused: the subscription's status, which decides the way back. */
+  billingStatus?: string;
   /**
    * Nights inside the push window today vs. past it, and the window's length.
    * Older servers omit it, or omit `days` (their window was 60 days).
@@ -34,7 +44,25 @@ type SaveResponse = {
 /** What servers sent before the window's length was in the response. */
 const DEFAULT_WINDOW_DAYS = 60;
 
-function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: SaveResponse["pushWindow"]): string {
+/**
+ * The way back when a stopped subscription holds everything, by status, as
+ * the Billing page tells it (billing/account.ts headlineFor): a card revives
+ * an unpaid one, one on hold is a word with us, and any other has ended and
+ * needs a restart. No status (an older server) reads as unpaid.
+ */
+function billingPausedCopy(status: string | undefined): string {
+  const lead = "Saved. Nothing is sent while MAYA's work is paused.";
+  if (status === undefined || status === "unpaid") return `${lead} Update your card on the Billing page.`;
+  if (status === "paused") return `${lead} Email us and we'll get it running again.`;
+  return `${lead} Restart your subscription on the Billing page.`;
+}
+
+function pushedCopy(
+  pushed: Pushed,
+  pmsName: string,
+  pushWindow?: SaveResponse["pushWindow"],
+  billingStatus?: string,
+): string {
   const days = pushWindow?.days ?? DEFAULT_WINDOW_DAYS;
   // A range across the edge of the window gets the honest per-night version:
   // what leaves now, and what waits. Only when both sides have something in
@@ -57,6 +85,11 @@ function pushedCopy(pushed: Pushed, pmsName: string, pushWindow?: SaveResponse["
       return `Saved. It will be sent when the date enters the ${days}-day push window.`;
     case "zero_not_sent":
       return `Saved. MAYA doesn't send a price of 0 to ${pmsName}, so set the night to 0 there yourself.`;
+    case "billing_paused":
+      return billingPausedCopy(billingStatus);
+    case "reconnect":
+      return "Saved. It will be sent once you reconnect.";
+    case "saved":
     default:
       return "Saved.";
   }
@@ -68,7 +101,10 @@ function nightsWord(cells: number | undefined): string {
 
 /** The one-line confirmation after a save, in house voice. Exported for tests. */
 export function describeSave(
-  res: Pick<SaveResponse, "pushed" | "suppressedRules" | "retiredPickups" | "pausedRules" | "pushWindow"> & {
+  res: Pick<
+    SaveResponse,
+    "pushed" | "suppressedRules" | "retiredPickups" | "pausedRules" | "pushWindow" | "billingStatus"
+  > & {
     cells?: number;
     preview?: SaveResponse["preview"];
   },
@@ -79,7 +115,7 @@ export function describeSave(
   // that had cut the night three times. The sum is the fallback for a
   // response from before the count was sent.
   const paused = res.pausedRules ?? (res.suppressedRules ?? 0) + (res.retiredPickups ?? 0);
-  const base = pushedCopy(res.pushed, pmsName, res.pushWindow);
+  const base = pushedCopy(res.pushed, pmsName, res.pushWindow, res.billingStatus);
   // 0 is a comp night: the engine lets no rule raise it, so "new rules will
   // apply on top" would not be true of the one direction that matters.
   const comp = res.preview?.[0]?.base === 0;
@@ -106,11 +142,15 @@ export function manualPriceBadge(
   return manual.source === "pms" ? `Changed in ${pmsName} · ${amount}` : `Manual · ${amount}`;
 }
 
-/** The line after a clear. Exported for tests. */
-export function describeClear(cells: number | undefined): string {
+/**
+ * The line after a clear. `passed`: every night named has passed, so there
+ * was nothing to clear (rules only price tonight onwards). Exported for tests.
+ */
+export function describeClear(cells: number | undefined, passed?: boolean): string {
+  if (passed) return "This night has passed, so there is nothing to clear.";
   return cells != null && cells > 1
-    ? `Cleared ${cells} nights. MAYA is pricing them again.`
-    : "Cleared. MAYA is pricing this night again.";
+    ? `Cleared ${cells} nights. Your rules price them again.`
+    : "Cleared. Your rules price this night again.";
 }
 
 async function readError(res: Response, fallback: string): Promise<string> {
@@ -134,6 +174,7 @@ export function ManualPriceEditor({
   onSaved,
   initialThrough,
   currencySymbol = "$",
+  hotelToday = null,
 }: {
   hotelId: string;
   roomTypeId: string;
@@ -155,6 +196,11 @@ export function ManualPriceEditor({
   initialThrough?: string | null;
   /** The property's currency symbol, shown beside the box. Display only: the price sent is the number typed. */
   currencySymbol?: string;
+  /**
+   * Today on the property's calendar (YYYY-MM-DD). A night before it has
+   * passed: rules never price it again, so there is no Clear.
+   */
+  hotelToday?: string | null;
 }) {
   const prefill = manualPrice?.price ?? currentPrice;
   const linkedThrough = initialThrough && /^\d{4}-\d{2}-\d{2}$/.test(initialThrough) && initialThrough > stayDate ? initialThrough : null;
@@ -163,6 +209,7 @@ export function ManualPriceEditor({
   const [through, setThrough] = useState(linkedThrough ?? stayDate);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
+  const passed = hotelToday != null && stayDate < hotelToday;
 
   // A save or a live refresh can change what the night is worth; follow it,
   // but only when the number itself moves so a refresh mid-typing doesn't
@@ -224,8 +271,8 @@ export function ManualPriceEditor({
         setMessage({ kind: "error", text: await readError(res, "Couldn't clear that price.") });
         return;
       }
-      const body = (await res.json().catch(() => ({}))) as { cells?: number };
-      setMessage({ kind: "ok", text: describeClear(body.cells) });
+      const body = (await res.json().catch(() => ({}))) as { cells?: number; passed?: boolean };
+      setMessage({ kind: "ok", text: describeClear(body.cells, body.passed) });
       onSaved();
     } catch {
       setMessage({ kind: "error", text: "Couldn't reach MAYA. Try again." });
@@ -299,11 +346,11 @@ export function ManualPriceEditor({
         >
           Save
         </button>
-        {manualPrice ? (
+        {manualPrice && !passed ? (
           <button
             type="button"
             disabled={busy}
-            title={manualPrice.source === "pms" ? `Changed in ${pmsName}. Clear hands the night back to MAYA.` : undefined}
+            title={manualPrice.source === "pms" ? `Changed in ${pmsName}. Clear hands the night back to your rules.` : undefined}
             onClick={() => void clear()}
             className="cursor-pointer rounded border border-slate-700 px-3 py-1 text-xs font-medium text-slate-300 hover:border-slate-500 disabled:opacity-60"
           >
@@ -400,7 +447,7 @@ function ManualPriceHelp({ pmsName }: { pmsName: string }) {
                 A rate changed in {pmsName} is kept the same way, once MAYA&apos;s own price has been there
                 for an hour.
               </span>
-              <span className="block">Clear hands the night back to MAYA&apos;s own pricing.</span>
+              <span className="block">Clear hands the night back to your rules.</span>
             </span>
             <LearnMore panel="manual-price" onBlurOut={blurOut} />
           </span>

@@ -1,5 +1,6 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { describeGuardrailNotSaved, projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
+import { swapStarterRulesForAnswer } from "@/lib/onboarding/starter-swap";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -19,7 +20,9 @@ type AnswersBody = {
  * Saves strategy answers (all optional). Raw answers merge into
  * onboarding_states.questions; normalized values land on hotel_settings and
  * are projected onto room_types guardrails. A user-entered property name
- * always wins over the PMS-derived one.
+ * always wins over the PMS-derived one. An answer to the last question swaps
+ * the starter rules for the set it calls for, when they are still as built
+ * (src/lib/onboarding/starter-swap.ts).
  *
  * A floor or ceiling answer that a room type cannot take (it would put that
  * room type's floor above its ceiling) is saved everywhere else and answered
@@ -45,6 +48,15 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as AnswersBody | null;
   if (!body) {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  if (
+    body.confidence !== undefined &&
+    body.confidence !== null &&
+    body.confidence !== "automate_current" &&
+    body.confidence !== "find_upside"
+  ) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
@@ -129,6 +141,9 @@ export async function POST(request: Request) {
   if (body.floor !== undefined) settingsPatch.strategy_floor = floor;
   if (body.ceiling !== undefined) settingsPatch.strategy_ceiling = ceiling;
   if (body.confidence !== undefined) settingsPatch.pricing_confidence = body.confidence;
+  // A floor or ceiling a room type couldn't take. Answered after the swap
+  // below, so a body that also carries the last answer still swaps.
+  let guardrailRefusal: NextResponse | null = null;
   if (Object.keys(settingsPatch).length > 0) {
     const { error: setErr } = await supabase
       .from("hotel_settings")
@@ -145,14 +160,35 @@ export async function POST(request: Request) {
     );
     if (answered.length > 0) {
       const money = await moneyFor(supabase, hotelId);
-      return NextResponse.json(
+      guardrailRefusal = NextResponse.json(
         { error: answered.map((n) => describeGuardrailNotSaved(n, money)).join(" ") },
         { status: answered.some((n) => n.reason === "save_failed") ? 500 : 409 },
       );
     }
   }
 
-  return NextResponse.json({ ok: true });
+  // The answer is saved either way; a swap that cannot happen leaves it for
+  // "Get suggestions from my data".
+  if (body.confidence !== undefined) {
+    try {
+      const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
+      if (swap.swapped) {
+        // If this note is lost, saving the answer again finds the new set
+        // already on the property and writes it then.
+        const { error: noteErr } = await supabase
+          .from("onboarding_states")
+          .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
+          .eq("hotel_id", hotelId);
+        if (noteErr) throw new Error(`starterRulesFor not recorded: ${noteErr.message}`);
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({ fn: "onboardingAnswers", step: "starter_swap", hotelId, error: e instanceof Error ? e.message : String(e) }),
+      );
+    }
+  }
+
+  return guardrailRefusal ?? NextResponse.json({ ok: true });
 }
 
 /** Amounts the way the question cards show them: "$" for US dollars, otherwise the code. */

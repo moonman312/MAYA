@@ -3,8 +3,8 @@ title: "The PMS tab: connection health"
 summary: What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, your property's time zone and currency, and the reconnect link.
 section: watch
 order: 80
-readingTime: 8
-keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, time zone, currency, which time zone does MAYA have, which currency does MAYA have, sync now, force a sync, refresh, is it connected]
+readingTime: 9
+keywords: [PMS tab, property system tab, UTC, local time, which time zone is last sync in, connection, connected, pending, degraded, degraded but still sending, are my prices still going out, error, disconnected, unknown, lost its connection, healthy, having trouble, no recent activity, last sync, recent requests, request log, ERR, reconnect, reconnect button, time zone, currency, which time zone does MAYA have, which currency does MAYA have, sync now, force a sync, refresh, is it connected, email, connection-down email]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the PMS tab show?' {#in-plain-words}
@@ -20,7 +20,7 @@ questions:
   - 'Where is the Reconnect button?' {#reconnecting-from-here/not-broken-cloudbeds}
   - 'Where can I see which time zone and currency MAYA has for my property?' {#time-zone-and-currency}
   - 'How do I check that MAYA is still connected to my property system?' {#connection/a-single-word}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -46,11 +46,13 @@ A single word, colour-coded. It is the state of the connection as MAYA last reco
 | Connected (green) | Healthy. MAYA reads bookings and, when you are live, sends prices. | Nothing. |
 | Pending (amber) | Connected but not yet paid for. Nothing runs. | Finish setting up payment. |
 | Degraded (amber) | Still working. MAYA keeps reading bookings and, when you are live, sending prices. Cloudbeds and ThinkReservations only. | Usually nothing: it tends to clear by itself on the next read. If it is still there in an hour, click Reconnect. It does no harm. |
-| Error (red) | Your system rejected MAYA's saved access. Nothing is read or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, click Reconnect. It does no harm sooner. |
+| Error (red) | Your system rejected MAYA's saved access. On Mews: Mews refused MAYA's keys three reads in a row. Nothing is read or sent while it lasts. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. | If it has not cleared within a couple of hours, click Reconnect (on Mews, email us). It does no harm sooner. |
 | Disconnected (red) | MAYA's access is gone: the app was uninstalled, its permission removed, or your system refused it. Nothing runs until someone reconnects. | Reconnect. |
 | unknown (grey) | MAYA has no status on file for the connection yet. | Open the tab again in a few minutes. If it stays, [email us](mailto:info@modern-hospitality-solutions.com?subject=Connection%20status%20unknown). |
 
 While the card reads Degraded, one calm line sits above the cards: "Your Cloudbeds connection needs a refresh soon. Prices are still updating." (with your system's name). Yes, your prices are still going out: nothing has stopped and nothing is lost. A General Manager or Hotel Admin also sees a quiet <Ui>Reconnect Cloudbeds</Ui> link at the end of that line.
+
+When the card has read Error or Disconnected for about an hour, every General Manager and Hotel Admin gets one email saying the connection is down, with a button that opens this tab. Degraded never sends it. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email).
 
 The Health card below has a "Degraded" of its own, about failed requests. The two are separate.
 

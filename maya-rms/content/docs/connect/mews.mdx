@@ -3,8 +3,8 @@ title: "Mews: what works today"
 summary: Mews is read-only for now. We connect it for you, MAYA reads your bookings and shows what your rules would do, and nothing is sent to Mews. It costs the same as any other property.
 section: connect
 order: 40
-readingTime: 12
-keywords: [Mews, read-only, read only, keys, API keys, client token, access token, Coming soon, Not yet available, nothing sent, nothing changed, went live, go live, go-live button, no go-live button, show as live, Sending to Mews now, Optional, Enquired, Requested, options, enquiries, room categories, space categories, history import, 30 days, starter rules, re-entered, reconnect, base rate, manual price, typed price, time zone, currency, No recent activity, room count, rooms per category, units, 100 rooms, same number of rooms, occupancy wrong, occupancy too low, over 100%, Connected, Last sync, keys stopped working, lost its connection, price, pay, full price, cost, discount, cheaper, free trial, trial, code, access code, when, date, release date, roadmap, waitlist]
+readingTime: 13
+keywords: [Mews, read-only, read only, keys, API keys, client token, access token, Coming soon, Not yet available, nothing sent, nothing changed, went live, go live, go-live button, no go-live button, show as live, Sending to Mews now, Optional, Enquired, Requested, options, enquiries, room categories, space categories, history import, 30 days, starter rules, re-entered, reconnect, base rate, manual price, typed price, time zone, currency, No recent activity, room count, rooms per category, units, 100 rooms, same number of rooms, occupancy wrong, occupancy too low, over 100%, Connected, Last sync, keys stopped working, keys refused, Error, three reads, email, connection-down email, lost its connection, price, pay, full price, cost, discount, cheaper, free trial, trial, code, access code, when, date, release date, roadmap, waitlist]
 questions:
   - How do I connect Mews to MAYA? {#how-a-mews-property-is-connected/the-screen-titled}
   - Does MAYA send prices to Mews? {#nothing-is-sent-to-mews/a-mews-property}
@@ -29,7 +29,7 @@ questions:
   - How do I set the prices MAYA shows in Mews? {#where-a-nights-starting-price-comes-from}
   - How do I stop using MAYA with Mews? {#leaving}
 pms: [mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
@@ -138,24 +138,26 @@ Cloudbeds and ThinkReservations properties get a history import at connect, a re
 
 ## When the keys stop working
 
-If your Mews keys stop working, MAYA's reads fail quietly. Nothing on screen warns you: the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab still reads <Ui>Connected</Ui>, and no banner appears above the calendar. The sign to look for is <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab, which stops moving.
+If your Mews keys stop working, MAYA's reads fail. For about the first half hour nothing on screen warns you: the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab still reads <Ui>Connected</Ui>, and no banner appears above the calendar. Once Mews has refused MAYA's keys three reads in a row, the card reads <Ui>Error</Ui> and the panel described below appears. About an hour after that, every General Manager and Hotel Admin gets one email headed "MAYA has lost its connection to Mews", asking you to reply so we can arrange new keys. Read [emails MAYA sends](/docs/billing/emails-maya-sends#the-connection-down-email).
 
-MAYA keeps trying, less often after each failed read, until it tries about once an hour. While reads fail, nothing new is priced. Your rules, history and settings are untouched, and the first read that works catches up on everything that changed in between.
+Only refusals of the keys count. A read that fails for another reason, such as Mews being down, leaves the card at <Ui>Connected</Ui>, and a read that works starts the count again. Then the sign to look for is <Ui>Last sync</Ui> on the <Ui>PMS</Ui> tab, which stops moving.
+
+MAYA keeps trying, less often after each failed read, until it tries about once an hour. While reads fail, nothing new is priced. Your rules, history and settings are untouched, and the first read that works catches up on everything that changed in between. Once we save new keys, the card reads <Ui>Connected</Ui> again.
 
 [Email us](mailto:info@modern-hospitality-solutions.com?subject=Mews%20keys) and we arrange new keys with you and save them. Leave the keys themselves out of the email: we set up a secure way to share them. There is no button for this in MAYA.
 
-When we remove the keys, the <Ui>Connection</Ui> card reads <Ui>Disconnected</Ui> and reads stop. The <Ui>PMS</Ui> tab and the banner above the calendar then show "Mews needs its keys re-entered", with the words "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." Every role sees the same panel, and the address opens an email to us. We arrange new keys with you. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
+When we remove the keys, the <Ui>Connection</Ui> card reads <Ui>Disconnected</Ui> and reads stop, and no email is sent. Whenever the card reads <Ui>Error</Ui> or <Ui>Disconnected</Ui>, the <Ui>PMS</Ui> tab and the banner above the calendar show "Mews needs its keys re-entered", with the words "Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com." Every role sees the same panel, and the address opens an email to us. We arrange new keys with you. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
 ## The PMS tab for a Mews property
 
-The <Ui>Connection</Ui> card changes only when we save or remove your keys, so it can read <Ui>Connected</Ui> while reads are failing. The <Ui>Recent requests to Mews</Ui> list and the <Ui>Health (last 24 hours)</Ui> card both read "Not tracked for this system", because MAYA keeps a log of its requests to Cloudbeds only. <Ui>Last sync</Ui> is the number to look at. <Ui>Counts as a room</Ui> and <Ui>Rooms out of service</Ui> work the same as on any property. Read [the PMS tab](/docs/watch/the-pms-tab).
+The <Ui>Connection</Ui> card changes when we save or remove your keys, and to <Ui>Error</Ui> when Mews refuses MAYA's keys three reads in a row. It can read <Ui>Connected</Ui> while reads fail for any other reason. The <Ui>Recent requests to Mews</Ui> list and the <Ui>Health (last 24 hours)</Ui> card both read "Not tracked for this system", because MAYA keeps a log of its requests to Cloudbeds only. <Ui>Last sync</Ui> is the number to look at. <Ui>Counts as a room</Ui> and <Ui>Rooms out of service</Ui> work the same as on any property. Read [the PMS tab](/docs/watch/the-pms-tab).
 
 ## Leaving
 
 Cancel on the <Ui>Billing</Ui> page, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Disconnect%20Mews) and we remove the keys, so MAYA no longer reads from Mews. Nothing in Mews was ever changed by MAYA, so there is nothing to put back. Your rules and settings stay in MAYA. Read [Cancelling, restarting and leaving](/docs/billing/cancelling-restarting-and-leaving).
 
 <Callout kind="not-yet" title="Not yet">
-For Mews there is no sending (including prices you type), no read of your own rates, no room count per room category (one number is used for all), no warning on screen when the keys stop working (watch <Ui>Last sync</Ui>), no history import and no starter rules at connect, no <Ui>Get suggestions from my data</Ui>, no go-live, connect or reconnect from the app (email us), and no way to leave options and enquiries out of the count. No date is promised for any of these.
+For Mews there is no sending (including prices you type), no read of your own rates, no room count per room category (one number is used for all), no warning on screen for about the first half hour after the keys stop working or when reads fail for another reason (watch <Ui>Last sync</Ui>), no history import and no starter rules at connect, no <Ui>Get suggestions from my data</Ui>, no go-live, connect or reconnect from the app (email us), and no way to leave options and enquiries out of the count. No date is promised for any of these.
 </Callout>
 
 <Related>

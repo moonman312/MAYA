@@ -193,10 +193,13 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
   }
 
   // The nights put back at base, found against their row before. Read in
-  // chunks, and no further once there are more changes than the run shows.
+  // chunks. Once there are more changes than the run shows, a revert only
+  // adds to the count ("and N more changes"), so the reading stops unless
+  // the rest fits in one more read; the count is then a minimum.
   const reverted = new Map<string, PriorAuditRow | null>();
+  let checked = 0;
   for (let i = 0; i < atBase.length; i += PRIOR_CHUNK) {
-    if (changeRows.length >= MAX_ENTRIES_PER_CYCLE) break;
+    if (changeRows.length >= MAX_ENTRIES_PER_CYCLE && atBase.length - i > PRIOR_CHUNK) break;
     const chunk = atBase.slice(i, i + PRIOR_CHUNK);
     const priors = await priorRowsFor(supabase, hotelId, runAt, chunk);
     for (const r of chunk) {
@@ -206,6 +209,7 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
       // Ranked by the move from the price it had; without one, by nothing.
       changeRows.push({ id: r.id, base_price: prior?.final_price ?? r.final_price, final_price: r.final_price });
     }
+    checked = i + chunk.length;
   }
 
   const top = topChangeRows(changeRows);
@@ -232,6 +236,8 @@ async function summariseRun(supabase: SupabaseClient, hotelId: string, run: RunH
     timestamp: runAt,
     hasChanges: changeRows.length > 0,
     topRows,
+    totalChanges: changeRows.length,
+    countedAll: checked >= atBase.length,
   };
 }
 
@@ -446,6 +452,8 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       (runLogRows ?? []).map(
         (r): RunHeartbeat => ({ evaluation_run_id: String(r.evaluation_run_id), evaluated_at: String(r.evaluated_at) }),
       ),
+      // A full read may have stopped partway through its oldest run.
+      auditRows.length >= AUDIT_ROW_LIMIT,
     );
     const since = oldestShownRun(cycles);
     const [problems, answers] = await Promise.all([
