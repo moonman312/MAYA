@@ -10,7 +10,13 @@
  */
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ManualPriceEditor, REFRESH_AFTER_RETRY_MS, REFRESH_AFTER_SAVE_MS, type SendStatus } from "./manual-price-editor";
+import {
+  ManualPriceEditor,
+  REFRESH_AFTER_RETRY_MS,
+  REFRESH_AFTER_SAVE_MS,
+  REFRESH_AFTER_WAIT_MS,
+  type SendStatus,
+} from "./manual-price-editor";
 
 afterEach(cleanup);
 
@@ -104,7 +110,11 @@ function statusOf(over: Partial<SendStatus> = {}): SendStatus {
  * status in `statuses` (the last one again once they run out), and retry
  * answers `retry`. Counts each call so the timing can be pinned.
  */
-function fakeFetch(statuses: SendStatus[], retry: { status?: number; body: unknown } = { body: { ok: true, state: "retrying", alreadyRequested: false } }) {
+function fakeFetch(
+  statuses: SendStatus[],
+  retry: { status?: number; body: unknown } = { body: { ok: true, state: "retrying", alreadyRequested: false } },
+  pushed = "nudged",
+) {
   const calls: { method: string; url: string }[] = [];
   const queue = [...statuses];
   const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -116,7 +126,7 @@ function fakeFetch(statuses: SendStatus[], retry: { status?: number; body: unkno
       return new Response(JSON.stringify(next));
     }
     if (url === "/api/manual-price/retry") return new Response(JSON.stringify(retry.body), { status: retry.status ?? 200 });
-    return new Response(JSON.stringify({ ok: true, cells: 1, suppressedRules: 0, retiredPickups: 0, pausedRules: 0, pushed: "nudged", preview: [] }));
+    return new Response(JSON.stringify({ ok: true, cells: 1, suppressedRules: 0, retiredPickups: 0, pausedRules: 0, pushed, preview: [] }));
   });
   vi.stubGlobal("fetch", spy);
   const count = (method: string, prefix: string) => calls.filter((c) => c.method === method && c.url.startsWith(prefix)).length;
@@ -142,7 +152,11 @@ describe("ManualPriceEditor and the send status", () => {
   });
 
   it("reads the status three times after a save, at the set delays, and then stops", async () => {
-    const fetches = fakeFetch([statusOf({ state: "retrying", retriesLeft: 3, attempts: 7 }), statusOf({ state: "sent" })]);
+    const fetches = fakeFetch([
+      statusOf({ state: "retrying", retriesLeft: 3, attempts: 7 }),
+      statusOf({ state: "retrying", retriesLeft: 2, attempts: 8 }),
+      statusOf({ state: "sent" }),
+    ]);
     const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
     await saveTyped(view);
     expect(view.getByRole("status").textContent).toBe("Saved. Sending to Cloudbeds now.");
@@ -162,6 +176,29 @@ describe("ManualPriceEditor and the send status", () => {
     // No loop: nothing more, however long the card stays open.
     await tick(60 * 60_000);
     expect(fetches.statusReads()).toBe(3);
+  });
+
+  it("stops reading after a save once the answer is final", async () => {
+    const fetches = fakeFetch([statusOf({ state: "failed", retriesLeft: 0, attempts: 1, incidentId: INCIDENT })]);
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    await saveTyped(view);
+    await tick(REFRESH_AFTER_SAVE_MS[0]);
+    expect(fetches.statusReads()).toBe(1);
+    expect(view.getByRole("status").textContent).toBe("This price couldn't be sent to Cloudbeds.");
+    await tick(60 * 60_000);
+    expect(fetches.statusReads()).toBe(1);
+  });
+
+  it("reads past the next cycle when the save's price waits for it", async () => {
+    const fetches = fakeFetch([statusOf({ state: "pending" })], undefined, "next_cycle");
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    await saveTyped(view);
+    expect(view.getByRole("status").textContent).toBe("Saved. Sending to Cloudbeds on the next cycle (about 5 min).");
+    await tick(REFRESH_AFTER_WAIT_MS[REFRESH_AFTER_WAIT_MS.length - 1]);
+    expect(fetches.statusReads()).toBe(REFRESH_AFTER_WAIT_MS.length);
+    expect(REFRESH_AFTER_WAIT_MS[REFRESH_AFTER_WAIT_MS.length - 1]).toBeGreaterThan(10 * 60_000);
+    await tick(60 * 60_000);
+    expect(fetches.statusReads()).toBe(REFRESH_AFTER_WAIT_MS.length);
   });
 
   it("keeps the save's own line while the status says no more than it did", async () => {
@@ -202,6 +239,7 @@ describe("ManualPriceEditor and the send status", () => {
     const fetches = fakeFetch([
       statusOf({ state: "failed", retriesLeft: 0, attempts: 10, incidentId: INCIDENT }),
       statusOf({ state: "retrying", retriesLeft: 1, retryRequested: true }),
+      statusOf({ state: "sending" }),
       statusOf({ state: "sent" }),
     ]);
     const view = render(<ManualPriceEditor {...base} manualPrice={typed} />);
@@ -225,25 +263,67 @@ describe("ManualPriceEditor and the send status", () => {
       date: "2026-10-05",
     });
 
-    // Read again at the set delays until the state leaves "retrying".
+    // Read again at the set delays, through "sending", until the try has an answer.
     expect(fetches.statusReads()).toBe(1);
     await tick(REFRESH_AFTER_RETRY_MS[0]);
     expect(fetches.statusReads()).toBe(2);
     expect(view.getByRole("status").textContent).toBe("Saved. It couldn't be sent yet. MAYA will retry 1 more time.");
     await tick(REFRESH_AFTER_RETRY_MS[1] - REFRESH_AFTER_RETRY_MS[0]);
     expect(fetches.statusReads()).toBe(3);
+    expect(view.getByRole("status").textContent).toBe("Sending to Cloudbeds now.");
+    await tick(REFRESH_AFTER_RETRY_MS[2] - REFRESH_AFTER_RETRY_MS[1]);
+    expect(fetches.statusReads()).toBe(4);
     expect(view.getByRole("status").textContent).toBe("Sent to Cloudbeds.");
     await tick(REFRESH_AFTER_RETRY_MS[3]);
-    expect(fetches.statusReads()).toBe(3);
+    expect(fetches.statusReads()).toBe(4);
   });
 
-  it("offers no Try again to someone who cannot type prices, and links to the change log when no problem is shown yet", async () => {
-    fakeFetch([statusOf({ state: "failed", retriesLeft: 0, attempts: 1, canRetry: false, incidentId: null })]);
+  it("offers no Try again to someone who cannot type prices, and says why when the change log shows no problem yet", async () => {
+    fakeFetch([
+      statusOf({
+        state: "failed",
+        retriesLeft: 0,
+        attempts: 10,
+        canRetry: false,
+        incidentId: null,
+        cause: { title: "Cloudbeds isn't responding, so King rates haven't updated yet", action: null },
+      }),
+    ]);
     const view = render(<ManualPriceEditor {...base} manualPrice={typed} />);
     await tick();
     expect(view.getByRole("status").textContent).toBe("This price couldn't be sent to Cloudbeds.");
+    expect(view.getByText("Cloudbeds isn't responding, so King rates haven't updated yet.")).toBeTruthy();
     expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
-    expect(view.getByRole("link", { name: "See the error log" }).getAttribute("href")).toBe("/?tab=changelog&dl=changelog");
+    // No link to a change log that has nothing about this price.
+    expect(view.queryByRole("link", { name: "See the error log" })).toBeNull();
+  });
+
+  it("says a price for a room type with no rate in the PMS can't be sent, with the reason and no Try again", async () => {
+    fakeFetch([
+      statusOf({
+        state: "skipped",
+        skipReason: "no_rate_target",
+        incidentId: null,
+        cause: {
+          title: "MAYA can't find a base rate for King in Cloudbeds, so its rates can't be changed",
+          action: "Add a base rate for this room type in Cloudbeds.",
+        },
+      }),
+    ]);
+    const view = render(<ManualPriceEditor {...base} manualPrice={typed} />);
+    await tick();
+    expect(view.getByRole("status").textContent).toBe("This price couldn't be sent to Cloudbeds.");
+    expect(
+      view.getByText("MAYA can't find a base rate for King in Cloudbeds, so its rates can't be changed. Add a base rate for this room type in Cloudbeds."),
+    ).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Try again" })).toBeNull();
+    cleanup();
+
+    fakeFetch([statusOf({ state: "skipped", skipReason: "no_rate_target", incidentId: INCIDENT })]);
+    const filed = render(<ManualPriceEditor {...base} manualPrice={typed} />);
+    await tick();
+    expect(filed.getByRole("link", { name: "See the error log" }).getAttribute("href")).toBe(`/?tab=changelog&dl=changelog.problem&problem=${INCIDENT}`);
+    expect(filed.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("shows where the night is now when Try again finds nothing left to retry", async () => {

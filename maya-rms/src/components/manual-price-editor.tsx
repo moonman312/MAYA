@@ -18,8 +18,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
  * night's send status (/api/manual-price/send-status, read from the push's
  * ledger with the push's own retry rules) takes over once it says more: sent,
  * still being retried with the real count left, or stopped, with Try again
- * and a link to the sending problem in the change log. Read a few times after
- * a save and once on opening a night with a typed price, never on a loop.
+ * and a link to the sending problem in the change log, or the reason itself
+ * when the change log does not show one yet. Read a few times after a save
+ * and once on opening a night with a typed price, never on a loop, and no
+ * more once the answer is final.
  */
 
 type Pushed =
@@ -44,16 +46,39 @@ export type SendStatus = {
   pmsType: string | null;
   pmsName: string | null;
   incidentId: string | null;
+  /** Why the night is stopped, when no sending problem in the change log says so yet. */
+  cause?: { title: string; action: string | null } | null;
+  /** For a skipped night: MAYA's own hold, or no rate in the PMS to send to. */
+  skipReason?: "maya_hold" | "no_rate_target" | null;
   maxAttempts: number;
   canRetry: boolean;
 };
 
-/** When the status is read again after a save whose price is on its way. Then it stops. */
+/** When the status is read again after a save whose price is being sent now. Then it stops. */
 export const REFRESH_AFTER_SAVE_MS = [20_000, 60_000, 180_000];
-/** After Try again: closer together, until the state leaves "retrying". */
+/**
+ * After a save whose price waits for the next cycle (about 5 minutes) or for
+ * the connection to answer: the same reads, then two past the next cycles.
+ */
+export const REFRESH_AFTER_WAIT_MS = [...REFRESH_AFTER_SAVE_MS, 360_000, 660_000];
+/** After Try again: closer together, until the answer is final. */
 export const REFRESH_AFTER_RETRY_MS = [5_000, 15_000, 40_000, 90_000];
-/** Save verdicts after which the status is worth reading: the price is going, or waiting on a read. */
-const REFRESHED_VERDICTS = new Set<Pushed>(["nudged", "next_cycle", "connection_error"]);
+/** Save verdicts after which the status is worth reading, and how often. */
+const REFRESH_AFTER_VERDICT: Partial<Record<Pushed, readonly number[]>> = {
+  nudged: REFRESH_AFTER_SAVE_MS,
+  next_cycle: REFRESH_AFTER_WAIT_MS,
+  connection_error: REFRESH_AFTER_WAIT_MS,
+};
+
+/** Nothing more will change on its own: sent, stopped, not sent at all, or nothing is sent here. */
+export function isFinalSendStatus(s: Pick<SendStatus, "applicable" | "state">): boolean {
+  return !s.applicable || s.state === "sent" || s.state === "failed" || s.state === "skipped";
+}
+
+/** Stopped where the owner can act: refused and no longer retried, or no rate in the PMS to send to. */
+function isStopped(s: Pick<SendStatus, "state" | "skipReason">): boolean {
+  return s.state === "failed" || (s.state === "skipped" && s.skipReason === "no_rate_target");
+}
 
 type SaveResponse = {
   ok: boolean;
@@ -122,7 +147,7 @@ function pushedCopy(
     case "reconnect":
       return "Saved. It will be sent once you reconnect.";
     case "connection_error":
-      return `Saved. ${pmsName} isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works.`;
+      return `Saved. ${pmsName} isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as it answers.`;
     case "saved":
     default:
       return "Saved.";
@@ -194,7 +219,10 @@ export function describeClear(cells: number | undefined, passed?: boolean): stri
  * already says so for a 0). The count is the server's, never a guess here.
  * Exported for tests.
  */
-export function sendStatusLine(status: Pick<SendStatus, "applicable" | "state" | "retriesLeft" | "pmsName">, pmsName: string): string | null {
+export function sendStatusLine(
+  status: Pick<SendStatus, "applicable" | "state" | "retriesLeft" | "pmsName" | "skipReason">,
+  pmsName: string,
+): string | null {
   if (!status.applicable) return null;
   const pms = status.pmsName ?? pmsName;
   switch (status.state) {
@@ -208,6 +236,10 @@ export function sendStatusLine(status: Pick<SendStatus, "applicable" | "state" |
     }
     case "failed":
       return `This price couldn't be sent to ${pms}.`;
+    case "skipped":
+      // No rate in the PMS to send to is the owner's to fix there; MAYA's own
+      // holds are not.
+      return status.skipReason === "no_rate_target" ? `This price couldn't be sent to ${pms}.` : null;
     default:
       return null;
   }
@@ -215,9 +247,9 @@ export function sendStatusLine(status: Pick<SendStatus, "applicable" | "state" |
 
 /**
  * Where "See the error log" goes: the sending problem this night is filed
- * under in the change log, or the change log itself when none is shown yet.
- * A full navigation, so the dashboard reads the arrival and highlights it.
- * Exported for tests.
+ * under in the change log. The editor offers the link only with one; without
+ * it, it shows the reason itself. A full navigation, so the dashboard reads
+ * the arrival and highlights it. Exported for tests.
  */
 export function errorLogHref(incidentId: string | null): string {
   return incidentId
@@ -368,7 +400,8 @@ export function ManualPriceEditor({
       }
       const body = (await res.json()) as SaveResponse;
       setMessage({ kind: "ok", text: describeSave(body, pmsName) });
-      if (REFRESHED_VERDICTS.has(body.pushed)) scheduleRefreshes(REFRESH_AFTER_SAVE_MS);
+      const delays = REFRESH_AFTER_VERDICT[body.pushed];
+      if (delays) scheduleRefreshes(delays, isFinalSendStatus);
       onSaved();
     } catch {
       setMessage({ kind: "error", text: "Couldn't reach MAYA. Try again." });
@@ -404,7 +437,8 @@ export function ManualPriceEditor({
         return;
       }
       setStatus((s) => (s ? { ...s, state: "retrying", retriesLeft: 1, retryRequested: true } : s));
-      scheduleRefreshes(REFRESH_AFTER_RETRY_MS, (s) => s.state !== "retrying");
+      // Through "sending" and back to "retrying", until the try has an answer.
+      scheduleRefreshes(REFRESH_AFTER_RETRY_MS, isFinalSendStatus);
     } catch {
       setMessage({ kind: "error", text: "Couldn't reach MAYA. Try again." });
     } finally {
@@ -530,22 +564,32 @@ export function ManualPriceEditor({
           <p className={status?.state === "sent" || status?.state === "sending" ? "text-emerald-300" : "text-amber-300"} role="status">
             {statusLine}
           </p>
-          {status?.state === "failed" ? (
-            <div className="mt-1 flex flex-wrap items-center gap-2">
-              {status.canRetry ? (
-                <button
-                  type="button"
-                  disabled={retrying}
-                  onClick={() => void retry()}
-                  className="cursor-pointer rounded border border-amber-500/60 px-2 py-0.5 text-xs font-medium text-amber-200 hover:border-amber-400 disabled:opacity-60"
-                >
-                  Try again
-                </button>
+          {status && isStopped(status) ? (
+            <>
+              {/* Why, when no sending problem in the change log says so yet. */}
+              {!status.incidentId && status.cause ? (
+                <p className="mt-1 text-slate-300">
+                  {status.cause.title}.{status.cause.action ? ` ${status.cause.action}` : ""}
+                </p>
               ) : null}
-              <a href={errorLogHref(status.incidentId)} className="text-xs text-sky-400 underline decoration-dotted hover:text-sky-300">
-                See the error log
-              </a>
-            </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {status.state === "failed" && status.canRetry ? (
+                  <button
+                    type="button"
+                    disabled={retrying}
+                    onClick={() => void retry()}
+                    className="cursor-pointer rounded border border-amber-500/60 px-2 py-0.5 text-xs font-medium text-amber-200 hover:border-amber-400 disabled:opacity-60"
+                  >
+                    Try again
+                  </button>
+                ) : null}
+                {status.incidentId ? (
+                  <a href={errorLogHref(status.incidentId)} className="text-xs text-sky-400 underline decoration-dotted hover:text-sky-300">
+                    See the error log
+                  </a>
+                ) : null}
+              </div>
+            </>
           ) : null}
         </div>
       ) : message ? (

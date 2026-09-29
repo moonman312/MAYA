@@ -17,7 +17,16 @@
  *              tries used at this price, or its cause held (push-failure.ts
  *              retryDecision). MAYA still tries once a day; Try again sends it
  *              once more now.
- *   skipped    a guardrail held the night back (MAYA's own hold)
+ *   skipped    the push did not send the night: a guardrail held it back
+ *              (MAYA's own hold, `skipReason` "maya_hold"), or the room type
+ *              has no rate in the property system to send to ("no_rate_target",
+ *              which the owner has to fix there and Try again cannot)
+ *
+ * Where the night is stopped (failed, or skipped for no rate target), the
+ * owner is shown why: the open sending problem it is filed under when the
+ * change log shows one (`incidentId`), or else the cause itself (`cause`):
+ * a quiet cause that used its tries, or a hold like a night that had begun,
+ * is only filed where an owner sees it after two hours of failing.
  *
  * The decision is the push's own: the same classification and retryDecision
  * the scheduled tick runs, so the count is never a guess. Not applicable at
@@ -34,11 +43,13 @@ import { hotelToday } from "@/lib/simulator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   classifyPushFailure,
+  describePushCause,
   MAX_PUSH_ATTEMPTS,
   pmsName,
   retryDecision,
   SEND_IN_PROGRESS_MESSAGE,
 } from "../../../supabase/functions/_shared/pms/push-failure";
+import { NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
 
 /**
  * The systems a price is sent to. Mews is read-only for now (G2, on hold), so
@@ -77,6 +88,13 @@ export type SendStatus = {
   pmsName: string | null;
   /** The open, customer-visible incident this night is filed under, when there is one. */
   incidentId: string | null;
+  /**
+   * Why the night is stopped, in the owner's words, when no sending problem
+   * the owner can see says so (incidentId is null). Null otherwise.
+   */
+  cause: { title: string; action: string | null } | null;
+  /** For a skipped night: MAYA's own hold, or no rate in the property system to send to. */
+  skipReason: "maya_hold" | "no_rate_target" | null;
   maxAttempts: number;
 };
 
@@ -90,6 +108,8 @@ const NOT_APPLICABLE: SendStatus = {
   pmsType: null,
   pmsName: null,
   incidentId: null,
+  cause: null,
+  skipReason: null,
   maxAttempts: MAX_PUSH_ATTEMPTS,
 };
 
@@ -131,9 +151,11 @@ export function decideSendState(p: {
   });
   if (verdict !== "retry") return { state: "failed", retriesLeft: 0, retryRequested };
   // A held cause, or one that used its tries, gets exactly one more send when
-  // it is let through (rested, reconnected or asked for); a cause that clears
-  // on its own is sent every tick until its tries run out.
-  const oneMore = failure.retry === "hold" || ledger.attempts >= MAX_PUSH_ATTEMPTS;
+  // it is let through (rested, reconnected or asked for); so does a rate the
+  // PMS could not find, whose next failure is held (classifyPushFailure: it
+  // is re-read and sent once more, then critical). A cause that clears on its
+  // own is sent every tick until its tries run out.
+  const oneMore = failure.retry === "hold" || failure.retry === "reresolve" || ledger.attempts >= MAX_PUSH_ATTEMPTS;
   return { state: "retrying", retriesLeft: oneMore ? 1 : MAX_PUSH_ATTEMPTS - ledger.attempts, retryRequested };
 }
 
@@ -198,16 +220,18 @@ async function readLedgerCell(
 }
 
 /**
- * The open incident the owner can see that this night is filed under, if
- * any: not admin-only, made customer-visible, not resolved. Null before the
- * incident tables exist.
+ * The open sending problems this night is filed under, newest first, that
+ * are not MAYA's own holds: the one the owner can see (made customer-visible),
+ * if any, and the cause of the newest either way. Nothing before the incident
+ * tables exist.
  */
-async function visibleIncidentFor(
+async function openIncidentsFor(
   admin: SupabaseClient,
   hotelId: string,
   roomTypeId: string,
   date: string,
-): Promise<string | null> {
+): Promise<{ visibleId: string | null; cause: string | null }> {
+  const none = { visibleId: null, cause: null };
   const { data: cells, error: cellsError } = await admin
     .from("rate_push_incident_cells")
     .select("incident_id")
@@ -215,26 +239,34 @@ async function visibleIncidentFor(
     .eq("room_type_id", roomTypeId)
     .eq("stay_date", date);
   if (cellsError) {
-    if (isMissingRelationError(cellsError)) return null;
+    if (isMissingRelationError(cellsError)) return none;
     throw cellsError;
   }
   const ids = [...new Set(((cells ?? []) as { incident_id?: unknown }[]).map((c) => String(c.incident_id)))];
-  if (ids.length === 0) return null;
+  if (ids.length === 0) return none;
   const { data, error } = await admin
     .from("rate_push_incidents")
-    .select("id")
+    .select("id, cause, customer_visible_at")
     .in("id", ids)
     .eq("admin_only", false)
-    .not("customer_visible_at", "is", null)
     .is("resolved_at", null)
-    .order("opened_at", { ascending: false })
-    .limit(1);
+    .order("opened_at", { ascending: false });
   if (error) {
-    if (isMissingRelationError(error)) return null;
+    if (isMissingRelationError(error)) return none;
     throw error;
   }
-  const row = (data ?? [])[0] as { id?: unknown } | undefined;
-  return row?.id != null ? String(row.id) : null;
+  const rows = (data ?? []) as { id?: unknown; cause?: unknown; customer_visible_at?: unknown }[];
+  const visible = rows.find((r) => r.customer_visible_at != null && r.id != null);
+  return {
+    visibleId: visible ? String(visible.id) : null,
+    cause: rows[0]?.cause != null ? String(rows[0].cause) : null,
+  };
+}
+
+async function roomTypeName(admin: SupabaseClient, roomTypeId: string): Promise<string[]> {
+  const { data } = await admin.from("room_types").select("name").eq("id", roomTypeId).maybeSingle();
+  const name = (data as { name?: unknown } | null)?.name;
+  return typeof name === "string" && name.trim() ? [name] : [];
 }
 
 /**
@@ -282,13 +314,34 @@ export async function readSendStatus(
   const reauthorizedAtMs = conn.reauthorized_at ? Date.parse(String(conn.reauthorized_at)) : NaN;
   const decided = decideSendState({ ledger, publishedPrice, pmsType, nowMs: now.getTime(), reauthorizedAtMs });
   const failing = ledger != null && ledger.status === "failed" && decided.state !== "pending";
+  const skipReason =
+    decided.state === "skipped" ? (ledger?.error === NO_RATE_TARGET_REASON ? "no_rate_target" : "maya_hold") : null;
+
+  // Stopped where the owner can do something: say where the reason is shown,
+  // or the reason itself.
+  let incidentId: string | null = null;
+  let cause: SendStatus["cause"] = null;
+  if (ledger && (decided.state === "failed" || skipReason === "no_rate_target")) {
+    const open = await openIncidentsFor(admin, p.hotelId, p.roomTypeId, p.date);
+    incidentId = open.visibleId;
+    if (!incidentId) {
+      const code =
+        open.cause ??
+        (decided.state === "failed"
+          ? ledgerFailure(pmsType, ledger).cause
+          : classifyPushFailure({ pms: pmsType, phase: "guardrail", message: NO_RATE_TARGET_REASON }).cause);
+      cause = describePushCause(code, pmsType, await roomTypeName(admin, p.roomTypeId));
+    }
+  }
   return {
     applicable: true,
     ...named,
     ...decided,
     attempts: failing ? ledger.attempts : null,
     lastAttemptAt: failing && Number.isFinite(ledger.pushedAtMs) ? new Date(ledger.pushedAtMs).toISOString() : null,
-    incidentId: decided.state === "failed" ? await visibleIncidentFor(admin, p.hotelId, p.roomTypeId, p.date) : null,
+    incidentId,
+    cause,
+    skipReason,
     maxAttempts: MAX_PUSH_ATTEMPTS,
   };
 }

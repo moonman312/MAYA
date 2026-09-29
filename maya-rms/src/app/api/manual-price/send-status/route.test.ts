@@ -61,6 +61,7 @@ function seed(overrides: Record<string, FakeRow[]> = {}, opts: Parameters<typeof
       hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
       pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "connected", reauthorized_at: null }],
       published_price: [{ hotel_id: HOTEL, room_type_id: ROOM, stay_date: NIGHT, price: 250 }],
+      room_types: [{ id: ROOM, hotel_id: HOTEL, name: "Deluxe King" }],
       rate_updates: [],
       rate_push_incidents: [],
       rate_push_incident_cells: [],
@@ -205,9 +206,73 @@ describe("GET /api/manual-price/send-status — states", () => {
     expect(await body()).toMatchObject({ state: "failed", retryRequested: false });
   });
 
-  it("skipped for a night MAYA's own check held back", async () => {
+  it("skipped for a night MAYA's own check held back, with nothing for the owner to do", async () => {
     state.fake = seed({ rate_updates: [{ ...failed("guardrail:below_floor", 0), status: "skipped" }] });
-    expect(await body()).toMatchObject({ state: "skipped", retriesLeft: null });
+    expect(await body()).toMatchObject({ state: "skipped", retriesLeft: null, skipReason: "maya_hold", incidentId: null, cause: null });
+  });
+
+  it("counts one more try, not the whole budget, for a rate the PMS could not find", async () => {
+    // Re-read and sent once more; the second refusal is held (classifyPushFailure).
+    const NOT_FOUND = "Cloudbeds patchRate failed (404): Rate not found";
+    state.fake = seed({ rate_updates: [failed(NOT_FOUND, 1)] });
+    expect(await body()).toMatchObject({ state: "retrying", retriesLeft: 1, attempts: 1 });
+    state.fake = seed({ rate_updates: [failed(NOT_FOUND, 2)] });
+    expect(await body()).toMatchObject({ state: "failed", retriesLeft: 0, attempts: 2 });
+  });
+
+  it("says why a stopped price was not sent when no sending problem the owner can see says so yet", async () => {
+    // A quiet cause that used its tries: filed where the owner sees it only after two hours.
+    state.fake = seed({ rate_updates: [failed(OUTAGE, MAX_PUSH_ATTEMPTS)] });
+    expect(await body()).toMatchObject({
+      state: "failed",
+      incidentId: null,
+      cause: { title: "Cloudbeds isn't responding, so Deluxe King rates haven't updated yet", action: null },
+    });
+    // A night that had begun at the property is held after one try, and may never be filed where the owner sees it.
+    state.fake = seed({ rate_updates: [failed("Cloudbeds patchRate failed (400): startDate must be greater than or equal to today", 1)] });
+    expect(await body()).toMatchObject({
+      state: "failed",
+      incidentId: null,
+      cause: {
+        title: "Cloudbeds wouldn't take Deluxe King rates for a night that had already begun at the property",
+        action: "Check that the property's time zone in Cloudbeds matches the one in MAYA.",
+      },
+    });
+
+    // Filed under a problem the owner cannot see yet: that problem's cause.
+    const cells = [{ incident_id: INCIDENT, hotel_id: HOTEL, room_type_id: ROOM, stay_date: NIGHT }];
+    const incident = { id: INCIDENT, hotel_id: HOTEL, cause: "pms_unavailable", admin_only: false, customer_visible_at: null, resolved_at: null, opened_at: minutesAgo(60) };
+    state.fake = seed({ rate_updates: [failed(VALUE_REFUSED, 1)], rate_push_incident_cells: cells, rate_push_incidents: [incident] });
+    expect(await body()).toMatchObject({ incidentId: null, cause: { title: "Cloudbeds isn't responding, so Deluxe King rates haven't updated yet" } });
+
+    // Once the owner can see it, the change log says why.
+    state.fake = seed({
+      rate_updates: [failed(VALUE_REFUSED, 1)],
+      rate_push_incident_cells: cells,
+      rate_push_incidents: [{ ...incident, customer_visible_at: minutesAgo(5) }],
+    });
+    expect(await body()).toMatchObject({ incidentId: INCIDENT, cause: null });
+  });
+
+  it("says a price for a room type with no rate in the PMS can't be sent, and why", async () => {
+    const noTarget = { ...failed("no rate target for room type", 0), status: "skipped" };
+    state.fake = seed({ rate_updates: [noTarget] });
+    expect(await body()).toMatchObject({
+      state: "skipped",
+      skipReason: "no_rate_target",
+      incidentId: null,
+      cause: {
+        title: "MAYA can't find a base rate for Deluxe King in Cloudbeds, so its rates can't be changed",
+        action: "Add a base rate for this room type in Cloudbeds.",
+      },
+    });
+    const cells = [{ incident_id: INCIDENT, hotel_id: HOTEL, room_type_id: ROOM, stay_date: NIGHT }];
+    state.fake = seed({
+      rate_updates: [noTarget],
+      rate_push_incident_cells: cells,
+      rate_push_incidents: [{ id: INCIDENT, hotel_id: HOTEL, cause: "no_base_rate", admin_only: false, customer_visible_at: minutesAgo(5), resolved_at: null, opened_at: minutesAgo(10) }],
+    });
+    expect(await body()).toMatchObject({ state: "skipped", skipReason: "no_rate_target", incidentId: INCIDENT, cause: null });
   });
 
   it("names the open sending problem the owner can see, and no other", async () => {

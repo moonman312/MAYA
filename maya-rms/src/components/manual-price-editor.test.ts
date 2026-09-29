@@ -59,7 +59,7 @@ describe("describeSave", () => {
     }
     // Error is not Disconnected: MAYA keeps trying it, and the line says so.
     expect(describeSave({ pushed: "connection_error", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
-      "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as a read works.",
+      "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as it answers.",
     );
     expect(describeSave({ pushed: "connection_error", suppressedRules: 0, retiredPickups: 0 }, "Think Reservations")).not.toMatch(/reconnect|—/);
     // Paused rules still read after it.
@@ -239,6 +239,11 @@ describe("sendStatusLine", () => {
   it("names the system the status knows, else the editor's own", () => {
     expect(sendStatusLine({ ...at("sent"), pmsName: "Think Reservations" }, "Cloudbeds")).toBe("Sent to Think Reservations.");
     expect(sendStatusLine({ ...at("failed", 0), pmsName: null }, "your PMS")).toBe("This price couldn't be sent to your PMS.");
+  });
+
+  it("says a price with no rate in the PMS to go to couldn't be sent, and stays quiet about MAYA's own holds", () => {
+    expect(sendStatusLine({ ...at("skipped"), skipReason: "no_rate_target" }, "Cloudbeds")).toBe("This price couldn't be sent to Cloudbeds.");
+    expect(sendStatusLine({ ...at("skipped"), skipReason: "maya_hold" }, "Cloudbeds")).toBeNull();
   });
 
   it("leaves the save's own line where the status says no more than it did", () => {
