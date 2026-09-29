@@ -30,6 +30,7 @@ export const MIGRATIONS = {
   pickupWait: "99_supabase_migration_pickup_wait_v1.sql",
   undoOnCancellation: "99_supabase_migration_undo_on_cancellation_v1.sql",
   pricingCadence: "99_supabase_migration_pricing_cadence_v1.sql",
+  ruleActivation: "99_supabase_migration_rule_activation_v1.sql",
 } as const;
 
 /* ── The nights one run prices ─────────────────────────────────────────────
@@ -618,16 +619,20 @@ export async function snapshotCurrentState(
   roomTypes: RoomTypeRow[],
   /** Booked units and revenue per cell when the caller already has them (loadReservationCells). */
   bookedByCell?: ReadonlyMap<string, { units: number; revenue: number }>,
+  /** Build the rows without writing them (a dry run of the engine). */
+  opts: { dryRun?: boolean } = {},
 ): Promise<SnapshotRow[]> {
   if (stayDates.length === 0 || roomTypes.length === 0) return [];
 
   // §15.8: same snapshot_ts must not duplicate rows on re-run.
-  const { error: delErr } = await supabase
-    .from("stay_date_snapshot")
-    .delete()
-    .eq("hotel_id", hotelId)
-    .eq("snapshot_ts", snapshotTs);
-  if (delErr) throw new Error(`Snapshot delete (idempotent) failed: ${delErr.message}`);
+  if (!opts.dryRun) {
+    const { error: delErr } = await supabase
+      .from("stay_date_snapshot")
+      .delete()
+      .eq("hotel_id", hotelId)
+      .eq("snapshot_ts", snapshotTs);
+    if (delErr) throw new Error(`Snapshot delete (idempotent) failed: ${delErr.message}`);
+  }
 
   const rtIds = roomTypes.map((rt) => rt.id);
   const sortedDates = [...stayDates].sort();
@@ -687,6 +692,7 @@ export async function snapshotCurrentState(
     }
   }
 
+  if (opts.dryRun) return rows;
   // Batch insert in chunks to avoid payload limits.
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {

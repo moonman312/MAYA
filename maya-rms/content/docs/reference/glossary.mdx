@@ -3,7 +3,7 @@ title: Glossary
 summary: Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.
 section: reference
 order: 10
-readingTime: 20
+readingTime: 21
 keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, usual number, usually get, show the numbers, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
 questions:
   - What does this word mean? {#in-plain-words}
@@ -27,7 +27,7 @@ questions:
   - What do Connected, Pending, Degraded, Error and Disconnected mean? {#a-to-c/connected}
   - What does MAYA call lead time, STLY (same time last year), comp set, pace and yield rules? {#words-from-other-revenue-tools/comp-set}
   - Does MAYA use length of stay (LOS)? {#words-from-other-revenue-tools/length-of-stay}
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -37,6 +37,8 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 ## A to C
 
 **ADR** (screen: ADR $160.00). Average daily rate: a room type's room revenue for a night divided by the rooms of that type booked that night. It is on the room type cards in the calendar's day detail. With nothing booked it shows a dash: "ADR –". Read [The calendar](/docs/watch/the-calendar).
+
+**Apply price adjustments** (screen). One of the two choices in the window that opens before a rule starts acting (switched on, added, or saved with changes while on): the rule changes the days the window showed from the next pricing run. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
 
 **Base price.** The price a rule starts from on a night and room type. It is your typed price if you set one, else your own rate as read from your property system, else the newest booking's rate for that night, else the last base price MAYA recorded for that night. Read [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 
@@ -154,6 +156,8 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Rules that keep adjusting** (screen). The amber banner that asks you what to do once three of a booking speed or pickup rule's changes are on the same night. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
+**Skip price adjustments** (screen). The other choice in that window: the rule is on, but the days the window showed keep their prices, each until the rule stops being true there and then becomes true again. Every other day works as with Apply, and a booking speed or pickup rule counts every booking on the books, the ones made before it included. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on#skip-price-adjustments).
+
 **Season.** A stretch of your year that books differently, found from your own history and never set by hand. It only ever appears inside an explanation. Read [Similar nights](/docs/rules/similar-nights).
 
 **Seats.** How many people can be on a property's team, members plus pending invitations: 2, 4, 5, 6 or 8, following your room count. Read [Inviting and removing people](/docs/team/inviting-and-removing-people).
@@ -179,6 +183,8 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 **Then waits** (screen: Then waits (advanced)). How long a booking speed or pickup rule leaves a night alone after acting on it: 1 day to 2 weeks. A booking speed row waits 1 week when unset, and a pickup count row waits its lookback window (<Ui>Same as the lookback window</Ui>) unless you choose another. A rule with both waits the longer of the two. Read [Booking speed](/docs/rules/booking-speed).
 
 **Three-times question.** Another name for the Rules that keep adjusting banner.
+
+**Turn it on** (screen). The one button in that window, beside <Ui>Cancel</Ui>, when it reads "0 prices will be affected by this rule.": the rule is saved on and changes nothing now. For an edit to a rule that is on, the button reads <Ui>Save changes</Ui> and does the same. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on#what-the-days-mean).
 
 **Trial.** Free days before your first charge. Properties that arrive from the Cloudbeds Marketplace get a 7-day free trial at their first signup, never on a restart. A code can carry its own trial, which replaces the Marketplace one rather than adding to it, and also counts at the first signup only: a restart gets no trial of any kind. A card is taken and nothing is charged until the trial ends. Read [Codes and the free trial](/docs/pay/codes-and-the-free-trial).
 

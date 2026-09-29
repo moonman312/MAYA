@@ -3,7 +3,7 @@ title: Try a rule before turning it on
 summary: Build a test rule in the Rate Simulator, make up a night, see what each room type would become, then save the rule so it arrives on the Rules tab switched Off.
 section: recipes
 order: 140
-readingTime: 3
+readingTime: 4
 keywords: [test a rule, try a rule, rate simulator, build a test rule, save this rule, what would happen, preview, before turning it on, switched off, initialized as disabled, make up a night, simulate]
 questions:
   - Can I test a rule before turning it on? {#in-plain-words}
@@ -11,11 +11,11 @@ questions:
   - How does the Rate Simulator work? {#what-the-simulator-does-and-does-not-do}
   - Does saving a rule from the Rate Simulator turn it on? {#in-plain-words}
   - Why does my test rule show "Not enough history"? {#try-the-rule/1-set-up}
-updated: 2026-09-20
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Open the <Ui>Rate Simulator</Ui> tab, set up a made-up night, click <Ui>+ Build a test rule</Ui> and fill it in. The <Ui>What would happen</Ui> table shows what each room type would become. Nothing is saved and no price reaches your property system until you click <Ui>Save This Rule</Ui>, and even then the rule arrives on the <Ui>Rules</Ui> tab switched <Ui>Off</Ui>. Turn it <Ui>On</Ui> when you are ready.
+Open the <Ui>Rate Simulator</Ui> tab, set up a made-up night, click <Ui>+ Build a test rule</Ui> and fill it in. The <Ui>What would happen</Ui> table shows what each room type would become. Nothing is saved and no price reaches your property system until you click <Ui>Save This Rule</Ui>, and even then the rule arrives on the <Ui>Rules</Ui> tab switched <Ui>Off</Ui>. Turn it <Ui>On</Ui> when you are ready: the switch first shows the days it will change on your real calendar, and you apply or skip the price adjustments.
 </InPlainWords>
 
 ## Try the rule
@@ -34,7 +34,7 @@ Under <Ui>Rules in play</Ui>, click <Ui>+ Build a test rule</Ui>. Give it a <Ui>
 The <Ui>What would happen</Ui> table shows each room type's <Ui>Base</Ui>, what it <Ui>Becomes</Ui>, the <Ui>Change</Ui>, and <Ui>Because</Ui>, which names the rules that fired. A price held at a limit is tagged "held at your floor" or "held at your ceiling". The <Ui>Didn't fire</Ui> list says why a rule stayed quiet, for example "Conditions not met" with what it saw.
 </Step>
 <Step title="Save it, switched off">
-Click <Ui>Save This Rule</Ui>. A green line reads "Rule Added to Rules Tab and Initialized as Disabled". Until you press it, the rule exists only on this screen. On the <Ui>Rules</Ui> tab, switch it <Ui>On</Ui> when you are ready.
+Click <Ui>Save This Rule</Ui>. A green line reads "Rule Added to Rules Tab and Initialized as Disabled". Until you press it, the rule exists only on this screen. On the <Ui>Rules</Ui> tab, switch it <Ui>On</Ui> when you are ready. A window shows the days it will change on your real bookings, "X days will be affected by this rule.": <Ui>Apply price adjustments</Ui> changes them from the next run, <Ui>Skip price adjustments</Ui> leaves them as they are until the rule stops being true on a day and then becomes true again, and every other night works as with Apply. To change it first, click <Ui>Edit</Ui> on its row. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
 </Step>
 </Steps>
 

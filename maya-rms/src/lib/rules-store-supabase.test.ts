@@ -206,7 +206,7 @@ describe("updateRule: validates before mutating, repairs a failed condition writ
     expect(tables.get("rule_condition")?.[0]).toMatchObject({ occupancy_threshold: 0.5 });
   });
 
-  it("succeeds on a valid edit: bumps version, retires pickup events, replaces the condition", async () => {
+  it("succeeds on a valid edit: bumps version, replaces the condition, leaves the fires to the engine", async () => {
     const { client, tables } = fakeSupabase(seedRule());
     const ok = await updateRule(
       "r1",
@@ -215,11 +215,10 @@ describe("updateRule: validates before mutating, repairs a failed condition writ
     );
     expect(ok).toBe(true);
     expect(tables.get("pricing_rules")?.[0]).toMatchObject({ version: 2 });
-    // Retired with the reason, so the fire never holds the edited rule back.
-    expect(tables.get("pickup_event")?.[0]).toMatchObject({
-      retired_at: expect.any(String),
-      retired_reason: "rule_edited",
-    });
+    // Nothing on the price moves at the save: the engine takes a fire of an
+    // older version off on its next run, and only while the rule is on
+    // (firesToReset), so an edit to a rule that is off moves no price.
+    expect(tables.get("pickup_event")?.[0]).toMatchObject({ retired_at: null });
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")?.[0]).toMatchObject({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
   });
@@ -330,7 +329,7 @@ describe("a pickup count rule's wait round-trips through the store", () => {
     expect(ruleWaitDays(rule)).toBe(7);
   });
 
-  it("changing only the wait is an edit: the version moves on and the rule's fires come off", async () => {
+  it("changing only the wait is an edit: the version moves on, and the engine judges the fires", async () => {
     const { client, tables } = fakeSupabase({
       pricing_rules: [{ id: "r1", version: 1, is_active: true, is_pickup_rule: true }],
       rule_condition: [{ rule_id: "r1", ...pickup }],
@@ -338,7 +337,7 @@ describe("a pickup count rule's wait round-trips through the store", () => {
     });
     expect(await updateRule("r1", { condition: { ...pickup, pickup_cooldown_days: 2 } }, client)).toBe(true);
     expect(tables.get("pricing_rules")![0]).toMatchObject({ version: 2, is_pickup_rule: true });
-    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_reason: "rule_edited" });
+    expect(tables.get("pickup_event")![0]).toMatchObject({ retired_at: null });
     expect(tables.get("rule_condition")).toHaveLength(1);
     expect(tables.get("rule_condition")![0]).toMatchObject({ rule_id: "r1", ...pickup, pickup_cooldown_days: 2 });
 

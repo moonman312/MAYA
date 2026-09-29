@@ -15,6 +15,8 @@ import {
   isWaiting,
   resetPickupInsertLogOnce,
   openFireHeads,
+  rankedAsMade,
+  versionRanksOf,
   pickupCountEndsAt,
   pickupCountsCompleteDays,
   pickupJudgesShortStretch,
@@ -815,7 +817,7 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
       ],
       new Set(),
     );
-    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-22T12:00:00.000Z", counted: 2 });
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toMatchObject({ lastCountedAt: "2026-09-22T12:00:00.000Z", counted: 2 });
     expect(heads.get(fireHeadKey("paused", NIGHT, "rt1"))?.lastCountedAt).toBe("2026-09-21T12:00:00.000Z");
     expect(heads.get(fireHeadKey("raise", NIGHT, "rt2"))?.lastCountedAt).toBe("2026-09-19T12:00:00.000Z");
   });
@@ -826,23 +828,101 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
       [fire({ id: "kept", applied_at: "2026-09-20T12:00:00.000Z", checked_at: "2026-09-22T12:05:00.000Z" })],
       new Set(),
     );
-    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 });
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toMatchObject({ lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 });
   });
 
-  it("leaves out a raise this run took off, one from an older version of its rule, and one whose rule it wasn't given", () => {
+  it("leaves out a raise this run took off and one whose rule it wasn't given", () => {
     const heads = openFireHeads(
       [raise, edited],
       [
         fire({ id: "open", applied_at: "2026-09-20T12:00:00.000Z" }),
         fire({ id: "cancelled", applied_at: "2026-09-23T12:00:00.000Z" }),
-        fire({ id: "old", rule_id: "edited", rule_version: 1, applied_at: "2026-09-24T12:00:00.000Z" }),
         fire({ id: "orphan", rule_id: "deleted", applied_at: "2026-09-25T12:00:00.000Z" }),
       ],
       new Set(["cancelled"]),
     );
-    expect([...heads.entries()]).toEqual([
-      [fireHeadKey("raise", NIGHT, "rt1"), { lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 }],
-    ]);
+    expect([...heads.keys()]).toEqual([fireHeadKey("raise", NIGHT, "rt1")]);
+    expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toMatchObject({ lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 });
+  });
+
+  it("a raise of an older version still on the price covers what it counted, and doesn't count toward the alert", () => {
+    // A rule edited while it was off keeps its changes on the price, frozen,
+    // and so does one saved with Skip; a running rule's older changes are
+    // taken off before this (firesToReset).
+    const heads = openFireHeads(
+      [edited],
+      [fire({ id: "old", rule_id: "edited", rule_version: 1, applied_at: "2026-09-24T12:00:00.000Z" })],
+      new Set(),
+    );
+    expect(heads.get(fireHeadKey("edited", NIGHT, "rt1"))).toMatchObject({ lastCountedAt: "2026-09-24T12:00:00.000Z", counted: 0 });
+  });
+
+  it("a change of an earlier version covers as it was made: its own amount and kind, and that version's priority and condition", () => {
+    // Surging (+25%, at least Surging, priority 130) raised; the owner then
+    // edited it to +10% at least Faster and chose Skip, which left the raise
+    // on. Much Faster (+25%) ranked below it then, and still counts from it.
+    const cond = (level: string): EngineRule["condition"] => ({
+      booking_speed_operator: "at_least",
+      booking_speed_level: level,
+      booking_speed_window_days: 1,
+      booking_speed_cooldown_days: 1,
+    });
+    const surging = makeRule({
+      id: "surging",
+      version: 2,
+      priority: 130,
+      action_value: 10,
+      condition: cond("faster"),
+      version_ranks: { "1": { priority: 130, condition: cond("surging") } },
+    });
+    const muchFaster = makeRule({ id: "much-faster", priority: 125, action_value: 25, condition: cond("much_faster") });
+    const kept = fire({ id: "kept", rule_id: "surging", rule_version: 1, action_value: 25, applied_at: "2026-09-24T12:00:00.000Z" });
+    const covered = (rule: RankedRule, fires: OpenPickupFire[]) =>
+      countFromFireAt(muchFaster, [rule], openFireHeads([rule, muchFaster], fires, new Set()), NIGHT, "rt1", 100);
+    expect(covered(surging, [kept])).toBe("2026-09-24T12:00:00.000Z");
+    // A newer raise of the edited rule (+10%) covers nothing above it, and
+    // doesn't hide the older one that does.
+    const newer = fire({ id: "new", rule_id: "surging", rule_version: 2, action_value: 10, applied_at: "2026-09-25T12:00:00.000Z" });
+    expect(covered(surging, [kept, newer])).toBe("2026-09-24T12:00:00.000Z");
+    // Without a record of version 1 it ranks by its own +25% and the rule's
+    // condition now (at least Faster), which Much Faster outranks.
+    expect(covered({ ...surging, version_ranks: null }, [kept])).toBeNull();
+    // The edited rule as it is now covers nothing: +10% is below +25%.
+    expect(covered({ ...surging, version: 1, version_ranks: null }, [{ ...kept, action_value: 10 }])).toBeNull();
+    // A raise stays a raise after an edit made the rule a cut.
+    const nowACut = { ...surging, action_direction: "decrease" as const };
+    expect(covered(nowACut, [kept])).toBe("2026-09-24T12:00:00.000Z");
+    const cut = makeRule({ id: "cut", action_direction: "decrease", action_value: 5, condition: cond("slower") });
+    expect(countFromFireAt(cut, [nowACut], openFireHeads([nowACut, cut], [kept], new Set()), NIGHT, "rt1", 100)).toBeNull();
+  });
+
+  it("reads version_ranks as save_rule writes them, and nothing else", () => {
+    expect(rankedAsMade(raise, fire({}))).toBe(raise);
+    expect(rankedAsMade(edited, fire({ rule_id: "edited", rule_version: 1, action_kind: "fixed", action_value: 30 }))).toMatchObject({
+      id: "edited",
+      action_type: "fixed",
+      action_value: 30,
+      priority: edited.priority,
+    });
+    expect(
+      versionRanksOf({ "3": { priority: 125, condition: { booking_speed_operator: "at_least", booking_speed_level: "much_faster", pickup_threshold: "4" } } }),
+    ).toEqual({
+      "3": {
+        priority: 125,
+        condition: {
+          occupancy_operator: null,
+          dta_operator: null,
+          pickup_operator: null,
+          pickup_threshold: 4,
+          pickup_metric: null,
+          booking_speed_operator: "at_least",
+          booking_speed_level: "much_faster",
+        },
+      },
+    });
+    expect(versionRanksOf(null)).toBeNull();
+    expect(versionRanksOf([])).toBeNull();
+    expect(versionRanksOf({ x: { priority: 1 }, "2": "no", "4": { priority: "high" } })).toBeNull();
   });
 
   it("so a stronger rule's raise that came off for cancellations covers no weaker rule, where the fire history would", () => {

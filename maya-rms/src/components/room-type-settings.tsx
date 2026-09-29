@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
 import type { HelpPanel } from "@/lib/deep-links";
 
@@ -101,8 +101,21 @@ export function RoomCountHelp({
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLSpanElement>(null);
   const panelId = useId();
   const open = pinned || hovered;
+
+  // The panel is centred under the "?". On a phone a "?" near the edge would
+  // push it off the screen, so it slides back in, 8px from the edge.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!open || !el) return;
+    const r = el.getBoundingClientRect();
+    const w = document.documentElement.clientWidth;
+    if (w === 0 || r.width === 0) return;
+    const shift = r.right > w - 8 ? w - 8 - r.right : r.left < 8 ? 8 - r.left : 0;
+    if (shift !== 0) el.style.translate = `${Math.round(shift)}px 0`;
+  }, [open]);
 
   useEffect(() => {
     if (!pinned) return;
@@ -150,6 +163,7 @@ export function RoomCountHelp({
         // panel, so the pointer stays inside while it moves down to Learn more.
         <span className={HOVER_BRIDGE}>
           <span
+            ref={panelRef}
             id={panelId}
             // A panel holding a link is a labelled group; a tooltip must hold nothing interactive.
             role={docs ? "group" : "tooltip"}

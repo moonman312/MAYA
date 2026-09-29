@@ -3,7 +3,7 @@ title: Measure one set of room types, change another
 summary: The Change prices on different room types checkbox, the Measure and Change lists, what the rule card shows, and what happens when a rule measures a type that is not a room.
 section: rules
 order: 80
-readingTime: 7
+readingTime: 8
 keywords: [change prices on different room types, measure, change, watches, suites follow standard, whole hotel, wrong room type, not a room, pickleball court, leaves out, meeting room rule never fires, court rule never fires, price a court on its own bookings, tick as a room, every measured type unticked, measure and change, apply to room types, signal room types, select at least one room type, pick at least one room type to measure, occupancy on one set booking speed on another, meeting room priced from the hotel, removed room type, different reading per room type, suite and deluxe read differently]
 questions:
   - What is "Change prices on different room types"? {#in-plain-words}
@@ -15,7 +15,7 @@ questions:
   - What does "Watches Standard, Deluxe · Changes Suite" mean on the rule card? {#what-the-rule-card-shows}
   - What does each condition measure when the lists differ? {#what-each-condition-measures/sellable-occupancy}
   - Can a rule measure one set of room types for occupancy and another for booking speed? {#a-rule-that-measures-only-non-rooms/good-to-know}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -94,7 +94,7 @@ A rule reads its numbers only from room types that count as rooms. What happens 
 
 - **A rule saved with a mixed list** (Standard and the Meeting Room, say, before you unticked the Meeting Room on the <Ui>PMS</Ui> tab) keeps pricing every type in its <Ui>Change</Ui> list, but the Meeting Room drops out of what it measures. The change log tells you: "That 95% leaves out Meeting Room."
 - **A rule whose measured types have all been unticked** measures nothing. Any sellable occupancy, booking speed or pickup count condition on it can never be true, so it stops firing. It stays <Ui>On</Ui> on the <Ui>Rules</Ui> tab, with no warning. A standard rule's change comes off. A booking speed or pickup rule's earlier changes stay where they are.
-- **A rule whose measured types have all been switched off in MAYA** (during the review) stops running. Any price change it had already made on the types it changes stays in place, as if the rule were switched off. To clear it, delete the rule or type a price for those nights. Removing a room type in your property system does not switch it off in MAYA, so the rule keeps measuring it. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says what happens to a removed room type in each system, and [Contact support](/docs/help/contact-support#your-property-system) lists what you can ask us to change.
+- **A rule whose measured types have all been switched off in MAYA** (during the review) stops running. Any price change it had already made on the types it changes stays in place, as if the rule were switched off. To clear it, delete the rule or type a price for those nights. Editing the rule to measure active room types, with <Ui>Apply price adjustments</Ui>, judges those changes against the edited rule. Removing a room type in your property system does not switch it off in MAYA, so the rule keeps measuring it. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says what happens to a removed room type in each system, and [Contact support](/docs/help/contact-support#your-property-system) lists what you can ask us to change.
 
 A booking window reads no room types, so a rule whose only condition is a booking window keeps working when every type it measures has been unticked as a room.
 

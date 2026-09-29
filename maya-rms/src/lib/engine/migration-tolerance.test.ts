@@ -276,13 +276,26 @@ describe("rule_condition without pickup_cooldown_days", () => {
 describe("real outages still throw", () => {
   it("a failed ladder effects read that is not a schema gap rejects the run", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+    // The effects read, not the pass's own read of the rows' state (which
+    // reads their amounts too, with rule_version, and fails the run as well).
     const { client } = fakeSupabase(seed(), {
       fault: (c) =>
-        c.table === "ladder_rule_state" && c.op === "select" && c.columns.includes("action_kind")
+        c.table === "ladder_rule_state" && c.op === "select" && c.columns.includes("action_kind") && !c.columns.includes("rule_version")
           ? { code: "57014", message: "canceling statement due to statement timeout" }
           : null,
     });
     await expect(evaluateHotel(client, "h1", EVAL_TS, 1)).rejects.toThrow(/Failed to load ladder effects/);
+  });
+
+  it("a failed read of the ladder rows' state rejects the run too", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { client } = fakeSupabase(seed(), {
+      fault: (c) =>
+        c.table === "ladder_rule_state" && c.op === "select" && c.columns.includes("rule_version")
+          ? { code: "57014", message: "canceling statement due to statement timeout" }
+          : null,
+    });
+    await expect(evaluateHotel(client, "h1", EVAL_TS, 1)).rejects.toThrow(/statement timeout/);
   });
 
   it("a failed rules load still rejects", async () => {

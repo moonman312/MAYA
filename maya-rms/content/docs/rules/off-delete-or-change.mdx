@@ -1,10 +1,10 @@
 ---
 title: Turning a rule off, deleting it, or changing it
-summary: What the On/Off switch and Delete each do to prices already set, how to change a rule when there is no edit yet, and how to read the rules list.
+summary: What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, and how to read the rules list.
 section: rules
 order: 110
-readingTime: 7
-keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
+readingTime: 9
+keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, edit button, save changes, cancel editing, reload, changed in another tab, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
 questions:
   - How do I edit a rule? {#changing-a-rule}
   - What does turning a rule Off do to the prices it already changed? {#the-onoff-switch/each-rule-on}
@@ -20,16 +20,23 @@ questions:
   - The Fired count is higher than the changes I can see. {#the-list/fired}
   - Who created this rule, and who switched it off or deleted it? {#who-did-what}
   - Can I change the undo box on a rule I already saved? {#changing-a-rule}
-updated: 2026-09-28
+  - What happens to a rule's changes when I edit it? {#changing-a-rule/what-an-edit}
+  - Why did a window with a calendar open when I switched a rule on? {#the-onoff-switch}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-Off freezes: the rule stops acting and the prices it already set stay exactly as they are. Delete undoes: every night it adjusted goes back to what it would have been. There is no edit yet. To change a rule, delete it and add it again.
+Off freezes: the rule stops acting and the prices it already set stay exactly as they are. Delete undoes: every night it adjusted goes back to what it would have been. <Ui>Edit</Ui> opens a rule in the rule builder to change any of its settings. Before a rule starts acting, whether you switch it on or save changes to it while it is on, a window shows which days it will change and asks whether to apply or skip the price adjustments.
 </InPlainWords>
 
 ## The On/Off switch
 
-Each rule on the <Ui>Rules</Ui> tab has a switch under <Ui>Status</Ui> that reads <Ui>On</Ui> or <Ui>Off</Ui>. Click it to flip it. There is no confirmation, and it takes effect from the next cycle. A rule cannot be switched <Ui>On</Ui> while 40 others are on (read [How many rules you can have](#how-many-rules-you-can-have)).
+Each rule on the <Ui>Rules</Ui> tab has a switch under <Ui>Status</Ui> that reads <Ui>On</Ui> or <Ui>Off</Ui>.
+
+- Switching <Ui>Off</Ui> is at once, with no confirmation, from the next cycle.
+- Switching <Ui>On</Ui> first opens a window, headed "Turn on "Busy nights"?", with a small calendar of the days the rule will change and "X days will be affected by this rule." Click <Ui>Apply price adjustments</Ui> and it acts on those days from the next cycle. Click <Ui>Skip price adjustments</Ui> and it is on, but those days keep their prices until the rule stops being true on a day and then becomes true again; every other day works as with Apply. When no price would change, the window reads "0 prices will be affected by this rule." and <Ui>Turn it on</Ui> switches it on. <Ui>Cancel</Ui> leaves it <Ui>Off</Ui>. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
+
+A rule cannot be switched <Ui>On</Ui> while 40 others are on (read [How many rules you can have](#how-many-rules-you-can-have)).
 
 Off means the rule stops acting. It does not undo anything:
 
@@ -37,7 +44,7 @@ Off means the rule stops acting. It does not undo anything:
 - a booking speed or pickup rule's raises and cuts stay on the price, and they are not checked for cancellations while it is off
 - on the day cards and in your property system, nothing moves
 
-Turn the rule back <Ui>On</Ui> and it picks up from the next cycle. A standard rule that was holding a change then lets it go if the condition no longer holds.
+Turn the rule back <Ui>On</Ui> and the window shows what that changes. With <Ui>Apply price adjustments</Ui> it picks up from the next cycle: a standard rule that was holding a change lets it go where the condition no longer holds, and the rule acts wherever it holds. With <Ui>Skip price adjustments</Ui> its changes on the days the window showed stay where they are, each until the rule stops being true there and then becomes true again, and every other night works as with Apply.
 
 <Callout kind="good-to-know" title="A switched-off rule's changes still count">
 Once a rule has changed a night, it counts only the bookings made since the newest change on that night by itself or by a stronger rule that moves the price the same way. A rule you switched off keeps its changes on the price, so its newest one still marks where it and the weaker rules start counting on that night. Read [Counting after a change](/docs/rules/how-rules-run#counting-after-a-change).
@@ -59,24 +66,25 @@ Deleting a rule changes prices. Every night the rule had adjusted is re-priced w
 
 ## Changing a rule
 
-There is no edit control. To change a rule:
+Click <Ui>Edit</Ui> beside <Ui>Delete</Ui> at the end of the rule's row. The rule builder opens under the list, headed "Edit "Busy nights"", with the rule as it is saved: its name, its conditions, the direction and amount, the room types it measures and changes, and the undo box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>. The rule's row is highlighted while you edit. Change what you want and click <Ui>Save changes</Ui>:
 
-1. Click <Ui>Delete</Ui>, then <Ui>Delete Rule and Undo Its Changes</Ui>. Its changes come off.
-2. Click <Ui>+ Add a rule</Ui> and build it again with the new settings. It starts <Ui>On</Ui> and acts from the next cycle.
+- **Only the name changed**: saved at once. A name moves no price.
+- **The rule is On**: the window opens first, headed "Save changes to "Busy nights"?", with the days the edited rule will change. Apply, Skip or Cancel, as for switching a rule on. Cancel keeps what you typed in the builder.
+- **The rule is Off**: saved at once, and no price moves. Its changes stay frozen, and the window shows what the edited rule does when you switch it on.
 
-If you want to keep the old prices in place while the new rule takes over, turn the old rule off instead of deleting it, and leave it off.
+<Ui>Cancel editing</Ui>, under the form, empties the builder without saving. A rule's date window, weekdays and priority are not in the builder, and an edit keeps them as saved. If someone changed the rule in another tab after you opened it, the save stops with "This rule changed in another tab. Reload it to edit." and a <Ui>Reload</Ui> button that fills the builder with the rule as it is now.
 
-The same goes for the undo box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>. It is set when you add the rule, and the rules list does not show it. To change it, add the rule again with the box as you want it. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
+**What an edit does to the rule's changes.** With <Ui>Apply price adjustments</Ui>, every change the rule has on the price is judged against the edited rule: a standard rule's change stays at the new amount where the edited rule holds and comes off where it does not (room types taken off the rule and nights it no longer covers included), and a booking speed or pickup rule's earlier changes come off, with the edited rule reading its whole window again. With <Ui>Skip price adjustments</Ui>, every change on the days the window showed stays where it is until the rule stops being true there and then becomes true again, and every other night is judged as with Apply. Changing its conditions, amount or room types also clears the rule's "Stop for this night" answers, which belonged to the rule as it was. A new name or the undo box alone keeps them. Read [A rule that is changed](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
 
-The one change that can be made in place is a "Tune ... ?" card after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one. Read [Getting suggestions later](/docs/review/getting-suggestions-later) and [Change a rule](/docs/recipes/change-a-rule).
+The "Tune ... ?" card after <Ui>Get suggestions from my data</Ui> is an edit too: <Ui>Make that change</Ui> moves the occupancy threshold of a standard rule, through the same window when the rule is on. Read [Getting suggestions later](/docs/review/getting-suggestions-later) and [Change a rule](/docs/recipes/change-a-rule).
 
 <Callout kind="not-yet">
-You cannot edit, rename, copy or duplicate a rule, or copy one to another property. For all of these, add the rule again. A rule you build in the <Ui>Rate Simulator</Ui> arrives on the Rules tab switched off, which is handy for building the replacement before you delete the original.
+You cannot copy or duplicate a rule, or copy one to another property. For those, add the rule again. A rule you build in the <Ui>Rate Simulator</Ui> arrives on the Rules tab switched off.
 </Callout>
 
 ## The list
 
-The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui>, <Ui>Status</Ui> and the <Ui>Delete</Ui> button. On a narrow screen it scrolls sideways.
+The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui>, <Ui>Status</Ui>, and the <Ui>Edit</Ui> and <Ui>Delete</Ui> buttons. On a narrow screen it scrolls sideways.
 
 **Order.** Most fired first, then rules that are on before rules that are off, then by name.
 
@@ -96,19 +104,19 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 
 ## How many rules you can have
 
-At most 40 rules can be <Ui>On</Ui> at once on a property. Rules that are <Ui>Off</Ui> do not count, and a rule saved from the <Ui>Rate Simulator</Ui> arrives Off. At 40, adding a rule shows "This property already has 40 active rules, which is the maximum." in red under the form, and the switch on an Off rule will not turn it On (no message appears, and the switch stays Off). Turn a rule off or delete one first.
+At most 40 rules can be <Ui>On</Ui> at once on a property. Rules that are <Ui>Off</Ui> do not count, and a rule saved from the <Ui>Rate Simulator</Ui> arrives Off. At 40, the window with the calendar opens for a moment when you add a rule or switch an Off rule on, then closes, and "This property already has 40 active rules, which is the maximum." shows in red under the form or under the rule's switch. Nothing is saved. Turn a rule off or delete one first.
 
 Every occupancy or booking window rule whose condition holds applies, and their changes stack. Booking speed and pickup rules take turns: at most one fires on a night and room type per run. Read [How rules run](/docs/rules/how-rules-run).
 
 ## Who can do this
 
-Revenue Managers, General Managers and Hotel Admins can switch and delete rules. A Viewer sees the switch and the <Ui>Delete</Ui> button, but clicking them changes nothing. Read [Roles: who can do what](/docs/team/roles).
+Revenue Managers, General Managers and Hotel Admins can switch, edit and delete rules. A Viewer sees the switch and the <Ui>Edit</Ui> and <Ui>Delete</Ui> buttons, and can open a rule in the builder to read it, but switching, saving or deleting changes nothing and shows "Only a Revenue Manager or above can change this." in red under the rule or the form. Read [Roles: who can do what](/docs/team/roles).
 
 ## Who did what
 
 The app does not show who added, switched or deleted a rule. If you need to know, [email us](mailto:info@modern-hospitality-solutions.com?subject=Who%20changed%20a%20rule) with the rule's name and roughly when.
 
-The change log has no entry for adding a rule, switching it on or off, or deleting it: it shows only what those steps did to prices. The people the change log does name are whoever typed a price ("Priya set the base rate to $180.00.") and whoever answered the keeps-adjusting banner (the "Your answer" entries).
+The change log has no entry for adding a rule, editing it, switching it on or off, or deleting it, or for which of Apply or Skip was chosen: it shows only what those steps did to prices. The people the change log does name are whoever typed a price ("Priya set the base rate to $180.00.") and whoever answered the keeps-adjusting banner (the "Your answer" entries).
 
 <Related>
 - [When a price change comes off](/docs/rules/when-a-change-comes-off)

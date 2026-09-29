@@ -16,7 +16,7 @@ questions:
   - Why did my rule not save? {#a-viewers-rule-did-not-save}
   - Why does a rule I turned off still affect another rule? {#a-rule-i-turned-off-still-affects-what-another-rule-counts}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -99,11 +99,11 @@ The simulator differs from a real run in three ways it states on screen: a stand
 
 The room type list in the builder does two jobs. Unticked, <Ui>Apply to room types</Ui> is both the set the rule measures and the set it changes. Ticked, <Ui>Change prices on different room types</Ui> splits it into <Ui>Measure</Ui> and <Ui>Change</Ui>. The rule card reads "Watches Standard, Deluxe · Changes Suite" when the two differ.
 
-If a rule changed a room type you did not expect, it is in that rule's <Ui>Change</Ui> list. A rule cannot be edited: delete it (which undoes its changes) and add it again with the list you want.
+If a rule changed a room type you did not expect, it is in that rule's <Ui>Change</Ui> list. Click <Ui>Edit</Ui> on the rule, untick it and click <Ui>Save changes</Ui>. With <Ui>Apply price adjustments</Ui>, the rule's changes come off that room type from the next run. Read [Change a rule](/docs/recipes/change-a-rule).
 
 ## A Viewer's rule did not save
 
-Viewers can look but not change. A Viewer who presses <Ui>Add Rule</Ui> sees an error in red under the form. A Viewer who flips a switch or presses <Ui>Delete</Ui> sees nothing change. Rules need Revenue Manager access or higher. Ask a General Manager or Hotel Admin to change your role on the <Ui>Team</Ui> page. Read [Roles](/docs/team/roles).
+Viewers can look but not change. A Viewer who presses <Ui>Add Rule</Ui> or <Ui>Save changes</Ui>, flips a switch or presses <Ui>Delete</Ui> sees "Only a Revenue Manager or above can change this." in red, under the form or under the rule, and nothing is saved. Rules need Revenue Manager access or higher. Ask a General Manager or Hotel Admin to change your role on the <Ui>Team</Ui> page. Read [Roles](/docs/team/roles).
 
 ## A rule I turned off still affects what another rule counts
 

@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 /**
  * The undo box in the rule builder: ticked to start, a click is the owner's
- * choice, and what it does is behind the "?". Saving a saved rule's box is
- * kept for rule editing.
+ * choice, and what it does is behind the "?". A saved rule's box is changed
+ * by editing the rule (Save changes), with the rest of the form.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { UNDO_ON_CANCELLATION_HELP, UNDO_ON_CANCELLATION_LABEL } from "@/lib/rule-form";
-import { UNDO_BOX_NOT_SAVED, UndoOnCancellationField, saveUndoOnCancellation } from "./undo-on-cancellation-box";
+import { UndoOnCancellationField } from "./undo-on-cancellation-box";
 
 afterEach(cleanup);
 
@@ -38,29 +38,6 @@ describe("UndoOnCancellationField", () => {
     expect(screen.queryByText(UNDO_ON_CANCELLATION_HELP.lines[0])).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: UNDO_ON_CANCELLATION_HELP.label }));
     for (const line of UNDO_ON_CANCELLATION_HELP.lines) expect(screen.getByText(line)).toBeTruthy();
-  });
-});
-
-describe("saving a saved rule's box", () => {
-  const answer = (status: number, body: unknown) =>
-    vi.fn(async () => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
-
-  it("sends the box alone, and says nothing when it saved", async () => {
-    const fetchImpl = answer(200, { ok: true });
-    expect(await saveUndoOnCancellation("r1", false, fetchImpl as unknown as typeof fetch)).toBeNull();
-    expect(fetchImpl).toHaveBeenCalledWith("/api/rules/r1", expect.objectContaining({ method: "PUT", body: '{"undo_on_cancellation":false}' }));
-  });
-
-  it("says why when the person's role can't change rules, and asks for a retry otherwise", async () => {
-    const refused = answer(403, { error: "Only a Revenue Manager or above can change this." });
-    expect(await saveUndoOnCancellation("r1", true, refused as unknown as typeof fetch)).toBe(
-      "Only a Revenue Manager or above can change this.",
-    );
-    expect(await saveUndoOnCancellation("r1", true, answer(500, {}) as unknown as typeof fetch)).toBe(UNDO_BOX_NOT_SAVED);
-    const offline = vi.fn(async () => {
-      throw new TypeError("offline");
-    });
-    expect(await saveUndoOnCancellation("r1", true, offline as unknown as typeof fetch)).toBe(UNDO_BOX_NOT_SAVED);
   });
 });
 

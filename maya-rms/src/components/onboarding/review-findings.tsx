@@ -7,6 +7,10 @@ import { useTrackOnce } from "@/lib/analytics/track";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
 import { GoLiveDialog } from "@/components/go-live-dialog";
+import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
+import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
+import { suggestionDraft, tunedDraft } from "@/lib/rule-suggestion-draft";
+import type { EngineRule } from "@/types/domain";
 import {
   useOnboardingStatus,
   type OnboardingStatus,
@@ -14,6 +18,7 @@ import {
 import {
   ROOM_TYPES_HELP,
   RoomCountHelp,
+  isCountingRoom,
   needsAnswer,
   roomCountQuestion,
   saveCountsAsRoom,
@@ -35,6 +40,7 @@ type Finding = {
 };
 
 const FINISH_FAILED = "Couldn't finish the review. Try again.";
+const POPUP_FAILED = "The window didn't open. Try again.";
 
 export function ReviewFindings({
   initialStep = "assumptions",
@@ -50,6 +56,13 @@ export function ReviewFindings({
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState<{ message: string; refused: boolean } | null>(null);
   const [step, setStep] = useState<"assumptions" | "recommendations">(initialStep);
+  // A rule suggestion's activation popup (the Rules tab's suggestions only).
+  const [activation, setActivation] = useState<{
+    findingId: string;
+    ruleName: string;
+    request: PreviewRequest;
+    kind: "standard" | "event";
+  } | null>(null);
   // One poll shared by the room-count strip (which needs the hotel id) and the
   // starter rules (which need the job stats and simulation flag).
   const status = useOnboardingStatus(15000);
@@ -89,7 +102,87 @@ export function ReviewFindings({
     }
   }, [jobStatus]);
 
+  // Suggestions asked for from the Rules tab ("Get suggestions from my
+  // data") come to a property already set up: a rule they add or tune goes
+  // through the activation popup, as one made on the rules page does. The
+  // first review, while the property is being set up, applies them as they
+  // are confirmed.
+  const fromRulesTab = status?.job?.stats?.mode === "refresh";
+
+  /** "Add this rule" or "Make that change" on the Rules tab's suggestions: the popup first. */
+  async function openRulePopup(f: Finding): Promise<boolean> {
+    const p = f.payload;
+    if (p.suggestion_type === "add_rule") {
+      // A suggestion naming no room types is for the ones that count as
+      // rooms, as the findings route saves it.
+      let fallback: string[] = [];
+      if (!Array.isArray(p.room_type_ids) || p.room_type_ids.length === 0) {
+        try {
+          const res = await fetch("/api/room-types");
+          const types = res.ok ? ((await res.json()) as RoomTypeOption[]) : [];
+          fallback = types.filter(isCountingRoom).map((t) => t.id);
+        } catch {
+          return false;
+        }
+      }
+      const draft = suggestionDraft(p, fallback);
+      if (!draft) return false;
+      setActivation({
+        findingId: f.id,
+        ruleName: draft.rule_name,
+        request: { intent: "create", ruleId: crypto.randomUUID(), draft },
+        kind: draftKind(draft),
+      });
+      return true;
+    }
+    if (p.suggestion_type === "adjust_rule") {
+      try {
+        const res = await fetch("/api/rules/engine");
+        const rule = res.ok ? ((await res.json()) as EngineRule[]).find((r) => r.id === p.rule_id) : undefined;
+        if (!rule) return false;
+        const draft = tunedDraft(rule, Number(p.suggested_threshold));
+        setActivation({
+          findingId: f.id,
+          ruleName: rule.name,
+          request: { intent: "edit", ruleId: rule.id, draft },
+          kind: draftKind(draft),
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  /** The confirm, with the owner's Apply or Skip from the popup. */
+  async function confirmFromPopup(findingId: string, request: PreviewRequest, choice: ActivationChoice | null): Promise<SaveAnswer> {
+    try {
+      const res = await fetch(`/api/onboarding/findings/${findingId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "confirm",
+          ...(request.intent === "create" ? { ruleId: request.ruleId } : {}),
+          ...(choice ?? {}),
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string; code?: string };
+      if (res.ok) return { ok: true, skipped: choice?.activation === "skip" };
+      return { ok: false, status: res.status, code: body.code, error: body.error ?? "That didn't save. Try again." };
+    } catch {
+      return { ok: false, status: 0, error: "That didn't save. Try again." };
+    }
+  }
+
   async function act(id: string, action: "confirm" | "dismiss", value?: number, keepRule?: boolean) {
+    const finding = findings?.find((f) => f.id === id);
+    if (action === "confirm" && fromRulesTab && finding?.kind === "rule_suggestion") {
+      // The popup, or nothing: a card that can't open it saves nothing.
+      setError(null);
+      if (!(await openRulePopup(finding))) setError(POPUP_FAILED);
+      return;
+    }
     setBusy(id);
     setError(null);
     try {
@@ -175,6 +268,32 @@ export function ReviewFindings({
 
   return (
     <div className="flex flex-col gap-6 pt-6">
+      {activation ? (
+        <RuleActivationDialog
+          ruleName={activation.ruleName}
+          request={activation.request}
+          kind={activation.kind}
+          source="suggestion"
+          save={(choice) => confirmFromPopup(activation.findingId, activation.request, choice)}
+          onSaved={() => {
+            setActivation(null);
+            void load();
+          }}
+          onCancel={() => setActivation(null)}
+          onRefused={(message) => {
+            setActivation(null);
+            setError(message);
+          }}
+          onNotNeeded={async () => {
+            // A rule that is off: the change moves no price until it is switched on.
+            const current = activation;
+            setActivation(null);
+            const answer = await confirmFromPopup(current.findingId, current.request, null);
+            if (!answer.ok) setError(answer.error);
+            await load();
+          }}
+        />
+      ) : null}
       {showAssumptionStep ? (
         <>
           <div>

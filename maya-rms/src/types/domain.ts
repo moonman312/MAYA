@@ -133,7 +133,48 @@ export type EngineRule = {
    * before the column existed is ticked, as every rule was migrated.
    */
   undo_on_cancellation?: boolean;
+  /**
+   * When the owner last switched the rule on (or saved it) with "Skip price
+   * adjustments": the Skip its holds belong to (the days the popup showed,
+   * left as they are until the rule stops being true there and then becomes
+   * true again; ladder_rule_state.skip_state and rule_skip_hold). Null (or
+   * absent, before the column exists) when the last activation applied its
+   * adjustments.
+   */
+  skip_at?: string | null;
+  /**
+   * How the rule ranked as each earlier version, for its changes of those
+   * versions still on the price (pricing_rules.version_ranks, written by
+   * save_rule when an edit moves the version on and the old version still
+   * has changes on the price, held by a Skip or frozen on a rule that is
+   * off): its priority, its amount and the parts of
+   * its condition that rank it. Such a change ranks as its version did, so it keeps
+   * covering the weaker rules it covered (pickup.ts rankedAsMade).
+   */
+  version_ranks?: VersionRanks | null;
 };
+
+/** pricing_rules.version_ranks: per earlier version, what ranked the rule then. */
+export type VersionRanks = Record<
+  string,
+  {
+    priority: number;
+    /** The version's amount (the changes of that version carry it too, on pickup_event). Absent in older records. */
+    action_type?: ActionKind;
+    action_direction?: ActionDirection;
+    action_value?: number;
+    condition: Pick<
+      RuleCondition,
+      | "occupancy_operator"
+      | "dta_operator"
+      | "pickup_operator"
+      | "pickup_threshold"
+      | "pickup_metric"
+      | "booking_speed_operator"
+      | "booking_speed_level"
+    >;
+  }
+>;
 
 export type StayDateSnapshot = {
   hotel_id: string;

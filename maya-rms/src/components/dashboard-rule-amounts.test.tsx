@@ -39,6 +39,9 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? "GET").toUpperCase();
+      // No preview here (demo mode): Add Rule saves the way it did before the
+      // activation popup (dashboard-rule-editing.test.tsx has the popup).
+      if (url === "/api/rules/preview") return json({ error: "Supabase required for rule changes." }, 501);
       if (url === "/api/rules" && method === "POST") {
         posts.push(JSON.parse(String(init?.body)));
         return json({ id: "r2" }, 201);

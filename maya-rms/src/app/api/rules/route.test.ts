@@ -2,6 +2,10 @@
  * The rules routes refuse a room type set that would leave a rule measuring
  * or changing nothing, and a rule with both a percent and a fixed amount,
  * before anything reaches the store.
+ *
+ * These go through the plain save, which is for a rule saved off (the Rate
+ * Simulator's Save This Rule) and for the older partial updates; a rule
+ * saved on goes through the activation popup (activation-routes.test.ts).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +13,7 @@ const createRule = vi.fn(async (input: unknown) => ({ id: "r1", input }));
 const updateRule = vi.fn(async () => true);
 const hasHotelRank = vi.fn(async () => true);
 /** The rule the PUT route reads back when a save changed nothing. */
-let ruleRow: { hotel_id: string } | null = { hotel_id: "h1" };
+let ruleRow: { hotel_id: string; is_active?: boolean } | null = { hotel_id: "h1" };
 /** The property the caller can reach; null for someone with no membership. */
 let accessibleHotel: string | null = "h1";
 
@@ -35,6 +39,7 @@ const { RoomTypeSetError, RuleAmountError } = await import("@/lib/rule-form");
 const { PUT } = await import("@/app/api/rules/[id]/route");
 
 const base = {
+  is_active: false,
   rule_name: "Busy",
   conditions: {},
   condition: { occupancy_operator: "gt", occupancy_threshold: 0.8 },
@@ -152,6 +157,25 @@ describe("the undo box on the rules routes", () => {
     updateRule.mockResolvedValueOnce(false);
     expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
     ruleRow = { hotel_id: "h1" };
+  });
+});
+
+describe("the older partial PUT on a rule that is on", () => {
+  it("refuses anything that can move a price, priority included, and saves a new name", async () => {
+    ruleRow = { hotel_id: "h1", is_active: true };
+    try {
+      // Priority decides which booking speed or pickup change is stronger.
+      for (const body of [{ priority: 5 }, { condition: { occupancy_operator: "gt", occupancy_threshold: 0.7 } }, { undo_on_cancellation: false }]) {
+        const res = await PUT(req(body, "PUT"), params);
+        expect(res.status).toBe(409);
+        expect(await res.json()).toMatchObject({ code: "activation_required" });
+      }
+      expect(updateRule).not.toHaveBeenCalled();
+      expect((await PUT(req({ name: "Renamed" }, "PUT"), params)).status).toBe(200);
+      expect(updateRule.mock.calls[0]).toEqual(["r1", { name: "Renamed" }, expect.anything()]);
+    } finally {
+      ruleRow = { hotel_id: "h1" };
+    }
   });
 });
 

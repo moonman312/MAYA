@@ -1,10 +1,10 @@
 ---
 title: The rule builder, field by field
-summary: Every field in + Add a rule, what each one accepts, what happens when you click Add Rule, and every message the form can show.
+summary: Every field in + Add a rule, what each one accepts, editing a saved rule, what happens when you click Add Rule or Save changes, and every message the form can show.
 section: rules
 order: 20
-readingTime: 12
-keywords: [rule builder, add a rule, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
+readingTime: 15
+keywords: [rule builder, add a rule, edit a rule, edit mode, save changes, cancel editing, apply price adjustments, skip price adjustments, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
 questions:
   - What are the parts of a rule? {#in-plain-words}
   - What conditions can a rule use? {#conditions/metric-label-what}
@@ -25,16 +25,20 @@ questions:
   - Why does a rule for the Meeting Room alone never fire? {#apply-to-room-types/with-one-list}
   - Why does my browser say "Please fill out this field" when I add a rule? {#messages-you-can-meet}
   - What does "This property already has 40 active rules" mean? {#messages-you-can-meet}
-updated: 2026-09-28
+  - How do I edit a rule I already saved? {#where-the-builder-is/edit-on-a}
+  - Why did a window with a calendar open when I clicked Add Rule? {#add-rule-and-what-happens-next}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-A rule has a name, one to four conditions that must all be true, a direction and an amount, and the room types it changes. The four conditions are sellable occupancy, booking speed, booking window and pickup count, one of each at most. The amount is a percent or a fixed amount, one or the other. A box under the amount, ticked to start, lets cancellations undo the rule's changes. Click <Ui>Add Rule</Ui> and the rule is on.
+A rule has a name, one to four conditions that must all be true, a direction and an amount, and the room types it changes. The four conditions are sellable occupancy, booking speed, booking window and pickup count, one of each at most. The amount is a percent or a fixed amount, one or the other. A box under the amount, ticked to start, lets cancellations undo the rule's changes. Click <Ui>Add Rule</Ui>, and a window shows the days the rule will change: apply or skip the price adjustments, and the rule is on. <Ui>Edit</Ui> on a saved rule opens it here to change.
 </InPlainWords>
 
 ## Where the builder is
 
-On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui> under the list of rules. The form opens below the button and stays open until you click the button again. Everything you type stays in the form, even if you close it or switch to another tab and back, until you click <Ui>Add Rule</Ui> or reload the page. The room type chips go back to their starting selection when you switch property, or when you change <Ui>Counts as a room</Ui> or rooms out of service on the <Ui>PMS</Ui> tab.
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui> under the list of rules. The form opens below the button and stays open until you click the button again. Everything you type stays in the form, even if you close it or switch to another tab and back, until the rule is saved or you reload the page. The room type chips go back to their starting selection when you switch property, or when you change <Ui>Counts as a room</Ui> or rooms out of service on the <Ui>PMS</Ui> tab.
+
+<Ui>Edit</Ui> on a rule's row opens the same form filled with that rule as saved, headed "Edit "Busy nights"" in place of <Ui>+ Add a rule</Ui>. Every field below is filled in, the undo box included, and the button at the bottom reads <Ui>Save changes</Ui>, with <Ui>Cancel editing</Ui> beside it to empty the form without saving. Switching property or deleting the rule also ends the edit. Read [Changing a rule](/docs/rules/off-delete-or-change#changing-a-rule).
 
 ## Rule name
 
@@ -82,12 +86,12 @@ A rule has one amount. Type a number in one box and the other is greyed out unti
 
 Type the amount as a positive number. The direction dropdown supplies the sign. If you type a negative number, your browser stops the save and points at the box.
 
-Under the amounts is one more checkbox, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. Ticked, a change the rule makes comes off when guests cancel and the rule is no longer true for that night. Unticked, cancellations never take its changes off. It is set when you add the rule: the rules list does not show it, and it cannot be changed on a saved rule. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
+Under the amounts is one more checkbox, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, ticked to start. Ticked, a change the rule makes comes off when guests cancel and the rule is no longer true for that night. Unticked, cancellations never take its changes off. The rules list does not show it. To change it on a saved rule, click <Ui>Edit</Ui> on the rule. Read [The undo box](/docs/rules/when-a-change-comes-off#the-undo-box).
 
 **"Is there a limit on how big a raise or cut can be?"** Not one you would meet: any amount above 0 saves in either box, up to just under 1,000,000. A raise stops at the room type's ceiling. A cut that would take the price below the floor publishes the floor instead. A cut of 100% or more, or a fixed cut as big as the price, takes the price to 0 or below on its own, so the room type's floor is published, and the floor is 1.00 in your property's currency until you set one. A typo such as 150 for 15 on a cut rule does exactly that. Set real floors before you use large cuts, and read the number again before you click <Ui>Add Rule</Ui>. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
 <Callout kind="careful" title="An amount of 0 cannot be saved">
-The form accepts 0 as an amount, but MAYA refuses to store a rule that changes the price by nothing. The save fails and the error appears in red under the form. Type a real amount.
+The form accepts 0 as an amount, but a rule that changes the price by nothing is refused: "Enter a percent or a fixed amount." appears in red under the form. Type a real amount.
 </Callout>
 
 ## Apply to room types
@@ -104,16 +108,25 @@ Under the chips is a checkbox, <Ui>Change prices on different room types</Ui>. T
 
 ## Add Rule, and what happens next
 
-Click <Ui>Add Rule</Ui>. If everything is in order:
+Click <Ui>Add Rule</Ui>. If everything is in order, a window opens, headed "Add "Last minute"?", with a small calendar of the months ahead, the days the new rule will change filled in, and "X days will be affected by this rule." Nothing is saved yet. Choose:
 
-- the rule is saved and switched <Ui>On</Ui>
+- <Ui>Apply price adjustments</Ui>: the rule is saved, switched <Ui>On</Ui>, and changes those days from the next pricing run
+- <Ui>Skip price adjustments</Ui>: the rule is saved and <Ui>On</Ui>, but those days keep their prices until the rule stops being true on a day and then becomes true again. Every other day works as with Apply
+- <Ui>Cancel</Ui>: nothing is saved, and the form keeps what you typed
+
+When no price would change, the line reads "0 prices will be affected by this rule." and the only buttons are <Ui>Turn it on</Ui>, which saves the rule on, and <Ui>Cancel</Ui>. When you are saving changes to a rule that is on, that button reads <Ui>Save changes</Ui>. When the days cannot be worked out, it reads "We weren't able to calculate how many days would be affected by this rule." with <Ui>Try again</Ui>, <Ui>Skip price adjustments</Ui> and <Ui>Cancel</Ui>.
+
+Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on). Once saved:
+
 - it appears in the list above, in the sort order the list uses (most fired first, then on before off, then by name)
 - the form clears back to its defaults and stays open, ready for the next rule
 
-The rule runs from the next pricing check, about five minutes away, on tonight and the next 395 nights, nearest nights first. If the property is in simulation, the change log shows what it would have sent. If the property is live on Cloudbeds or ThinkReservations, changed prices go to your property system on the next cycle. On Mews nothing is sent, and the change log shows what the rule did.
+The rule runs from the next pricing check, about five minutes away, on tonight and the next 395 nights, the days the window showed first. If the property is in simulation, the change log shows what it would have sent. If the property is live on Cloudbeds or ThinkReservations, changed prices go to your property system on the next cycle. On Mews nothing is sent, and the change log shows what the rule did.
+
+<Ui>Save changes</Ui>, when you are editing, saves a new name alone at once, and a change to a rule that is <Ui>Off</Ui> at once too, moving no price. A change to a rule that is <Ui>On</Ui> opens the same window, headed "Save changes to "Last minute"?". Read [Change a rule](/docs/recipes/change-a-rule).
 
 <Example title="Saving 'Last minute' at The Harbour Inn">
-Priya, the Revenue Manager, wants a cut on quiet nights that are close. She types Last minute as the name. Row one: <Ui>Booking window (days to stay)</Ui>, <Ui>Less than</Ui>, 3. She clicks <Ui>+ Add condition</Ui>. The new row starts on <Ui>Sellable occupancy (%)</Ui>, because row one no longer uses it, and she sets it to <Ui>Less than</Ui>, 50. Direction <Ui>Decrease the rate</Ui>, percent 15. All three room types stay selected. She clicks <Ui>Add Rule</Ui>.
+Priya, the Revenue Manager, wants a cut on quiet nights that are close. She types Last minute as the name. Row one: <Ui>Booking window (days to stay)</Ui>, <Ui>Less than</Ui>, 3. She clicks <Ui>+ Add condition</Ui>. The new row starts on <Ui>Sellable occupancy (%)</Ui>, because row one no longer uses it, and she sets it to <Ui>Less than</Ui>, 50. Direction <Ui>Decrease the rate</Ui>, percent 15. All three room types stay selected. She clicks <Ui>Add Rule</Ui>. The window shows two of the next three days filled in, "2 days will be affected by this rule.", and she clicks <Ui>Apply price adjustments</Ui>.
 
 From the next check, a night 0, 1 or 2 days away with fewer than half its sellable rooms booked is lowered by 15%: Standard $150 becomes $127.50. A night that is 2 days away but 60% full is left alone, because both conditions must hold.
 </Example>
@@ -131,22 +144,29 @@ From the next check, a night 0, 1 or 2 days away with fewer than half its sellab
 | Pick at least one room type to measure. | The split is on and the <Ui>Measure</Ui> list is empty, or you switched property in another browser tab, so the room types on this page belong to a different property | Select a room type that counts as a room. After a switch, reload the page, check the <Ui>Property</Ui> selector and add the rule again |
 | Pick at least one room type to change. | The split is on and the <Ui>Change</Ui> list is empty | Select a room type |
 | Invalid room types. | Something went wrong sending the room types | Reload the page and try again. If it comes back, email us |
-| Could not save the rule. Check your connection and try again. | The request never reached MAYA | Check your connection and click <Ui>Add Rule</Ui> again |
-| Could not save the rule. Try again in a moment. | MAYA refused the save without a reason it could show | Wait a moment and try again |
+| Could not save the rule. Check your connection and try again. | The request never reached MAYA | Check your connection and click <Ui>Add Rule</Ui> or <Ui>Save changes</Ui> again |
+| Could not save the rule. Try again in a moment. | The save was refused without a reason it could show | Wait a moment and try again |
 | This property already has 40 active rules, which is the maximum. | 40 rules are already <Ui>On</Ui> | Turn a rule <Ui>Off</Ui> or delete one, then add again. Read [How many rules you can have](/docs/rules/off-delete-or-change#how-many-rules-you-can-have) |
+| Give the rule a name. | The name is only spaces | Type a name |
+| Add at least one condition with a valid operator and threshold. | No condition row has a usable threshold | Fill in a condition |
+| Enter a percent or a fixed amount. (after clicking <Ui>Add Rule</Ui> with 0 in a box) | An amount of 0 | Type a real amount |
 | Invalid payload. | The rule arrived with no name, no condition or no amount | Fill in the name, a condition and an amount |
-| Rule must include at least one valid condition. | Same as above, for the condition | Add a condition |
 | You don't have access to this property. | Your sign-in is not a member of any property | Ask the property's Hotel Admin or General Manager to invite you, or email us |
-| A technical message about permissions | You are a Viewer on this property | Ask a Revenue Manager or above to add the rule |
-| A technical message about a constraint | An amount of 0 | Type a real amount |
+| Only a Revenue Manager or above can change this. | You are a Viewer on this property | Ask a Revenue Manager or above to make the change |
+| This rule changed in another tab. Reload it to edit. | While editing: the rule was saved or switched somewhere else after you opened it | Click <Ui>Reload</Ui> beside the message, check the rule and save again |
+| That rule could not be found. | While editing: the rule was deleted in another tab | Click <Ui>Cancel editing</Ui> |
+| That rule could not be loaded. Try again in a moment. | Under the rule's row, after <Ui>Edit</Ui>: the rule could not be read | Click <Ui>Edit</Ui> again in a moment |
+| Try again. | A new rule collided with another save in the same moment, which is very rare | Click <Ui>Add Rule</Ui> again |
 </Example>
+
+The window that opens after <Ui>Add Rule</Ui> or <Ui>Save changes</Ui> has messages of its own. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on#messages-you-can-meet).
 
 ## Who can add rules
 
-Revenue Managers, General Managers and Hotel Admins can add, switch and delete rules. A Viewer sees the same form and the same controls, but MAYA refuses a Viewer's save. The rule is not created and a permission message appears in red under the form. A Viewer who clicks a rule's switch or <Ui>Delete</Ui> sees no error, and nothing changes either. Read [Roles: who can do what](/docs/team/roles).
+Revenue Managers, General Managers and Hotel Admins can add, edit, switch and delete rules. A Viewer sees the same form and the same controls, and <Ui>Edit</Ui> fills the form so they can read a rule, but a Viewer's <Ui>Add Rule</Ui> or <Ui>Save changes</Ui> saves nothing: the window with the calendar opens for a moment and closes, and "Only a Revenue Manager or above can change this." appears in red under the form. The same line appears under a rule's switch or <Ui>Delete</Ui> button when a Viewer clicks them. Read [Roles: who can do what](/docs/team/roles).
 
 <Callout kind="not-yet">
-Once saved, a rule cannot be edited from the builder. Delete it (which undoes the price changes it made) and add it again. The only change made in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy threshold. There is no date range, no weekday choice and no priority control in the builder. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet).
+There is no date range, no weekday choice and no priority control in the builder, and editing a rule keeps its saved ones. Read [What rules cannot do yet](/docs/rules/what-rules-cannot-do-yet).
 </Callout>
 
 <Related>

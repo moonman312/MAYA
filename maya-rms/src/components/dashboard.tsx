@@ -21,6 +21,13 @@ import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } 
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
+import {
+  RuleActivationDialog,
+  type ActivationChoice,
+  type ActivationSource,
+  type SaveAnswer,
+} from "@/components/rule-activation-dialog";
+import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
 import { isSupportChange } from "@/lib/changelog-support";
 import { SupportChangeItem } from "@/components/support-change-item";
@@ -36,15 +43,12 @@ import {
   pickupOwnWait,
   pickupSetsWait,
   waitDaysLabel,
-  conditionRowsToRuleCondition,
+  builderDraft,
+  draftBehaviourKey,
   formatRuleConditionsDisplay,
-  isRuleConditionEmpty,
   newConditionRow,
-  ruleActionFromAmounts,
-  ruleConditionForInsert,
-  ruleConditionToLegacyConditions,
-  ruleRoomTypeSets,
   ruleRoomTypesLabel,
+  ruleToBuilderForm,
   type BookingSpeedWaitDays,
   type ConditionFormRow,
   type ConditionMetric,
@@ -52,6 +56,7 @@ import {
 import type {
   CalendarResponse,
   ChangelogItem,
+  EngineRule,
   RuleConfig,
 } from "@/types/domain";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -299,6 +304,45 @@ function PmsStatusBadge({ status }: { status: string | null }) {
  */
 export type SupportView = "read_only" | "god_mode" | null;
 
+/** The activation popup, open for a rule about to become active. */
+type ActivationRequest = {
+  request: PreviewRequest;
+  ruleName: string;
+  kind: "standard" | "event";
+  source: ActivationSource;
+  save: (choice: ActivationChoice) => Promise<SaveAnswer>;
+  /** After Apply or Skip saved. */
+  saved: (skipped: boolean) => void;
+  /** Demo mode, no preview: save the way it was saved before the popup. */
+  unavailable?: () => void;
+  /** Nothing that moves a price after all: save as it is. */
+  notNeeded?: () => void;
+};
+
+/** The rule the builder is editing: which, the version it was filled from, and its settings as filled. */
+type EditingRule = { id: string; version: number; enabled: boolean; name: string; baseline: string };
+
+/** A save or a switch, as the popup and the builder read the answer. */
+async function sendRule(url: string, method: "POST" | "PUT" | "DELETE", body?: unknown): Promise<SaveAnswer> {
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const answer = (await res.json().catch(() => ({}))) as { error?: string; code?: string; skipped?: boolean };
+    if (res.ok) return { ok: true, skipped: answer.skipped === true };
+    return {
+      ok: false,
+      status: res.status,
+      code: answer.code,
+      error: answer.error ?? "Could not save the rule. Try again in a moment.",
+    };
+  } catch {
+    return { ok: false, status: 0, error: "Could not save the rule. Check your connection and try again." };
+  }
+}
+
 export function Dashboard({
   isPlatformAdmin = false,
   supportView = null,
@@ -387,6 +431,14 @@ export function Dashboard({
   const [ruleFormError, setRuleFormError] = useState<string | null>(null);
   // The undo box starts ticked on every new rule (Jake, 2026-09-25).
   const [undoOnCancellation, setUndoOnCancellation] = useState(true);
+  // The rule the builder is editing (the rules list's Edit), or null for a new one.
+  const [editing, setEditing] = useState<EditingRule | null>(null);
+  // "This rule changed in another tab": offer to load it again.
+  const [ruleFormReload, setRuleFormReload] = useState(false);
+  // The activation popup, when a rule is about to become active.
+  const [activation, setActivation] = useState<ActivationRequest | null>(null);
+  // A switch that could not be changed, and why, under that rule.
+  const [ruleSwitchError, setRuleSwitchError] = useState<{ ruleId: string; message: string } | null>(null);
 
   useEffect(() => {
     void reloadRules();
@@ -670,6 +722,9 @@ export function Dashboard({
         return;
       }
       setSelectedDay(null);
+      // A rule being edited belongs to the property being left.
+      setEditing(null);
+      setActivation(null);
       calendarCacheRef.current.clear();
       setActiveHotelId(hotelId);
       // The last property's connection must not show over this one while it loads.
@@ -682,24 +737,119 @@ export function Dashboard({
     }
   }
 
-  async function onToggleRule(ruleId: string) {
-    await api(`/api/rules/${ruleId}/toggle`, { method: "POST" });
-    await reloadRules();
+  /**
+   * The rules list's switch. Off is at once (the rule's changes stay on the
+   * price, frozen). On opens the activation popup: nothing switches a rule
+   * on without the owner's Apply or Skip.
+   */
+  async function onToggleRule(rule: RuleConfig) {
+    setRuleSwitchError(null);
+    if (rule.enabled) {
+      const answer = await sendRule(`/api/rules/${rule.id}/toggle`, "POST", { on: false });
+      if (!answer.ok) setRuleSwitchError({ ruleId: rule.id, message: answer.error });
+      await reloadRules();
+      return;
+    }
+    setActivation({
+      request: { intent: "enable", ruleId: rule.id },
+      ruleName: rule.rule_name,
+      kind: draftKind(undefined, rule.conditions as Record<string, unknown>),
+      source: "switch",
+      save: (choice) => sendRule(`/api/rules/${rule.id}/toggle`, "POST", { on: true, ...choice }),
+      saved: () => {
+        setActivation(null);
+        void reloadRules();
+      },
+      unavailable: () => {
+        setActivation(null);
+        void api(`/api/rules/${rule.id}/toggle`, { method: "POST" }).finally(() => void reloadRules());
+      },
+    });
   }
 
   async function onDeleteRule(ruleId: string) {
-    await api(`/api/rules/${ruleId}`, { method: "DELETE" });
+    const answer = await sendRule(`/api/rules/${ruleId}`, "DELETE");
+    if (!answer.ok) setRuleSwitchError({ ruleId, message: answer.error });
     setPendingDelete(null);
+    if (editing?.id === ruleId) cancelEditing();
     await reloadRules();
   }
 
   async function onDisableRuleInstead(ruleId: string) {
     const rule = rules.find((r) => r.id === ruleId);
     if (rule?.enabled) {
-      await api(`/api/rules/${ruleId}/toggle`, { method: "POST" });
+      const answer = await sendRule(`/api/rules/${ruleId}/toggle`, "POST", { on: false });
+      if (!answer.ok) setRuleSwitchError({ ruleId, message: answer.error });
     }
     setPendingDelete(null);
     await reloadRules();
+  }
+
+  /** The builder back to an empty new rule. */
+  function resetBuilder() {
+    setRuleName("");
+    setCondRows([newConditionRow("occupancy")]);
+    setAdjPercent("");
+    setAdjDollars("");
+    setAdjDirection("");
+    setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
+    setSplitRoomTypeSets(false);
+    setChangeRoomTypeIds([]);
+    setBuilderFilled(false);
+    setUndoOnCancellation(true);
+    setRuleFormError(null);
+    setRuleFormReload(false);
+  }
+
+  function cancelEditing() {
+    setEditing(null);
+    resetBuilder();
+  }
+
+  /**
+   * The rules list's Edit: the rule as saved (its full settings, from
+   * /api/rules/engine) in the builder, to change and save.
+   */
+  async function startEdit(ruleId: string) {
+    setRuleFormError(null);
+    setRuleFormReload(false);
+    let rule: EngineRule | undefined;
+    try {
+      rule = (await api<EngineRule[]>("/api/rules/engine")).find((r) => r.id === ruleId);
+    } catch {
+      rule = undefined;
+    }
+    if (!rule) {
+      setRuleSwitchError({ ruleId, message: "That rule could not be loaded. Try again in a moment." });
+      return;
+    }
+    const form = ruleToBuilderForm(rule, isCountingRoomTypeId);
+    setRuleName(form.name);
+    setCondRows(form.rows);
+    setAdjDirection(form.direction);
+    setAdjPercent(form.percent);
+    setAdjDollars(form.dollars);
+    setSplitRoomTypeSets(form.split);
+    setSelectedRoomTypeIds(form.selected);
+    setChangeRoomTypeIds(form.changeIds);
+    setUndoOnCancellation(form.undo);
+    setBuilderFilled(false);
+    const baseline = builderDraft(
+      { name: form.name, rows: form.rows, direction: form.direction, percent: form.percent, dollars: form.dollars, selected: form.selected, split: form.split, changeIds: form.changeIds, undo: form.undo },
+      roomTypeOptions,
+    );
+    setEditing({
+      id: rule.id,
+      version: rule.version,
+      enabled: rule.is_active,
+      name: rule.name,
+      baseline: "draft" in baseline ? draftBehaviourKey(baseline.draft) : "",
+    });
+    setRuleFormOpen(true);
+    track("rule.edit_opened");
+    requestAnimationFrame(() =>
+      document.querySelector('[data-deeplink="rules.builder"]')?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+    );
   }
 
   function addConditionRow() {
@@ -734,84 +884,93 @@ export function Dashboard({
     [roomTypeOptions],
   );
 
+  /**
+   * Add Rule, or Save changes when editing. A new rule is saved on, and an
+   * edit to a rule that is on can move prices, so both go through the
+   * activation popup (the owner's Apply or Skip). A new name alone, or an
+   * edit to a rule that is off, saves at once: neither moves a price.
+   */
   async function onCreateRule(e: React.FormEvent) {
     e.preventDefault();
     setRuleFormError(null);
+    setRuleFormReload(false);
+    const built = builderDraft(
+      {
+        name: ruleName,
+        rows: condRows,
+        direction: adjDirection,
+        percent: adjPercent,
+        dollars: adjDollars,
+        selected: selectedRoomTypeIds,
+        split: splitRoomTypeSets,
+        changeIds: changeRoomTypeIds,
+        undo: undoOnCancellation,
+      },
+      roomTypeOptions,
+    );
+    if ("error" in built) {
+      setRuleFormError(built.error);
+      return;
+    }
+    const { draft } = built;
+    const kind = draftKind(draft);
+    const saved = () => {
+      setActivation(null);
+      setEditing(null);
+      resetBuilder();
+      void reloadRules();
+    };
+    const refused = (answer: Extract<SaveAnswer, { ok: false }>) => {
+      setActivation(null);
+      setRuleFormError(answer.error);
+      setRuleFormReload(answer.code === "rule_changed");
+    };
 
-    const rc = ruleConditionForInsert(conditionRowsToRuleCondition(condRows));
-    if (isRuleConditionEmpty(rc)) {
-      setRuleFormError(
-        "Add at least one condition with a valid operator and threshold.",
-      );
+    if (editing) {
+      const target = editing;
+      const body = { ...draft, expected_version: target.version };
+      const popup = () =>
+        setActivation({
+          request: { intent: "edit", ruleId: target.id, draft: body },
+          ruleName,
+          kind,
+          source: "builder_edit",
+          save: async (choice) => {
+            const answer = await sendRule(`/api/rules/${target.id}`, "PUT", { ...body, ...choice });
+            if (!answer.ok && answer.code === "rule_changed") refused(answer);
+            return answer;
+          },
+          saved,
+          notNeeded: () => void saveAsIs(),
+        });
+      const saveAsIs = async () => {
+        setActivation(null);
+        const answer = await sendRule(`/api/rules/${target.id}`, "PUT", body);
+        if (answer.ok) saved();
+        else if (answer.code === "activation_required") popup();
+        else refused(answer);
+      };
+      if (!target.enabled || draftBehaviourKey(draft) === target.baseline) await saveAsIs();
+      else popup();
       return;
     }
 
-    if (adjDirection === "") {
-      setRuleFormError("Choose whether this rule increases or decreases the rate.");
-      return;
-    }
-
-    const amount = ruleActionFromAmounts(adjPercent, adjDollars, adjDirection);
-    if ("error" in amount) {
-      setRuleFormError(amount.error);
-      return;
-    }
-    const { action } = amount;
-
-    const sets = ruleRoomTypeSets({
-      options: roomTypeOptions,
-      selected: selectedRoomTypeIds,
-      split: splitRoomTypeSets,
-      changeIds: changeRoomTypeIds,
+    const id = crypto.randomUUID();
+    setActivation({
+      request: { intent: "create", ruleId: id, draft },
+      ruleName,
+      kind,
+      source: "builder_new",
+      save: (choice) => sendRule("/api/rules", "POST", { ...draft, id, ...choice }),
+      saved,
+      // Demo mode: the in-memory rules, saved as before.
+      unavailable: async () => {
+        setActivation(null);
+        const answer = await sendRule("/api/rules", "POST", draft);
+        if (answer.ok) saved();
+        else refused(answer);
+      },
     });
-    if ("error" in sets) {
-      setRuleFormError(sets.error);
-      return;
-    }
-    const { room_types, signal_room_type_ids, affected_room_type_ids } = sets;
-
-    const legacyConditions = ruleConditionToLegacyConditions(rc);
-
-    // Read the body on failure: a room type set the server refuses (one
-    // deactivated in another tab, say) comes back as a 400 with a message
-    // the owner can act on, which the shared api() helper would swallow.
-    let res: Response;
-    try {
-      res = await fetch("/api/rules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rule_name: ruleName,
-          condition: rc,
-          conditions: legacyConditions,
-          action,
-          room_types,
-          signal_room_type_ids,
-          affected_room_type_ids,
-          undo_on_cancellation: undoOnCancellation,
-        }),
-      });
-    } catch {
-      setRuleFormError("Could not save the rule. Check your connection and try again.");
-      return;
-    }
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      setRuleFormError(body.error ?? "Could not save the rule. Try again in a moment.");
-      return;
-    }
-
-    setRuleName("");
-    setCondRows([newConditionRow("occupancy")]);
-    setAdjPercent("");
-    setAdjDollars("");
-    setAdjDirection("");
-    setSelectedRoomTypeIds(roomTypeOptions.filter(isCountingRoom).map((r) => r.id));
-    setSplitRoomTypeSets(false);
-    setChangeRoomTypeIds([]);
-    setBuilderFilled(false);
-    setUndoOnCancellation(true);
-    await reloadRules();
   }
 
   // ── Arriving from a link ─────────────────────────────────────────────
@@ -905,6 +1064,25 @@ export function Dashboard({
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
+      {activation ? (
+        <RuleActivationDialog
+          ruleName={activation.ruleName}
+          request={activation.request}
+          kind={activation.kind}
+          source={activation.source}
+          save={activation.save}
+          onSaved={activation.saved}
+          onCancel={() => setActivation(null)}
+          onUnavailable={activation.unavailable}
+          onNotNeeded={activation.notNeeded}
+          onRefused={(message) => {
+            const ruleId = activation.request.ruleId;
+            setActivation(null);
+            if (activation.source === "switch") setRuleSwitchError({ ruleId, message });
+            else setRuleFormError(message);
+          }}
+        />
+      ) : null}
       {pendingDelete ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
@@ -1410,7 +1588,11 @@ export function Dashboard({
                         a.rule_name.localeCompare(b.rule_name),
                     )
                     .map((rule) => (
-                    <tr key={rule.id} className="border-b border-slate-800" data-deeplink={`rules.row:${rule.id}`}>
+                    <tr
+                      key={rule.id}
+                      className={`border-b border-slate-800 ${editing?.id === rule.id ? "bg-sky-500/10" : ""}`}
+                      data-deeplink={`rules.row:${rule.id}`}
+                    >
                       <td className="py-2 pr-3 font-medium text-slate-200">
                         {rule.rule_name}
                       </td>
@@ -1441,7 +1623,7 @@ export function Dashboard({
                           role="switch"
                           aria-checked={rule.enabled}
                           aria-label={`${rule.enabled ? "Disable" : "Enable"} ${rule.rule_name}`}
-                          onClick={() => onToggleRule(rule.id)}
+                          onClick={() => void onToggleRule(rule)}
                           className="group inline-flex cursor-pointer items-center gap-2"
                         >
                           <span
@@ -1483,14 +1665,27 @@ export function Dashboard({
                             </div>
                           );
                         })()}
+                        {ruleSwitchError?.ruleId === rule.id ? (
+                          <p className="mt-1 max-w-[16rem] text-[11px] text-rose-400">{ruleSwitchError.message}</p>
+                        ) : null}
                       </td>
                       <td className="py-2 pr-3">
-                        <button
-                          className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
-                          onClick={() => setPendingDelete(rule)}
-                        >
-                          Delete
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="cursor-pointer rounded border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:bg-slate-800"
+                            aria-label={`Edit ${rule.rule_name}`}
+                            onClick={() => void startEdit(rule.id)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="cursor-pointer rounded bg-rose-700 px-2 py-1 text-xs hover:bg-rose-600"
+                            onClick={() => setPendingDelete(rule)}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -1509,7 +1704,7 @@ export function Dashboard({
                 className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
               >
                 <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
-                  + Add a rule
+                  {editing ? `Edit \u201c${editing.name}\u201d` : "+ Add a rule"}
                   <FilledChip show={builderFilled && ruleFormOpen} />
                 </span>
                 <span
@@ -1600,6 +1795,7 @@ export function Dashboard({
                                     pickup_metric: "room_nights",
                                     booking_speed_level: "faster",
                                     booking_speed_window_days: 7,
+                                    booking_speed_operator: undefined,
                                   });
                                 }}
                               >
@@ -1640,6 +1836,8 @@ export function Dashboard({
                                   onChange={(e) =>
                                     updateCondRow(row.id, {
                                       booking_speed_level: e.target.value,
+                                      // A new level takes the compare its side of Normal gives.
+                                      booking_speed_operator: undefined,
                                     })
                                   }
                                 >
@@ -1942,15 +2140,38 @@ export function Dashboard({
               </div>
 
               {ruleFormError ? (
-                <p className="text-sm text-rose-400">{ruleFormError}</p>
+                <p className="text-sm text-rose-400">
+                  {ruleFormError}
+                  {ruleFormReload && editing ? (
+                    <button
+                      type="button"
+                      onClick={() => void startEdit(editing.id)}
+                      className="ml-2 cursor-pointer text-sky-400 underline hover:text-sky-300"
+                    >
+                      Reload
+                    </button>
+                  ) : null}
+                </p>
               ) : null}
 
-              <button
-                type="submit"
-                className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400"
-              >
-                Add Rule
-              </button>
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  type="submit"
+                  disabled={activation !== null}
+                  className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-60"
+                >
+                  {editing ? "Save changes" : "Add Rule"}
+                </button>
+                {editing ? (
+                  <button
+                    type="button"
+                    onClick={cancelEditing}
+                    className="cursor-pointer text-sm text-slate-400 underline hover:text-slate-200"
+                  >
+                    Cancel editing
+                  </button>
+                ) : null}
+              </div>
             </form>
               ) : null}
             </div>

@@ -11,11 +11,11 @@ questions:
   - How do I charge more for the last few rooms? {#in-plain-words}
   - Does an occupancy rule undo itself when someone cancels? {#what-you-will-see/the-row-reads}
   - Why did my 85% rule not fire at exactly 85%? {#what-you-will-see/example-the-harbour}
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, set <Ui>Greater than</Ui> 85, choose <Ui>Increase the rate</Ui> by 10%, keep every room type ticked and click <Ui>Add Rule</Ui>. From the next run, any night in the next 60 with more than 85% of its sellable rooms booked is raised 10%. When the night drops back to 85% or under, the raise comes off.
+On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, leave <Ui>Metric</Ui> on <Ui>Sellable occupancy (%)</Ui>, set <Ui>Greater than</Ui> 85, choose <Ui>Increase the rate</Ui> by 10%, keep every room type ticked, click <Ui>Add Rule</Ui> and then <Ui>Apply price adjustments</Ui>. From the next run, any night in the 396-night window with more than 85% of its sellable rooms booked is raised 10%. When the night drops back to 85% or under, the raise comes off.
 </InPlainWords>
 
 ## Build the rule
@@ -31,7 +31,7 @@ The first condition row is already <Ui>Sellable occupancy (%)</Ui>. Leave <Ui>Co
 Under <Ui>Rate adjustment</Ui>, choose <Ui>Increase the rate</Ui> in <Ui>Direction (required)</Ui>. Type 10 in <Ui>Adjust by percent (%)</Ui>. For a fixed amount instead, leave the percent empty and type it in <Ui>Adjust by fixed amount ($)</Ui>. A rule has one amount, so the box you leave empty greys out.
 </Step>
 <Step title="Pick the room types and add it">
-Under <Ui>Apply to room types</Ui> every room type that counts as a room is ticked. Leave them, and click <Ui>Add Rule</Ui>. The rule appears in the list switched <Ui>On</Ui>.
+Under <Ui>Apply to room types</Ui> every room type that counts as a room is ticked. Leave them, and click <Ui>Add Rule</Ui>. A window shows the days the rule will change: click <Ui>Apply price adjustments</Ui>, or <Ui>Skip price adjustments</Ui> to leave those days' prices as they are. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on). The rule appears in the list switched <Ui>On</Ui>.
 </Step>
 </Steps>
 

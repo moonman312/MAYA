@@ -28,9 +28,11 @@ import {
   cancellationFinding,
   cancellationReads,
   cancellationsUndo,
+  fireHeadKey,
   firesCancelled,
   firesToReset,
   loadOpenPickupFires,
+  skipHoldStep,
   recountReads,
   retireFires,
   retirePassedNights,
@@ -133,6 +135,31 @@ describe("what a typed price or an edit takes off first (firesToReset)", () => {
       firesToReset([fire({ applied_at: "2026-07-29T00:00:00Z" })], { rules: new Map([["r1", rule()]]), manualSetAtByCell: manual, now: NOW }).size,
     ).toBe(0);
   });
+
+  it("leaves an edited rule's change where the owner's Skip holds its day and room type, but not a typed price's", () => {
+    const held = new Set([fireHeadKey("r1", NIGHT, "rt1")]);
+    expect(firesToReset([fire()], { rules: edited, manualSetAtByCell: none, now: NOW, held }).size).toBe(0);
+    expect(firesToReset([fire()], { rules: edited, manualSetAtByCell: manual, now: NOW, held })).toEqual(new Map([["e1", "manual_price"]]));
+    // Held on another room type: taken off as Apply takes it off.
+    const elsewhere = new Set([fireHeadKey("r1", NIGHT, "rt2")]);
+    expect(firesToReset([fire()], { rules: edited, manualSetAtByCell: none, now: NOW, held: elsewhere })).toEqual(
+      new Map([["e1", "rule_edited"]]),
+    );
+  });
+});
+
+describe("a Skip's hold on a day (skipHoldStep)", () => {
+  it("records the first judgment, remembers not true, and ends on true after not true", () => {
+    expect(skipHoldStep(null, true)).toEqual({ wasTrue: true, release: false });
+    expect(skipHoldStep(null, false)).toEqual({ wasTrue: false, release: false });
+    // Still true: held.
+    expect(skipHoldStep(true, true)).toEqual({ wasTrue: true, release: false });
+    // Stops being true: still held, now waiting for it to be true again.
+    expect(skipHoldStep(true, false)).toEqual({ wasTrue: false, release: false });
+    expect(skipHoldStep(false, false)).toEqual({ wasTrue: false, release: false });
+    // True again: the hold is over.
+    expect(skipHoldStep(false, true)).toEqual({ wasTrue: true, release: true });
+  });
 });
 
 describe("which fires the cancellation check looks at (cancellationChecks)", () => {
@@ -147,6 +174,11 @@ describe("which fires the cancellation check looks at (cancellationChecks)", () 
     expect(cancellationChecks([fire()], new Map(), NOW)).toHaveLength(0);
     expect(cancellationChecks([fire()], rules(rule({ signal_room_type_ids: [] })), NOW)).toHaveLength(0);
     expect(cancellationChecks([fire()], rules(rule({ signal_room_type_ids: ["rt1", "rt2"] })), NOW)).toHaveLength(0);
+  });
+
+  it("never one on a day and room type the owner's Skip holds", () => {
+    expect(cancellationChecks([fire()], rules(rule()), NOW, new Set([fireHeadKey("r1", NIGHT, "rt1")]))).toHaveLength(0);
+    expect(cancellationChecks([fire()], rules(rule()), NOW, new Set([fireHeadKey("r1", NIGHT, "rt2")]))).toHaveLength(1);
   });
 
   it("never an unticked rule's, raise or cut", () => {

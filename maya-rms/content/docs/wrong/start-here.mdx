@@ -13,7 +13,7 @@ questions:
   - How do I put a price back to what it was? {#can-i-undo-that/type-the-price}
   - Why is MAYA quiet? {#why-did-nothing-change-today/most-pricing-runs}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -36,7 +36,7 @@ A tentative booking is different. On Cloudbeds a booking marked Confirmation Pen
 
 **Keep the rules off those nights.** Your typed price is not a lock. Once its wait is over, a booking speed rule reads the night again and can cut on top of your price. To keep your number, switch off the cut rules on the <Ui>Rules</Ui> tab until the weekend has passed. Off stops a rule on every night, and what it already did stays. Read [Hold a price for an event](/docs/recipes/hold-a-price-for-an-event).
 
-**Prevent it next time.** Give your cut rules an occupancy condition, so a full night can never read as one to cut. A rule cannot be edited. Switch the old rule <Ui>Off</Ui> (its cuts stay) and add a new one with <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50 as a second condition. Deleting the old rule instead undoes every cut it made, on every night.
+**Prevent it next time.** Give your cut rules an occupancy condition, so a full night can never read as one to cut. Click <Ui>Edit</Ui> on the rule, add <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50 as a second condition and click <Ui>Save changes</Ui>. <Ui>Apply price adjustments</Ui> takes its cuts off the full nights, and <Ui>Skip price adjustments</Ui> leaves them and keeps new cuts off. Read [Change a rule](/docs/recipes/change-a-rule).
 
 For a block held in your system without bookings, enter those rooms as out of service on the <Ui>PMS</Ui> tab so occupancy reads against what you can sell.
 

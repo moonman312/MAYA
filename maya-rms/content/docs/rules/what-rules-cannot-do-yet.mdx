@@ -21,7 +21,7 @@ questions:
   - Can a rule count only direct bookings, or leave out bookings from online travel agencies (OTAs)? {#each-limit-and-what-to-do-instead/only-direct-bookings}
   - Can MAYA price by length of stay (LOS), for example cheaper for a 7-night stay? {#each-limit-and-what-to-do-instead/length-of-stay}
   - Is there an aggressiveness setting, to make MAYA more aggressive or more conservative? {#each-limit-and-what-to-do-instead/a-setting-for}
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -36,7 +36,7 @@ Rules you build run every day of the year, for every night in the window. When t
 
 **Priority.** There is no priority control. When two booking speed or pickup rules are true on the same night, the stronger one fires: the one that changes the price by more, then, at the same change, the one that watches booking speed (set to the faster speed, or the slower one for cuts), then the pickup count harder to meet. Only after those do the five starter rules rank above yours, then the rule with more conditions, then the older rule. Standard rules do not compete: every one whose condition holds applies. Read [How rules run](/docs/rules/how-rules-run#which-one-fires-when-several-match).
 
-**Editing a rule.** There is no edit control. Delete the rule (which undoes its changes) and add it again. To keep its prices in place, turn it off instead and add the new one beside it. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change).
+**Editing a rule.** You can: <Ui>Edit</Ui> on the rule's row opens it in the rule builder, name and undo box included. What an edit cannot reach is what the builder has no field for: a date window, weekdays or a priority. Read [Change a rule](/docs/recipes/change-a-rule).
 
 **Either/or.** Conditions on one rule are always "and": "Matches when all of the following are true." For "busy or last-minute", make two rules. Both can act on the same night, and their changes stack.
 
@@ -47,8 +47,6 @@ Rules you build run every day of the year, for every night in the window. When t
 **An exact price, like $199.** A rule changes the price by a percent or a fixed amount, up or down. It cannot set the price to a number. For an exact price, type it on the calendar for that night, or for a run of nights with <Ui>through…</Ui>. It is published as you typed it, and rules that fire later stack on top of it. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
 
 **Copy or duplicate a rule, or copy rules to another property.** Not yet. Build the rule again. Rules belong to one property.
-
-**Rename a rule.** Not yet. Delete and re-add.
 
 **An occupancy threshold above 100.** The measured number can go above 100% (rooms out of service after a night sold, or overbooking), but a threshold above 100 is saved as 100. <Ui>Greater than</Ui> 100 fires on any overbooked night.
 

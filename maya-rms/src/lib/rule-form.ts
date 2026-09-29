@@ -7,6 +7,7 @@ import { bookingSpeedRank, isBookingSpeed } from "@/lib/observations/booking-spe
 import type {
   BookingSpeedRuleOperator,
   BookingSpeedWindowDays,
+  EngineRule,
   PickupMetric,
   RuleAction,
   RuleCondition,
@@ -166,6 +167,13 @@ export type ConditionFormRow = {
    * saved as null.
    */
   pickup_cooldown_days: BookingSpeedWaitDays | null;
+  /**
+   * The compare a saved rule has, kept while its level is untouched: a rule
+   * saved as "exactly Slower" (the starter rules have one) would otherwise
+   * turn into "Slower or slower still" just by being opened and saved.
+   * Choosing another level clears it, and the form derives the compare.
+   */
+  booking_speed_operator?: BookingSpeedRuleOperator;
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -185,6 +193,7 @@ export function newConditionRow(
     booking_speed_window_days: partial?.booking_speed_window_days ?? 7,
     booking_speed_cooldown_days: partial?.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS,
     pickup_cooldown_days: partial?.pickup_cooldown_days ?? null,
+    ...(partial?.booking_speed_operator ? { booking_speed_operator: partial.booking_speed_operator } : {}),
   };
 }
 
@@ -323,7 +332,7 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
       c.dta_threshold_days = Math.round(n);
     } else if (row.metric === "booking_speed") {
       if (!isBookingSpeed(row.booking_speed_level)) continue;
-      c.booking_speed_operator = directionalBookingSpeedOperator(row.booking_speed_level);
+      c.booking_speed_operator = row.booking_speed_operator ?? directionalBookingSpeedOperator(row.booking_speed_level);
       c.booking_speed_level = row.booking_speed_level;
       c.booking_speed_window_days = row.booking_speed_window_days;
       c.booking_speed_cooldown_days = row.booking_speed_cooldown_days;
@@ -338,6 +347,99 @@ export function conditionRowsToRuleCondition(rows: ConditionFormRow[]): RuleCond
     }
   }
   return c;
+}
+
+/**
+ * A saved rule's condition as the builder's rows: the inverse of
+ * conditionRowsToRuleCondition, so opening a rule to edit it and saving it
+ * unchanged saves the same condition. Rows come in the builder's order.
+ */
+export function ruleConditionToRows(c: RuleCondition): ConditionFormRow[] {
+  const rows: ConditionFormRow[] = [];
+  const num = (v: number) => String(Math.round(v * 10_000) / 10_000);
+  if (c.occupancy_operator && c.occupancy_threshold != null) {
+    rows.push(
+      newConditionRow("occupancy", {
+        operator: c.occupancy_operator,
+        value: String(Math.round(Number(c.occupancy_threshold) * 10_000) / 100),
+      }),
+    );
+  }
+  if (c.booking_speed_operator && isBookingSpeed(c.booking_speed_level)) {
+    const level = c.booking_speed_level as string;
+    const derived = directionalBookingSpeedOperator(level);
+    const wait = Number(c.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS);
+    rows.push(
+      newConditionRow("booking_speed", {
+        booking_speed_level: level,
+        booking_speed_window_days: (c.booking_speed_window_days ?? 7) as BookingSpeedWindowDays,
+        booking_speed_cooldown_days: wait as BookingSpeedWaitDays,
+        ...(c.booking_speed_operator !== derived ? { booking_speed_operator: c.booking_speed_operator } : {}),
+      }),
+    );
+  }
+  if (c.dta_operator && c.dta_threshold_days != null) {
+    rows.push(newConditionRow("booking_window", { operator: c.dta_operator, value: String(c.dta_threshold_days) }));
+  }
+  if (c.pickup_operator && c.pickup_threshold != null) {
+    rows.push(
+      newConditionRow("pickup", {
+        operator: c.pickup_operator,
+        value: num(Number(c.pickup_threshold)),
+        pickup_window_days: (c.pickup_window_days ?? 3) as 1 | 3 | 7,
+        pickup_metric: c.pickup_metric ?? "room_nights",
+        pickup_cooldown_days: c.pickup_cooldown_days != null ? (Number(c.pickup_cooldown_days) as BookingSpeedWaitDays) : null,
+      }),
+    );
+  }
+  return rows.length > 0 ? rows : [newConditionRow("occupancy")];
+}
+
+/**
+ * Everything the builder holds for a saved rule (the engine's shape, from
+ * /api/rules/engine), for editing it: the name, the condition rows, the
+ * direction and the one amount, the room type lists (with "Change prices on
+ * different room types" ticked when it measures something else), and the
+ * undo box. Its date window, weekdays and priority are not in the builder
+ * and are kept as saved.
+ */
+export function ruleToBuilderForm(
+  rule: Pick<
+    EngineRule,
+    | "name"
+    | "condition"
+    | "action_type"
+    | "action_direction"
+    | "action_value"
+    | "signal_room_type_ids"
+    | "affected_room_type_ids"
+    | "undo_on_cancellation"
+  >,
+  isCounting: (id: string) => boolean,
+): {
+  name: string;
+  rows: ConditionFormRow[];
+  direction: "increase" | "decrease";
+  percent: string;
+  dollars: string;
+  split: boolean;
+  selected: string[];
+  changeIds: string[];
+  undo: boolean;
+} {
+  const amount = String(Math.round(Number(rule.action_value) * 10_000) / 10_000);
+  const split = measuresDifferently(rule.signal_room_type_ids, rule.affected_room_type_ids, isCounting);
+  return {
+    name: rule.name,
+    rows: ruleConditionToRows(rule.condition),
+    direction: rule.action_direction,
+    percent: rule.action_type === "percent" ? amount : "",
+    dollars: rule.action_type === "fixed" ? amount : "",
+    split,
+    selected: split ? [...rule.signal_room_type_ids] : [...rule.affected_room_type_ids],
+    changeIds: split ? [...rule.affected_room_type_ids] : [],
+    undo: rule.undo_on_cancellation !== false,
+  };
 }
 
 /** Strips incomplete families so DB rule_condition CHECK constraints pass. */
@@ -611,4 +713,67 @@ export function ruleRoomTypeSets(input: {
   const affected = options.filter((o) => input.changeIds.includes(o.id)).map((o) => o.id);
   if (affected.length === 0) return { error: "Pick at least one room type to change." };
   return { signal_room_type_ids: signal, affected_room_type_ids: affected, room_types: names(affected) };
+}
+
+/** Everything the rule builder holds. */
+export type BuilderValues = {
+  name: string;
+  rows: ConditionFormRow[];
+  direction: "" | "increase" | "decrease";
+  percent: string;
+  dollars: string;
+  selected: string[];
+  split: boolean;
+  changeIds: string[];
+  undo: boolean;
+};
+
+/**
+ * What the builder holds as the body the rules routes take (POST
+ * /api/rules, PUT /api/rules/[id], and the activation popup's preview), or
+ * what the owner still has to fill in.
+ */
+export function builderDraft(
+  v: BuilderValues,
+  options: RoomTypeOption[],
+): { draft: Record<string, unknown> } | { error: string } {
+  const rc = ruleConditionForInsert(conditionRowsToRuleCondition(v.rows));
+  if (isRuleConditionEmpty(rc)) return { error: "Add at least one condition with a valid operator and threshold." };
+  if (v.direction === "") return { error: "Choose whether this rule increases or decreases the rate." };
+  const amount = ruleActionFromAmounts(v.percent, v.dollars, v.direction);
+  if ("error" in amount) return { error: amount.error };
+  const sets = ruleRoomTypeSets({ options, selected: v.selected, split: v.split, changeIds: v.changeIds });
+  if ("error" in sets) return { error: sets.error };
+  return {
+    draft: {
+      rule_name: v.name,
+      condition: rc,
+      conditions: ruleConditionToLegacyConditions(rc),
+      action: amount.action,
+      room_types: sets.room_types,
+      signal_room_type_ids: sets.signal_room_type_ids,
+      affected_room_type_ids: sets.affected_room_type_ids,
+      undo_on_cancellation: v.undo,
+    },
+  };
+}
+
+/**
+ * The part of a draft that decides what a rule does to prices: everything
+ * but its name. Two drafts with the same key differ at most in the name,
+ * which moves no price (so an edit that renames a rule saves without the
+ * activation popup).
+ */
+export function draftBehaviourKey(draft: Record<string, unknown>): string {
+  const sorted = (v: unknown) => (Array.isArray(v) ? [...v].map(String).sort() : v);
+  const { rule_name: _name, conditions: _legacy, room_types: _names, ...rest } = draft;
+  void _name;
+  void _legacy;
+  void _names;
+  return JSON.stringify({
+    ...rest,
+    signal_room_type_ids: sorted(rest.signal_room_type_ids),
+    affected_room_type_ids: sorted(rest.affected_room_type_ids),
+    condition: Object.fromEntries(Object.entries((rest.condition ?? {}) as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b))),
+  });
 }

@@ -1,10 +1,10 @@
 ---
 title: When a price change comes off
-summary: The undo box, which price changes come off by themselves and which do not (standard rules, changes after cancellations, cuts, a price you type, a deleted rule), and the change log sentences for each.
+summary: The undo box, which price changes come off by themselves and which do not (standard rules, changes after cancellations, cuts, a price you type, an edited rule, a deleted rule), and the change log sentences for each.
 section: rules
 order: 100
-readingTime: 10
-keywords: [undo box, undo the change if cancellations mean this rule is no longer true, undo on cancellations, ticked, unticked, untick, no longer true, still true, bookings made since, kept change, wait after an undo, cancellations meant, undo, revert, come off, came off, went back, back to base rate, stopped applying, cancellation, guest cancels, cancelled, raise came off, cut did not come off, bookings recovered, price went back, standard rule undo itself, booking speed rule undo itself, set by hand, night passed, nothing in the change log, no entry for that night, tune, threshold changed, sent right away, next cycle, not sent, mews, price of 0]
+readingTime: 14
+keywords: [edit a rule, edited rule, the rule was edited, started it fresh, apply price adjustments, skip price adjustments, kept after skip, undo box, undo the change if cancellations mean this rule is no longer true, undo on cancellations, ticked, unticked, untick, no longer true, still true, bookings made since, kept change, wait after an undo, cancellations meant, undo, revert, come off, came off, went back, back to base rate, stopped applying, cancellation, guest cancels, cancelled, raise came off, cut did not come off, bookings recovered, price went back, standard rule undo itself, booking speed rule undo itself, set by hand, night passed, nothing in the change log, no entry for that night, tune, threshold changed, sent right away, next cycle, not sent, mews, price of 0]
 questions:
   - Does a standard rule undo itself? {#standard-rules}
   - What does the undo box do? {#the-undo-box}
@@ -20,16 +20,19 @@ questions:
   - What does "stopped applying an earlier 10% raise" mean in the change log? {#the-change-log-sentences/what-happened-what}
   - Why is there no change log entry for a price that went back? {#the-change-log-sentences/what-happened-what}
   - What happens to prices when I accept a Tune suggestion? {#a-rule-that-is-changed}
-updated: 2026-09-28
+  - What happens to a rule's changes when I edit it? {#a-rule-that-is-changed}
+  - Why did the change log say "the rule was edited, so MAYA started it fresh"? {#a-rule-that-is-changed}
+  - I skipped the price adjustments. When do the changes that were on the price come off? {#a-rule-that-is-changed/with-skip-price}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-A standard rule's change comes off when its condition stops holding. A booking speed or pickup rule's change comes off when cancellations mean the rule is no longer true, as long as its undo box is ticked, which it is on every new rule. A cut on a slow pace never comes off because guests cancel. Your typed price takes earlier changes off that night. Deleting a rule undoes everything it did. Turning a rule off undoes nothing.
+A standard rule's change comes off when its condition stops holding. A booking speed or pickup rule's change comes off when cancellations mean the rule is no longer true, as long as its undo box is ticked, which it is on every new rule. A cut on a slow pace never comes off because guests cancel. Your typed price takes earlier changes off that night. An edit you apply judges the rule's changes against the edited rule, and one you save with Skip leaves them on the days the window showed until the rule stops being true there and then becomes true again. Deleting a rule undoes everything it did. Turning a rule off undoes nothing.
 </InPlainWords>
 
 ## The undo box
 
-Every rule has one box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, under <Ui>Rate adjustment</Ui> in the rule builder. It starts ticked on every new rule, and starter rules and accepted suggestions are ticked too. It is set when you add the rule: the rules list does not show it, and a saved rule's box cannot be changed, so to change it, add the rule again. Read [Changing a rule](/docs/rules/off-delete-or-change#changing-a-rule). The "?" beside the box sums up this page.
+Every rule has one box, <Ui>Undo the change if cancellations mean this rule is no longer true</Ui>, under <Ui>Rate adjustment</Ui> in the rule builder. It starts ticked on every new rule, and starter rules and accepted suggestions are ticked too. The rules list does not show it. To change it on a saved rule, click <Ui>Edit</Ui> on the rule, tick or untick it and click <Ui>Save changes</Ui>. On a rule that is on, the window with the calendar opens first: ticking can take off a change whose rule is no longer true, and unticking can keep one that would have come off. The new box applies from the next cycle, and the rule keeps its changes and its count. Read [Changing a rule](/docs/rules/off-delete-or-change#changing-a-rule). The "?" beside the box sums up this page.
 
 - **Ticked.** When a booking that a change counted cancels, MAYA checks the rule again. If the rule is no longer true for that night, the change comes off. If bookings made since keep it true, the change stays.
 - **Unticked.** Cancellations never take the change off.
@@ -38,7 +41,7 @@ The box works the same way for a raise or a cut and for every kind of condition.
 
 Once a change has come off, its rule can change the night again when it is true again and its wait is over. The wait still runs from the change that came off, so a night on the edge does not go up and down every cycle. A standard rule has no wait, so it goes back on as soon as it holds again.
 
-Either way, a change also comes off when the night passes, when a price is set by you or in your property system, and when you delete the rule.
+Either way, a change also comes off when the night passes, when a price is set by you or in your property system, when you delete the rule, and when you apply an edit the change no longer fits (read [A rule that is changed](#a-rule-that-is-changed)).
 
 ## Standard rules
 
@@ -48,7 +51,7 @@ A standard rule (only <Ui>Sellable occupancy (%)</Ui> and <Ui>Booking window (da
 "Busy nights" raises 10% when a night is more than 80% full. Friday is 17 of 20 booked (85%): Standard is $165. Two guests cancel, so Friday drops to 15 of 20 (75%). On the next cycle, about five minutes later, the raise comes off and Standard goes back to $150. If a new booking lifts Friday over 80% again, the raise goes back on.
 </Example>
 
-With the box unticked, a <Ui>Greater than</Ui> occupancy condition counts as met for as long as the change is on, so falling occupancy never takes the raise off. The rest of the rule is read as the night is now: a booking window condition still runs out as the night gets closer, and a <Ui>Less than</Ui> occupancy rule still switches off when bookings lift the night over its line.
+With the box unticked, a <Ui>Greater than</Ui> occupancy condition counts as met for as long as the change is on, so falling occupancy never takes the raise off. The rest of the rule is read as the night is now: a booking window condition still runs out as the night gets closer, and a <Ui>Less than</Ui> occupancy rule still switches off when bookings lift the night over its line. On a day that <Ui>Skip price adjustments</Ui> holds, the box keeps nothing, because the rule made no change there: a night that falls under the line ends the hold, and the next time it is over the line the rule adjusts (read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on#skip-price-adjustments)).
 
 The <Ui>How rules behave</Ui> panel on the <Ui>Rules</Ui> tab animates both. Ticked: "Occupancy falls to 65%, so the rule is no longer true and its raise comes off." Unticked: "Occupancy falls to 65%. The box is unticked, so the raise stays."
 
@@ -64,7 +67,7 @@ A booking speed or pickup rule's change stays on the price after the rule fires.
 
 If the change's own count falls short, MAYA reads the rule once more the way it would count with the change off, bookings made since included. If that keeps the rule true, the change stays and every rule keeps counting from when it was made. Only when both fall short does the change come off.
 
-Each stacked change is checked on its own numbers. A change is never checked in the cycle that made it, never while its rule is switched off, and never once the rule measures a different set of room types from the one it measured when it fired.
+Each stacked change is checked on its own numbers. A change is never checked in the cycle that made it, never while its rule is switched off, never once the rule measures a different set of room types from the one it measured when it fired, and never when it was already on the price when the rule was last switched on or saved with <Ui>Skip price adjustments</Ui>.
 
 <Example title="Two cancellations, then one more">
 On Monday, October 12, 2026, "Hot-week surge" raised Saturday, November 14, 2026 by 25%, after 12 bookings arrived in a week when a night like it usually gets 5. Two of those 12 cancel: 10 are still booked, still much faster than normal, so the raise stays. One more cancels: 9 left read only faster than normal, short of the Much Faster Than Normal the rule needs. Unless the Saturday's week, read as it stands now, still reads Much Faster Than Normal, the raise comes off on the next cycle.
@@ -95,7 +98,20 @@ If a price looks wrong and you want it fixed now, type the price you want. It is
 
 ## A rule that is changed
 
-Today there is no edit control for a rule. The one change you can make in place is accepting a "Tune ... ?" suggestion after <Ui>Get suggestions from my data</Ui>, which moves the occupancy threshold of a standard rule. From the next cycle the rule checks every night against the new threshold, so a night that no longer meets it loses the change, and a night that now meets it gains one.
+You change a rule with <Ui>Edit</Ui> and <Ui>Save changes</Ui>, or by accepting a "Tune ... ?" card after <Ui>Get suggestions from my data</Ui>, which moves a standard rule's occupancy threshold. What happens to the changes the rule already has on the price depends on how the edit is saved:
+
+| The rule | Saved with <Ui>Apply price adjustments</Ui> | Saved with <Ui>Skip price adjustments</Ui> |
+|---|---|---|
+| A standard rule | From the next cycle, each change stays where the edited rule holds, at the new amount, and comes off where it does not. That includes room types you took off the rule and nights it no longer covers. Nights that now meet the edited rule gain the change | On the days the window showed, each change stays at its old amount. Where the edited rule is true, it stays, and still stays when the rule stops being true; the next time the rule is true there, it moves to the new amount, or comes off on a room type or night the rule no longer covers. Where the edited rule is not true, it stays until the rule becomes true on that night, and then moves to the new amount (or, on a room type or night the rule no longer covers, comes off). Whether the rule is true is read from the night as it is now, undo box ticked or not. Every other night is judged as with Apply |
+| A booking speed or pickup rule | Its earlier changes come off from the next cycle. The edited rule reads its whole window again, with no wait, so it can change the night again at once | On the days the window showed, its earlier changes stay, are not checked for cancellations, and still count as the newest change where weaker rules count from, ranked as the rule was when it made them. Once the rule has stopped and started being true on such a day, they come off and the edited rule acts there in that same run. Every other night is judged as with Apply. Either way it counts every booking on the books |
+
+The window before the save shows the days Apply would change. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
+
+**With Skip, price changes that were on the price** also come off when the night passes, when you type a price on the night, or when you delete the rule. Saving the rule again with <Ui>Apply price adjustments</Ui> ends the holds, and its changes are judged as Apply judges them.
+
+A new name or the undo box alone leaves the rule's changes where they are (the box then decides about cancellations from the next cycle). An edit saved to a rule that is <Ui>Off</Ui> changes no price: its changes stay frozen, still cover the rules they covered, and the window when you switch it on shows what the edited rule does. Changing the conditions, amount or room types also clears the rule's "Stop for this night" answers.
+
+**"Why did the change log say the rule was edited?"** A booking speed or pickup change that comes off because its rule was edited with Apply reads ""Warm-date bump" stopped applying an earlier 10% raise here: the rule was edited, so MAYA started it fresh." A standard rule's change that comes off reads as any standard rule letting go.
 
 ## The night passes
 
@@ -114,9 +130,10 @@ Turning a rule off undoes nothing: its changes stay exactly as they are, and can
 | A standard rule switched off | If another rule or a typed price is still on the night, its next entry shows the price without the change, and no rule is named for the drop. If it was the only change: "Busy nights" stopped applying an earlier 10% raise here: this night no longer met its conditions. That took this night from $165.00 to $150.00. |
 | A change came off for cancellations | Cancellations meant "Warm-date bump" was no longer true, so its 10% raise came off. Then the numbers the check found, and the move back when nothing else is left on the night |
 | You typed a price | "Warm-date bump" stopped applying an earlier 10% raise here: this night's price was set by hand. Then a line naming who set it. |
+| A booking speed or pickup rule was edited, with Apply | "Warm-date bump" stopped applying an earlier 10% raise here: the rule was edited, so MAYA started it fresh. |
 | A rule was deleted | The next run prices without it. In older entries a deleted standard rule is called "Pricing rule" with no reason given, and a deleted booking speed or pickup rule's line is left out |
 
-**"Why did the price go back to the base rate?"** One of: a standard rule's condition stopped holding, cancellations meant a rule was no longer true, you or a colleague cleared a typed price, or the rule was deleted. The change log lists the night in the run that did it: it names what came off, then "That took this night from" the old price to the new one. When another rule or a typed price is still on the night, its entry shows the price without the change, and names a change that came off for cancellations.
+**"Why did the price go back to the base rate?"** One of: a standard rule's condition stopped holding, cancellations meant a rule was no longer true, you or a colleague cleared a typed price, an edit to the rule was applied, or the rule was deleted. The change log lists the night in the run that did it: it names what came off, then "That took this night from" the old price to the new one. When another rule or a typed price is still on the night, its entry shows the price without the change, and names a change that came off for cancellations.
 
 <Callout kind="not-yet">
 There is no undo button for one price change. The three ways back are: type the price you want on that night (now), delete the rule (undoes everything it did, everywhere), or stop the rule on that night from the banner once three of its changes are on it (no more changes, and what it did stays unless cancellations take it off).

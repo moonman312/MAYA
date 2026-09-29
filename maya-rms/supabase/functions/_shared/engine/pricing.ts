@@ -8,9 +8,16 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price.ts";
-import { fetchAllRows, filterNights, type NightSet } from "./snapshots.ts";
+import { fetchAllRows, filterNights, isMissingColumnError, type NightSet } from "./snapshots.ts";
 import type { ActionDirection } from "./domain.ts";
 import type { AdjustmentSpec, RoomTypeRow } from "./types.ts";
+
+/**
+ * A ladder row the owner's Skip holds (skip_state 'held') is on but moves no
+ * price. The column arrives in 99_supabase_migration_rule_activation_v1.sql;
+ * before it no row is held.
+ */
+const isHeld = (r: { skip_state?: unknown }) => r.skip_state === "held";
 
 /** An open fire of an event rule, as it applies to a cell's price. */
 export type PickupEffect = AdjustmentSpec & {
@@ -202,24 +209,33 @@ export async function loadActiveLadderEffects(
   roomTypeId: string,
   supportsSuppression: boolean = true,
 ): Promise<AdjustmentSpec[]> {
-  let q = supabase
-    .from("ladder_rule_state")
-    .select("rule_id, action_kind, action_direction, action_value")
-    .eq("stay_date", stayDate)
-    .eq("room_type_id", roomTypeId)
-    .eq("is_active", true);
-  // A row suppressed by a manual price override is still active (its
-  // condition holds and it must not re-fire on the same trigger) but no
-  // longer moves the price. Suppression lifts on the next transition.
-  if (supportsSuppression) q = q.is("suppressed_at", null);
-  const { data, error } = await q.order("rule_id", { ascending: true });
+  const read = (skip: boolean) => {
+    let q = supabase
+      .from("ladder_rule_state")
+      .select(`rule_id, action_kind, action_direction, action_value${skip ? ", skip_state" : ""}`)
+      .eq("stay_date", stayDate)
+      .eq("room_type_id", roomTypeId)
+      .eq("is_active", true);
+    // A row suppressed by a manual price override is still active (its
+    // condition holds and it must not re-fire on the same trigger) but no
+    // longer moves the price. Suppression lifts on the next transition.
+    if (supportsSuppression) q = q.is("suppressed_at", null);
+    return q.order("rule_id", { ascending: true });
+  };
+  let { data, error } = await read(true);
+  // No Skip columns yet (99_supabase_migration_rule_activation_v1.sql): no
+  // row is held, so every active row applies, as before.
+  if (error && isMissingColumnError(error)) ({ data, error } = await read(false));
   // Loud, not empty: a failed read here would otherwise price the whole
   // horizon with no rules and push that to the PMS as a successful run. The
   // one failure we know how to handle, the column not being migrated yet,
   // is caught by the probe before we get here; anything else is an outage.
   if (error) throw new Error(`Failed to load ladder effects: ${error.message}`);
 
-  return (data ?? []).map((r) => ({
+  // Nor does a row the owner's Skip holds.
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).filter((r) => !isHeld(r)).map((r) => ({
     rule_id: String(r.rule_id),
     action_kind: r.action_kind,
     action_direction: r.action_direction,
@@ -280,18 +296,17 @@ export async function loadActiveLadderEffectsForRange(
   supportsSuppression: boolean = true,
   /** The run's nights when they are not every night in the range (filterNights). */
   nights?: NightSet,
+  /** Whether ladder_rule_state has the owner's Skip marker (a held row moves no price). */
+  supportsSkip: boolean = true,
 ): Promise<Map<string, AdjustmentSpec[]>> {
   const out = new Map<string, AdjustmentSpec[]>();
   if (roomTypeIds.length === 0) return out;
-  // deno-lint-ignore no-explicit-any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let rows: any[];
-  try {
-    rows = await fetchAllRows(() => {
+  const read = (skip: boolean) =>
+    fetchAllRows(() => {
       let q = filterNights(
         supabase
           .from("ladder_rule_state")
-          .select("rule_id, stay_date, room_type_id, action_kind, action_direction, action_value")
+          .select(`rule_id, stay_date, room_type_id, action_kind, action_direction, action_value${skip ? ", skip_state" : ""}`)
           .in("room_type_id", roomTypeIds),
         nights,
         firstDate,
@@ -303,11 +318,24 @@ export async function loadActiveLadderEffectsForRange(
         .order("room_type_id", { ascending: true })
         .order("rule_id", { ascending: true });
     });
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    try {
+      rows = await read(supportsSkip);
+    } catch (e) {
+      // No Skip columns yet: no row is held.
+      if (!supportsSkip || !isMissingColumnError(e)) throw e;
+      rows = await read(false);
+    }
   } catch (e) {
     // Loud, not empty — see loadActiveLadderEffects.
     throw new Error(`Failed to load ladder effects: ${e instanceof Error ? e.message : String(e)}`);
   }
   for (const r of rows) {
+    // A row the owner's Skip holds is on but moves no price.
+    if (isHeld(r)) continue;
     const key = `${r.stay_date}|${r.room_type_id}`;
     const list = out.get(key) ?? [];
     list.push({

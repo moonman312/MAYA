@@ -12,11 +12,11 @@ questions:
   - Which room types does a rule apply to by default? {#untick-the-room-type}
   - How do I change which room types an existing rule covers? {#an-existing-rule}
   - What does the "not a room" tag mean in the rule builder? {#in-plain-words}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-In the rule builder, the chips under <Ui>Apply to room types</Ui> are the room types the rule covers. Every type that counts as a room starts ticked. Click a chip to untick it and the rule leaves that room type alone, in what it measures and in what it changes. A saved rule cannot be changed, so for an existing rule delete it and add it again with the right chips.
+In the rule builder, the chips under <Ui>Apply to room types</Ui> are the room types the rule covers. Every type that counts as a room starts ticked. Click a chip to untick it and the rule leaves that room type alone, in what it measures and in what it changes. For a saved rule, click <Ui>Edit</Ui> on its row, change the chips and click <Ui>Save changes</Ui>.
 </InPlainWords>
 
 ## Untick the room type
@@ -29,7 +29,7 @@ On the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui> and fill in the name, con
 Under <Ui>Apply to room types</Ui>, each room type is a chip. A ticked chip is highlighted. Click Suite to untick it. The summary beside the label counts what is left, for example "2 of 4 room types". <Ui>Select all</Ui> ticks every chip and <Ui>Clear</Ui> unticks them all.
 </Step>
 <Step title="Add the rule">
-Click <Ui>Add Rule</Ui>. The row's <Ui>Room Types</Ui> column lists the types it covers: "Standard, Deluxe".
+Click <Ui>Add Rule</Ui>, then <Ui>Apply price adjustments</Ui> in the window that opens. The row's <Ui>Room Types</Ui> column lists the types it covers: "Standard, Deluxe".
 </Step>
 </Steps>
 
@@ -53,7 +53,7 @@ To measure one set of room types and change another, tick <Ui>Change prices on d
 
 ## An existing rule
 
-A rule's room types cannot be changed after it is saved. Delete it with <Ui>Delete Rule and Undo Its Changes</Ui> and add it again with the chips you want. The starter rules MAYA built from your history cover every room type that counts as a room, so to keep one of them off your suites, delete that starter rule and rebuild it. Its settings are in the row: the condition, the window and wait, and the percentage.
+Click <Ui>Edit</Ui> on the rule's row. The rule builder opens with its chips as saved. Change them and click <Ui>Save changes</Ui>. On a rule that is on, a window shows the days that change: with <Ui>Apply price adjustments</Ui>, the room types you unticked lose the rule's changes from the next run, and the ones you ticked get them where the rule holds. With <Ui>Skip price adjustments</Ui>, the prices on those days stay as they are until the rule stops being true on a day and then becomes true again, and every other night works as with Apply. The starter rules MAYA built from your history cover every room type that counts as a room; to keep one of them off your suites, edit it the same way. Read [Change a rule](/docs/recipes/change-a-rule).
 
 <Related>
 - [The rule builder](/docs/rules/the-rule-builder)

@@ -1,4 +1,9 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { ruleErrorResponse, saveThroughPopup, type ActivationBody } from "@/lib/rule-route";
+import { RuleSaveError, commitRuleChange, fullCondition, isUuid, loadEngineRuleRow, parseDraft, planRuleChange } from "@/lib/rule-save";
+import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
+import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
+import { suggestionDraft, tunedDraft } from "@/lib/rule-suggestion-draft";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -91,22 +96,86 @@ async function answerRoomTypeQuestion(
 }
 
 /**
- * Apply an accepted rule suggestion: either create the suggested rule or
- * adjust an existing rule's threshold. Runs on the user's own session so
- * RLS enforces their manage rights. Returns an error message or null.
+ * Apply an accepted rule suggestion: create the suggested rule, adjust an
+ * existing rule's occupancy bar (a real edit: the rule's next version, its
+ * changes judged against the new bar), or pause or remove a rule. Runs on
+ * the user's own session so their role is checked; the rule itself is saved
+ * through save_rule, as the rules page saves one.
+ *
+ * On the Rules tab's "Get suggestions from my data" the card opens the
+ * activation popup first, and the owner's Apply or Skip comes with the
+ * confirm (`activation`, `fingerprint`, `touched`, a Skip's `held` days or
+ * `hold_all`, and for a new rule the `ruleId` it was previewed under). The first onboarding review has no popup
+ * (the property is being set up): a confirm without them applies the rule.
+ * Returns an error response, or null when it saved.
  */
 async function applyRuleSuggestion(
   supabase: SupabaseClient,
   hotelId: string,
+  userId: string,
   payload: Record<string, unknown>,
   keepRule: boolean,
-): Promise<string | null> {
-  if (payload.suggestion_type === "adjust_rule" && payload.rule_id) {
-    const { error } = await supabase
-      .from("rule_condition")
-      .update({ occupancy_threshold: Number(payload.suggested_threshold) })
-      .eq("rule_id", String(payload.rule_id));
-    return error?.message ?? null;
+  body: ActivationBody & { ruleId?: unknown },
+): Promise<NextResponse | null> {
+  if (payload.suggestion_type === "adjust_rule" || payload.suggestion_type === "add_rule") {
+    if (!isAdminConfigured()) {
+      return NextResponse.json({ error: "Rule changes need SUPABASE_SERVICE_ROLE_KEY set on the server." }, { status: 503 });
+    }
+    const admin = createAdminClient();
+    const gate = { ok: true as const, supabase, admin, hotelId, userId };
+    try {
+      const at = new Date().toISOString();
+      let plan;
+      if (payload.suggestion_type === "adjust_rule") {
+        const ruleId = String(payload.rule_id ?? "");
+        const stored = isUuid(ruleId) ? await loadEngineRuleRow(admin, hotelId, ruleId) : null;
+        if (!stored) throw new RuleSaveError(404, "That rule could not be found.");
+        const rc = Array.isArray(stored.rule_condition) ? stored.rule_condition[0] : stored.rule_condition;
+        const ids = (v: unknown) => (Array.isArray(v) ? v.map((x) => String((x as { room_type_id: unknown }).room_type_id)) : []);
+        const draft = tunedDraft(
+          {
+            name: String(stored.name),
+            condition: fullCondition(rc as Record<string, unknown>) as never,
+            action_type: String(stored.action_type),
+            action_direction: String(stored.action_direction),
+            action_value: Number(stored.action_value),
+            signal_room_type_ids: ids(stored.rule_signal_room_type),
+            affected_room_type_ids: ids(stored.rule_affected_room_type),
+            undo_on_cancellation: stored.undo_on_cancellation !== false,
+          },
+          Number(payload.suggested_threshold),
+        );
+        plan = await planRuleChange(admin, hotelId, { intent: "edit", ruleId, draft: parseDraft(draft), at });
+      } else {
+        const { data: counting } = await admin
+          .from("room_types")
+          .select("id, counts_as_room")
+          .eq("hotel_id", hotelId)
+          .eq("is_active", true);
+        const fallback = (counting ?? []).filter((r) => r.counts_as_room !== false).map((r) => String(r.id));
+        const draft = suggestionDraft(payload, fallback);
+        if (!draft) throw new RuleSaveError(400, "Unrecognized suggestion payload");
+        const ruleId = isUuid(body.ruleId) ? body.ruleId : crypto.randomUUID();
+        plan = await planRuleChange(admin, hotelId, { intent: "create", ruleId, draft: parseDraft(draft), at });
+      }
+      if (body.activation === "apply" || body.activation === "skip") {
+        await saveThroughPopup(gate, plan, body, "suggestion");
+      } else {
+        // The Rules tab's suggestions always come with the owner's choice
+        // from the popup. A confirm without one there (the card could not
+        // open the popup) is refused rather than applied unseen.
+        if (plan.needsActivation && (await reviewIsRulesTab(supabase, hotelId))) {
+          throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
+        }
+        // No popup here (the first review): the owner's confirm applies it.
+        const horizonDays = await hotelPricingHorizon(admin, hotelId);
+        await commitRuleChange(supabase, admin, plan, plan.needsActivation ? "apply" : null, { at, horizonDays, touched: [] });
+        await nudgeHotelSync(admin, hotelId).catch(() => "next_cycle");
+      }
+      return null;
+    } catch (e) {
+      return ruleErrorResponse(e, "That didn't save. Try again.");
+    }
   }
 
   if (payload.suggestion_type === "remove_rule" && payload.rule_id) {
@@ -121,7 +190,7 @@ async function applyRuleSuggestion(
         .update({ is_active: false, updated_at: new Date().toISOString() })
         .eq("id", String(payload.rule_id))
         .eq("hotel_id", hotelId);
-      return error?.message ?? null;
+      return error ? NextResponse.json({ error: error.message }, { status: 500 }) : null;
     }
     // Same deletion the rules page performs. pickup_event rows go first —
     // that FK has no cascade — then the rule; the cascade takes the
@@ -132,82 +201,34 @@ async function applyRuleSuggestion(
       .delete()
       .eq("rule_id", String(payload.rule_id))
       .eq("hotel_id", hotelId);
-    if (eventErr) return eventErr.message;
+    if (eventErr) return NextResponse.json({ error: eventErr.message }, { status: 500 });
     const { error } = await supabase
       .from("pricing_rules")
       .delete()
       .eq("id", String(payload.rule_id))
       .eq("hotel_id", hotelId);
-    return error?.message ?? null;
+    return error ? NextResponse.json({ error: error.message }, { status: 500 }) : null;
   }
 
-  if (payload.suggestion_type === "add_rule" && payload.spec) {
-    const spec = payload.spec as {
-      name: string;
-      priority: number;
-      condition: Record<string, unknown>;
-      action: { action_type: string; action_direction: string; action_value: number };
-      is_pickup_rule: boolean;
-      /** Set on a rule copied from the owner's own weekend or weekday moves. */
-      dow_mask?: number;
-    };
-    const { data: ruleRow, error: insErr } = await supabase
-      .from("pricing_rules")
-      .insert({
-        hotel_id: hotelId,
-        name: spec.name,
-        priority: spec.priority,
-        is_active: true,
-        version: 1,
-        start_date: null,
-        end_date: null,
-        is_annual: false,
-        dow_mask: validDowMask(spec.dow_mask),
-        action_type: spec.action.action_type,
-        action_direction: spec.action.action_direction,
-        action_value: spec.action.action_value,
-        is_pickup_rule: spec.is_pickup_rule,
-        // A suggestion the owner accepts is ticked, like every new rule.
-        undo_on_cancellation: true,
-      })
-      .select("id")
-      .single();
-    if (insErr || !ruleRow) return insErr?.message ?? "rule insert failed";
-    const ruleId = String(ruleRow.id);
+  return NextResponse.json({ error: "Unrecognized suggestion payload" }, { status: 500 });
+}
 
-    // No transaction spans these inserts, so a failure partway through would
-    // otherwise leave an active rule with no condition row — which the
-    // engine treats as always-matching. Delete the orphaned rule (cascades
-    // to whichever of condition/room-type joins already landed) instead of
-    // returning with it still live.
-    const { error: condErr } = await supabase
-      .from("rule_condition")
-      .insert({ rule_id: ruleId, ...spec.condition });
-    if (condErr) {
-      await supabase.from("pricing_rules").delete().eq("id", ruleId);
-      return condErr.message;
-    }
-
-    const roomTypeIds = Array.isArray(payload.room_type_ids)
-      ? (payload.room_type_ids as string[])
-      : [];
-    if (roomTypeIds.length > 0) {
-      const joins = roomTypeIds.map((rtId) => ({ rule_id: ruleId, room_type_id: rtId }));
-      const { error: sigErr } = await supabase.from("rule_signal_room_type").insert(joins);
-      if (sigErr) {
-        await supabase.from("pricing_rules").delete().eq("id", ruleId);
-        return sigErr.message;
-      }
-      const { error: affErr } = await supabase.from("rule_affected_room_type").insert(joins);
-      if (affErr) {
-        await supabase.from("pricing_rules").delete().eq("id", ruleId);
-        return affErr.message;
-      }
-    }
-    return null;
-  }
-
-  return "Unrecognized suggestion payload";
+/**
+ * Whether the review is showing the Rules tab's "Get suggestions from my
+ * data" (the job it points at was asked for from there), as the review
+ * screen itself decides (status: job.stats.mode). A read that fails counts
+ * as the first review, as it always has.
+ */
+async function reviewIsRulesTab(supabase: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data: state, error } = await supabase
+    .from("onboarding_states")
+    .select("import_job_id")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error || !state?.import_job_id) return false;
+  const { data: job } = await supabase.from("import_jobs").select("stats").eq("id", state.import_job_id).maybeSingle();
+  const stats = (job?.stats ?? null) as { mode?: unknown } | null;
+  return stats?.mode === "refresh";
 }
 
 /**
@@ -244,6 +265,19 @@ export async function POST(
     value?: number;
     /** remove_rule confirms only: pause the rule (is_active false) instead of deleting it. */
     keepRule?: boolean;
+    /**
+     * A rule suggestion confirmed through the activation popup (the Rules
+     * tab's suggestions): the owner's Apply or Skip, what the days were
+     * worked out on, and a new rule's id as previewed.
+     */
+    activation?: unknown;
+    fingerprint?: unknown;
+    touched?: unknown;
+    held?: unknown;
+    hold_all?: unknown;
+    days?: unknown;
+    refreshed?: unknown;
+    ruleId?: unknown;
   } | null;
   const action = body?.action;
   if (action !== "confirm" && action !== "dismiss") {
@@ -373,10 +407,12 @@ export async function POST(
       }
     }
     if (finding.kind === "rule_suggestion") {
-      const err = await applyRuleSuggestion(supabase, hotelId, payload, keepRule);
-      if (err) {
+      const refused = await applyRuleSuggestion(supabase, hotelId, user.id, payload, keepRule, body ?? {});
+      if (refused) {
+        // Put the card back so the owner can answer it again (the popup
+        // works the days out again on a stale answer, then confirms).
         await revertClaim();
-        return NextResponse.json({ error: err }, { status: 500 });
+        return refused;
       }
     }
   }
@@ -427,9 +463,4 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true });
-}
-
-/** A suggested rule's days, or every day when the payload carries none that fits. */
-function validDowMask(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 127 ? value : 127;
 }

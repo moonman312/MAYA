@@ -3,9 +3,9 @@ title: Messages you might see, explained
 summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
 section: wrong
 order: 100
-readingTime: 53
+readingTime: 56
 readingNote: Type a few words of the message to jump to it
-keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
+keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the window didn't open, the days could not be checked, we weren't able to calculate, 0 prices will be affected, turn it on, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
 questions:
   - What does this message mean? {#in-plain-words}
   - Where do I find out what an error on screen means? {#in-plain-words}
@@ -24,6 +24,8 @@ questions:
   - What does "Too many checkout attempts" mean? {#payment-codes-and-checkout/too-many-checkout}
   - What does "We don't recognize that code" mean? {#payment-codes-and-checkout/we-dont-recognize}
   - The log says the rule was edited but nobody edited it {#the-change-log/the-rule-was}
+  - What does "X days will be affected by this rule" mean? {#rules-and-the-rule-builder/turn-on-busy}
+  - What does "This rule changed in another tab" mean? {#rules-and-the-rule-builder/this-rule-changed}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-29
 ---
@@ -193,7 +195,8 @@ Type a few words of the message into the box below to jump to it. Every message 
 
 - **"Pricing Rules"**: the Rules tab. Filters **"all"**, **"enabled"**, **"disabled"**. [The rule builder](/docs/rules/the-rule-builder)
 - **"How rules behave"**: three short animations (a rule that raises and waits, an occupancy rule with no wait, and a stronger rule covering a weaker one), with **"Try the box"** to play them with the undo box ticked or unticked.
-- **"+ Add a rule"** and **"Add Rule"**: open the builder, and save. A new rule is On.
+- **"+ Add a rule"** and **"Add Rule"**: open the builder, and save. <Ui>Add Rule</Ui> first opens the window below, and the rule is On once you apply, skip or turn it on.
+- **"Edit"**, with the builder headed **"Edit "Busy nights""**, **"Save changes"** and **"Cancel editing"**: change a saved rule. A new name, or a change to a rule that is Off, saves at once; a change to a rule that is On opens the window below. [Change a rule](/docs/recipes/change-a-rule)
 - **"Rule name"**: required.
 - **"Conditions"** with **"Matches when all of the following are true."**: every condition must hold at once. **"+ Add condition"** adds the next kind; four at most, one of each.
 - **"Sellable occupancy (%)"**, **"Booking speed (recommended)"**, **"Booking window (days to stay)"**, **"Pickup count (advanced)"**: the four things a rule can measure. [The rule builder](/docs/rules/the-rule-builder)
@@ -210,14 +213,30 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Enter a percent or a fixed amount."**: both amount boxes are empty.
 - **"Enter the percentage as a positive number."** and **"Enter the amount as a positive number."**: the direction dropdown sets increase or decrease, so the amount is always positive. An amount of 0 is refused on save.
 - **"Select at least one room type."**, **"Pick at least one room type to measure."**, **"Pick at least one room type to change."**, **"Invalid room types."**: fix the room type lists.
-- **"Could not save the rule. Check your connection and try again."** and **"Could not save the rule. Try again in a moment."**: the save failed. A Viewer sees a red refusal here, because Viewers cannot change rules.
+- **"Could not save the rule. Check your connection and try again."** and **"Could not save the rule. Try again in a moment."**: the save failed.
+- **"Only a Revenue Manager or above can change this."**, under the form or under a rule: Viewers cannot add, edit, switch or delete rules. [Roles](/docs/team/roles)
+- **"Give the rule a name."**: the name is only spaces.
 - **"Rule must include at least one valid condition."** and **"Invalid payload."**: the rule was sent without a usable condition. Add one.
 - **"You don't have access to this property."**: your account has no property membership. Ask to be invited.
+- **"This rule changed in another tab. Reload it to edit."** with **"Reload"**: the rule was saved or switched somewhere else after you opened it. Reload fills the builder with it as it is now.
+- **"That rule could not be found."**: the rule you were editing was deleted.
+- **"That rule could not be loaded. Try again in a moment."**, under a rule: <Ui>Edit</Ui> could not read it.
+- **"Try again."**, under the form: a new rule met another save in the same moment. Add it again.
+- **"Turn on "Busy nights"?"**, **"Add "Busy nights"?"**, **"Save changes to "Busy nights"?"**: the window before a rule starts acting, with a small calendar and **"41 days will be affected by this rule."** (or **"1 day"**): the days whose prices it will change. **"0 prices will be affected by this rule."**: nothing would change now. **"What the days mean"** is its "?". [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on)
+- **"Apply price adjustments"**, **"Skip price adjustments"**, **"Cancel"**: change those days from the next run; switch the rule on but keep those days' prices until the rule stops being true on a day and then becomes true again; or save nothing.
+- **"Turn it on"**: the one button beside **"Cancel"** when the window reads "0 prices will be affected by this rule.": switches the rule on. For an edit to a rule that is on, the same button reads **"Save changes"** and saves it.
+- **"Checking your calendar…"**: the days are being worked out.
+- **"We weren't able to calculate how many days would be affected by this rule."**: the check failed or took too long. Choose **"Try again"**, **"Skip price adjustments"** (the rule is on and changes no price now: every day it could change is held until it stops being true there and then becomes true again) or **"Cancel"**.
+- **"The window didn't open. Try again."**, on an <Ui>Add this rule</Ui> or <Ui>Make that change</Ui> card from <Ui>Get suggestions from my data</Ui>: the rule or your room types could not be read, so the window with the days could not open, and nothing was saved. Click the button again.
+- **"Your bookings changed while this was open, so the days were checked again."**: something changed before you clicked Apply, Skip, Turn it on or Save changes; the new days are shown. Choose again.
+- **"That's a lot of checks at once. Give it a minute and try again."**: too many windows opened in a few minutes. It shows under "We weren't able to calculate…".
+- **"Choose whether to apply the price adjustments."**: a rule was about to start acting without an answer from the window, for example a suggestion card clicked before the page had finished loading. Nothing was saved. Click the button again and choose in the window.
+- **"This needs a database update first."**: Skip is not ready on your property yet. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Skip%20needs%20an%20update); Apply works.
 - **"Fired"** with **"3×"** or a dash: how many times the rule has acted, per night and room type, including changes that came off. **"What counts as a fire"** is its help.
 - **"Occupancy above 80%"**, **"Booking window below 7 days"**, **"Pickup above 5 bookings"**, **"booking speed at least Much Faster Than Normal (past week), then waits 2 days"**: the conditions column. A pickup rule always says "bookings" here even when it measures revenue.
 - **"Watches Standard, Deluxe · Changes Suite"**: the rule measures one set and changes another.
 - **"+10%"**, **"-$25"**: the price change column. It always shows $.
-- **"On"** / **"Off"**: the status switch. Off keeps the changes the rule made. [Off, delete or change](/docs/rules/off-delete-or-change)
+- **"On"** / **"Off"**: the status switch. Off keeps the changes the rule made. On opens the window with the days first. [Off, delete or change](/docs/rules/off-delete-or-change)
 - **"Stopped on 3 nights"** with **"Let it run again"**: you told the rule to stop on those nights from the amber banner. The link puts it back. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
 - **"Delete "Busy nights"?"** with **"Delete Rule and Undo Its Changes"** / **"Turn It Off and Keep Its Changes"** / **"Cancel"**, and **"Deleting cannot be undone."**: delete reverts every change the rule made; off keeps them.
 
@@ -324,7 +343,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"The rate moved from $200.00 to $210.00."**: no rule acted; your own rate changed in your system. [A price looks wrong](/docs/wrong/a-price-looks-wrong)
 - **"Cancellations meant "Warm-date bump" was no longer true, so its 10% raise came off."**: guests cancelled and the rule's undo box is ticked. The numbers follow: **"Of the 9 bookings it counted, 4 are still booked, where nights like it usually get about 5, and the rule needs a booking speed of at least faster than normal."**, **"The pickup it counted was down to 4 room nights, and the rule needs more than 4 room nights."** or **"Sellable occupancy had fallen to 75%, and the rule needs more than 80%."** [When a change comes off](/docs/rules/when-a-change-comes-off)
 - **""Warm-date bump" stopped applying an earlier 10% raise here: this night's price was set by hand."** and **"...: this night no longer met its conditions."**: a change came off for that reason. **"That took this night from $165.00 to $150.00."**: the night went back to its starting point. **"The price set by hand was cleared."** and **"The base rate for this night changed from $150.00 to $160.00."**: the same, with no rule on the night.
-- **"the rule was edited, so MAYA started it fresh"**: you should not see this today, because rules cannot be edited. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Rule%20edited%20sentence) the rule name and the night.
+- **"the rule was edited, so MAYA started it fresh"**: someone edited the booking speed or pickup rule and chose <Ui>Apply price adjustments</Ui>, so its earlier changes came off and it read the night again. The change log does not say who. [Change a rule](/docs/recipes/change-a-rule)
 - **"Sam set the base rate to $180.00."** under the label **"Manual price"**: a typed price. **"The base rate was changed in Cloudbeds to $180.00."** under **"Changed in Cloudbeds"**: a rate you changed in your system on a sent night. **"A manager"**: the name is not on file. **"MAYA support set the base rate to $180.00."**: a price our staff typed for you.
 - **"Changed by MAYA support · Fri, Sep 18, 2026, 3:05 PM PDT"** with one line under it, such as **"Changed by MAYA support: Took pricing live."**: a change our staff made to your property for you, in a support mode that records every change. [The change log](/docs/watch/the-change-log#changes-by-maya-support)
 - **"Pricing rule"** and **"A rule"**: a rule that has since been deleted.

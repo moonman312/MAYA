@@ -1,67 +1,70 @@
 ---
 title: Change a rule
-summary: A rule cannot be edited, so delete it (which undoes its price changes) and add it again with the new settings, or accept a Tune suggestion that moves an occupancy rule's threshold in place.
+summary: Click Edit on the rule, change what you want in the rule builder and click Save changes. A rule that is on shows the days the change will affect first, and you apply or skip the price adjustments.
 section: recipes
 order: 70
-readingTime: 4
-keywords: [edit a rule, change a rule, modify a rule, rename a rule, no edit button, delete and re-add, tune, make that change, change the threshold, change the percentage, change room types on a rule, adjust a rule, raise came off after tune, prices changed after accepting, new threshold, price dropped after deleting a rule, swap a rule, replace a rule, rate simulator, build it first, save this rule, in-between price]
+readingTime: 5
+keywords: [edit a rule, change a rule, modify a rule, rename a rule, edit button, save changes, cancel editing, tune, make that change, change the threshold, change the percentage, change room types on a rule, change the undo box, adjust a rule, raise came off after edit, prices changed after saving, new threshold, apply price adjustments, skip price adjustments, swap a rule, replace a rule, changed in another tab, reload]
 questions:
   - How do I change a rule? {#in-plain-words}
   - How do I edit a rule? {#in-plain-words}
-  - Why is there no edit button on my rules? {#accept-a-tune-suggestion-instead/not-yet-there}
-  - Will deleting and re-adding a rule undo the price changes it made? {#delete-it-and-add-it-again/1-write-down}
-  - How do I rename a rule? {#accept-a-tune-suggestion-instead/not-yet-there}
-  - What does a Tune suggestion change? {#accept-a-tune-suggestion-instead/when-you-click}
-  - How do I swap a rule without prices changing in between? {#delete-it-and-add-it-again/safer-build-the}
-updated: 2026-09-28
+  - How do I rename a rule? {#edit-it/save-changes}
+  - Can I change the undo box on a saved rule? {#edit-it/open-it-in}
+  - What happens to the prices a rule already changed when I edit it? {#what-apply-and-skip-do-after-an-edit}
+  - What does a Tune suggestion change? {#accept-a-tune-suggestion}
+  - How do I change a rule without its prices moving now? {#what-apply-and-skip-do-after-an-edit}
+  - Why does it say "This rule changed in another tab"? {#edit-it/save-changes}
+updated: 2026-09-29
 ---
 
 <InPlainWords>
-A rule cannot be edited, so to change its name, condition, amount or room types, delete it and add it again. Deleting undoes every price change the rule made, so the new rule starts from clean prices. To keep the gap between the two short, build the new rule in the <Ui>Rate Simulator</Ui> first: it arrives switched <Ui>Off</Ui>, ready to switch on the moment you delete the old one. The one change made in place is a <Ui>Tune</Ui> suggestion after <Ui>Get suggestions from my data</Ui>, which moves an occupancy rule's threshold. Nothing is undone when you accept, but from the next run nights that no longer meet the new threshold lose the change.
+Click <Ui>Edit</Ui> on the rule, change what you want in the rule builder, and click <Ui>Save changes</Ui>. A new name saves at once. If the rule is on, a window first shows the days the changed rule will affect: <Ui>Apply price adjustments</Ui> changes them from the next pricing run, <Ui>Skip price adjustments</Ui> leaves their prices as they are until the rule stops being true on a day and then becomes true again. If the rule is off, the change saves at once and moves no price until you switch it on.
 </InPlainWords>
 
-## Delete it and add it again
+## Edit it
 
 <Steps>
-<Step title="Write down the settings you are keeping">
-On the <Ui>Rules</Ui> tab the row shows the rule's <Ui>Conditions</Ui> (for example "Occupancy above 80%"), its <Ui>Room Types</Ui> and its <Ui>Price Change</Ui>. A booking speed rule's row also shows the window and the wait, such as "booking speed at least Faster Than Normal (past week), then waits 3 days".
+<Step title="Open it in the builder">
+On the <Ui>Rules</Ui> tab, click <Ui>Edit</Ui> at the end of the rule's row. The rule builder opens under the list, headed "Edit "Busy nights"", filled with the rule as saved: name, conditions, direction and amount, the room types it measures and changes, and the undo box. The row stays highlighted while you edit.
 </Step>
-<Step title="Delete the old rule">
-Click <Ui>Delete</Ui> at the end of the row, then <Ui>Delete Rule and Undo Its Changes</Ui> in the dialog. Every night the rule adjusted goes back to the price it would have without it, from the next run.
+<Step title="Change what you want">
+Any field the builder has: a condition's threshold, speed or window, the amount, the room types, the undo box. A rule's date window, weekdays and priority are not in the builder, and are kept as saved. A booking speed condition saved as exactly a level below or above Normal, as some starter rules are, keeps its compare unless you pick another speed.
 </Step>
-<Step title="Add the new rule">
-Click <Ui>+ Add a rule</Ui>, enter the new settings and click <Ui>Add Rule</Ui>. The new rule is <Ui>On</Ui> at once. To look before it acts, build it in the <Ui>Rate Simulator</Ui> tab instead: a rule saved from there arrives on the Rules tab switched <Ui>Off</Ui>.
+<Step title="Save changes">
+Click <Ui>Save changes</Ui>. A new name alone saves at once. For a rule that is <Ui>On</Ui>, the window opens with the days the changed rule will affect. Choose <Ui>Apply price adjustments</Ui> or <Ui>Skip price adjustments</Ui>, or <Ui>Cancel</Ui> to keep editing. For a rule that is <Ui>Off</Ui>, the change saves at once. If the rule was changed in another tab since you opened it, the save stops with "This rule changed in another tab. Reload it to edit." Click <Ui>Reload</Ui>, check the rule and save again.
 </Step>
 </Steps>
 
-<OpenInMaya to="simulator.test-rule" words="Open a test rule in the Rate Simulator" />
+<OpenInMaya to="rules.list" words="Open the Rules tab" />
 
-Rules need Revenue Manager access or higher.
+<Ui>Cancel editing</Ui>, under the form, empties the builder without saving. Rules need Revenue Manager access or higher.
 
-**Safer: build the new rule first.** In the <Ui>Rate Simulator</Ui> tab, build the new rule and click <Ui>Save This Rule</Ui>. It arrives on the <Ui>Rules</Ui> tab switched <Ui>Off</Ui>. Then delete the old rule and switch the new one <Ui>On</Ui> straight away. The simulator's form has no <Ui>Measured over</Ui>, <Ui>Then waits (advanced)</Ui> or <Ui>Change prices on different room types</Ui> controls, so a booking speed rule built there measures the past week and waits 1 week. For any other settings, use the steps above.
+## What Apply and Skip do after an edit
 
-<Callout kind="careful">
-Whichever way you do it, add or switch on the new rule straight after deleting the old one: the next cycle then drops the old rule's changes and applies the new rule together. If a cycle runs in between, the nights the old rule was holding lose its change until the new rule's first cycle. On a live Cloudbeds or ThinkReservations property, that in-between price is sent to your system.
-</Callout>
+**Apply price adjustments.** Every change the rule has on the price is judged against the edited rule from the next pricing run. A standard rule's change stays, at the new amount, where the edited rule holds, and comes off where it does not, on room types you took off the rule and nights it no longer covers too. A booking speed or pickup rule's earlier changes come off ("the rule was edited, so MAYA started it fresh" in the change log), and the edited rule reads its whole window again, with no wait. The days the window showed are the ones whose prices move.
 
-## What starts fresh
+**Skip price adjustments.** The days the window showed keep their prices, each until the rule stops being true there and then becomes true again. Every other day works as Apply. On those days a standard rule's change stays at its old amount: where the edited rule is true it stays, still stays once the rule stops being true (undo box ticked or not), and moves to the new amount the next time the rule is true; where the edited rule is not true, it waits for the rule to be true there and then moves to the new amount. On a room type or night you took off the rule, it comes off at that point instead. A booking speed or pickup rule's changes on those days stay, are not checked for cancellations, and still cover the rules they covered; once the rule has stopped and started being true on such a day, they come off and the edited rule acts there in that same run. Either way the edited rule counts every booking on the books, as it would with Apply.
 
-The new rule is a new rule. Its <Ui>Fired</Ui> count starts at a dash. Any nights you had answered <Ui>Stop for this night</Ui> for the old rule are no longer stopped, because those answers belonged to the old rule. A booking speed rule made after a typed price is not held by that price's wait. Its old entries stay in the change log under the name "Pricing rule".
+Changing the conditions, amount or room types also clears the rule's "Stop for this night" answers: they belonged to the rule as it was. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on) and [A rule that is changed](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
 
-## Accept a Tune suggestion instead
+<Example title="Moving 'Busy nights' from 80% to 90% at The Harbour Inn">
+"Busy nights" raises Standard 10%, from $150 to $165, on nights more than 80% full. Priya edits it to more than 90%. Friday is 17 of 20 booked (85%), Saturday 19 of 20 (95%). With <Ui>Apply price adjustments</Ui>, the window shows Friday among the affected days: on the next run Friday goes back to $150 and Saturday keeps $165. With <Ui>Skip price adjustments</Ui>, both stay at $165. Friday's raise then waits until Friday is over 90% full, and Saturday's comes off when Saturday drops to 90% or below.
+</Example>
 
-When you click <Ui>Get suggestions from my data</Ui> on the Rules tab, MAYA reads your history again and may offer a card headed "Tune "Busy nights"?" that proposes moving an occupancy threshold, for example from 80% to 95%. Click <Ui>Make that change</Ui> and the threshold changes in place. The rule keeps its name, its fire count and its place in the list. Only occupancy thresholds are offered this way, and only when yours is more than 10 percentage points away from what your own history supports. A rule named "Filling-up raise" or "Nearly-full raise", as the starter rules built from your own bookings are, never gets one, since its threshold came from those bookings.
+## Accept a Tune suggestion
 
-Accepting does not undo anything by itself. But a Tune only ever moves a standard rule (one with only occupancy or booking window conditions). A standard rule holds its change only while a night meets its condition. So from the next run, any night that no longer meets the new threshold loses the change.
+When you click <Ui>Get suggestions from my data</Ui> on the Rules tab, a card headed "Tune "Busy nights"?" may propose moving an occupancy threshold, for example from 80% to 95%. <Ui>Make that change</Ui> is an edit of that one number: the rule keeps its name, its other settings and its place in the list. If the rule is on, the same window opens first, with Apply and Skip. Only occupancy thresholds are offered this way, and only when yours is more than 10 percentage points away from what your own history supports. A rule named "Filling-up raise" or "Nearly-full raise", as the starter rules built from your own bookings are, never gets one, since its threshold came from those bookings. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
-Say you move "Busy nights" from 80% to 95%. A night with 18 of The Harbour Inn's 20 rooms booked is 90% full, which is not more than 95. So on the next run, Standard on that night goes back from $165 to $150. A suggestion that lowers the threshold works the other way: nights that now meet it get the change on the next run.
+## Starting again instead
+
+To replace a rule rather than change it, delete it (<Ui>Delete Rule and Undo Its Changes</Ui> undoes every price change it made) and add a new one, or switch it off and add the new one beside it. A new rule starts with its <Ui>Fired</Ui> count at a dash, and none of the old rule's "Stop for this night" answers. Read [Off, delete or change](/docs/rules/off-delete-or-change).
 
 <Callout kind="not-yet">
-There is no edit control, no rename, and no way to change a rule's room types, amount, window, wait or undo box in place. Deleting and adding again is the way, and the three-button dialog makes the choice between undoing and keeping the old changes explicit.
+There is no copy or duplicate, and no way to copy a rule to another property. Add the rule again there.
 </Callout>
 
 <Related>
 - [Off, delete or change](/docs/rules/off-delete-or-change)
+- [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on)
 - [The rule builder](/docs/rules/the-rule-builder)
-- [Getting suggestions later](/docs/review/getting-suggestions-later)
 </Related>

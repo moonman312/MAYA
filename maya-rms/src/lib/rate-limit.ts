@@ -49,6 +49,12 @@ export const RATE_LIMITS = {
   /** Setting or clearing a manual price. Each save also re-prices the horizon. */
   manualPrice: { limit: 30, windowSeconds: 600 },
   /**
+   * The activation popup's trial runs of the engine: up to three requests a
+   * popup (its calendar comes in chunks), and a few seconds of engine time
+   * each for a booking speed or pickup rule.
+   */
+  rulePreview: { limit: 60, windowSeconds: 300 },
+  /**
    * The post-checkout screen asking whether the webhook landed. The client
    * backs off on its own; this is the ceiling for the ones that don't.
    */
