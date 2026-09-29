@@ -47,13 +47,17 @@ export async function listAccessibleHotels(
   supabase: SupabaseClient,
 ): Promise<AccessibleHotel[]> {
   // getSession reads the cookie without a network hop. The real validation
-  // already happened twice for this request: middleware ran getUser() against
-  // the auth service, and every query below carries the JWT to PostgREST,
+  // happens elsewhere for this request: middleware runs getUser() against the
+  // auth service, the route or page runs it once more (requireSupabaseHotel,
+  // or its own call), and every query below carries the JWT to PostgREST,
   // which verifies its signature before RLS runs — a forged or expired token
-  // returns zero rows, not someone else's hotels. Calling getUser() here as
-  // well was a third auth round-trip per API request, and under bursts
-  // (calendar prefetching) it tripped Supabase Auth's rate limiter, stalling
-  // random requests for tens of seconds.
+  // returns zero rows, not someone else's hotels. That one getUser() is also
+  // the caller's id for a rank check: requireSupabaseHotelRank and the other
+  // callers of hasHotelRank hand it the user that call verified, so ranking
+  // costs no second trip. Calling getUser() here as well would be one more
+  // auth round-trip per API request, and under bursts (calendar prefetching)
+  // that tripped Supabase Auth's rate limiter, stalling random requests for
+  // tens of seconds.
   const {
     data: { session },
   } = await supabase.auth.getSession();

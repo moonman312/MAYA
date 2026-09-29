@@ -88,7 +88,7 @@ export async function PUT(req: Request, { params }: Params) {
       // A rule the caller can read but whose hotel they can't manage (staff,
       // viewers): row security left it as it was. Say why.
       const { data: rule } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
-      if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager"))) {
+      if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager", user.id))) {
         return await ruleForbidden(supabase);
       }
       return NextResponse.json({ error: "Rule not found or update failed." }, { status: 404 });
@@ -146,7 +146,7 @@ export async function DELETE(_: Request, { params }: Params) {
       }
       // Row security would leave a viewer's delete doing nothing; say why instead.
       const { data: rule } = await supabase.from("pricing_rules").select("hotel_id").eq("id", id).maybeSingle();
-      if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager"))) {
+      if (rule?.hotel_id && !(await hasHotelRank(supabase, String(rule.hotel_id), "revenue_manager", user.id))) {
         return await ruleForbidden(supabase);
       }
     }

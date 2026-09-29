@@ -107,7 +107,7 @@ export async function GET() {
   // regardless, but enforcing without telling the client means offering a button
   // that answers with raw JSON — so the answer comes back here and the button
   // simply isn't drawn for someone who can't use it.
-  const canManage = await hasHotelRank(ctx.supabase, hotelId, "general_manager");
+  const canManage = await hasHotelRank(ctx.supabase, hotelId, "general_manager", ctx.userId);
 
   return NextResponse.json({
     connection,

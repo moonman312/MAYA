@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 
   // Rank ceiling. A General Manager handing out Hotel Admin would be granting
   // the one privilege they do not hold — including the right to remove them.
-  const isAdmin = await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin");
+  const isAdmin = await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin", ctx.userId);
   if (!canGrant(isAdmin ? "hotel_admin" : "general_manager", role)) {
     return NextResponse.json(
       { error: "You can't give someone a role above your own." },

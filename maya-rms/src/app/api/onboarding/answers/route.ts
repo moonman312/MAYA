@@ -171,7 +171,7 @@ export async function POST(request: Request) {
   // "Get suggestions from my data".
   if (body.confidence !== undefined) {
     try {
-      const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
+      const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null, user.id);
       if (swap.swapped) {
         // If this note is lost, saving the answer again finds the new set
         // already on the property and writes it then.

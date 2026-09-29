@@ -74,11 +74,14 @@ export type SwapOutcome =
  * The new rules are written first and the old ones then go the way Delete
  * does (their simulated changes with them); the next run prices the nights
  * with the new ones. A failure anywhere leaves the old set in place.
+ * `verifiedUserId` is the id the route's auth.getUser() returned, passed on
+ * to hasHotelRank so the save makes one auth round trip.
  */
 export async function swapStarterRulesForAnswer(
   supabase: SupabaseClient,
   hotelId: string,
   answer: PricingConfidence | null,
+  verifiedUserId?: string,
 ): Promise<SwapOutcome> {
   const { data: state } = await supabase
     .from("onboarding_states")
@@ -113,7 +116,7 @@ export async function swapStarterRulesForAnswer(
     .eq("hotel_id", hotelId)
     .maybeSingle();
   if (settings?.simulation_mode === false) return { swapped: false, reason: "live" };
-  if (!(await hasHotelRank(supabase, hotelId, "revenue_manager"))) {
+  if (!(await hasHotelRank(supabase, hotelId, "revenue_manager", verifiedUserId))) {
     return { swapped: false, reason: "not_allowed" };
   }
 

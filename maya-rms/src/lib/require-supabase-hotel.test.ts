@@ -7,7 +7,8 @@
  * revenue_manager and up pass, staff/viewer do not, a membership-less
  * platform admin passes only in God Mode (the god_mode_active RPC, decided
  * by the database), the user id comes from the verified user and never the
- * cookie, and every failure mode denies.
+ * cookie, a rank-gated route asks the auth service once, and every failure
+ * mode denies.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -52,8 +53,13 @@ function fakeClient(opts: {
 
   const cookieUser = opts.cookieUserId === undefined ? opts.userId : opts.cookieUserId;
   const client = {
+    /** Auth service round trips (getUser calls) made on this client. */
+    authCalls: 0,
     auth: {
-      getUser: async () => ({ data: { user: opts.userId ? { id: opts.userId } : null } }),
+      getUser: async () => {
+        client.authCalls += 1;
+        return { data: { user: opts.userId ? { id: opts.userId } : null } };
+      },
       getSession: async () => ({
         data: { session: cookieUser ? { user: { id: cookieUser } } : null },
       }),
@@ -138,6 +144,22 @@ describe("hasHotelRank at the revenue_manager floor", () => {
     expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
   });
 
+  it("asks the auth service itself when not handed the verified user, and not at all when it is", async () => {
+    const asks = fakeClient({ userId: "user-1", memberships: [member("revenue_manager")] });
+    expect(await hasHotelRank(asks, HOTEL, "revenue_manager")).toBe(true);
+    expect(asks.authCalls).toBe(1);
+
+    // The id getUser already returned for this request is the one ranked.
+    const handed = fakeClient({
+      userId: null,
+      cookieUserId: "user-2",
+      memberships: [member("general_manager", { user_id: "user-2" }), member("viewer")],
+    });
+    expect(await hasHotelRank(handed, HOTEL, "revenue_manager", "user-1")).toBe(false);
+    expect(await hasHotelRank(handed, HOTEL, "revenue_manager", "user-2")).toBe(true);
+    expect(handed.authCalls).toBe(0);
+  });
+
   it("denies when there is no membership and no platform role", async () => {
     const client = fakeClient({ userId: "user-1", memberships: [] });
     expect(await hasHotelRank(client, HOTEL, "revenue_manager")).toBe(false);
@@ -200,6 +222,29 @@ describe("requireSupabaseHotelRank", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ctx = await requireSupabaseHotelRank({} as any, "general_manager");
     expect(ctx.ok).toBe(true);
+  });
+
+  it("asks the auth service once, whether it lets the caller through or not", async () => {
+    for (const role of ["revenue_manager", "staff"]) {
+      const client = fakeClient({ userId: "user-1", memberships: [member(role)] });
+      state.client = client;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
+      expect(ctx.ok).toBe(role === "revenue_manager");
+      expect(client.authCalls).toBe(1);
+    }
+  });
+
+  it("ranks the user the auth service verified, not the one the cookie names", async () => {
+    state.client = fakeClient({
+      userId: "user-1",
+      cookieUserId: "user-2",
+      memberships: [member("viewer"), member("general_manager", { user_id: "user-2" })],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ctx = await requireSupabaseHotelRank({} as any, "revenue_manager");
+    expect(ctx.ok).toBe(false);
+    if (!ctx.ok) expect(ctx.response.status).toBe(403);
   });
 
   it("still responds 401 when signed out", async () => {

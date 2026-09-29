@@ -125,7 +125,7 @@ export async function GET() {
           pmsType: needed.pmsType,
           authKind: registry.authKind,
           displayName: registry.displayName,
-          canManage: await hasHotelRank(supabase, hotelId, "general_manager"),
+          canManage: await hasHotelRank(supabase, hotelId, "general_manager", user.id),
           historyRemoved: needed.historyRemoved,
         };
       }

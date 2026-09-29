@@ -19,7 +19,7 @@ export async function GET() {
   if (!ctx.ok) return ctx.response;
 
   try {
-    const canManage = await hasHotelRank(ctx.supabase, ctx.hotelId, "revenue_manager");
+    const canManage = await hasHotelRank(ctx.supabase, ctx.hotelId, "revenue_manager", ctx.userId);
     return NextResponse.json(await loadRuleAlerts(ctx.supabase, ctx.hotelId, canManage));
   } catch (error) {
     const { status, message } = dbErrorResponse(error);

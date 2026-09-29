@@ -58,7 +58,7 @@ export default async function BillingPage() {
 
   // Same bar as the routes this page drives, checked here too so someone below
   // it gets an explanation instead of buttons that will 403.
-  if (!(await hasHotelRank(supabase, hotelId, "general_manager"))) {
+  if (!(await hasHotelRank(supabase, hotelId, "general_manager", user.id))) {
     return (
       <Shell>
         <p className="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">

@@ -47,7 +47,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "That person isn't on this property." }, { status: 404 });
   }
 
-  const ceiling: HotelRole = (await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin"))
+  const ceiling: HotelRole = (await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin", ctx.userId))
     ? "hotel_admin"
     : "general_manager";
   // Both directions: you may not promote someone above yourself, and you may not
@@ -125,7 +125,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "That person isn't on this property." }, { status: 404 });
   }
 
-  const ceiling: HotelRole = (await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin"))
+  const ceiling: HotelRole = (await hasHotelRank(ctx.supabase, ctx.hotelId, "hotel_admin", ctx.userId))
     ? "hotel_admin"
     : "general_manager";
   if (rankOf(member.role) > rankOf(ceiling)) {

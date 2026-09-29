@@ -130,7 +130,7 @@ export async function POST(request: Request) {
   if (
     !requestedHotelId &&
     existingHotelId &&
-    !(await hasHotelRank(supabase, existingHotelId, "general_manager"))
+    !(await hasHotelRank(supabase, existingHotelId, "general_manager", user.id))
   ) {
     return NextResponse.json(
       { error: `This needs ${roleLabel("general_manager")} access or higher on this property.` },

@@ -37,7 +37,7 @@ export default async function RestartPage() {
 
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) redirect("/onboarding");
-  if (!(await hasHotelRank(supabase, hotelId, "general_manager"))) redirect("/account/billing");
+  if (!(await hasHotelRank(supabase, hotelId, "general_manager", user.id))) redirect("/account/billing");
 
   // Only a dead subscription belongs here, the same test the billing page's
   // restart button uses. A live one manages itself from the billing page, an

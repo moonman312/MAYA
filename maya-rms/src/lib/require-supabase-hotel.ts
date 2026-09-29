@@ -58,20 +58,23 @@ export async function requireSupabaseHotel(
  * Whether the caller holds `minRole` or higher at this hotel. A platform
  * admin with no membership passes only in God Mode (god_mode_active(),
  * decided by the database from their verified token and open window).
+ *
+ * `verifiedUserId` is the id auth.getUser() already returned for this
+ * request (requireSupabaseHotel's userId, or a route's own getUser), so the
+ * request makes one auth round trip rather than two. Never pass an id read
+ * from getSession or the cookie. Without it, this asks getUser itself.
  */
 export async function hasHotelRank(
   supabase: SupabaseClient,
   hotelId: string,
   minRole: HotelRole,
+  verifiedUserId?: string,
 ): Promise<boolean> {
   // Verified by the auth service, not read off the cookie: the browser can
   // edit the cookie, and the select policy lets any member read every
   // membership row of their hotel, so a Viewer could otherwise pass this
   // check under a General Manager's id.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const userId = user?.id;
+  const userId = verifiedUserId ?? (await supabase.auth.getUser()).data.user?.id;
   if (!userId) return false;
 
   // Must filter on user_id: the select policy lets any member read the whole
@@ -94,7 +97,8 @@ export async function hasHotelRank(
 /**
  * requireSupabaseHotel plus a rank floor; 403 below it. A platform admin
  * outside God Mode is told how to turn it on rather than which role they
- * lack.
+ * lack. The user requireSupabaseHotel verified is the one ranked, so the
+ * whole check is one auth round trip.
  */
 export async function requireSupabaseHotelRank(
   cookieStore: CookieStore,
@@ -103,7 +107,7 @@ export async function requireSupabaseHotelRank(
   const ctx = await requireSupabaseHotel(cookieStore);
   if (!ctx.ok) return ctx;
 
-  if (!(await hasHotelRank(ctx.supabase, ctx.hotelId, minRole))) {
+  if (!(await hasHotelRank(ctx.supabase, ctx.hotelId, minRole, ctx.userId))) {
     const { data: isAdmin } = await ctx.supabase.rpc("is_platform_admin");
     return {
       ok: false,

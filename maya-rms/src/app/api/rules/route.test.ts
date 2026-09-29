@@ -153,7 +153,7 @@ describe("the undo box on the rules routes", () => {
     const refused = await PUT(req({ undo_on_cancellation: false }, "PUT"), params);
     expect(refused.status).toBe(403);
     expect((await refused.json()).error).toBe("Only a Revenue Manager or above can change this.");
-    expect(hasHotelRank).toHaveBeenLastCalledWith(expect.anything(), "h1", "revenue_manager");
+    expect(hasHotelRank).toHaveBeenLastCalledWith(expect.anything(), "h1", "revenue_manager", "u1");
     updateRule.mockResolvedValueOnce(false);
     expect((await PUT(req({ undo_on_cancellation: false }, "PUT"), params)).status).toBe(404);
     ruleRow = null;

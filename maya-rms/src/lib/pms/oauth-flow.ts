@@ -489,9 +489,8 @@ async function reconnectHotel(
 /**
  * General Manager or above on this hotel, or a platform admin. Asked of the
  * database, where can_manage_finances takes the caller from the verified
- * token (auth.uid()). hasHotelRank reads the user id from the session cookie,
- * which the browser can edit, and a member can read every membership row of
- * their hotel, so a Viewer could pass it under a General Manager's id.
+ * token (auth.uid()), in the same query that answers, so no separate auth
+ * round trip is needed to trust the id.
  */
 async function canReconnectHotel(ssr: SupabaseClient, hotelId: string): Promise<boolean> {
   const { data, error } = await ssr.rpc("can_manage_finances", { target_hotel_id: hotelId });

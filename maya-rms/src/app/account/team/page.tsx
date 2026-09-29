@@ -37,7 +37,7 @@ export default async function TeamPage({
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) redirect("/onboarding");
 
-  const canManage = await hasHotelRank(supabase, hotelId, "general_manager");
+  const canManage = await hasHotelRank(supabase, hotelId, "general_manager", user.id);
 
   // A link can pick the invite's role (never the email). Only a role this
   // person may hand out is taken; anything else leaves the form's default.
