@@ -27,7 +27,7 @@ updated: 2026-09-29
 ---
 
 <InPlainWords>
-A standard rule's change comes off when its condition stops holding. A booking speed or pickup rule's change comes off when cancellations mean the rule is no longer true, as long as its undo box is ticked, which it is on every new rule. A cut on a slow pace never comes off because guests cancel. Your typed price takes earlier changes off that night. An edit you apply judges the rule's changes against the edited rule, and one you save with Skip leaves them. Deleting a rule undoes everything it did. Turning a rule off undoes nothing.
+A standard rule's change comes off when its condition stops holding. A booking speed or pickup rule's change comes off when cancellations mean the rule is no longer true, as long as its undo box is ticked, which it is on every new rule. A cut on a slow pace never comes off because guests cancel. Your typed price takes earlier changes off that night. An edit you apply judges the rule's changes against the edited rule, and one you save with Skip leaves them on the days the window showed until the rule stops being true there and then becomes true again. Deleting a rule undoes everything it did. Turning a rule off undoes nothing.
 </InPlainWords>
 
 ## The undo box
@@ -102,12 +102,12 @@ You change a rule with <Ui>Edit</Ui> and <Ui>Save changes</Ui>, or by accepting 
 
 | The rule | Saved with <Ui>Apply price adjustments</Ui> | Saved with <Ui>Skip price adjustments</Ui> |
 |---|---|---|
-| A standard rule | From the next cycle, each change stays where the edited rule holds, at the new amount, and comes off where it does not. That includes room types you took off the rule and nights it no longer covers. Nights that now meet the edited rule gain the change | Each change stays at its old amount. Where the edited rule holds, it carries on at that amount and comes off when the rule stops holding. Switching the rule off and on with Apply later does not move it. Where the edited rule does not hold, it stays until the rule becomes true on that night, and then moves to the new amount |
-| A booking speed or pickup rule | Its earlier changes come off from the next cycle. The edited rule reads its whole window again, with no wait, so it can change the night again at once | Its earlier changes stay, are not checked for cancellations, and still count as the newest change where weaker rules count from, ranked as the rule was when it made them. The edited rule counts only the bookings made after you clicked |
+| A standard rule | From the next cycle, each change stays where the edited rule holds, at the new amount, and comes off where it does not. That includes room types you took off the rule and nights it no longer covers. Nights that now meet the edited rule gain the change | On the days the window showed, each change stays at its old amount. Where the edited rule holds, it stays, and still stays when the rule stops holding; the next time the rule is true there, it moves to the new amount. Where the edited rule does not hold, it stays until the rule becomes true on that night, and then moves to the new amount (or, on a room type taken off the rule, comes off). Every other night is judged as with Apply |
+| A booking speed or pickup rule | Its earlier changes come off from the next cycle. The edited rule reads its whole window again, with no wait, so it can change the night again at once | On the days the window showed, its earlier changes stay, are not checked for cancellations, and still count as the newest change where weaker rules count from, ranked as the rule was when it made them. Once the rule has stopped and started being true on such a day, they come off and the edited rule acts there in that same run. Every other night is judged as with Apply. Either way it counts every booking on the books |
 
 The window before the save shows the days Apply would change. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
 
-**With Skip, price changes that were on the price** come off when the night passes, when you type a price on the night, when you delete the rule, or when you save the rule again with <Ui>Apply price adjustments</Ui>.
+**With Skip, price changes that were on the price** also come off when the night passes, when you type a price on the night, or when you delete the rule. Saving the rule again with <Ui>Apply price adjustments</Ui> ends the holds, and its changes are judged as Apply judges them.
 
 A new name or the undo box alone leaves the rule's changes where they are (the box then decides about cancellations from the next cycle). An edit saved to a rule that is <Ui>Off</Ui> changes no price: its changes stay frozen, still cover the rules they covered, and the window when you switch it on shows what the edited rule does. Changing the conditions, amount or room types also clears the rule's "Stop for this night" answers.
 

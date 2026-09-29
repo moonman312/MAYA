@@ -18,7 +18,7 @@ updated: 2026-09-29
 ---
 
 <InPlainWords>
-Click <Ui>Edit</Ui> on the rule, change what you want in the rule builder, and click <Ui>Save changes</Ui>. A new name saves at once. If the rule is on, a window first shows the days the changed rule will affect: <Ui>Apply price adjustments</Ui> changes them from the next pricing run, <Ui>Skip price adjustments</Ui> leaves today's prices as they are. If the rule is off, the change saves at once and moves no price until you switch it on.
+Click <Ui>Edit</Ui> on the rule, change what you want in the rule builder, and click <Ui>Save changes</Ui>. A new name saves at once. If the rule is on, a window first shows the days the changed rule will affect: <Ui>Apply price adjustments</Ui> changes them from the next pricing run, <Ui>Skip price adjustments</Ui> leaves their prices as they are until the rule stops being true on a day and then becomes true again. If the rule is off, the change saves at once and moves no price until you switch it on.
 </InPlainWords>
 
 ## Edit it
@@ -43,7 +43,7 @@ Click <Ui>Save changes</Ui>. A new name alone saves at once. For a rule that is 
 
 **Apply price adjustments.** Every change the rule has on the price is judged against the edited rule from the next pricing run. A standard rule's change stays, at the new amount, where the edited rule holds, and comes off where it does not, on room types you took off the rule and nights it no longer covers too. A booking speed or pickup rule's earlier changes come off ("the rule was edited, so MAYA started it fresh" in the change log), and the edited rule reads its whole window again, with no wait. The days the window showed are the ones whose prices move.
 
-**Skip price adjustments.** Every change stays where it is. A standard rule's change stays at its old amount: where the edited rule holds it carries on at that amount (switching the rule off and on with Apply later does not move it), and where it does not, it waits for the rule to become true there and then moves to the new amount. A booking speed or pickup rule's changes stay and are no longer checked for cancellations, still cover the rules they covered, and the edited rule counts only bookings made after you clicked.
+**Skip price adjustments.** The days the window showed keep their prices, each until the rule stops being true there and then becomes true again. Every other day works as Apply. On those days a standard rule's change stays at its old amount: where the edited rule holds it stays, still stays once the rule stops holding, and moves to the new amount the next time the rule is true; where the edited rule does not hold, it waits for the rule to be true there and then moves to the new amount. A booking speed or pickup rule's changes on those days stay, are not checked for cancellations, and still cover the rules they covered; once the rule has stopped and started being true on such a day, they come off and the edited rule acts there in that same run. Either way the edited rule counts every booking on the books, as it would with Apply.
 
 Changing the conditions, amount or room types also clears the rule's "Stop for this night" answers: they belonged to the rule as it was. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on) and [A rule that is changed](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
 

@@ -3,7 +3,7 @@ title: The rule builder, field by field
 summary: Every field in + Add a rule, what each one accepts, editing a saved rule, what happens when you click Add Rule or Save changes, and every message the form can show.
 section: rules
 order: 20
-readingTime: 14
+readingTime: 15
 keywords: [rule builder, add a rule, edit a rule, edit mode, save changes, cancel editing, apply price adjustments, skip price adjustments, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
 questions:
   - What are the parts of a rule? {#in-plain-words}
@@ -111,8 +111,10 @@ Under the chips is a checkbox, <Ui>Change prices on different room types</Ui>. T
 Click <Ui>Add Rule</Ui>. If everything is in order, a window opens, headed "Add "Last minute"?", with a small calendar of the months ahead, the days the new rule will change filled in, and "X days will be affected by this rule." Nothing is saved yet. Choose:
 
 - <Ui>Apply price adjustments</Ui>: the rule is saved, switched <Ui>On</Ui>, and changes those days from the next pricing run
-- <Ui>Skip price adjustments</Ui>: the rule is saved and <Ui>On</Ui>, but those days keep their prices, and it acts only on what changes from then on
+- <Ui>Skip price adjustments</Ui>: the rule is saved and <Ui>On</Ui>, but those days keep their prices until the rule stops being true on a day and then becomes true again. Every other day works as with Apply
 - <Ui>Cancel</Ui>: nothing is saved, and the form keeps what you typed
+
+When no price would change, the line reads "0 prices will be affected by this rule." and the only buttons are <Ui>Turn it on</Ui>, which saves the rule on, and <Ui>Cancel</Ui>. When the days cannot be worked out, it reads "We weren't able to calculate how many days would be affected by this rule." with <Ui>Try again</Ui>, <Ui>Skip price adjustments</Ui> and <Ui>Cancel</Ui>.
 
 Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on). Once saved:
 

@@ -139,8 +139,10 @@ export async function saveThroughPopup(
         choice,
         from,
         kind: plan.after.is_pickup_rule ? "event" : "standard",
-        days: Number.isFinite(days) && days >= 0 ? Math.min(Math.floor(days), 1000) : null,
+        // No count when the popup could not work the days out (Skip held every day).
+        days: held !== "all" && Number.isFinite(days) && days >= 0 ? Math.min(Math.floor(days), 1000) : null,
         refreshed: body.refreshed === true,
+        held_all: held === "all",
       },
       p_source: "app",
     });

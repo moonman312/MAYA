@@ -265,7 +265,7 @@ describe("saving through the popup", () => {
     expect([...new Set(marks.map((m) => m.d))]).toEqual(affected);
     expect(state.saves[0].p_hold_nights).toEqual(affected);
     expect(state.events).toEqual([
-      expect.objectContaining({ p_properties: expect.objectContaining({ choice: "skip", from: "builder_new" }) }),
+      expect.objectContaining({ p_properties: expect.objectContaining({ choice: "skip", from: "builder_new", held_all: false }) }),
     ]);
   });
 
@@ -278,6 +278,9 @@ describe("saving through the popup", () => {
     // Every day the popup would have shown, and the days the rule matches where no price moves (a comp night).
     for (const night of body.affected as string[]) expect(marked.has(night)).toBe(true);
     expect((state.saves[0].p_hold_nights as string[]).length).toBe(45);
+    expect(state.events).toEqual([
+      expect.objectContaining({ p_properties: expect.objectContaining({ choice: "skip", days: null, held_all: true }) }),
+    ]);
   });
 
   it("switching on: refused without Apply or Skip; switching off needs no popup", async () => {

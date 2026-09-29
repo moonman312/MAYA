@@ -5,7 +5,7 @@ section: wrong
 order: 100
 readingTime: 54
 readingNote: Type a few words of the message to jump to it
-keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the days could not be checked, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
+keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the days could not be checked, we weren't able to calculate, 0 prices will be affected, turn it on, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
 questions:
   - What does this message mean? {#in-plain-words}
   - Where do I find out what an error on screen means? {#in-plain-words}
@@ -195,7 +195,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 
 - **"Pricing Rules"**: the Rules tab. Filters **"all"**, **"enabled"**, **"disabled"**. [The rule builder](/docs/rules/the-rule-builder)
 - **"How rules behave"**: three short animations (a rule that raises and waits, an occupancy rule with no wait, and a stronger rule covering a weaker one), with **"Try the box"** to play them with the undo box ticked or unticked.
-- **"+ Add a rule"** and **"Add Rule"**: open the builder, and save. <Ui>Add Rule</Ui> first opens the window below, and the rule is On once you apply or skip.
+- **"+ Add a rule"** and **"Add Rule"**: open the builder, and save. <Ui>Add Rule</Ui> first opens the window below, and the rule is On once you apply, skip or turn it on.
 - **"Edit"**, with the builder headed **"Edit "Busy nights""**, **"Save changes"** and **"Cancel editing"**: change a saved rule. A new name, or a change to a rule that is Off, saves at once; a change to a rule that is On opens the window below. [Change a rule](/docs/recipes/change-a-rule)
 - **"Rule name"**: required.
 - **"Conditions"** with **"Matches when all of the following are true."**: every condition must hold at once. **"+ Add condition"** adds the next kind; four at most, one of each.
@@ -222,12 +222,14 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"That rule could not be found."**: the rule you were editing was deleted.
 - **"That rule could not be loaded. Try again in a moment."**, under a rule: <Ui>Edit</Ui> could not read it.
 - **"Try again."**, under the form: a new rule met another save in the same moment. Add it again.
-- **"Turn on "Busy nights"?"**, **"Add "Busy nights"?"**, **"Save changes to "Busy nights"?"**: the window before a rule starts acting, with a small calendar and **"41 days will be affected by this rule."** (or **"1 day"**, **"0 days"**): the days whose prices it will change. **"What the days mean"** is its "?". [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on)
-- **"Apply price adjustments"**, **"Skip price adjustments"**, **"Cancel"**: change those days from the next run; switch the rule on but keep those days' prices; or save nothing.
+- **"Turn on "Busy nights"?"**, **"Add "Busy nights"?"**, **"Save changes to "Busy nights"?"**: the window before a rule starts acting, with a small calendar and **"41 days will be affected by this rule."** (or **"1 day"**): the days whose prices it will change. **"0 prices will be affected by this rule."**: nothing would change now. **"What the days mean"** is its "?". [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on)
+- **"Apply price adjustments"**, **"Skip price adjustments"**, **"Cancel"**: change those days from the next run; switch the rule on but keep those days' prices until the rule stops being true on a day and then becomes true again; or save nothing.
+- **"Turn it on"**: the one button beside **"Cancel"** when the window reads "0 prices will be affected by this rule.": switches the rule on.
 - **"Checking your calendar…"**: the days are being worked out.
-- **"The days could not be checked. Try again."** with **"Try again"**: the check failed. Skip still works. On an <Ui>Add this rule</Ui> or <Ui>Make that change</Ui> card from <Ui>Get suggestions from my data</Ui>, it means the window could not open, and nothing was saved: click the button again.
-- **"Your bookings changed while this was open, so the days were checked again."**: something changed before you clicked Apply; the new days are shown. Choose again.
-- **"That's a lot of checks at once. Give it a minute and try again."**: too many windows opened in a few minutes.
+- **"We weren't able to calculate how many days would be affected by this rule."**: the check failed or took too long. Choose **"Try again"**, **"Skip price adjustments"** (the rule is on and changes no price now: every day it could change is held until it stops being true there and then becomes true again) or **"Cancel"**.
+- **"The days could not be checked. Try again."**, on an <Ui>Add this rule</Ui> or <Ui>Make that change</Ui> card from <Ui>Get suggestions from my data</Ui>: the window could not open, and nothing was saved. Click the button again.
+- **"Your bookings changed while this was open, so the days were checked again."**: something changed before you clicked Apply, Skip or Turn it on; the new days are shown. Choose again.
+- **"That's a lot of checks at once. Give it a minute and try again."**: too many windows opened in a few minutes. It shows under "We weren't able to calculate…".
 - **"Choose whether to apply the price adjustments."**: a rule was about to start acting without an answer from the window, for example a suggestion card clicked before the page had finished loading. Nothing was saved. Click the button again and choose in the window.
 - **"This needs a database update first."**: Skip is not ready on your property yet. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Skip%20needs%20an%20update); Apply works.
 - **"Fired"** with **"3×"** or a dash: how many times the rule has acted, per night and room type, including changes that came off. **"What counts as a fire"** is its help.
