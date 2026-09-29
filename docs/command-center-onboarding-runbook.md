@@ -268,7 +268,7 @@ The runbook above proves the DB layer is complete. Everything below is UI + serv
 | # | Item | Where | Status |
 |---|---|---|---|
 | 1 | `SUPABASE_SERVICE_ROLE_KEY` in Next.js env | `.env.local` locally, Vercel env in prod | **Not set for Next.js.** Only set as an Edge function secret today. |
-| 2 | Supabase Auth "Additional Redirect URLs" allowlist | Supabase Dashboard → Authentication → URL Configuration | Add `http://localhost:3000/auth/accept-invite` and `https://<prod-domain>/auth/accept-invite` before PR 4 lands |
+| 2 | Supabase Auth "Additional Redirect URLs" allowlist | Supabase Dashboard → Authentication → URL Configuration | Add `http://localhost:3000/auth/accept-invite` and `https://<prod-domain>/auth/accept-invite` before PR 4 lands. Add `http://localhost:3000/auth/reset-password` and `https://<prod-domain>/auth/reset-password` too, or "Forgot password?" links never reach the set-a-new-password page |
 | 3 | Supabase Auth email template for invites | Supabase Dashboard → Authentication → Email Templates → Invite user | Default template is fine; consider adding the hotel name later via template variables |
 | 4 | Disable public signup (optional) | Supabase Dashboard → Authentication → Providers → Email → "Enable sign ups" | Once invites are the only path in, flip this off. Not required for v1. |
 

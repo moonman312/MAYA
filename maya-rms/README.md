@@ -54,6 +54,7 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Auth Flow
 
 - Visit `/login` to sign in or create an account.
+- "Forgot password?" on `/login` emails a link to `/auth/reset-password`, where the person sets a new password. Supabase must allowlist that URL and its Reset Password email template should link with the token hash; see [`../docs/command-center-deployment.md`](../docs/command-center-deployment.md) §3.1 and §3.3.
 - API routes use Supabase SSR session cookies (`@supabase/ssr`) so RLS is applied per user.
 - Tenant visibility is determined by `hotel_memberships` (users can belong to multiple hotels).
 

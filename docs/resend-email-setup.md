@@ -79,6 +79,13 @@ Nothing is required for the new flow to work, but tidy up:
   "Invite user" click is obvious.
 - **Authentication → URL Configuration** — keep `MAYA_INVITE_REDIRECT_BASE`
   host allowlisted; the accept page URL is still on that host.
+- **Authentication → Email Templates → Reset Password** is still sent by
+  Supabase Auth (through the custom SMTP, which is Resend), for "Forgot
+  password?" on `/login`. Allowlist `/auth/reset-password` beside
+  `/auth/accept-invite`, and point the template's link at
+  `{{ .SiteURL }}/auth/reset-password?token_hash={{ .TokenHash }}&type=recovery`
+  so it works in any browser. See `command-center-deployment.md` §3.1 and
+  §3.3.
 - Avoid the dashboard's manual **Invite user** button going forward — it sends
   Supabase's own email through Supabase SMTP with the default template. Use
   the Command Center instead.
@@ -87,7 +94,7 @@ Nothing is required for the new flow to work, but tidy up:
 
 Note: the login page's self-signup (`supabase.auth.signUp`) still uses
 Supabase's built-in confirmation email. If public sign-ups get disabled per
-the deployment doc (§3.3), that path disappears entirely; otherwise moving it
+the deployment doc (§3.4), that path disappears entirely; otherwise moving it
 to Resend is a separate, similar refactor.
 
 ## 5. Smoke test

@@ -61,14 +61,19 @@ Set in `.env.local` and Vercel Environment Variables. Do NOT include a trailing 
 
 ## 3. Supabase Dashboard — Auth configuration
 
-### 3.1 Allowlist the invite-accept URL
+### 3.1 Allowlist the invite-accept and password-reset URLs
 
 Dashboard → Authentication → URL Configuration → **Additional Redirect URLs**. Add:
 
 - `http://localhost:3000/auth/accept-invite`
 - `https://<your-prod-domain>/auth/accept-invite`
+- `http://localhost:3000/auth/reset-password`
+- `https://<your-prod-domain>/auth/reset-password`
 
-If this isn't allowlisted, Supabase silently strips the redirect and the customer lands on the default post-auth page — the pending-membership trigger still fires so they'll have access, but the "set your password" UX is skipped.
+If one of these isn't allowlisted, Supabase silently strips the redirect and sends the link to the Site URL instead:
+
+- **Invite links** land on the default post-auth page. The pending-membership trigger still fires so they'll have access, but the "set your password" UX is skipped.
+- **Password-reset links** land on the Site URL with a `?code=` nothing redeems. A signed-out visitor is sent on to `/login`, so the person never reaches the "Set a new password" page.
 
 ### 3.2 Confirm the invite email template
 
@@ -76,7 +81,24 @@ Dashboard → Authentication → Email Templates → **Invite user**.
 
 Default template is fine. If you want a small tweak, the placeholders `{{ .ConfirmationURL }}` and `{{ .Email }}` are the ones you'll use. The link routes to whatever you allowlisted in 3.1.
 
-### 3.3 (Optional) Disable public sign-ups
+### 3.3 Set the Reset Password email template
+
+Dashboard → Authentication → Email Templates → **Reset Password**.
+
+"Forgot password?" on `/login` calls `resetPasswordForEmail` with `redirectTo` set to `<origin>/auth/reset-password`, and Supabase Auth sends this template (through the custom SMTP, which is Resend). `/auth/reset-password` redeems either kind of link:
+
+- **Default template** (`{{ .ConfirmationURL }}`). Works, but the link goes through Supabase's verify page and arrives with a PKCE `?code=`. Only the browser that asked for the reset holds the other half of that code, so the link fails when opened anywhere else (asked on a laptop, opened on a phone).
+- **Recommended: link to the page with the token hash.** This works in any browser:
+
+  ```html
+  <a href="{{ .SiteURL }}/auth/reset-password?token_hash={{ .TokenHash }}&type=recovery">Set a new password</a>
+  ```
+
+  `{{ .SiteURL }}` is the project's Site URL (Authentication → URL Configuration), so it has to be this app's host in each environment.
+
+How long a reset link lasts is Supabase's setting: Authentication → Providers → Email → *Email OTP expiration*.
+
+### 3.4 (Optional) Disable public sign-ups
 
 Once the Command Center is live and you're only onboarding via invites, Dashboard → Authentication → Providers → Email → **Enable sign-ups: off**. Existing self-signup on `/login` "Create Account" button will fail; the invite flow is unaffected.
 
@@ -113,6 +135,7 @@ Run through this once end-to-end on staging (or your dev DB with a real email yo
 - [ ] Check your inbox for the Supabase invite email. Click the link (or copy into an incognito window).
 - [ ] Land on `/auth/accept-invite`. Set a password. Redirect to `/`.
 - [ ] Log out, log back in as the invited user. You see only the new hotel; property-select is scoped.
+- [ ] Log out. On `/login`, click "Forgot password?" and enter the invited user's email. The reset email arrives. Open its link (in a different browser too, if the template uses the token hash from 3.3), land on `/auth/reset-password`, set a new password, and get redirected to `/`.
 - [ ] From an incognito platform-admin session, `/admin/hotels/[hotelId]` shows the accepted user in Members with role `hotel_admin`, and the pending invite row is gone (or marked `accepted` on the Pending Invites page).
 - [ ] `/admin/users` shows the new user. Toggling `platform_admin` grants/revokes correctly.
 - [ ] `/admin/pending-invites` — create another pending invite from a hotel detail page, then Resend and Revoke buttons both work.
