@@ -14,9 +14,15 @@
  * own SetupIntents against the OLD card, and those must never pay anything.
  *
  * Narrow on purpose: only this customer's subscriptions in status 'unpaid',
- * only ones our checkout made (hotel_id in metadata), only their 'open'
- * invoices, oldest first, and always with the card that is the customer's
- * default right now, read back from Stripe rather than off the event.
+ * only ones our checkout made (hotel_id in metadata), only the one each hotel
+ * is on today (hotel_subscriptions says which), only their 'open' invoices,
+ * oldest first, and always with the card that is the customer's default right
+ * now, read back from Stripe rather than off the event.
+ *
+ * The hotel check matters because one customer can hold an unpaid
+ * subscription that a newer checkout has since replaced. Paying that one
+ * would revive it beside the subscription the property pays for now, and bill
+ * the property twice.
  *
  * A decline is an answer, not a failure: it is logged and the webhook still
  * acknowledges, because Stripe redelivering the event would only ask the same
@@ -25,6 +31,7 @@
  * idempotency keys below make that retry safe.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 
 type StripeErrorish = {
@@ -65,6 +72,8 @@ export type InvoiceAttempt = {
 
 export type RecoveryResult =
   | { attempted: false; reason: "customer_deleted" | "no_card" | "nothing_unpaid" }
+  /** Every unpaid subscription was one its hotel has since moved off. */
+  | { attempted: false; reason: "superseded"; superseded: string[] }
   | {
       attempted: true;
       card: string;
@@ -73,9 +82,15 @@ export type RecoveryResult =
       noOpenInvoice: string[];
       /** Subscriptions moved onto the new card after it paid. */
       moved: string[];
+      /** Unpaid subscriptions left alone because their hotel is on another one now. */
+      superseded: string[];
     };
 
-export async function payUnpaidAfterCardUpdate(stripe: Stripe, customerId: string): Promise<RecoveryResult> {
+export async function payUnpaidAfterCardUpdate(
+  admin: SupabaseClient,
+  stripe: Stripe,
+  customerId: string,
+): Promise<RecoveryResult> {
   const customer = await stripe.customers.retrieve(customerId);
   if ("deleted" in customer && customer.deleted) return { attempted: false, reason: "customer_deleted" };
 
@@ -86,8 +101,31 @@ export async function payUnpaidAfterCardUpdate(stripe: Stripe, customerId: strin
 
   const listed = await stripe.subscriptions.list({ customer: customerId, status: "unpaid", limit: 100 });
   // A subscription made by hand in the dashboard carries no hotel and is not ours to collect.
-  const unpaid = listed.data.filter((s) => s.status === "unpaid" && s.metadata?.hotel_id);
-  if (unpaid.length === 0) return { attempted: false, reason: "nothing_unpaid" };
+  const listedUnpaid = listed.data.filter((s) => s.status === "unpaid" && s.metadata?.hotel_id);
+  if (listedUnpaid.length === 0) return { attempted: false, reason: "nothing_unpaid" };
+
+  const unpaid: Stripe.Subscription[] = [];
+  const superseded: string[] = [];
+  for (const sub of listedUnpaid) {
+    const hotel = String(sub.metadata.hotel_id);
+    const recorded = await recordedSubscription(admin, hotel);
+    if (recorded === sub.id) {
+      unpaid.push(sub);
+      continue;
+    }
+    superseded.push(sub.id);
+    console.error(
+      JSON.stringify({
+        fn: "unpaidRecovery",
+        customer: customerId,
+        sub: sub.id,
+        hotel,
+        recorded,
+        action: "stale_unpaid_not_revived",
+      }),
+    );
+  }
+  if (unpaid.length === 0) return { attempted: false, reason: "superseded", superseded };
 
   const attempts: InvoiceAttempt[] = [];
   const noOpenInvoice: string[] = [];
@@ -136,10 +174,26 @@ export async function payUnpaidAfterCardUpdate(stripe: Stripe, customerId: strin
       paid: attempts.filter((a) => a.outcome === "paid").length,
       notPaid: attempts.filter((a) => a.outcome !== "paid").length,
       moved: moved.length,
+      superseded: superseded.length,
     }),
   );
 
-  return { attempted: true, card, attempts, noOpenInvoice, moved };
+  return { attempted: true, card, attempts, noOpenInvoice, moved, superseded };
+}
+
+/**
+ * The subscription the hotel's row points at, or null when it has none. A
+ * failed read throws: the webhook answers 500 and Stripe redelivers, which is
+ * better than guessing either way about someone's money.
+ */
+async function recordedSubscription(admin: SupabaseClient, hotelId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("hotel_subscriptions")
+    .select("stripe_subscription_id")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the subscription for ${hotelId}: ${error.message}`);
+  return data?.stripe_subscription_id ? String(data.stripe_subscription_id) : null;
 }
 
 async function payOne(

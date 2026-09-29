@@ -506,6 +506,8 @@ describe("customer.updated pays an unpaid subscription on the new card", () => {
     state.openInvoices = [{ id: "in_open", status: "open", created: CREATED }];
     state.payError = null;
     state.paid = [];
+    // The hotel is on the subscription that went unpaid.
+    state.subRow = { stripe_subscription_id: "sub_1" };
   });
 
   it("pays the open invoice with the card the owner just saved", async () => {
@@ -540,6 +542,18 @@ describe("customer.updated pays an unpaid subscription on the new card", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(signedRequest(cardChange()));
     expect(res.status).toBe(500);
+    errorSpy.mockRestore();
+  });
+
+  it("leaves an unpaid subscription alone once the hotel is on a newer one", async () => {
+    // A second checkout moved the hotel onto sub_2. Paying sub_1 now would
+    // bill the property on both.
+    state.subRow = { stripe_subscription_id: "sub_2" };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ received: true, unpaid: "superseded" });
+    expect(state.paid).toHaveLength(0);
     errorSpy.mockRestore();
   });
 

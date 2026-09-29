@@ -194,7 +194,9 @@ Three environment variables and one script. No code changes.
    `customer.updated` is what pays an unpaid subscription's open invoice when
    the owner saves a new default card in the billing portal
    (`lib/billing/unpaid-recovery.ts`); without it on the endpoint, updating
-   the card does not restart the subscription.
+   the card does not restart the subscription. It only pays the subscription
+   `hotel_subscriptions` records for the hotel; an older unpaid one a newer
+   checkout replaced is logged (`stale_unpaid_not_revived`) and left alone.
 4. In Vercel (Production), set `STRIPE_SECRET_KEY`,
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to the live
    values, and `MAYA_MARKETPLACE_TRIAL_DAYS` to what the offer should be.

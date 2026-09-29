@@ -254,7 +254,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ received: true, ignored: "no_card_change" });
       }
       const customerId = (event.data.object as Stripe.Customer).id;
-      const recovery = await payUnpaidAfterCardUpdate(stripe, customerId);
+      const recovery = await payUnpaidAfterCardUpdate(admin, stripe, customerId);
       if (!recovery.attempted) return NextResponse.json({ received: true, unpaid: recovery.reason });
       // Declines are acknowledged like everything else: redelivering this
       // event would only ask the same bank the same question.
