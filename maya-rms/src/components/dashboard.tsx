@@ -20,7 +20,7 @@ import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } 
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
-import { isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
+import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
@@ -1240,6 +1240,7 @@ export function Dashboard({
                                         : pmsActivity?.connection
                                           ? formatPmsName(pmsActivity.connection.pms_type)
                                           : "your PMS",
+                                      currencySymbolFor(calendar.currency),
                                     )}
                                   </span>
                                 ) : null}
@@ -1283,6 +1284,8 @@ export function Dashboard({
                                     calendarCacheRef.current.clear();
                                     void reloadCalendarQuiet();
                                   }}
+                                  currencySymbol={currencySymbolFor(calendar.currency)}
+                                  hotelToday={calendar.today ?? null}
                                   initialThrough={
                                     arrival?.dest === "calendar.manual-price" &&
                                     arrival.params.roomType === rt.id &&

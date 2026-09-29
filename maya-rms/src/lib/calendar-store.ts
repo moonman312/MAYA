@@ -352,6 +352,8 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
       min: monthKey(windowStart.getUTCFullYear(), windowStart.getUTCMonth() + 1),
       max: monthKey(windowEnd.getUTCFullYear(), windowEnd.getUTCMonth() + 1),
     },
+    today: todayStr,
+    currency: "USD",
     days,
   };
 }
@@ -538,7 +540,7 @@ async function getCalendarFromDb(
   ] = await Promise.all([
     supabase
       .from("hotels")
-      .select("total_rooms_per_type, timezone")
+      .select("total_rooms_per_type, timezone, currency")
       .eq("id", hotelId)
       .maybeSingle(),
     loadRoomTypeRows(supabase, hotelId),
@@ -773,6 +775,8 @@ async function getCalendarFromDb(
     first_weekday: firstWeekday,
     thresholds: { ...THRESHOLDS, ...scaleToThresholds(scale) },
     range,
+    today: todayStr,
+    currency: hotelRow?.currency ? String(hotelRow.currency) : null,
     days,
   };
 }

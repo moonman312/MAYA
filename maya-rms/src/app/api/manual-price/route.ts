@@ -17,9 +17,15 @@
  * Clearing (DELETE) stamps cleared_at rather than deleting — the row is the
  * audit trail of who typed what — and lifts the ladder suppression so MAYA's
  * own pricing resumes. Retired pickup events stay retired: they were history.
+ * Only tonight onwards is cleared: rules never price a night that has passed.
+ *
+ * The save says what happens to the price next (Pushed), checked the way the
+ * scheduled syncs decide it: a stopped subscription, simulation, a connection
+ * that is down, or a night past the push window each mean nothing goes out now.
  */
 
 import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
+import { isEntitledStatus } from "@/lib/billing/entitlement";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { evaluateHotel } from "@/lib/engine";
 import { clampPrice, priceBounds } from "@/lib/engine/pricing";
@@ -56,11 +62,25 @@ const MAX_NOTE_CHARS = 500;
 const MAX_PRICE = 99_999_999.99;
 
 /**
+ * What happens to the saved price next, so the editor's line is true.
+ *
  * "zero_not_sent": a comp night's 0 on a live hotel. No rate push takes a
  * rate of 0 yet (PmsRatePushAdapter acceptsZeroRate), so the push holds it and
  * the change log tells the owner to set it in the PMS.
+ * "billing_paused": the subscription has stopped, and the scheduled syncs
+ * skip the hotel (splitByEntitlement), so nothing goes out. The response
+ * carries billingStatus, because the way back differs by status.
+ * "reconnect": the hotel's connection is Disconnected or Error, and the
+ * syncs never claim it, so nothing goes out until the owner reconnects.
  */
-type Pushed = "nudged" | "next_cycle" | "simulation" | "beyond_window" | "zero_not_sent";
+type Pushed =
+  | "nudged"
+  | "next_cycle"
+  | "simulation"
+  | "beyond_window"
+  | "zero_not_sent"
+  | "billing_paused"
+  | "reconnect";
 
 /**
  * How many of the saved nights the scheduled push covers today (`now`) and how
@@ -149,9 +169,8 @@ function datesInRange(fromIso: string, toIso: string): string[] {
 function splitByPushWindow(range: Range, today: string, days: number): PushWindow {
   const nights = daysBetween(range.dateFrom, range.dateTo) + 1;
   const lastPushed = lastNightOf(today, days);
-  // dateFrom is never before today on a save; a clear can name earlier
-  // nights, which the push doesn't carry either way, so they count as "now"
-  // only insofar as they are inside the window.
+  // dateFrom is never before today: a save refuses earlier nights and a
+  // clear starts from today.
   const inside = daysBetween(range.dateFrom, lastPushed) + 1;
   const now = Math.max(0, Math.min(nights, inside));
   return { now, later: nights - now, days };
@@ -257,11 +276,45 @@ async function republish(
   range: Range,
   today: string,
   now: string,
-): Promise<{ pushed: Pushed; pushWindow: PushWindow }> {
+): Promise<PushOutcome & { pushWindow: PushWindow }> {
   const horizonDays = await hotelPricingHorizon(admin, range.hotelId);
   const pushWindow = splitByPushWindow(range, today, horizonDays);
-  const pushed = await pushFor(admin, range, today, now, pushWindow, horizonDays);
-  return { pushed, pushWindow };
+  const outcome = await pushFor(admin, range, today, now, pushWindow, horizonDays);
+  return { ...outcome, pushWindow };
+}
+
+type PushOutcome = { pushed: Pushed; billingStatus?: string };
+
+/**
+ * The subscription's status when it has stopped MAYA's work on the hotel,
+ * else null. The same answer the scheduled syncs act on (splitByEntitlement):
+ * no subscription row is not stopped, and neither is a failed read, which
+ * fails open there too.
+ */
+async function stoppedSubscription(admin: SupabaseClient, hotelId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .from("hotel_subscriptions")
+    .select("status")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const status = String((data as { status?: unknown }).status);
+  return isEntitledStatus(status) ? null : status;
+}
+
+/**
+ * True when the hotel's connection is Disconnected or Error and nothing else
+ * of its works: the syncs never claim such a connection, so a price waits
+ * for a reconnect. A working connection beside a stale one decides it, as it
+ * does for the nudge (hotelPmsType); Pending, or no connection, is not down.
+ */
+async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data } = await admin.from("pms_connections").select("status").eq("hotel_id", hotelId);
+  const statuses = ((data ?? []) as { status?: unknown }[]).map((r) => String(r.status));
+  return (
+    statuses.some((s) => s === "disconnected" || s === "error") &&
+    !statuses.some((s) => s === "connected" || s === "degraded")
+  );
 }
 
 async function pushFor(
@@ -271,7 +324,7 @@ async function pushFor(
   now: string,
   pushWindow: PushWindow,
   horizonDays: number,
-): Promise<Pushed> {
+): Promise<PushOutcome> {
   // Only the nights saved, inside the window: nothing else moved.
   const lastInWindow = lastNightOf(today, horizonDays);
   const nights = datesInRange(range.dateFrom < today ? today : range.dateFrom, range.dateTo).filter(
@@ -290,20 +343,25 @@ async function pushFor(
     );
   }
 
-  const { data: settings } = await admin
-    .from("hotel_settings")
-    .select("simulation_mode")
-    .eq("hotel_id", range.hotelId)
-    .maybeSingle();
+  const [billingStatus, { data: settings }, down] = await Promise.all([
+    stoppedSubscription(admin, range.hotelId),
+    admin.from("hotel_settings").select("simulation_mode").eq("hotel_id", range.hotelId).maybeSingle(),
+    connectionDown(admin, range.hotelId),
+  ]);
+  // A stopped subscription first: nothing runs or goes out for the hotel,
+  // live or not, and the way back is on the Billing page.
+  if (billingStatus) return { pushed: "billing_paused", billingStatus };
   // Same reading as the push gate itself: no settings row is not Live.
-  if (settings?.simulation_mode !== false) return "simulation";
+  if (settings?.simulation_mode !== false) return { pushed: "simulation" };
+  // Nothing goes out until the owner reconnects, so no nudge either.
+  if (down) return { pushed: "reconnect" };
   // Only when NOTHING in the range is pushable. A range that straddles the
   // horizon is nudged for the near nights; the far ones go as they come into
   // window, and the response says how many that is.
-  if (pushWindow.now === 0) return "beyond_window";
+  if (pushWindow.now === 0) return { pushed: "beyond_window" };
 
   // The UI has just been told the push is on its way (sync-nudge.ts).
-  return nudgeHotelSync(admin, range.hotelId);
+  return { pushed: await nudgeHotelSync(admin, range.hotelId) };
 }
 
 export async function POST(req: Request) {
@@ -385,8 +443,13 @@ export async function POST(req: Request) {
     );
 
     const republished = await republish(admin, range, today, now);
-    const { pushWindow } = republished;
-    const pushed: Pushed = price === 0 && republished.pushed !== "simulation" ? "zero_not_sent" : republished.pushed;
+    const { pushWindow, billingStatus } = republished;
+    // A 0 never goes out, connected or not; only a hotel where nothing goes
+    // out at all says so its own way.
+    const pushed: Pushed =
+      price === 0 && republished.pushed !== "simulation" && republished.pushed !== "billing_paused"
+        ? "zero_not_sent"
+        : republished.pushed;
 
     // Nothing is left applying on the cell, so base and final only part ways
     // at a clamp — and validation already ruled that out. Computed with the
@@ -408,6 +471,7 @@ export async function POST(req: Request) {
       // Rules, counted once each: a rule can hold several fires on one night.
       pausedRules,
       pushed,
+      ...(pushed === "billing_paused" && billingStatus ? { billingStatus } : {}),
       pushWindow,
       preview,
     });
@@ -425,14 +489,23 @@ export async function DELETE(req: Request) {
 
     const parsed = parseRange(body);
     if (!parsed.ok) return parsed.response;
-    const range = parsed.range;
 
     const { data: hotel } = await admin
       .from("hotels")
       .select("timezone")
-      .eq("id", range.hotelId)
+      .eq("id", parsed.range.hotelId)
       .maybeSingle();
     if (!hotel) return bad("Pick a property first.");
+
+    // Rules price tonight onwards only, so a night that has passed is never
+    // priced again and clearing it would change nothing. Those nights keep
+    // their row as the record of what was sold at; a range reaching into the
+    // past clears from tonight.
+    const today = hotelToday(String(hotel.timezone ?? "UTC"));
+    if (parsed.range.dateTo < today) {
+      return NextResponse.json({ ok: true, cells: 0, passed: true });
+    }
+    const range: Range = { ...parsed.range, dateFrom: parsed.range.dateFrom < today ? today : parsed.range.dateFrom };
 
     const now = new Date().toISOString();
     const { data: cleared, error: clearErr } = await admin
@@ -460,7 +533,7 @@ export async function DELETE(req: Request) {
       if (error) throw error;
     }
 
-    await republish(admin, range, hotelToday(String(hotel.timezone ?? "UTC")), now);
+    await republish(admin, range, today, now);
 
     return NextResponse.json({ ok: true, cells: (cleared ?? []).length });
   } catch (error) {

@@ -409,6 +409,10 @@ export type CalendarResponse = {
    * for the hotel; the demo window when no Supabase data backs the calendar.
    */
   range: { min: string; max: string };
+  /** Today on the property's calendar (YYYY-MM-DD). Older servers omit it. */
+  today?: string;
+  /** The property's currency code ("USD", "EUR"); null when it has none set. Older servers omit it. */
+  currency?: string | null;
   days: Record<string, CalendarDay>;
 };
 
