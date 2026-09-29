@@ -39,6 +39,39 @@ describe("PmsReconnect", () => {
   });
 });
 
+describe("PmsReconnect on Mews", () => {
+  // Nobody at the property can re-enter Mews keys, so no role is told it takes one click.
+  it.each(["banner", "panel"] as const)("asks every role to email us for new keys (%s)", (placement) => {
+    for (const canManage of [true, false]) {
+      const view = render(
+        <PmsReconnect
+          {...base}
+          pmsType="mews"
+          authKind="static_tokens"
+          displayName="Mews"
+          placement={placement}
+          canManage={canManage}
+        />,
+      );
+      const text = view.container.textContent ?? "";
+      expect(text).toContain("Ask us to re-enter the Mews keys: email info@modern-hospitality-solutions.com.");
+      expect(text).not.toContain("one click");
+      expect(text).not.toContain("—");
+      const mail = view.getByRole("link", { name: "info@modern-hospitality-solutions.com" });
+      expect(mail.getAttribute("href")).toMatch(/^mailto:info@modern-hospitality-solutions\.com/);
+      expect(view.queryByRole("link", { name: /Reconnect/ })).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("shows nothing on a working Mews connection", () => {
+    const view = render(
+      <PmsReconnect {...base} pmsType="mews" authKind="static_tokens" displayName="Mews" status="connected" placement="panel" />,
+    );
+    expect(view.container.textContent).toBe("");
+  });
+});
+
 describe("PmsReconnect on a Degraded connection", () => {
   // Degraded still reads and sends, so the lost-connection alarm is untrue there.
   it.each([
