@@ -62,8 +62,11 @@ export async function GET() {
   // The go-live card on the review lists the starter rules an import built.
   // "Get suggestions from my data" points the review at a job of its own,
   // which builds none, and the card (with its go-live button) went with it.
-  // So the rules come from the newest job that has them on record.
+  // So the rules come from the newest job that has them on record, read the
+  // same way as the job's own: the set the last question swapped in, if any,
+  // and the note that goes with it.
   let starterRules = starterRulesOf(job);
+  let starterRulesNote = starterRulesNoteOf(job);
   if (starterRules.length === 0) {
     const { data: built } = await supabase
       .from("import_jobs")
@@ -73,7 +76,9 @@ export async function GET() {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    starterRules = starterRulesOf(built);
+    const builtStats = built ? starterStatsForStatus(built.stats, state?.questions) : null;
+    starterRules = starterRulesOf({ stats: builtStats });
+    starterRulesNote = starterRulesNoteOf({ stats: builtStats });
   }
 
   const [{ data: settings }, { data: connections }] = await Promise.all([
@@ -145,6 +150,7 @@ export async function GET() {
     state: state ?? null,
     job,
     starterRules,
+    starterRulesNote,
     proposedFindings: proposedFindings ?? 0,
     latestProposedAt: latestProposed?.created_at ?? null,
     simulationMode: settings?.simulation_mode !== false,
@@ -160,4 +166,9 @@ export async function GET() {
 function starterRulesOf(job: { stats?: unknown } | null | undefined): Array<{ name: string; explanation: string }> {
   const rules = (job?.stats as { starterRules?: unknown } | null | undefined)?.starterRules;
   return Array.isArray(rules) ? (rules as Array<{ name: string; explanation: string }>) : [];
+}
+
+function starterRulesNoteOf(job: { stats?: unknown } | null | undefined): string | null {
+  const note = (job?.stats as { starterRulesNote?: unknown } | null | undefined)?.starterRulesNote;
+  return typeof note === "string" && note ? note : null;
 }

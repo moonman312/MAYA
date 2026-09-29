@@ -341,7 +341,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
     explanation: string;
   }>;
   if (rules.length === 0) return null;
-  const note = status?.job?.stats?.starterRulesNote;
+  const note = status?.starterRulesNote ?? status?.job?.stats?.starterRulesNote;
 
   const inSimulation = !live && status?.simulationMode !== false;
 

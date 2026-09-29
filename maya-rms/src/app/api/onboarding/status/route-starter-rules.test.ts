@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   jobs: {} as Record<string, { stats: Record<string, unknown> }>,
   /** What the "newest job with starter rules" read finds. */
   onRecord: null as { stats: Record<string, unknown> } | null,
+  questions: {} as Record<string, unknown>,
   calls: [] as Call[],
 }));
 
@@ -19,7 +20,7 @@ function builder(table: string) {
   state.calls.push(call);
   const answer = () => {
     if (table === "onboarding_states") {
-      return { data: { path: "guided", import_job_id: "job-new", questions: {}, review_completed_at: null }, error: null };
+      return { data: { path: "guided", import_job_id: "job-new", questions: state.questions, review_completed_at: null }, error: null };
     }
     if (table === "hotels") return { data: { name: "The Harbour Inn", currency: "USD" }, error: null };
     if (table === "hotel_settings") return { data: { simulation_mode: true }, error: null };
@@ -61,6 +62,7 @@ const busyNights = { name: "Busy nights", explanation: "Raises busy nights." };
 beforeEach(() => {
   state.jobs = {};
   state.onRecord = null;
+  state.questions = {};
   state.calls = [];
 });
 
@@ -79,6 +81,24 @@ describe("the starter rules the review's go-live card lists", () => {
         ["order", "created_at", { ascending: false }],
       ]),
     );
+  });
+
+  it("are the set the last question swapped in, with its note, when they come from an older import", async () => {
+    const copied = { name: "Nearly full raise", explanation: "Copies your own raise." };
+    state.jobs["job-new"] = { stats: { mode: "refresh" } };
+    state.onRecord = {
+      stats: {
+        starterRules: [busyNights],
+        starterRuleSets: {
+          none: { rules: [busyNights] },
+          automate_current: { rules: [copied], note: "Only one move of yours to copy." },
+        },
+      },
+    };
+    state.questions = { starterRulesFor: "automate_current" };
+    const body = await (await GET()).json();
+    expect(body.starterRules).toEqual([copied]);
+    expect(body.starterRulesNote).toBe("Only one move of yours to copy.");
   });
 
   it("are the newest job's own when it built them, with no second read", async () => {

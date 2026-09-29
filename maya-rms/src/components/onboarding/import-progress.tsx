@@ -40,6 +40,8 @@ export type OnboardingStatus = {
    * "Get suggestions from my data" job does not. Older servers leave it out.
    */
   starterRules?: Array<{ name: string; explanation: string }>;
+  /** The note that goes with `starterRules`, when there is one. Older servers leave it out. */
+  starterRulesNote?: string | null;
   proposedFindings?: number;
   simulationMode?: boolean;
   /** The hotel's PMS (pms_connections.pms_type); older servers leave it out. */
