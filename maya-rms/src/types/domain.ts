@@ -144,8 +144,8 @@ export type EngineRule = {
    * How the rule ranked as each earlier version, for its changes of those
    * versions still on the price (pricing_rules.version_ranks, written by
    * save_rule when an edit moves the version on and the old version still
-   * has changes on the price): its priority and the parts of its condition
-   * that rank it. Such a change ranks as its version did, so it keeps
+   * has changes on the price): its priority, its amount and the parts of
+   * its condition that rank it. Such a change ranks as its version did, so it keeps
    * covering the weaker rules it covered (pickup.ts rankedAsMade).
    */
   version_ranks?: VersionRanks | null;
@@ -156,6 +156,10 @@ export type VersionRanks = Record<
   string,
   {
     priority: number;
+    /** The version's amount (the changes of that version carry it too, on pickup_event). Absent in older records. */
+    action_type?: ActionKind;
+    action_direction?: ActionDirection;
+    action_value?: number;
     condition: Pick<
       RuleCondition,
       | "occupancy_operator"

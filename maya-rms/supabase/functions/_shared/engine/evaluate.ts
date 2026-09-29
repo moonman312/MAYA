@@ -1166,8 +1166,18 @@ export async function evaluateHotel(
   ];
   // The rules whose fires may move where each one counts from: each change
   // on the price covers the rules its way it outranks (countFromFireAt), and
-  // one of an earlier version its way as it was made.
-  const othersOf = new Map(pickupRules.map((rule) => [rule.id, rankedEventRules.filter((o) => o.id !== rule.id)]));
+  // one of an earlier version its way as it was made, which may be the other
+  // way from its rule now.
+  const versionOf = new Map(rankedEventRules.map((r) => [r.id, r.version]));
+  const keptOtherWay = new Set(
+    openFires.filter((f) => versionOf.has(f.rule_id) && versionOf.get(f.rule_id) !== f.rule_version).map((f) => f.rule_id),
+  );
+  const othersOf = new Map(
+    pickupRules.map((rule) => [
+      rule.id,
+      rankedEventRules.filter((o) => o.id !== rule.id && (o.action_direction === rule.action_direction || keptOtherWay.has(o.id))),
+    ]),
+  );
 
   // What came in during each count, and which bookings a booking speed
   // window counted, recorded on the fires this run is about to write (the

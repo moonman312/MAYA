@@ -335,13 +335,13 @@ describe.skipIf(!PGLITE_DIR)("the rule activation migration in PGlite", () => {
         },
       }),
     );
-    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
     // A new name moves no version and keeps them.
     await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "keep", fields: { name: "Surging nights" } }));
-    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
     // Another edit: version 2 has nothing on the price, so only version 1 is kept.
     await as(OWNER, () => save({ rule: SPEED_RULE, expected: 2, activation: "skip", fields: { name: "Surging nights", action_value: 12, version: 3 } }));
-    expect(await ranks()).toEqual({ "1": { priority: 130, condition: surging } });
+    expect(await ranks()).toEqual({ "1": { priority: 130, action_type: "percent", action_direction: "increase", action_value: 25, condition: surging } });
     // Once version 1's raises are off the price, the next edit drops it.
     await as(null, () => q(`update public.pickup_event set retired_at = now(), retired_reason = 'night_passed' where rule_id = $1`, [SPEED_RULE]));
     await as(OWNER, () => save({ rule: SPEED_RULE, expected: 3, activation: "apply", fields: { name: "Surging nights", action_value: 14, version: 4 } }));

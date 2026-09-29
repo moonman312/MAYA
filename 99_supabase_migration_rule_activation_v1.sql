@@ -28,8 +28,8 @@
 --          marks below.
 --      pricing_rules.version_ranks: per earlier version whose booking speed
 --      or pickup changes are still on the price (left there by a Skip, or
---      by an edit to a rule that is off), the priority and condition that
---      ranked the rule then. Such a change ranks as it was made (its own
+--      by an edit to a rule that is off), the priority, amount and
+--      condition that ranked the rule then. Such a change ranks as it was made (its own
 --      amount, from pickup_event, and that version's priority and
 --      condition), so an edit never changes which weaker rules it covers.
 --      save_rule keeps it, dropping versions with no change left on.
@@ -94,7 +94,8 @@ comment on column public.pricing_rules.skip_at is
 
 comment on column public.pricing_rules.version_ranks is
   'Per earlier version with booking speed or pickup changes still on the '
-  'price, {"<version>": {"priority": n, "condition": {...}}}: how the rule '
+  'price, {"<version>": {"priority", "action_type", "action_direction", '
+  '"action_value", "condition"}}: how the rule '
   'ranked then, so those changes keep covering the weaker rules they covered. '
   'Written by save_rule. See 99_supabase_migration_rule_activation_v1.sql.';
 
@@ -245,6 +246,9 @@ begin
           v_rule.version::text,
           jsonb_build_object(
             'priority', v_rule.priority,
+            'action_type', v_rule.action_type,
+            'action_direction', v_rule.action_direction,
+            'action_value', v_rule.action_value,
             'condition', coalesce((
               select jsonb_build_object(
                 'occupancy_operator', c.occupancy_operator,

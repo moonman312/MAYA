@@ -31,7 +31,12 @@
  *   3. An event rule (booking speed or pickup count) runs whole on the
  *      nights left; "before" then runs where it had a part (a change on the
  *      price, or its condition met: DryRunCapture.touched), or, for an edit
- *      to a rule that is on, on the same nights as "after".
+ *      to a rule that is on, on the same nights as "after". Unless the edit
+ *      changes only the amount (or the undo box) and moves the rule past no
+ *      other rule's change in the order they rank in: then the rule as
+ *      stored meets its condition exactly where the rule as saved does,
+ *      except where it has fires (open or taken off, where it can wait),
+ *      and "before" runs on those nights alone.
  *
  * rule-preview.test.ts proves each step gives the nights a full "after"
  * against a full "before" gives, and that Apply then changes exactly those
@@ -43,6 +48,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { dryRunCapture, evaluateHotel, type DryRunCapture } from "@/lib/engine/evaluate";
 import type { LadderOp } from "@/lib/engine/ladder";
 import { computeDta } from "@/lib/engine/metrics";
+import { comparePickupRules, versionRanksOf, type RankedRule } from "@/lib/engine/pickup";
 import { fetchAllRows } from "@/lib/engine/snapshots";
 import { ruleScopeMatches } from "@/lib/engine/scope";
 import { addCalendarDays, evalIsoToHotelDateString } from "@/lib/engine/timezone";
@@ -213,6 +219,162 @@ export async function nightsWithState(
   return [...out].sort();
 }
 
+/**
+ * Nights where the rule has a fire row at all, on the price or taken off
+ * (cancellations, a typed price, an edit): where it can be waiting, or have
+ * "Stop for this night" answers, without a change on the price. Paged.
+ */
+async function nightsWithFires(client: SupabaseClient, hotelId: string, ruleId: string, first: string, last: string): Promise<string[]> {
+  const rows = await fetchAllRows(() =>
+    client
+      .from("pickup_event")
+      .select("stay_date, id")
+      .eq("hotel_id", hotelId)
+      .eq("rule_id", ruleId)
+      .gte("stay_date", first)
+      .lte("stay_date", last)
+      .order("stay_date", { ascending: true })
+      .order("id", { ascending: true }),
+  ).catch((e: unknown) => {
+    throw new Error(`Could not read the rule's changes (pickup_event): ${e instanceof Error ? e.message : String(e)}`);
+  });
+  return [...new Set(rows.map((r) => String((r as { stay_date: unknown }).stay_date).slice(0, 10)))].sort();
+}
+
+/** The condition columns that decide what a rule counts and when (ENGINE_RULE_COLUMNS). */
+const COUNT_COLUMNS = [
+  "occupancy_operator",
+  "occupancy_threshold",
+  "dta_operator",
+  "dta_threshold_days",
+  "pickup_operator",
+  "pickup_threshold",
+  "pickup_window_days",
+  "pickup_metric",
+  "pickup_cooldown_days",
+  "booking_speed_operator",
+  "booking_speed_level",
+  "booking_speed_window_days",
+  "booking_speed_cooldown_days",
+] as const;
+
+function plain(v: unknown): string | number | boolean | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v === "number" || typeof v === "boolean") return v;
+  const s = String(v);
+  return s.trim() !== "" && Number.isFinite(Number(s)) ? Number(s) : s;
+}
+
+/** A rule row as comparePickupRules reads it. */
+function rankOfRow(row: EngineRuleRow): RankedRule {
+  const rc = one<Record<string, unknown>>(row.rule_condition) ?? {};
+  return {
+    id: String(row.id),
+    version: Number(row.version ?? 1),
+    priority: Number(row.priority ?? 100),
+    action_type: row.action_type as RankedRule["action_type"],
+    action_direction: row.action_direction as RankedRule["action_direction"],
+    action_value: Number(row.action_value),
+    created_at: String(row.created_at ?? ""),
+    skip_at: null,
+    condition: {
+      occupancy_operator: (rc.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
+      dta_operator: (rc.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
+      pickup_operator: (rc.pickup_operator ?? null) as RankedRule["condition"]["pickup_operator"],
+      pickup_threshold: rc.pickup_threshold != null ? Number(rc.pickup_threshold) : null,
+      pickup_metric: (rc.pickup_metric ?? null) as RankedRule["condition"]["pickup_metric"],
+      booking_speed_operator: (rc.booking_speed_operator ?? null) as RankedRule["condition"]["booking_speed_operator"],
+      booking_speed_level: rc.booking_speed_level != null ? String(rc.booking_speed_level) : null,
+    },
+  };
+}
+
+/**
+ * Whether the rule as saved counts, waits, scopes and competes exactly as
+ * the rule as stored, but for its amount (and the undo box, which only
+ * judges the rule's own changes on the price): the same condition, room
+ * types, dates, weekdays, direction and priority, a booking speed or pickup
+ * rule both times, and no Skip on the stored one (it would count from it).
+ */
+export function countsTheSameWay(before: EngineRuleRow, after: EngineRuleRow): boolean {
+  if (!isEventRuleRow(before) || !isEventRuleRow(after)) return false;
+  if (before.skip_at != null) return false;
+  const cb = one<Record<string, unknown>>(before.rule_condition) ?? {};
+  const ca = one<Record<string, unknown>>(after.rule_condition) ?? {};
+  if (COUNT_COLUMNS.some((k) => plain(cb[k]) !== plain(ca[k]))) return false;
+  const set = (v: unknown) => [...new Set(ids(v))].sort().join(",");
+  if (set(before.rule_signal_room_type) !== set(after.rule_signal_room_type)) return false;
+  if (set(before.rule_affected_room_type) !== set(after.rule_affected_room_type)) return false;
+  for (const k of ["start_date", "end_date", "is_annual", "dow_mask", "action_direction", "priority"]) {
+    if (plain(before[k]) !== plain(after[k])) return false;
+  }
+  return Date.parse(String(before.created_at)) === Date.parse(String(after.created_at));
+}
+
+/**
+ * Whether a rule moving from `was` to `now` (its amount alone) keeps its
+ * place against `other` on every cell, whatever the cell's base price:
+ * both amounts of one kind with `other`'s, each either equal to `other`'s
+ * or at least a whole point or dollar away (so rounding never makes a tie
+ * that wasn't there), and the same order at a base of 100. At a base of 0
+ * every percent ties and the rest of the order decides, the same both times.
+ */
+export function keepsItsPlace(other: RankedRule, was: RankedRule, now: RankedRule): boolean {
+  if (other.action_type !== was.action_type || other.action_type !== now.action_type) return false;
+  const clear = (d: number) => d === 0 || Math.abs(d) >= 1;
+  if (!clear(other.action_value - was.action_value) || !clear(other.action_value - now.action_value)) return false;
+  return Math.sign(comparePickupRules(other, was, 100, 100)) === Math.sign(comparePickupRules(other, now, 100, 100));
+}
+
+/**
+ * Whether "before" needs to run only where the rule as saved has a part (see
+ * previewRule): the rule counts the same way (countsTheSameWay) and keeps
+ * its place against every other rule's way of ranking a change, each rule's
+ * as it is and each earlier version still recorded (version_ranks), raises
+ * and cuts alike (the strongest candidate on a cell fires, whichever way).
+ * False when anything can't be read or isn't known, and the full run
+ * decides.
+ */
+async function storedActsOnlyWhereSavedDoes(
+  client: SupabaseClient,
+  hotelId: string,
+  before: EngineRuleRow,
+  after: EngineRuleRow,
+): Promise<boolean> {
+  if (!countsTheSameWay(before, after)) return false;
+  const { data, error } = await client
+    .from("pricing_rules")
+    .select(
+      "id, version, priority, action_type, action_direction, action_value, created_at, is_pickup_rule, version_ranks, rule_condition ( occupancy_operator, dta_operator, pickup_operator, pickup_threshold, pickup_metric, booking_speed_operator, booking_speed_level )",
+    )
+    .eq("hotel_id", hotelId);
+  if (error || !data) return false;
+  const ruleId = String(before.id);
+  const others: RankedRule[] = [];
+  for (const row of data as unknown as EngineRuleRow[]) {
+    if (String(row.id) === ruleId) continue;
+    const rank = rankOfRow(row);
+    if (isEventRuleRow(row)) others.push(rank);
+    if (row.version_ranks == null) continue;
+    const ranks = versionRanksOf(row.version_ranks);
+    if (!ranks) return false;
+    for (const was of Object.values(ranks)) {
+      if (was.action_type === undefined || was.action_direction === undefined || was.action_value === undefined) return false;
+      others.push({
+        ...rank,
+        priority: was.priority,
+        condition: { ...was.condition },
+        action_type: was.action_type,
+        action_direction: was.action_direction,
+        action_value: was.action_value,
+      });
+    }
+  }
+  const was = rankOfRow(before);
+  const now = rankOfRow(after);
+  return others.every((other) => keepsItsPlace(other, was, now));
+}
+
 /** The nights (and how many room types on each) where two runs' prices differ, to the cent. */
 export function nightsThatDiffer(
   after: ReadonlyMap<string, number>,
@@ -318,6 +480,18 @@ export async function previewRule(
     ].sort();
     const [a, b] = await Promise.all([run(p1, true), run(p1, false)]);
     return result(nightsThatDiffer(a.prices, b.prices, new Set(p1)), p1, p1.length * 2);
+  }
+
+  if (before && (await storedActsOnlyWhereSavedDoes(client, input.hotelId, before, after))) {
+    // Only the amount (or the undo box) changed, and no other rule's change
+    // ranks differently against it: the rule as stored can act only where the
+    // rule as saved has a part, or where it has a change on the price, now or
+    // taken off (its wait and its answers live there). "Before" runs there.
+    const a = await run(p0, true, { watch: true });
+    const fired = await nightsWithFires(client, input.hotelId, ruleId, from, to);
+    const bNights = [...new Set([...a.touched, ...fired])].filter((d) => scoped.has(d)).sort();
+    const b = await run(bNights, false);
+    return result(nightsThatDiffer(a.prices, b.prices, new Set(bNights)), bNights, p0.length + bNights.length);
   }
 
   if (before) {

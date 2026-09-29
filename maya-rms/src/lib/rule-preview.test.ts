@@ -34,6 +34,7 @@ import {
 import {
   ENGINES,
   FAMILY,
+  rng,
   H,
   HORIZON,
   KING,
@@ -141,6 +142,14 @@ const CASES: Case[] = [
     name: "an edit to a booking speed rule that is on: a new amount",
     after: (t) => edited(t, R.bsFaster, { action_value: 12 }),
   },
+  {
+    name: "an edit to a booking speed rule that is on: an amount past another rule's",
+    after: (t) => edited(t, R.bsSurging, { action_value: 10 }),
+  },
+  {
+    name: "an edit to a pickup count rule that is on: a new amount and the undo box",
+    after: (t) => edited(t, R.pickup, { action_value: 9.5, undo_on_cancellation: false }),
+  },
 ];
 
 /**
@@ -160,6 +169,9 @@ function withVersionRanks(t: Tables, after: FakeRow): FakeRow {
     const c = ((stored.rule_condition as FakeRow[] | undefined)?.[0] ?? {}) as FakeRow;
     ranks[String(stored.version)] = {
       priority: stored.priority,
+      action_type: stored.action_type,
+      action_direction: stored.action_direction,
+      action_value: stored.action_value,
       condition: {
         occupancy_operator: c.occupancy_operator ?? null,
         dta_operator: c.dta_operator ?? null,
@@ -468,7 +480,80 @@ describe("Skip after an edit to a booking speed rule that is on", () => {
   }
 });
 
+describe("the popup's days after an edit to the amount alone, on hotels with rules drawn at random", () => {
+  // "Before" runs only where the edited rule has a part when the edit moves
+  // the rule past no other rule (see previewRule): the days are still the
+  // days a full "after" against a full "before" gives, and what Apply does.
+  const engine = ENGINES[0];
+  it.each([3, 19, 31])("hotel seed %i", async (seedNo) => {
+    engine.reset();
+    vi.setSystemTime(new Date(T10));
+    const t = await settle(engine.evaluate, seedNo);
+    const r = rng(seedNo * 13 + 5);
+    const events = t.pricing_rules.filter((x) => x.is_active && x.is_pickup_rule);
+    const seen: Record<string, number> = {};
+    for (const stored of events) {
+      const after = edited(t, stored.id, { action_value: Math.round((Number(stored.action_value) + (r() < 0.5 ? -1 : 1) * (1 + Math.floor(r() * 4))) * 10) / 10 });
+      const truth = nightsDiffering(await fullDry(engine.evaluate, t, T10, after), await fullDry(engine.evaluate, t, T10));
+      vi.setSystemTime(new Date(T10));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const client = fake(clone(t)).client as any;
+      const input = { hotelId: H, after: after as EngineRuleRow, before: stored as EngineRuleRow, at: T10, horizonDays: HORIZON };
+      const whole = await previewRule(client, input, engine.evaluate);
+      const parts = [
+        await previewRule(client, { ...input, to: addDays(TODAY, 14) }, engine.evaluate),
+        await previewRule(client, { ...input, from: addDays(TODAY, 15) }, engine.evaluate),
+      ];
+      const label = `${stored.id} ${stored.action_value} to ${after.action_value}`;
+      expect({ label, days: whole.affected }).toEqual({ label, days: truth });
+      expect({ label, days: parts.flatMap((p) => p.affected) }).toEqual({ label, days: truth });
+      const applied = published(await realRun(engine.evaluate, saveApply(t, after), T10));
+      const without = published(await realRun(engine.evaluate, t, T10));
+      expect({ label, days: nightsDiffering(applied, without) }).toEqual({ label, days: truth });
+      seen[label] = whole.nightsChecked;
+    }
+    // The shorter way was taken on at least one edit (fewer nights run than both ways over the window).
+    expect(Object.values(seen).some((n) => n < 2 * HORIZON)).toBe(true);
+  }, 240_000);
+});
+
 describe("which nights the preview runs", () => {
+  it("runs the rule as stored only where the saved one has a part when only its amount moves, and past no other rule", async () => {
+    const { countsTheSameWay, keepsItsPlace } = await import("@/lib/rule-preview");
+    const cond = { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 7, booking_speed_cooldown_days: 3 };
+    const stored = ruleRow(NEW, { is_pickup_rule: true, action_value: 10, cond }) as EngineRuleRow;
+    const same = (patch: Record<string, unknown>) => countsTheSameWay(stored, { ...stored, version: 2, ...patch } as EngineRuleRow);
+    expect(same({ action_value: 12 })).toBe(true);
+    expect(same({ action_value: 12, undo_on_cancellation: false })).toBe(true);
+    expect(same({ rule_condition: [{ ...cond, booking_speed_window_days: 30 }] })).toBe(false);
+    expect(same({ rule_affected_room_type: [{ room_type_id: KING }] })).toBe(false);
+    expect(same({ action_direction: "decrease" })).toBe(false);
+    expect(same({ dow_mask: 96 })).toBe(false);
+    expect(countsTheSameWay({ ...stored, skip_at: T10 }, { ...stored, version: 2, action_value: 12 } as EngineRuleRow)).toBe(false);
+    const rank = (value: number, type = "percent", priority = 100) => ({
+      id: "x",
+      version: 1,
+      priority,
+      condition: { booking_speed_operator: "at_least" as const, booking_speed_level: "faster" },
+      action_type: type as "percent" | "fixed",
+      action_direction: "increase" as const,
+      action_value: value,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    // 10% to 12% past a rule at 8% or 25%: the same place. Past one at 11%: not.
+    expect(keepsItsPlace(rank(8), rank(10), rank(12))).toBe(true);
+    expect(keepsItsPlace(rank(25), rank(10), rank(12))).toBe(true);
+    expect(keepsItsPlace(rank(11), rank(10), rank(12))).toBe(false);
+    // Level with it before, where its priority put the other first; ahead of it after: moved, so no.
+    expect(keepsItsPlace(rank(10, "percent", 150), rank(10), rank(12))).toBe(false);
+    // Level before with the rule first on priority, and first again after: the same place.
+    expect(keepsItsPlace(rank(10, "percent", 50), rank(10), rank(12))).toBe(true);
+    // Near it (a rounding tie on a small price), or a fixed amount against a percent: no.
+    expect(keepsItsPlace(rank(12.5), rank(10), rank(12))).toBe(false);
+    expect(keepsItsPlace(rank(8, "fixed"), rank(10), rank(12))).toBe(false);
+  });
+
+
   it("reads every night the rule has a change on, past the rows one read returns", async () => {
     const { fakeSupabase } = await import("@/lib/engine/fake-supabase.test");
     const { nightsWithState } = await import("@/lib/rule-preview");

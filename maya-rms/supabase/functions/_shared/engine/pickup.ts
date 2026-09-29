@@ -336,6 +336,7 @@ export function rankedAsMade(
   const was = rule.version_ranks?.[String(fire.rule_version)];
   return {
     ...rule,
+    version: fire.rule_version,
     ...(was ? { priority: Number(was.priority), condition: { ...was.condition } } : {}),
     action_type: fire.action_kind as RankedRule["action_type"],
     action_direction: fire.action_direction as RankedRule["action_direction"],
@@ -356,8 +357,12 @@ export function versionRanksOf(value: unknown): EngineRule["version_ranks"] {
     const r = raw as { priority?: unknown; condition?: unknown };
     const c = (r.condition && typeof r.condition === "object" ? r.condition : {}) as Record<string, unknown>;
     if (!Number.isFinite(Number(r.priority))) continue;
+    const action = raw as { action_type?: unknown; action_direction?: unknown; action_value?: unknown };
     out[version] = {
       priority: Number(r.priority),
+      ...(action.action_type === "percent" || action.action_type === "fixed" ? { action_type: action.action_type } : {}),
+      ...(action.action_direction === "increase" || action.action_direction === "decrease" ? { action_direction: action.action_direction } : {}),
+      ...(action.action_value != null && Number.isFinite(Number(action.action_value)) ? { action_value: Number(action.action_value) } : {}),
       condition: {
         occupancy_operator: (c.occupancy_operator ?? null) as RankedRule["condition"]["occupancy_operator"],
         dta_operator: (c.dta_operator ?? null) as RankedRule["condition"]["dta_operator"],
