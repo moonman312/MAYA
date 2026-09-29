@@ -122,8 +122,13 @@ async function sendInviteEmail(to: string, input: InviteEmailInput): Promise<voi
  *   1. Generates a Supabase Auth invite link (no Supabase email) and sends
  *      our own invite email through Resend.
  *   2. Records the pending membership via platform_invite_user RPC.
- * If the email already exists in auth.users, step 1 is skipped and the RPC
- * materializes the membership directly.
+ * If the email belongs to someone who has signed in before, step 1 is skipped
+ * and the RPC materializes the membership directly.
+ *
+ * A login that exists but has never signed in still gets the email. Step 1
+ * creates the login before the email goes out, so when the send fails the
+ * login is left behind with no way to set a password; without this, the retry
+ * would treat it as an existing user, send nothing, and strand them for good.
  */
 export async function inviteUserToHotel(
   admin: SupabaseClient,
@@ -147,16 +152,18 @@ export async function inviteUserToHotel(
   }
   const hotelName = hotelRow?.name ?? "your hotel";
 
-  // Check if the user already exists to decide whether to send an invite email.
+  // Check if the user already exists, and has ever signed in, to decide
+  // whether to send an invite email.
   const { data: existing, error: lookupErr } = await admin
     .from("platform_users_view")
-    .select("id")
+    .select("id, last_sign_in_at")
     .eq("email", email)
     .maybeSingle();
   if (lookupErr && lookupErr.code !== "PGRST116") {
     throw new Error(`User lookup failed: ${lookupErr.message}`);
   }
   const existingUser = Boolean(existing?.id);
+  const needsLink = !existingUser || !existing?.last_sign_in_at;
 
   const metadata: InviteMetadata = {
     hotel_name: hotelName,
@@ -165,7 +172,7 @@ export async function inviteUserToHotel(
   };
 
   let supabaseInviteId: string | null = null;
-  if (!existingUser) {
+  if (needsLink) {
     const { acceptUrl, userId } = await generateAcceptInviteLink(
       admin,
       email,
@@ -191,7 +198,7 @@ export async function inviteUserToHotel(
   }
 
   return {
-    inviteSent: !existingUser,
+    inviteSent: needsLink,
     pendingId: String(pendingId),
     existingUser,
   };
