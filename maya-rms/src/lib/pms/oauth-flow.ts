@@ -10,7 +10,7 @@ import { activeHotelCookieOptions, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
-import { handleMarketplaceConnect } from "@/lib/pms/marketplace-connect";
+import { handleMarketplaceConnect, type MarketplaceTokens } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { resumeImportAfterReconnect } from "@/lib/pms/eager-import";
@@ -169,7 +169,7 @@ export async function buildAuthorizeRedirect(
 /**
  * Handle the callback from the vendor. Verifies state, exchanges code for
  * tokens via the standard OAuth2 token endpoint, stores everything in Vault
- * via `pms_secret_set`, and redirects to the hotel detail page.
+ * via `pms_secret_set`, and redirects back to where the connect started.
  */
 export async function handleOAuthCallback(
   cookieStore: CookieStore,
@@ -294,9 +294,25 @@ export async function handleOAuthCallback(
 
   // FLOW A: no state, so the property is identified from the grant itself.
   if (isMarketplace) {
-    const outcome = await handleMarketplaceConnect(pmsType, secretPayload);
+    // A property connected from inside MAYA is reconnected here only for the
+    // person its own Reconnect button is for, so who is at the browser is
+    // asked, once, and only when such a property turns up.
+    const ssr = createSSRClient(cookieStore);
+    let signedIn: Promise<boolean> | null = null;
+    const outcome = await handleMarketplaceConnect(pmsType, secretPayload, {
+      canReconnect: async (hotelId) => {
+        signedIn ??= ssr.auth.getUser().then(({ data }) => Boolean(data.user));
+        return (await signedIn) && (await hasHotelRank(ssr, hotelId, "general_manager"));
+      },
+      reconnect: async (hotelId) => {
+        const done = await reconnectHotel(hotelId, pmsType, secretPayload, "marketplace_flow_a");
+        return done.ok ? { ok: true } : { ok: false, message: done.message };
+      },
+    });
     if (outcome.kind === "error") return renderCallbackError(pmsType, outcome.message);
+    if (outcome.kind === "refused") return renderNotice(outcome.message, 403);
     if (outcome.kind === "reconnected") {
+      if (outcome.inApp) return reconnectedRedirect(base, outcome.hotelId);
       // Flow A's own wording: after connecting, "Connect App" becomes "Login".
       return NextResponse.redirect(`${base}/login?reconnected=1`, { status: 302 });
     }
@@ -313,19 +329,44 @@ export async function handleOAuthCallback(
   }
 
   const { hotelId } = verified;
+  const done = await reconnectHotel(hotelId, pmsType, secretPayload, "oauth");
+  if (!done.ok) return done.plain ? renderNotice(done.message) : renderCallbackError(pmsType, done.message);
+
+  if (verified.from === "admin") {
+    return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
+      status: 302,
+    });
+  }
+  // A parked property is not on the dashboard yet: back to the payment
+  // screen its reconnect prompt was on.
+  if (done.parked) return NextResponse.redirect(`${base}/onboarding`, { status: 302 });
+  return reconnectedRedirect(base, hotelId);
+}
+
+/**
+ * An existing hotel connected again with a fresh grant: its Reconnect button,
+ * the staff console, and a Marketplace "Connect App" on a property connected
+ * from inside MAYA all come through here.
+ */
+async function reconnectHotel(
+  hotelId: string,
+  pmsType: PmsType,
+  secretPayload: MarketplaceTokens,
+  via: "oauth" | "marketplace_flow_a",
+): Promise<{ ok: true; parked: boolean } | { ok: false; message: string; plain: boolean }> {
   const admin = createAdminClient();
 
   // Every Cloudbeds reconnect has to be for the property this hotel is
   // connected to, and that is settled before its credential is overwritten.
   const bound = await boundPropertyForGrant(admin, hotelId, pmsType, secretPayload);
-  if (!bound.ok) return renderNotice(bound.message);
+  if (!bound.ok) return { ok: false, message: bound.message, plain: true };
 
   const { error: secretErr } = await admin.rpc("pms_secret_set", {
     p_hotel_id: hotelId,
     p_pms_type: pmsType,
     p_secret: bound.propertyId ? { ...secretPayload, propertyId: bound.propertyId } : secretPayload,
   });
-  if (secretErr) return renderCallbackError(pmsType, `pms_secret_set: ${secretErr.message}`);
+  if (secretErr) return { ok: false, message: `pms_secret_set: ${secretErr.message}`, plain: false };
 
   // The reconnect prompt sends a Marketplace property here too, including one
   // whose owner never paid and whose data the retention sweep removed. Owning
@@ -347,7 +388,7 @@ export async function handleOAuthCallback(
       },
       { onConflict: "hotel_id,pms_type" },
     );
-  if (pcErr) return renderCallbackError(pmsType, `pms_connections upsert: ${pcErr.message}`);
+  if (pcErr) return { ok: false, message: `pms_connections upsert: ${pcErr.message}`, plain: false };
   // A person re-authorized: rate pushes held for a missing permission or a
   // refused grant go out on the next tick instead of a day later.
   await markConnectionReauthorized(admin, hotelId, pmsType, now);
@@ -402,18 +443,10 @@ export async function handleOAuthCallback(
     p_entity_type: "pms_connection",
     p_entity_id: hotelId,
     p_hotel_id: hotelId,
-    p_detail: { pms_type: pmsType, via: "oauth" },
+    p_detail: { pms_type: pmsType, via },
   });
 
-  if (verified.from === "admin") {
-    return NextResponse.redirect(`${base}/admin/hotels/${hotelId}?pmsConnected=1`, {
-      status: 302,
-    });
-  }
-  // A parked property is not on the dashboard yet: back to the payment
-  // screen its reconnect prompt was on.
-  if (parked) return NextResponse.redirect(`${base}/onboarding`, { status: 302 });
-  return reconnectedRedirect(base, hotelId);
+  return { ok: true, parked };
 }
 
 /**

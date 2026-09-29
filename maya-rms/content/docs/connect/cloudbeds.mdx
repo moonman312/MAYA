@@ -58,7 +58,7 @@ Both ways end with the history import and a review of what MAYA found. The Marke
 If the page says "That connection link has expired. Reconnect the app from the Cloudbeds Marketplace.", click <Ui>Connect App</Ui> in Cloudbeds again for a fresh link.
 </Callout>
 
-A sign-in page that says "Your Cloudbeds connection is active again. Sign in to pick up where you left off." means the property already has an owner, so this was a reconnect. Sign in.
+A sign-in page that says "Your Cloudbeds connection is active again. Sign in to pick up where you left off." means the property already has an owner, so this was a reconnect. Sign in. A property already connected from inside MAYA is never added a second time: <Ui>Connect App</Ui> reconnects it instead (read "Disconnecting and reconnecting", below).
 
 ## Way 2: from inside MAYA
 
@@ -132,7 +132,9 @@ You disconnect in Cloudbeds, under <Ui>Marketplace</Ui>, then <Ui>My Apps</Ui>. 
 To reconnect, a General Manager or Hotel Admin clicks <Ui>Reconnect Cloudbeds</Ui> on the <Ui>PMS</Ui> tab and signs in at Cloudbeds. Rules, history and settings are untouched. Any login that reaches this property works, a group login included, however you first connected. A login that does not reach it stops with "This login is for a different property." before anything changes. MAYA never sees your Cloudbeds password, so after a password change, reconnect only if prices stop updating.
 
 - **If the property came through the Marketplace**, clicking <Ui>Connect App</Ui> again also reconnects.
-- **If you connected from inside MAYA**, <Ui>Connect App</Ui> offers a second property on a "Create your MAYA account" page instead. Do not sign in there. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Cloudbeds%20reconnect). A reconnect sign-in slower than 15 minutes stops with "That sign-in link ran out after 15 minutes. Start again from MAYA." and nothing changes: click <Ui>Reconnect Cloudbeds</Ui> again.
+- **If you connected from inside MAYA**, clicking <Ui>Connect App</Ui> again also reconnects, and never adds a second property: MAYA finds your property by its Cloudbeds property. Sign in to MAYA first, in the same browser, as its General Manager or Hotel Admin, and you land on its <Ui>PMS</Ui> tab with "Reconnected." Anyone else sees "This property is already in MAYA, so nothing new was added." and nothing changes.
+
+A reconnect sign-in slower than 15 minutes stops with "That sign-in link ran out after 15 minutes. Start again from MAYA." and nothing changes: click <Ui>Reconnect Cloudbeds</Ui> again.
 
 **When the person who connected MAYA leaves.** Cloudbeds ties the connection to the user who approved it. Once that user is deactivated, nothing is read, priced or sent, though the <Ui>PMS</Ui> tab may still read <Ui>Connected</Ui> (<Ui>Last sync</Ui> stops moving). Reconnect with another login, before you remove them if you can.
 

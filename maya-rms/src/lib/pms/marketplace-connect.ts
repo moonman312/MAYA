@@ -5,6 +5,7 @@ import { resumeStoppedImport } from "@/lib/pms/eager-import";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
+import { hotelsConnectedInsideMaya } from "@/lib/pms/stored-property";
 import { createAdminClient } from "@/utils/supabase/admin";
 import {
   cloudbedsDiscoverPropertyId,
@@ -46,9 +47,34 @@ export type MarketplaceTokens = {
 };
 
 export type MarketplaceOutcome =
-  | { kind: "reconnected"; hotelId: string; propertyName: string | null; groupProperties?: number }
+  | {
+      kind: "reconnected";
+      hotelId: string;
+      propertyName: string | null;
+      groupProperties?: number;
+      /** The property was one connected from inside MAYA, reconnected for someone signed in. */
+      inApp?: boolean;
+    }
   | { kind: "claim"; token: string; propertyName: string | null; groupProperties?: number; parked?: number }
+  /** A plain sentence for the person at the browser; nothing was changed. */
+  | { kind: "refused"; message: string }
   | { kind: "error"; message: string };
+
+/**
+ * What the callback lends for a property someone connected from inside MAYA:
+ * "Connect App" on it reconnects it rather than adding a second property, the
+ * way its own Reconnect button would, for someone who could press that button.
+ */
+export type InAppReconnect = {
+  /** Whether the person at the callback holds the rank the Reconnect button asks for. */
+  canReconnect: (hotelId: string) => Promise<boolean>;
+  /** That property's own reconnect, with this grant. */
+  reconnect: (hotelId: string) => Promise<{ ok: true } | { ok: false; message: string }>;
+};
+
+export const ALREADY_IN_MAYA =
+  "This property is already in MAYA, so nothing new was added. Reconnecting it needs General Manager " +
+  "access or higher on it. Sign in to MAYA with that access and click Reconnect Cloudbeds on the PMS tab.";
 
 /** Namespaced so two PMSes can never collide on the same bare property number. */
 export function enterpriseKey(pmsType: PmsType, externalPropertyId: string): string {
@@ -60,6 +86,7 @@ const CLAIM_TTL_MS = 24 * 60 * 60 * 1000;
 export async function handleMarketplaceConnect(
   pmsType: PmsType,
   tokens: MarketplaceTokens,
+  inApp?: InAppReconnect,
 ): Promise<MarketplaceOutcome> {
   if (pmsType !== "cloudbeds") {
     return { kind: "error", message: `${pmsType} does not support marketplace-initiated connections.` };
@@ -108,8 +135,73 @@ export async function handleMarketplaceConnect(
     : null;
 
   const parked: { token: string; hotelId: string; name: string | null }[] = [];
-  const reconnected: { hotelId: string; name: string | null }[] = [];
+  const reconnected: { hotelId: string; name: string | null; inApp?: boolean }[] = [];
   const failures: string[] = [];
+
+  // Which MAYA hotel each property already is, settled before anything is
+  // written.
+  //
+  // A hotel row is NOT proof someone owns it. Clicking "Connect App" twice —
+  // which reviewers do, because they go back to check the first click worked —
+  // used to land here on the second click, take the reconnect branch, mint no
+  // ticket, and send an accountless visitor to a sign-in form. The property was
+  // then unclaimable forever: every later click hit the same branch, and the
+  // unique(hotel_id, pms_type) constraint on the claims table meant it could
+  // never be re-ticketed either.
+  //
+  // Ownership is a membership, so ask for one. With no member this is still an
+  // unclaimed parked property and belongs on the new-property path below,
+  // reusing its existing hotel row.
+  const known = new Map<string, { existing: { id: string; name: string | null } | null; claimed: boolean }>();
+  for (const property of properties) {
+    const { data: existing } = await admin
+      .from("hotels")
+      .select("id, name")
+      .eq("external_enterprise_id", enterpriseKey(pmsType, property.propertyId))
+      .maybeSingle();
+    let claimed = false;
+    if (existing?.id) {
+      const { data: members } = await admin
+        .from("hotel_memberships")
+        .select("user_id")
+        .eq("hotel_id", existing.id)
+        .limit(1);
+      claimed = (members?.length ?? 0) > 0;
+    }
+    known.set(property.propertyId, {
+      existing: existing?.id ? { id: String(existing.id), name: existing.name != null ? String(existing.name) : null } : null,
+      claimed,
+    });
+  }
+
+  // A property connected from inside MAYA has no Marketplace key on its row:
+  // its property ID is kept with its credential. Missing it here parked a
+  // second, separate property beside it. It is reconnected instead, for
+  // someone who could press its own Reconnect button; for anyone else nothing
+  // at all is added, and they are told why.
+  let inside: Map<string, { id: string; name: string | null }>;
+  try {
+    inside = await hotelsConnectedInsideMaya(
+      admin,
+      pmsType,
+      properties.filter((p) => !known.get(p.propertyId)?.claimed).map((p) => p.propertyId),
+    );
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "handleMarketplaceConnect",
+        step: "in_maya_lookup",
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return {
+      kind: "error",
+      message: "Could not check whether this property is already in MAYA. Click Connect App again in a moment.",
+    };
+  }
+  for (const hotel of inside.values()) {
+    if (!inApp || !(await inApp.canReconnect(hotel.id))) return { kind: "refused", message: ALREADY_IN_MAYA };
+  }
 
   for (const property of properties) {
     const key = enterpriseKey(pmsType, property.propertyId);
@@ -150,34 +242,9 @@ export async function handleMarketplaceConnect(
       }
     };
 
-    const { data: existing } = await admin
-      .from("hotels")
-      .select("id, name")
-      .eq("external_enterprise_id", key)
-      .maybeSingle();
+    const { existing, claimed } = known.get(property.propertyId)!;
 
     const now = new Date().toISOString();
-
-    // A hotel row is NOT proof someone owns it. Clicking "Connect App" twice —
-    // which reviewers do, because they go back to check the first click worked —
-    // used to land here on the second click, take the reconnect branch, mint no
-    // ticket, and send an accountless visitor to a sign-in form. The property was
-    // then unclaimable forever: every later click hit the same branch, and the
-    // unique(hotel_id, pms_type) constraint on the claims table meant it could
-    // never be re-ticketed either.
-    //
-    // Ownership is a membership, so ask for one. With no member this is still an
-    // unclaimed parked property and belongs on the new-property path below,
-    // reusing its existing hotel row.
-    let claimed = false;
-    if (existing?.id) {
-      const { data: members } = await admin
-        .from("hotel_memberships")
-        .select("user_id")
-        .eq("hotel_id", existing.id)
-        .limit(1);
-      claimed = (members?.length ?? 0) > 0;
-    }
 
     if (existing?.id && claimed) {
       const { error } = await storeSecret(existing.id);
@@ -252,6 +319,18 @@ export async function handleMarketplaceConnect(
         p_detail: { pms_type: pmsType, via: "marketplace_flow_a", reconnect: true, ...(isGroup ? { group_properties: properties.length } : {}) },
       });
       reconnected.push({ hotelId: existing.id, name: propertyName ?? existing.name });
+      continue;
+    }
+
+    // Connected from inside MAYA: its own reconnect, never a second property.
+    const insideHotel = inside.get(property.propertyId);
+    if (insideHotel && inApp) {
+      const done = await inApp.reconnect(insideHotel.id);
+      if (!done.ok) {
+        failures.push(`${property.propertyId}: ${done.message}`);
+        continue;
+      }
+      reconnected.push({ hotelId: insideHotel.id, name: propertyName ?? insideHotel.name, inApp: true });
       continue;
     }
 
@@ -389,5 +468,6 @@ export async function handleMarketplaceConnect(
     hotelId: reconnected[0].hotelId,
     propertyName: reconnected[0].name,
     ...(isGroup ? { groupProperties: properties.length } : {}),
+    ...(reconnected[0].inApp ? { inApp: true } : {}),
   };
 }
