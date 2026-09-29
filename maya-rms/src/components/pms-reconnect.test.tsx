@@ -39,6 +39,16 @@ describe("PmsReconnect", () => {
   });
 });
 
+describe("PmsReconnect for someone who cannot reconnect", () => {
+  it("names who can, with no button", () => {
+    const view = render(<PmsReconnect {...base} canManage={false} />);
+    const text = view.container.textContent ?? "";
+    expect(text).toContain("Ask this property's General Manager or Hotel Admin to reconnect it. It takes them one click.");
+    expect(text).not.toContain("—");
+    expect(view.queryByRole("link")).toBeNull();
+  });
+});
+
 describe("PmsReconnect on Mews", () => {
   // Nobody at the property can re-enter Mews keys, so no role is told it takes one click.
   it.each(["banner", "panel"] as const)("asks every role to email us for new keys (%s)", (placement) => {

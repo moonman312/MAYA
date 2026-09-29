@@ -114,7 +114,7 @@ export function PmsReconnect({
         </h3>
         <p className="mt-1 text-sm text-amber-100/80">
           Prices aren&apos;t updating while this is down. Ask this property&apos;s General Manager or
-          Hotel Admin to reconnect it — it takes them one click.
+          Hotel Admin to reconnect it. It takes them one click.
         </p>
       </div>
     );
