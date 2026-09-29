@@ -258,9 +258,12 @@ export function nightWhy(
     const got = revenue ? money(night.pickup_net, currencySymbol) : unitsPhrase(night.pickup_net);
     const mark = revenue ? money(night.pickup_threshold, currencySymbol) : String(night.pickup_threshold);
     const change = direction === "decrease" ? "cut" : direction === "increase" ? "raise" : "change";
+    // Whole hotel days: that day so far and the days before it, or the full
+    // days before it for a rule that looks for low pickup. The row doesn't
+    // keep which, so it names how many.
     const over =
       night.pickup_window_days != null
-        ? `over the last ${dayWord(night.pickup_window_days)}`
+        ? `over the ${dayWord(night.pickup_window_days)} it counted`
         : `since the ${change} before its latest one, by it or a stronger rule,`;
     out.push(`Pickup ${over} came to ${got}, against the ${mark} you set.`);
   }

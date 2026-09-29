@@ -128,6 +128,7 @@ const state = vi.hoisted(() => ({
   fake: null as unknown,
 }));
 const evaluateHotel = vi.hoisted(() => vi.fn());
+const nudgeHotelSync = vi.hoisted(() => vi.fn());
 const afterCalls = vi.hoisted(() => [] as Array<() => unknown>);
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -159,6 +160,7 @@ vi.mock("@/lib/rate-limit", async () => {
   };
 });
 vi.mock("@/lib/engine", () => ({ evaluateHotel }));
+vi.mock("@/lib/pms/sync-nudge", () => ({ nudgeHotelSync }));
 
 const { GET, POST, DELETE } = await import("./route");
 
@@ -211,6 +213,8 @@ beforeEach(() => {
   state.fake = seed();
   evaluateHotel.mockReset();
   evaluateHotel.mockResolvedValue({ run_id: "run-1" });
+  nudgeHotelSync.mockReset();
+  nudgeHotelSync.mockResolvedValue("nudged");
   afterCalls.length = 0;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -289,10 +293,11 @@ describe("POST — the block", () => {
       p_hotel_id: HOTEL,
       p_detail: { action: "added", room_type_id: ROOM, name: "Standard", units: 3, actor_user_id: USER },
     });
-    // Bounded horizon: the route's wall clock cannot fit the full 365.
-    expect(evaluateHotel).not.toHaveBeenCalled();
+    // The block's nights are marked by the database; the route only nudges
+    // the sync that prices them, and never runs the engine itself.
+    expect(nudgeHotelSync).toHaveBeenCalledWith(fake(), HOTEL);
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 60);
+    expect(evaluateHotel).not.toHaveBeenCalled();
   });
 
   it("refuses a block that would stack past the type's count on an overlapping night", async () => {
@@ -334,8 +339,9 @@ describe("DELETE", () => {
       units: 4,
       actor_user_id: USER,
     });
+    expect(nudgeHotelSync).toHaveBeenCalledTimes(1);
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledTimes(1);
+    expect(evaluateHotel).not.toHaveBeenCalled();
   });
 
   it("404 for a block already cleared, and nothing logged", async () => {

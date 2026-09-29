@@ -55,6 +55,29 @@ export type ScheduledLoopConfig = {
 export const OUT_OF_TIME_RETRY_SECONDS = 30;
 
 /**
+ * How soon a healthy hotel whose daily pass has nights left is due again
+ * (pricing-plan.ts). With the cron running every minute, a wave of hotels
+ * sharing a time zone finishes its passes within minutes of midnight; on a
+ * five-minute cron it changes nothing.
+ */
+export const PASS_WORK_RETRY_SECONDS = 60;
+
+/** release_pms_sync's interval for a hotel after its tick (see the three constants above). */
+export function releaseIntervalSeconds(input: {
+  outOfTime: boolean;
+  syncOk: boolean;
+  passWorkLeft: boolean;
+  syncIntervalSeconds: number;
+  invocationStartedAt: number;
+  now: number;
+}): number {
+  if (input.outOfTime) return OUT_OF_TIME_RETRY_SECONDS;
+  if (!input.syncOk) return input.syncIntervalSeconds;
+  const healthy = healthyReleaseIntervalSeconds(input.syncIntervalSeconds, input.invocationStartedAt, input.now);
+  return input.passWorkLeft ? Math.min(PASS_WORK_RETRY_SECONDS, healthy) : healthy;
+}
+
+/**
  * How late the cron may start an invocation, and how far the edge clock may
  * sit from the database's, without a healthy hotel missing its next tick.
  */

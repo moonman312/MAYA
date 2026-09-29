@@ -4,7 +4,10 @@
  * For every hotel with a `pms_type = 'mews'` connection (or a single hotel when
  * `{ hotel_id }` is posted):
  *   1. Pull fresh reservations/room-types from Mews  (runMewsSyncForHotel)
- *   2. Run the pricing rules engine                  (evaluateHotel)
+ *   2. Run the pricing rules engine                  (evaluateHotel, through
+ *      runPricingTick: one hotel date, and the nights the pricing cadence
+ *      picks, as for Cloudbeds and ThinkReservations; no base rate calendar
+ *      and no push)
  *
  * Step 2 is what actually applies your pricing rules and writes published_price
  * (the calendar's "Current price"). Disable it with MAYA_RUN_EVALUATE=false to
@@ -21,15 +24,16 @@ import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotelWaiting,
-  healthyReleaseIntervalSeconds,
   orderClaimedByDue,
-  OUT_OF_TIME_RETRY_SECONDS,
+  releaseIntervalSeconds,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
 } from "../_shared/pms/scheduled-loop.ts";
 import { MEWS_SYNC_BUDGET_MS } from "../_shared/mews/constants.ts";
-import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
-import { readOutcome } from "../_shared/pms/pricing-tick.ts";
+import { MEWS_MAX_SYNC_DAYS_FORWARD } from "../_shared/mews/sync-hotel.ts";
+import { pricingHorizonDays, syncDaysForward } from "../_shared/pms/pricing-window.ts";
+import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
+import { readOutcome, runPricingTick } from "../_shared/pms/pricing-tick.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 
 function getEnv(name: string): string | undefined {
@@ -64,9 +68,12 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Nights evaluated per tick, the same window the Cloudbeds and Think syncs
-  // price and push: 60 by default. Env override: MAYA_PRICING_HORIZON_DAYS.
-  const horizonDays = pricingHorizonDays();
+  // The window priced, the same as the Cloudbeds and Think syncs price and
+  // push: 396 nights by default (MAYA_PRICING_HORIZON_DAYS), never past the
+  // nights Mews reads (MEWS_MAX_SYNC_DAYS_FORWARD). Which nights a tick prices
+  // is the cadence's call (pricing-plan.ts).
+  const horizonDays = pricingHorizonDays(undefined, Math.min(syncDaysForward(), MEWS_MAX_SYNC_DAYS_FORWARD));
+  const passBudget = { remaining: cadenceConfigFromEnv().tickPassNights };
 
   // Optional single-hotel dispatch: body { hotel_id }.
   let bodyHotelId: string | null = null;
@@ -182,7 +189,8 @@ Deno.serve(async (req) => {
     evaluate?:
       | Awaited<ReturnType<typeof evaluateHotel>>
       | { error: string }
-      | { skipped: true | "out_of_time" | "sync_failed" };
+      | { skipped: true | "out_of_time" | "sync_failed" }
+      | { idle: true };
     rooms?: Awaited<ReturnType<typeof recordRoomCount>> | null;
   }> = [];
 
@@ -205,27 +213,28 @@ Deno.serve(async (req) => {
     // Nothing is priced on a failed read: bookings stopped arriving, and a
     // "pace is slow" rule would fire on data that is only stale. The failed
     // release backs the hotel off, and the next read that works prices it.
-    const readFailed = readOutcome(sync) === "failed";
-    // Too little time left to evaluate safely. Starting anyway ran past the
-    // wall clock and the invocation was killed before any release. The hotel
-    // is released due again in OUT_OF_TIME_RETRY_SECONDS, so the next tick
-    // takes it early.
-    const outOfTime = !readFailed && Date.now() > evaluateBy;
-    let evaluate: (typeof results)[number]["evaluate"];
-    if (readFailed) {
-      evaluate = { skipped: "sync_failed" };
-    } else if (outOfTime) {
-      evaluate = { skipped: "out_of_time" };
-    } else if (runEvaluate) {
-      try {
-        evaluate = await evaluateHotel(supabase, hotelId, undefined, horizonDays);
-      } catch (e) {
-        evaluate = { error: e instanceof Error ? e.message : "evaluate failed" };
-      }
-    } else {
-      evaluate = { skipped: true };
-    }
-    const tEval = Date.now();
+    // Too little time left to evaluate safely: starting anyway ran past the
+    // wall clock and the invocation was killed before any release, so the
+    // hotel is released due again in OUT_OF_TIME_RETRY_SECONDS instead. Mews
+    // has no base rate calendar and no push here: the tick is its clock and
+    // its cadence.
+    const tick = await runPricingTick(
+      supabase,
+      hotelId,
+      {
+        horizonDays,
+        adapter: null,
+        noAdapter: { skipped: "disabled" },
+        runEvaluate,
+        pushEnabled: false,
+        evaluateBy,
+        pushDeadlineAt: evaluateBy,
+        read: readOutcome(sync),
+        passBudget,
+      },
+      { evaluate: evaluateHotel },
+    );
+    const { evaluate, outOfTime } = tick;
 
     console.log(
       JSON.stringify({
@@ -233,9 +242,11 @@ Deno.serve(async (req) => {
         hotelId,
         syncOk: sync.ok,
         syncError: sync.ok ? undefined : sync.error,
+        today: tick.today,
         evaluate,
+        cadence: tick.cadence,
         syncMs: tSync - t0,
-        evalMs: tEval - tSync,
+        evalMs: tick.evalMs,
         horizonDays,
       }),
     );
@@ -257,11 +268,15 @@ Deno.serve(async (req) => {
         p_hotel_id: hotelId,
         p_pms_type: "mews",
         p_ok: sync.ok,
-        p_interval_seconds: outOfTime
-          ? OUT_OF_TIME_RETRY_SECONDS
-          : sync.ok
-            ? healthyReleaseIntervalSeconds(syncIntervalSeconds, invocationStartedAt, Date.now())
-            : syncIntervalSeconds,
+        // Sooner while today's pass has nights left: see PASS_WORK_RETRY_SECONDS.
+        p_interval_seconds: releaseIntervalSeconds({
+          outOfTime,
+          syncOk: sync.ok,
+          passWorkLeft: tick.passWorkLeft,
+          syncIntervalSeconds,
+          invocationStartedAt,
+          now: Date.now(),
+        }),
       });
       if (releaseErr) {
         // Not fatal: the lease expires on its own and the next tick reclaims it.

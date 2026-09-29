@@ -25,6 +25,8 @@ const STD = "a0000000-0000-4000-8000-0000000000a1";
 const SUITE = "a0000000-0000-4000-8000-0000000000a2";
 const BASE = 100;
 const iso = (ms: number) => new Date(ms).toISOString();
+/** Where a hotel day begins: the hotel here keeps UTC. Pickup windows and waits turn there. */
+const dayStart = (ymd: string) => `${ymd}T00:00:00.000Z`;
 
 function roomType(id: string, over: Partial<FakeRow> = {}): FakeRow {
   return {
@@ -148,7 +150,25 @@ function world(opts: WorldOptions) {
     fake.tables.pickup_event.filter((e) => e.stay_date === stay && e.affected_room_type_id === rt);
   const audits = (stay: string, rt = STD) =>
     fake.tables.evaluation_audit.filter((a) => a.stay_date === stay && a.room_type_id === rt);
-  return { ...fake, run, price, fires, audits, nights };
+  /**
+   * The scheduled ticks between two runs a test makes, which found nothing
+   * to price: each logs a heartbeat (hourly here), so a pickup baseline in
+   * between is read from the last snapshot, not blocked as stale.
+   */
+  const idleTicks = (fromMs: number, toMs: number) => {
+    for (let t = fromMs + HOUR; t < toMs; t += HOUR) {
+      (fake.tables.evaluation_run_log ??= []).push({
+        hotel_id: "h1",
+        evaluation_run_id: `idle-${t}`,
+        evaluated_at: iso(t),
+        cells_checked: 0,
+        cells_changed: 0,
+        run_kind: "idle",
+        nights_priced: 0,
+      });
+    }
+  };
+  return { ...fake, run, price, fires, audits, nights, idleTicks };
 }
 
 beforeEach(() => {
@@ -183,13 +203,15 @@ describe("a cut holds until the rule's wait has passed, then cuts again", () => 
     expect(w.fires(NIGHT)[0]).toMatchObject({ fire_seq: 1, retired_at: null, cancel_check: "recount" });
     expect(w.audits(NIGHT)).toHaveLength(1);
 
-    // A day short of its window: still the one cut.
-    await w.run(T0 + 3 * DAY - HOUR);
+    // Late on day 2 it is still waiting: still the one cut.
+    await w.run(T0 + 2 * DAY + 11 * HOUR);
     expect(w.price(NIGHT)).toBe(95);
     expect(w.fires(NIGHT)).toHaveLength(1);
 
-    // Three days on it cuts again, on the price the first cut left.
-    await w.run(T0 + 3 * DAY);
+    // As day 3 begins its wait is over, and it has three whole days since
+    // the start of the first cut's day to judge: it cuts again, on the
+    // price the first cut left.
+    await w.run(T0 + 2 * DAY + 12 * HOUR + 5 * 60_000);
     expect(w.fires(NIGHT).map((e) => e.fire_seq)).toEqual([1, 2]);
     expect(w.price(NIGHT)).toBe(90.25);
     expect(w.audits(NIGHT)).toHaveLength(2);
@@ -253,9 +275,11 @@ describe("a Booking Speed rule", () => {
       await w.run(T0 + k * 12 * HOUR);
       prices.push(w.price(NIGHT));
     }
-    // One cut, held every run for the week, then a second cut on top of it.
-    expect(prices.slice(0, 14)).toEqual(Array.from({ length: 14 }, () => 90));
-    expect(prices[14]).toBe(81);
+    // One cut, held every run for the week, then a second cut on top of it
+    // in the first run of day 7 (at midnight): the week's wait counts whole
+    // hotel days from the day of the cut.
+    expect(prices.slice(0, 13)).toEqual(Array.from({ length: 13 }, () => 90));
+    expect(prices[13]).toBe(81);
     // A cut rule reads complete days only: its month ends yesterday, and
     // the second cut counts the complete days after the first cut's day.
     expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_at, e.cancel_check, e.window_from, e.window_to])).toEqual([
@@ -532,7 +556,8 @@ describe("a rule waiting on a cell holds it", () => {
     // A day on, a whole day with no booking since the strong rule's cut.
     await w.run(T0 + DAY);
     expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-strong", "r-weak"]);
-    expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(iso(T0));
+    // Day 0 whole: the strong rule's cut counted the days before it.
+    expect(w.fires(NIGHT)[1].baseline_start_ts).toBe(dayStart(D0));
     expect(w.price(NIGHT)).toBe(80.75);
 
     // Three days on, the strong rule cuts again on its own three days: the
@@ -543,7 +568,7 @@ describe("a rule waiting on a cell holds it", () => {
       ["r-weak", 1],
       ["r-strong", 2],
     ]);
-    expect(w.fires(NIGHT)[2].baseline_start_ts).toBe(iso(T0));
+    expect(w.fires(NIGHT)[2].baseline_start_ts).toBe(dayStart(D0));
     expect(w.price(NIGHT)).toBeCloseTo(80.75 * 0.85, 2);
   }, 60_000);
 
@@ -557,12 +582,19 @@ describe("a rule waiting on a cell holds it", () => {
     const w = world({ rules: [raise, cut], reservations: [booking(NIGHT, addDays(D0, -1))] });
     await w.run(T0);
     expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-raise"]);
-    // Nothing booked since the raise, but its three days still hold the
-    // booking it raised on: the cut, which still matches, can't fire.
+    // Nothing booked since the raise, but its three days (the day before
+    // day 0 onwards) still hold the booking it raised on: the cut, which
+    // still matches, can't fire.
+    await w.run(T0 + HOUR);
     await w.run(T0 + DAY);
-    await w.run(T0 + 2 * DAY);
     expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-raise"]);
     expect(w.price(NIGHT)).toBe(120);
+    // On day 2 its three days are days 0 to 2, and the booking was made the
+    // day before: its window no longer matches, so it holds nothing, and
+    // the cut fires, though the raise still waits.
+    await w.run(T0 + 2 * DAY);
+    expect(w.fires(NIGHT).map((e) => e.rule_id)).toEqual(["r-raise", "r-cut"]);
+    expect(w.price(NIGHT)).toBe(114);
   }, 60_000);
 
   it("a stronger rule fires while a weaker one waits", async () => {
@@ -616,6 +648,8 @@ describe("after a price someone typed", () => {
   it("every event rule waits its own wait from the price, then stacks on it", async () => {
     const w = world({ rules: [thin], reservations: [booking(NIGHT, addDays(D0, -30))] });
     await w.run(T0);
+    // Nothing books: every tick in between finds nothing to price.
+    w.idleTicks(T0, T0 + 6 * DAY + 2 * HOUR);
     await w.run(T0 + 3 * DAY);
     expect(w.fires(NIGHT)).toHaveLength(2);
     expect(w.price(NIGHT)).toBe(81);
@@ -637,7 +671,8 @@ describe("after a price someone typed", () => {
     expect(w.fires(NIGHT)).toHaveLength(2);
     expect(w.price(NIGHT)).toBe(150);
 
-    // Three days after the price was typed it cuts again, on the typed number.
+    // Three days after the day the price was typed it cuts again, on the
+    // typed number, judging its whole window (days 3 to 5).
     await w.run(T0 + 6 * DAY + 2 * HOUR);
     expect(w.fires(NIGHT).map((e) => e.fire_seq)).toEqual([1, 2, 3]);
     expect(w.price(NIGHT)).toBe(135);

@@ -15,7 +15,7 @@
 import type { EngineRule } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ladderConditionsHold, ruleConditionsMatch } from "./conditions.ts";
-import { MIGRATIONS, fetchAllRows, isMissingColumnError } from "./snapshots.ts";
+import { MIGRATIONS, fetchAllRows, filterNights, isMissingColumnError, type NightSet } from "./snapshots.ts";
 import type { LadderTransitionAction, RuleMetrics } from "./types.ts";
 
 export type LadderPassResult = {
@@ -342,17 +342,22 @@ export async function createLadderPassBatch(
   ruleIds: string[],
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (filterNights). */
+  nights?: NightSet,
 ): Promise<LadderPassBatch> {
   const states = new Map<string, LadderState>();
   if (ruleIds.length > 0) {
     for (let i = 0; i < ruleIds.length; i += KEY_CHUNK) {
       const rows = await fetchAllRows(() =>
-        supabase
-          .from("ladder_rule_state")
-          .select("rule_id, stay_date, room_type_id, is_active, rule_version")
-          .in("rule_id", ruleIds.slice(i, i + KEY_CHUNK))
-          .gte("stay_date", firstDate)
-          .lte("stay_date", lastDate)
+        filterNights(
+          supabase
+            .from("ladder_rule_state")
+            .select("rule_id, stay_date, room_type_id, is_active, rule_version")
+            .in("rule_id", ruleIds.slice(i, i + KEY_CHUNK)),
+          nights,
+          firstDate,
+          lastDate,
+        )
           .order("rule_id", { ascending: true })
           .order("stay_date", { ascending: true })
           .order("room_type_id", { ascending: true }),

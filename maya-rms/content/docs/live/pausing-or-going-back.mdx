@@ -61,7 +61,7 @@ Once three of a booking speed or pickup rule's changes are on the same night, th
 
 ## Hold a price on a night or a stretch
 
-Click a night on the <Ui>Calendar</Ui> tab, type a price for a room type, click <Ui>through…</Ui> to pick the last night if you want a range, and click <Ui>Save</Ui>. On a live property, nights inside the 60-night window go to your system as typed, now. Nights further ahead are sent as they enter the window. In simulation nothing is sent. Rules that had already moved those nights pause for that room type. Rules that fire later still apply on top of your price, so a typed price is a starting point, not a lock. A range can run from tonight up to 364 days ahead (365 nights at most).
+Click a night on the <Ui>Calendar</Ui> tab, type a price for a room type, click <Ui>through…</Ui> to pick the last night if you want a range, and click <Ui>Save</Ui>. On a live property, nights inside the 396-night window go to your system as typed, now. Nights further ahead are sent as they enter the window. In simulation nothing is sent. Rules that had already moved those nights pause for that room type. Rules that fire later still apply on top of your price, so a typed price is a starting point, not a lock. A range can run from tonight up to 399 days ahead (366 nights at most in one save).
 
 <Ui>Clear</Ui> takes your price off the night, and your rules set its price again. [Setting a price yourself](/docs/watch/setting-a-price-yourself) has every detail, and [Hold a price for a wedding or event weekend](/docs/recipes/hold-a-price-for-an-event) is the short version.
 
@@ -92,7 +92,7 @@ The billing portal has no pause option. Turn your rules off to pause pricing whi
 
 ## A closed season
 
-MAYA does not read future closures from your system, and there is no screen to enter one. Nights you are closed are priced and sent like any others while they are inside the 60-night window. Three ways to handle a closed stretch, from simplest:
+MAYA does not read future closures from your system, and there is no screen to enter one. Nights you are closed are priced and sent like any others while they are inside the 396-night window. Three ways to handle a closed stretch, from simplest:
 
 1. **Close the nights in your system.** Set the rate to 0 there (or close the night the way your system does, if that reports as a rate of 0). On a night MAYA has already sent to, MAYA reads the 0 on its next hourly read, your rules stop running on that night, and any manual price there is cleared. On a night MAYA has never sent to, a rate of 0 means the night is not priced at all. Either way nothing more is sent for it. When you reopen and load a rate, MAYA reads it as the night's base and your rules work on top of it. This works for Cloudbeds and ThinkReservations. Nothing is sent to Mews in any case.
 2. **Turn your rules off** for the closed stretch and back on afterwards. Simple to do, but it pauses every night, open or closed.
@@ -101,7 +101,7 @@ MAYA does not read future closures from your system, and there is no screen to e
 A closure in the past is a separate matter: it should not skew comparisons. MAYA finds long stretches of zero occupancy in your history and asks on the review, "Were you closed ...?". Confirming keeps those nights out of comparisons. [Checking what MAYA found](/docs/review/checking-what-maya-found) explains that card.
 
 <Example title="January at the Harbour Inn">
-The Harbour Inn closes every January. In late November, Sam sets every January night to 0 in Cloudbeds. Nights up to 59 days ahead have already been sent to by MAYA. On its next hourly read MAYA finds the 0, the rules stop running on those nights, and the manual price Sam had typed for New Year's Day is cleared. January nights further out have never been sent to and are read as 0, so they are never priced. Nothing more goes to Cloudbeds for January.
+The Harbour Inn closes every January. In late November, Sam sets every night of the coming January to 0 in Cloudbeds. They are all inside the 396-night window, so MAYA has already sent to them. On its next hourly read MAYA finds the 0, the rules stop running on those nights, and the manual price Sam had typed for New Year's Day is cleared. Sam sets the January after that to 0 as well. Those nights are more than 395 nights ahead, so MAYA has never sent to them: each is read as 0 when it enters the window, and never priced. Nothing more goes to Cloudbeds for either January.
 
 On February 1 Sam loads $150 for Standard from February 15 onwards. MAYA reads $150 as the base for those nights and "Busy nights" raises the ones over 80% full to $165 as usual.
 </Example>

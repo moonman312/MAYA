@@ -60,13 +60,13 @@ Mews is read-only for now. We connect it for you with keys from Mews, and arrang
 
 ## What "sends" means
 
-When a property is live, MAYA sends the prices that changed to your property system every cycle, for tonight and the next 59 nights. One number goes to one rate per room type. Your system's own derived rates, channels and booking engine follow from there by its own rules. On Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled. MAYA never sends anything else: no bookings, no availability, no minimum stays, no close-outs. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) for the full list.
+When a property is live, MAYA sends the prices that changed to your property system every cycle, for tonight and the next 395 nights. One number goes to one rate per room type. Your system's own derived rates, channels and booking engine follow from there by its own rules. On Cloudbeds, MAYA also asks Cloudbeds to let it know if the app is uninstalled. MAYA never sends anything else: no bookings, no availability, no minimum stays, no close-outs. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes) for the full list.
 
 Until you go live, no price is sent. Every property starts in simulation, where MAYA runs your rules and writes down what it would have sent. Read [simulation mode](/docs/live/simulation-mode).
 
 ## What every connection has in common
 
-- **About every five minutes**, MAYA reads new and changed bookings from your system, runs your rules over the next 60 nights, and (when live) sends the prices that changed. A very large first read can take a few cycles to finish.
+- **About every five minutes**, MAYA reads new and changed bookings from your system, runs your rules on the nights they changed, and (when live) sends the prices that changed. Once a day it runs them on every night up to 396 nights ahead. A very large first read can take a few cycles to finish.
 - **Once a day**, MAYA re-reads the whole booking window, so a booking that was missed in between is picked up within the day.
 - **Nothing to install.** You sign in on your system's own website (Cloudbeds or ThinkReservations), or we enter your keys (Mews). Nothing runs on your computers.
 - **Your password is never seen by MAYA.** Cloudbeds and ThinkReservations hand MAYA a token that lets it read and write on your behalf. If prices stop updating after you change your password there, a General Manager or Hotel Admin can reconnect from the <Ui>PMS</Ui> tab.

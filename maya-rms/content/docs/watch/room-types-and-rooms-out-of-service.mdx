@@ -55,7 +55,7 @@ Untick a room type and it leaves all three. Its bookings also leave the history 
 
 A rule cannot measure an unticked room type. A rule that measures only unticked types measures nothing and never fires. When an occupancy rule measured a mix, the change log says which were left out: "That 82% leaves out Meeting Room." [Measure one set of room types, change another](/docs/rules/measure-one-set-change-another) has the detail.
 
-Tick or untick and the change saves at once. If it does not save you see "That didn't save" with a note to try again, and the box goes back to where it was. Your rules then run again across the 60-night window, since every occupancy figure has moved. Each change is recorded with who made it.
+Tick or untick and the change saves at once. If it does not save you see "That didn't save" with a note to try again, and the box goes back to where it was. Your rules then run again across the 396-night window, since every occupancy figure has moved: within a few minutes for the coming nights, and over the next few cycles for the furthest, nearest nights first. Each change is recorded with who made it.
 
 <Example title="The Harbour Inn's meeting room">
 Cloudbeds lists four room types at The Harbour Inn: Standard (12), Deluxe (6), Suite (2) and Meeting Room (1). With Meeting Room unticked, the property has 20 rooms, not 21. A night with 12 rooms booked reads "12/20 rooms" and 60%. If the meeting room is booked that night, its revenue is in the dollar figure, and the percentage stays 60%. Sam is billed for 20 rooms.
@@ -80,7 +80,7 @@ Under each room type, click <Ui>+ Rooms out of service</Ui>. A short form opens:
 
 Click <Ui>Save</Ui> (it reads <Ui>Saving…</Ui> while it works) or <Ui>Cancel</Ui>. The block then lists under the room type as "2 out of service", the first and last night, "· Renovation", and <Ui>Clear</Ui>.
 
-For those nights only, the units come off the room type's sellable count, for your rules and on the calendar day card. Occupancy then reads against what you can sell, so an occupancy rule does not stay quiet because a renovated wing looks empty. Nothing is sent to your property system. Your rules run again across the 60-night window as soon as you save.
+For those nights only, the units come off the room type's sellable count, for your rules and on the calendar day card. Occupancy then reads against what you can sell, so an occupancy rule does not stay quiet because a renovated wing looks empty. Nothing is sent to your property system. Your rules run again on those nights within a few minutes of saving.
 
 <Example title="Two Standard rooms under renovation">
 The Harbour Inn takes 2 Standard rooms off sale from November 10 to November 20, 2026. On those nights the property has 18 sellable rooms, so a night with 11 rooms booked reads "11/18 rooms" and 61% instead of 55%. With 15 rooms booked, "Busy nights" (occupancy Greater than 80) fires at 15 of 18, which is 83%. Without the block, 15 of 20 is 75% and the rule would stay quiet.
@@ -101,7 +101,7 @@ The Harbour Inn takes 2 Standard rooms off sale from November 10 to November 20,
 
 ### Clearing a block
 
-Click <Ui>Clear</Ui> beside the block. The rooms are back on sale from the next run, which starts at once. MAYA keeps a record of the block and who cleared it, but it no longer shows. A block already cleared by someone else answers "That block is already cleared."
+Click <Ui>Clear</Ui> beside the block. The rooms are back on sale from the next run, within a few minutes. MAYA keeps a record of the block and who cleared it, but it no longer shows. A block already cleared by someone else answers "That block is already cleared."
 
 There is no edit. To change a block's dates or units, clear it and add a new one.
 
@@ -119,7 +119,7 @@ MAYA reads bookings and rates from your system, not room blocks, out-of-order ro
 <PmsTab pms="cloudbeds">
 A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A changed unit count is picked up on the next cycle, from the count Cloudbeds reports for the room type. A renamed room type shows its new name on the next cycle.
 
-A room type you remove in Cloudbeds is not removed in MAYA: it stays listed, on the calendar and priced until it is switched off for you. Its old stays still count. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) with its name and we switch it off. Until then its units still count in occupancy and in the room count you are billed for. Nights that enter the 60-night window after you remove it have no Cloudbeds rate to start from, so they are left unpriced. Its prices cannot reach Cloudbeds. Once you are live and MAYA tries to send one, the change log says "Cloudbeds can't find the rate MAYA changes for" that room type.
+A room type you remove in Cloudbeds is not removed in MAYA: it stays listed, on the calendar and priced until it is switched off for you. Its old stays still count. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) with its name and we switch it off. Until then its units still count in occupancy and in the room count you are billed for. Nights that enter the 396-night window after you remove it have no Cloudbeds rate to start from, so they are left unpriced. Its prices cannot reach Cloudbeds. Once you are live and MAYA tries to send one, the change log says "Cloudbeds can't find the rate MAYA changes for" that room type.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 A new room type appears in MAYA on the next cycle, about five minutes, counted as a room. If its name reads like something nobody sleeps in, it stays unanswered: it counts in occupancy but is left out of your bill until you tick or untick it on the <Ui>PMS</Ui> tab. A room type you remove stays in MAYA with its history. MAYA counts each room type's units from ThinkReservations' list of rooms on every cycle, leaving out rooms marked there as inactive, as not a room, or as not included in occupancy. A renamed room type shows its new name on the next cycle.

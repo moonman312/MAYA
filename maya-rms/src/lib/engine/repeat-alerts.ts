@@ -30,8 +30,9 @@
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeDta } from "./metrics";
-import { fireHeadKey, type FireHead } from "./pickup";
-import { fetchAllRows } from "./snapshots";
+import { baselineTsFrom, fireHeadKey, type FireHead } from "./pickup";
+import { fetchAllRows, filterNights, type NightSet } from "./snapshots";
+import { evalIsoToHotelDateString } from "./timezone";
 import type { RoomTypeRow } from "./types";
 
 /** Counted fires on one room type that put a night in front of the owner. */
@@ -92,19 +93,24 @@ export async function loadRepeatAlertNights(
   ruleIds: string[],
   firstDate: string,
   lastDate: string,
+  /** The run's nights when they are not every night in the range (filterNights). */
+  nights?: NightSet,
 ): Promise<Map<string, RepeatAlertNight[]>> {
   const out = new Map<string, RepeatAlertNight[]>();
   if (ruleIds.length === 0) return out;
   let rows: Record<string, unknown>[];
   try {
     rows = await fetchAllRows(() =>
-      supabase
-        .from("rule_repeat_alert_nights")
-        .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at, closed_reason")
-        .eq("hotel_id", hotelId)
-        .in("rule_id", ruleIds)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
+      filterNights(
+        supabase
+          .from("rule_repeat_alert_nights")
+          .select("alert_id, rule_id, rule_version, stay_date, fire_count, last_fire_at, choice, closed_at, closed_reason")
+          .eq("hotel_id", hotelId)
+          .in("rule_id", ruleIds),
+        nights,
+        firstDate,
+        lastDate,
+      )
         .order("stay_date", { ascending: true })
         .order("rule_id", { ascending: true })
         .order("rule_version", { ascending: true }),
@@ -173,6 +179,8 @@ export type RepeatAlertInput = {
   roomTypes: RoomTypeRow[];
   /** What this run published, per `stay_date|room_type_id`. */
   finalPriceByCell: ReadonlyMap<string, number>;
+  /** The hotel's time zone: where a fire's pickup window opened (baselineTsFrom). */
+  hotelTimeZone?: string;
 };
 
 export type RepeatAlertResult = { opened: number; filed: number; updated: number; closed: number; resolved: number };
@@ -716,12 +724,21 @@ async function nightDetails(
     // A pickup count that opened at a stronger rule's newer change covered
     // less than the rule's window (pickupWindowOpensAt), so no window is
     // named for it and the owner is never told "over the last 7 days" for a
-    // shorter stretch.
+    // shorter stretch. The window counts whole hotel days (baselineTsFrom
+    // on the fire's day); a fire from before that counted the window back
+    // from its own instant.
     const pickupDays = c.pickup_operator ? (c.pickup_window_days ?? null) : null;
+    const appliedMs = Date.parse(String(latest.applied_at));
+    const openedMs = latest.baseline_start_ts == null ? NaN : Date.parse(String(latest.baseline_start_ts));
+    const dayWindowStart =
+      pickupDays !== null && input.hotelTimeZone
+        ? baselineTsFrom(rule, evalIsoToHotelDateString(String(latest.applied_at), input.hotelTimeZone), input.hotelTimeZone)
+        : null;
     const wholePickupWindow =
       pickupDays === null ||
-      latest.baseline_start_ts == null ||
-      Date.parse(String(latest.applied_at)) - Date.parse(String(latest.baseline_start_ts)) >= pickupDays * 86_400_000 - 1000;
+      !Number.isFinite(openedMs) ||
+      (dayWindowStart !== null && openedMs <= Date.parse(dayWindowStart) + 1000) ||
+      appliedMs - openedMs >= pickupDays * 86_400_000 - 1000;
     out.set(key, {
       stay_date: stayDate,
       fire_count: Math.max(...perRoomType.values()),

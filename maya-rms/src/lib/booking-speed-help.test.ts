@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   BOOKING_SPEED_HELP_EXAMPLE,
   STRONGER_RULE_LINE,
+  WHOLE_DAYS_WAIT_LINE,
   bookingSpeedHelp,
   bookingSpeedWaitHelp,
   pickupWaitHelp,
+  pickupWindowHelp,
 } from "@/lib/booking-speed-help";
 import { classifyBookingSpeed } from "@/lib/observations/booking-speed";
 
@@ -184,7 +186,7 @@ describe("pickupWaitHelp", () => {
     // has nothing to judge until a whole window has passed.
     const words = pickupWaitHelp("1 day", null, true).lines.join(" ");
     expect(words).toContain(
-      "It looks for low pickup, so it only judges a whole lookback window of pickup that came in after its last change still on that night, or after a stronger rule's that moves the price the same way, if that was later. So it never adjusts a night again sooner than its lookback window, whatever the wait.",
+      "It looks for low pickup, so it counts full days only, up to yesterday, and after its last change still on that night, or a stronger rule's that moves the price the same way if that was later, it only judges a whole lookback window of full days from the start of that change's day. So it never adjusts a night again sooner than its lookback window, whatever the wait.",
     );
     expect(words).not.toContain("When the wait is over it counts pickup");
     expect(words).toContain("three of its changes");
@@ -204,5 +206,35 @@ describe("pickupWaitHelp", () => {
     expect(words).not.toContain("\u2014");
     expect(words).not.toContain("!");
     expect(words).not.toMatch(/[<>]/);
+  });
+});
+
+describe("waits and windows in whole days (Jake, 2026-09-28)", () => {
+  it("every wait panel says a wait counts whole days at the property, once", () => {
+    // isWaiting in engine/pickup.ts: a wait of N days from a change on day D
+    // ends when day D + N begins, whatever the hour of the change.
+    for (const h of [bookingSpeedWaitHelp("1 week"), pickupWaitHelp("2 days"), pickupWaitHelp("1 day", null, true)]) {
+      expect(h.lines.filter((l) => l === WHOLE_DAYS_WAIT_LINE)).toHaveLength(1);
+    }
+    expect(WHOLE_DAYS_WAIT_LINE).toBe(
+      "Waits count whole days at your property. A 2-day wait from a change made at any time on a Monday is over as Wednesday begins.",
+    );
+  });
+
+  it("the lookback window's panel names the days counted: today so far and the days before, or full days to yesterday", () => {
+    // baselineTsFrom and countPickupToDayStart in engine/pickup.ts.
+    expect(pickupWindowHelp(3).lines[1]).toBe("It looks for more pickup, so it counts today so far and the 2 days before.");
+    expect(pickupWindowHelp(1).lines[1]).toBe("It looks for more pickup, so it counts today so far.");
+    expect(pickupWindowHelp(2).lines[1]).toBe("It looks for more pickup, so it counts today so far and the day before.");
+    expect(pickupWindowHelp(7, true).lines[1]).toBe(
+      "It looks for low pickup, so it counts full days only: the 7 days up to yesterday. A day that isn't over yet never reads as slow, and a cancellation made today counts against it straight away.",
+    );
+    expect(pickupWindowHelp(1, true).lines[1]).toContain("the day up to yesterday");
+    for (const h of [pickupWindowHelp(3), pickupWindowHelp(7, true)]) {
+      expect(h.lines[0]).toContain("the days move on at midnight");
+      const words = [h.label, h.title, ...h.lines].join(" ");
+      expect(words).not.toContain("—");
+      expect(words).not.toMatch(/MAYA (learns|knows|thinks)/);
+    }
   });
 });

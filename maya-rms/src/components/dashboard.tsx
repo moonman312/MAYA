@@ -13,7 +13,7 @@ import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
 import { RateSimulator } from "@/components/rate-simulator";
 import { RoomCountHelp, RoomTypeSettings, isCountingRoom } from "@/components/room-type-settings";
-import { bookingSpeedHelp, bookingSpeedWaitHelp } from "@/lib/booking-speed-help";
+import { bookingSpeedHelp, bookingSpeedWaitHelp, pickupWindowHelp } from "@/lib/booking-speed-help";
 import { PickupWaitField } from "@/components/pickup-wait-field";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
@@ -1667,9 +1667,17 @@ export function Dashboard({
                           {row.metric === "pickup" ? (
                             <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-3">
                               <div>
-                                <label className="mb-0.5 block text-[11px] text-slate-500">
-                                  Lookback window
-                                </label>
+                                <div className="mb-0.5 flex items-center gap-1.5">
+                                  <label className="block text-[11px] text-slate-500">
+                                    Lookback window
+                                  </label>
+                                  <RoomCountHelp
+                                    {...pickupWindowHelp(
+                                      row.pickup_window_days,
+                                      pickupCountsLow(row.operator, Number(row.value)),
+                                    )}
+                                  />
+                                </div>
                                 <select
                                   className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
                                   value={String(row.pickup_window_days)}

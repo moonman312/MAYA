@@ -841,18 +841,18 @@ describe.each(ENGINES)("$name: a Booking Speed rule never counts bookings it or 
       expect(w.price(NIGHT)).toBe(110);
 
       // The owner types 150 on day 1. The raise comes off, and the rule
-      // waits its 3 days from then.
+      // waits its 3 days from then: until day 4 begins.
       const setAt = iso(T0 + DAY + HOUR);
       w.tables.manual_price.push({ hotel_id: "h1", stay_date: NIGHT, room_type_id: STD, price: 150, set_by: "u1", set_at: setAt, cleared_at: null });
       await w.run(1, 2 * HOUR);
       expect(w.fires(NIGHT).map((e) => e.retired_reason)).toEqual(["manual_price"]);
       expect(w.price(NIGHT)).toBe(150);
-      await w.run(4);
+      await w.run(3, 11 * HOUR);
       expect(w.fires(NIGHT)).toHaveLength(1);
 
       // Wait over: the whole month again, wedding included, as decided for
       // typed prices. It raises on top of the typed price.
-      await w.run(4, 2 * HOUR);
+      await w.run(4, -11 * HOUR);
       expect(w.fires(NIGHT).map((e) => [e.fire_seq, e.retired_reason, e.window_from])).toEqual([
         [1, "manual_price", addDays(D0, -29)],
         [2, null, addDays(D0, -25)],

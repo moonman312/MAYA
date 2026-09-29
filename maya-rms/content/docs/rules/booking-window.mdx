@@ -39,10 +39,10 @@ Comparisons are strict, so:
 | <Ui>Less than</Ui> 7 | Tonight and the next six nights (0 to 6) |
 | <Ui>Less than</Ui> 3 | Tonight, tomorrow and the night after (0 to 2) |
 | <Ui>Less than</Ui> 1 | Tonight only (0) |
-| <Ui>Greater than</Ui> 45 | Nights 46 days away and further, up to the edge of the 60-night window |
+| <Ui>Greater than</Ui> 45 | Nights 46 days away and further, up to the edge of the 396-night window |
 | <Ui>Greater than</Ui> 0 | Every night except tonight |
 
-Your rules run on tonight and the next 59 nights, so a <Ui>Greater than</Ui> rule reaches at most night 59. The one exception is a price you type further out: saving it runs your rules once on every night up to it. Read [How rules run](/docs/rules/how-rules-run#the-window).
+Your rules run on tonight and the next 395 nights, so a <Ui>Greater than</Ui> rule reaches at most night 395. A price you type further out is kept, and your rules price that night once it enters the window. Read [How rules run](/docs/rules/how-rules-run#the-window).
 
 <OpenInMaya to="rules.new" window="lt7" words="Open the rule builder with this condition" />
 

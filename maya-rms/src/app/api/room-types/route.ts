@@ -14,7 +14,7 @@ import { classifyRoomType } from "./classify";
 import { nearestPublishedRates } from "./seed-rates";
 import { NEEDS_MIGRATION, isPreMigration, scheduleReprice } from "./reprice";
 
-// PATCH schedules a full re-price behind the response; same cap as /api/evaluate.
+// PATCH asks the scheduled sync to price the change behind the response.
 export const maxDuration = 300;
 
 type RoomTypeRow = {
@@ -219,7 +219,7 @@ export async function PATCH(req: Request) {
       case "error":
         throw new Error(outcome.message);
       case "changed":
-        scheduleReprice(admin, hotelId, "room-types");
+        await scheduleReprice(admin, hotelId, "room-types");
         break;
       case "confirmed":
       case "unchanged":

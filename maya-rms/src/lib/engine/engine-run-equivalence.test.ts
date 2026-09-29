@@ -166,6 +166,35 @@
  * cancelled). No other fire moved; the prices and audit rows that changed
  * are those cells', and every ladder row and snapshot is unchanged.
  *
+ * Every hash from run 2 on in both variants, and the pickup_events_created
+ * and prices_published counts that moved, were rewritten a thirteenth time
+ * when pickup count windows and rule waits started counting whole hotel
+ * days (Jake, 2026-09-28). The migrated variant now also answers
+ * engine_run_gaps with no gaps: under the pricing cadence every tick logs
+ * a run, and every booking this churn makes reaches MAYA at a run's
+ * instant, so the snapshot a run leaves is each night as it stood until
+ * the next run, midnight included. Read against a dump of the previous
+ * engine on the same harness first. Run 2 (09:00 on 06-11 in New York):
+ * c1's one-day window is 06-11 so far, from midnight, where it was the 24
+ * hours back to run 0, so what run 1's churn booked on 06-10 no longer
+ * counts: c1 raises 06-16, 06-17, 06-22 and 06-23 on the same numbers as
+ * before, and not 06-14, 06-15, 06-27 and 06-29, whose pickup was run 1's.
+ * The rest follows from that and from the waits: c1's one-day wait from a
+ * raise on 06-11 is over at midnight, so in run 3 it raises 06-18, 06-19
+ * and 06-27 on 06-12's bookings alone; c2 and c4 count days that start at
+ * midnight and count from c1's raises where those moved; and c3 (fewer than
+ * 1 in 7 days, on the Suite) counts the seven complete days ending
+ * yesterday, the day's own bookings left for the next day's count, so in
+ * run 7 it also cuts 06-30 and 07-02, and the Suite rule d2 no longer
+ * raises 06-30. Every fire's baseline_start_ts is now a hotel midnight or
+ * the change it counted from, and its baseline_end_ts where its count
+ * ended (for c3, the start of the day). The prices and audit rows that
+ * moved are those cells', the run log differs in cells_changed alone, and
+ * every ladder row and snapshot is unchanged. The pre-migration variant
+ * has no engine_run_gaps, so a baseline at midnight answered by a snapshot
+ * more than 12 hours older is stale, as it always was: with runs a day
+ * apart, no pickup count rule fires there from run 2 on (d2 still does).
+ *
  * The golden file was written by this same test at commit 4ef5d65 with
  * MAYA_WRITE_ENGINE_GOLDEN=1. Its ladder_rule_state hashes were rewritten
  * once, leaving out last_evaluated_at, from an engine that still matched the
@@ -476,7 +505,16 @@ const sha = (x: unknown) => createHash("sha256").update(JSON.stringify(x)).diges
 type Variant = { name: string; fault: (c: FakeCall) => FakeError | null; rpc?: (fn: string) => unknown };
 
 const VARIANTS: Variant[] = [
-  { name: "migrated, suppression supported", fault: faults(() => null) },
+  {
+    name: "migrated, suppression supported",
+    fault: faults(() => null),
+    // The hotel ran every five minutes between the runs compared here (the
+    // pricing cadence logs a heartbeat on every tick, idle or not), so no
+    // stretch without a run blocks a pickup count as stale. Every booking
+    // the churn makes arrives at a run's instant, so the snapshot a run left
+    // is each night as it stood until the next run, midnight included.
+    rpc: (fn) => (fn === "engine_run_gaps" ? [] : undefined),
+  },
   {
     name: "pre-migration, no suppressed_at column",
     fault: faults((c) =>

@@ -37,13 +37,54 @@
  * the hotel's own rate, which must be one MAYA has just read. A refresh that
  * failed, ran out of time, found nothing to target, or could not tell when it
  * last ran and only checked for gaps (covered) holds them.
+ *
+ * Which nights the evaluation prices is the pricing cadence's call
+ * (pricing-plan.ts): the nights whose inputs changed, the nights a run
+ * changed a rule's state on, and a chunk of the daily pass, read from the database after the base
+ * rate refresh (which can mark nights) and reported back once the engine has
+ * priced them. A tick with nothing to price writes its heartbeat and prices
+ * nothing. MAYA_PRICING_CADENCE=every_tick prices the whole window, as before;
+ * so does a database without the cadence migration, at no more than 60 nights.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { CadenceReport, EvaluateOptions } from "../engine/evaluate.ts";
+import { hotelDayStartIso } from "../engine/timezone.ts";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
 import { pmsEditSettleMs } from "./pms-edits.ts";
-import { type HotelClock, readHotelClock } from "./pricing-window.ts";
+import {
+  CADENCE_MISSING,
+  cadenceConfigFromEnv,
+  loadPricingWork,
+  planPricingRun,
+  planWholeWindow,
+  pricingCadence,
+  recordPricingRun,
+  unsettledNights,
+  type CadenceConfig,
+  type PricingCadence,
+  type PricingPlan,
+  type PricingWork,
+} from "./pricing-plan.ts";
+import { type HotelClock, lastNightOf, readHotelClock } from "./pricing-window.ts";
+import { pushMaxPriceAgeMs } from "./push-guardrails.ts";
 import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushOptions, type RatePushSummary } from "./rate-push.ts";
+
+/** Before the cadence migration, every tick prices the whole window, and never past this. */
+export const PRE_CADENCE_HORIZON_DAYS = 60;
+
+/**
+ * Whether this process has seen a database without the cadence functions.
+ * Until one call finds them, the base rate refresh and the push keep to
+ * PRE_CADENCE_HORIZON_DAYS as well, so a deploy ahead of the migration reads
+ * no more of the PMS than before.
+ */
+let cadenceMissingSeen = false;
+
+/** Test hook. */
+export function resetCadenceMissingSeen(): void {
+  cadenceMissingSeen = false;
+}
 
 export type TickSkip =
   | { skipped: "no_credentials" | "out_of_time" | "disabled" | "sync_failed" | "sync_incomplete" }
@@ -62,11 +103,33 @@ export function readOutcome(sync: { ok: boolean; windowFullyCovered?: boolean })
   return sync.windowFullyCovered === false ? "incomplete" : "ok";
 }
 
+/** What the cadence chose for this tick, for the function's log line. */
+export type TickCadence = {
+  mode: PricingCadence | "pre_migration";
+  nights: number;
+  touched: number;
+  momentum: number;
+  chunk: number;
+  passStarted: string | null;
+  passNext: string | null;
+  failedNights: number;
+  /** Nights the run changed a rule's state on: priced again next tick. */
+  again?: number;
+  error?: string;
+};
+
 export type PricingTickResult<E> = {
   /** The hotel's date this tick priced from; null when it could not be read. */
   today: string | null;
   calendar: EnsureCalendarResult | TickSkip;
-  evaluate: E | { error: string } | { skipped: true | "out_of_time" | "sync_failed" };
+  evaluate: E | { error: string } | { skipped: true | "out_of_time" | "sync_failed" } | { idle: true };
+  /** How the nights were chosen; absent when nothing was evaluated. */
+  cadence?: TickCadence;
+  /**
+   * The daily pass has nights left (or a new pass is due and did not start):
+   * the caller releases the hotel due again soon (PASS_WORK_RETRY_SECONDS).
+   */
+  passWorkLeft: boolean;
   push: RatePushSummary | TickSkip;
   /** Nights changed in the PMS after MAYA's send that this refresh adopted as manual prices. */
   pmsEditsAdopted?: number;
@@ -94,9 +157,18 @@ export async function runPricingTick<E>(
     pushDeadlineAt: number;
     /** This tick's PMS read (readOutcome). Default "ok". */
     read?: ReadOutcome;
+    /** How nights are chosen; MAYA_PRICING_CADENCE by default. */
+    cadence?: PricingCadence;
+    /** The cadence's sizes; from the environment by default. */
+    cadenceConfig?: CadenceConfig;
+    /**
+     * Daily pass nights the invocation may still price, shared by its
+     * hotels (MAYA_TICK_PASS_NIGHTS). This tick takes its chunk from it.
+     */
+    passBudget?: { remaining: number };
   },
   deps: {
-    evaluate: (supabase: SupabaseClient, hotelId: string, evalTs: string | undefined, horizonDays: number) => Promise<E>;
+    evaluate: EvaluateFn<E>;
     now?: () => number;
   },
 ): Promise<PricingTickResult<E>> {
@@ -111,6 +183,7 @@ export async function runPricingTick<E>(
       calendar: skipped,
       evaluate: skipped,
       push: skipped,
+      passWorkLeft: false,
       outOfTime: false,
       calendarMs: 0,
       evalMs: 0,
@@ -126,6 +199,9 @@ export async function runPricingTick<E>(
     clockError = errorText(e, "hotel date unavailable");
   }
 
+  // A database without the cadence functions prices as before, 60 nights at most.
+  let horizonDays = cadenceMissingSeen ? Math.min(opts.horizonDays, PRE_CADENCE_HORIZON_DAYS) : opts.horizonDays;
+
   // A hotel already past the cut-off gets no evaluation, so a refresh would
   // only spend PMS calls and time the release needs.
   let calendar: PricingTickResult<E>["calendar"];
@@ -138,7 +214,7 @@ export async function runPricingTick<E>(
   } else {
     // Before the engine, so this tick prices on the base it just read.
     calendar = await ensureBaseRateCalendar(supabase, hotelId, opts.adapter, {
-      horizonDays: opts.horizonDays,
+      horizonDays,
       clock,
       deadlineAt: opts.evaluateBy,
     });
@@ -148,17 +224,35 @@ export async function runPricingTick<E>(
   const outOfTime = tCalendar > opts.evaluateBy;
   let evaluate: PricingTickResult<E>["evaluate"];
   let evaluatedAt: string | undefined;
+  let cadence: TickCadence | undefined;
+  let passWorkLeft = false;
+  // Nights the push may not take this tick's pricing as proof for (see RatePushOptions.notVouched).
+  let notVouched: RatePushOptions["notVouched"];
   if (outOfTime) {
     evaluate = { skipped: "out_of_time" };
-  } else if (opts.runEvaluate) {
+  } else if (opts.runEvaluate && !clock) {
+    // Without a clock the engine reads the timezone itself, as it always has,
+    // over the whole window; the push below does not run on that date.
     try {
-      // Without a clock the engine reads the timezone itself, as it always has;
-      // the push below does not run on that date.
-      evaluate = await deps.evaluate(supabase, hotelId, clock?.at, opts.horizonDays);
-      evaluatedAt = clock?.at;
+      evaluate = await deps.evaluate(supabase, hotelId, undefined, horizonDays);
     } catch (e) {
       evaluate = { error: errorText(e, "evaluate failed") };
     }
+  } else if (opts.runEvaluate && clock) {
+    const priced = await priceNights(supabase, hotelId, clock, {
+      horizonDays,
+      cadence: opts.cadence ?? pricingCadence(),
+      config: opts.cadenceConfig ?? cadenceConfigFromEnv(),
+      timeLeftMs: opts.evaluateBy - tCalendar,
+      passBudget: opts.passBudget,
+      evaluate: deps.evaluate,
+    });
+    evaluate = priced.evaluate;
+    evaluatedAt = priced.vouchedAt;
+    cadence = priced.cadence;
+    passWorkLeft = priced.passWorkLeft;
+    notVouched = priced.notVouched;
+    horizonDays = priced.horizonDays;
   } else {
     evaluate = { skipped: true };
   }
@@ -191,11 +285,11 @@ export async function runPricingTick<E>(
       : {
         readBeforeResend: {
           settleMs: pmsEditSettleMs(),
-          read: async () => {
+          read: async (span) => {
             const again = await ensureBaseRateCalendar(supabase, hotelId, adapter, {
-              horizonDays: opts.horizonDays,
+              horizonDays,
               clock: activeClock,
-              refreshIntervalMs: 0,
+              span,
               deadlineAt: opts.pushDeadlineAt,
             });
             return again.ok ? new Set(again.movedCells) : null;
@@ -205,12 +299,16 @@ export async function runPricingTick<E>(
     try {
       push = await pushRatesForHotel(supabase, hotelId, adapter, {
         today: clock.today,
-        // Never a night this tick did not evaluate.
-        pushHorizonDays: opts.horizonDays,
+        // The window the engine prices, never past it.
+        pushHorizonDays: horizonDays,
         deadlineAt: opts.pushDeadlineAt,
-        // Vouches for every price this tick's evaluation re-derived. A failed
-        // or skipped evaluation leaves the push to judge each price's age.
+        // Vouches for the prices this tick's pricing left current: every
+        // night of a whole-window evaluation, or, with the cadence, every
+        // night whose changes have all been priced (notVouched says which are
+        // not). A failed or skipped evaluation leaves the push to judge each
+        // price's age.
         evaluatedAt,
+        ...(notVouched ? { notVouched } : {}),
         holdNeverPushed: !baseReadRecently(calendar),
         ...changedInPms,
       });
@@ -224,6 +322,8 @@ export async function runPricingTick<E>(
     today: clock?.today ?? null,
     calendar,
     evaluate,
+    ...(cadence ? { cadence } : {}),
+    passWorkLeft,
     push,
     ...("pmsEditsAdopted" in calendar ? { pmsEditsAdopted: calendar.pmsEditsAdopted } : {}),
     outOfTime,
@@ -231,6 +331,222 @@ export async function runPricingTick<E>(
     evalMs: tEval - tCalendar,
     pushMs: tPush - tEval,
   };
+}
+
+type EvaluateFn<E> = (
+  supabase: SupabaseClient,
+  hotelId: string,
+  evalTs: string | undefined,
+  horizonDays: number,
+  opts?: EvaluateOptions,
+) => Promise<E>;
+
+type PricedNights<E> = {
+  evaluate: PricingTickResult<E>["evaluate"];
+  /** The instant the push may take as proof of a current price, if any. */
+  vouchedAt?: string;
+  cadence: TickCadence;
+  passWorkLeft: boolean;
+  notVouched?: RatePushOptions["notVouched"];
+  /** The window actually priced (shorter before the cadence migration). */
+  horizonDays: number;
+};
+
+const emptyReport = (): CadenceReport => ({
+  nights: [],
+  failedNights: [],
+  momentumNights: [],
+  changedNights: [],
+  engineMs: 0,
+});
+
+/**
+ * Read the work list, plan, price, report. Never throws: an engine failure is
+ * the tick's evaluate error and nothing is cleared, so the next tick prices
+ * the same nights again; a report that fails to record leaves the marks for
+ * the next tick too (priced twice, never missed).
+ */
+async function priceNights<E>(
+  supabase: SupabaseClient,
+  hotelId: string,
+  clock: HotelClock,
+  args: {
+    horizonDays: number;
+    cadence: PricingCadence;
+    config: CadenceConfig;
+    timeLeftMs: number;
+    passBudget?: { remaining: number };
+    evaluate: EvaluateFn<E>;
+  },
+): Promise<PricedNights<E>> {
+  let horizonDays = args.horizonDays;
+  let lastNight = lastNightOf(clock.today, horizonDays);
+  let work: PricingWork | typeof CADENCE_MISSING;
+  let workError: string | undefined;
+  try {
+    work = await loadPricingWork(supabase, hotelId, clock.today, lastNight);
+  } catch (e) {
+    // The list can't be read this tick: price the whole window, as before,
+    // and leave every mark for the next tick.
+    work = CADENCE_MISSING;
+    workError = errorText(e, "pricing work unavailable");
+    console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_work", error: workError }));
+  }
+  if (work === CADENCE_MISSING && !workError) {
+    cadenceMissingSeen = true;
+    horizonDays = Math.min(horizonDays, PRE_CADENCE_HORIZON_DAYS);
+    lastNight = lastNightOf(clock.today, horizonDays);
+  } else if (work !== CADENCE_MISSING) {
+    cadenceMissingSeen = false;
+  }
+
+  // Before the migration, or with the list unreadable: the whole window, as before.
+  if (work === CADENCE_MISSING) {
+    const cadence: TickCadence = {
+      mode: workError ? args.cadence : "pre_migration",
+      nights: horizonDays,
+      touched: 0,
+      momentum: 0,
+      chunk: horizonDays,
+      passStarted: null,
+      passNext: null,
+      failedNights: 0,
+      ...(workError ? { error: workError } : {}),
+    };
+    try {
+      const evaluate = await args.evaluate(supabase, hotelId, clock.at, horizonDays);
+      return { evaluate, vouchedAt: clock.at, cadence, passWorkLeft: false, horizonDays };
+    } catch (e) {
+      return { evaluate: { error: errorText(e, "evaluate failed") }, cadence, passWorkLeft: false, horizonDays };
+    }
+  }
+
+  const budget = args.passBudget?.remaining ?? Number.POSITIVE_INFINITY;
+  const plan: PricingPlan =
+    args.cadence === "every_tick"
+      ? planWholeWindow(work, clock.today, lastNight, horizonDays)
+      : planPricingRun({
+          work,
+          today: clock.today,
+          lastNight,
+          horizonDays,
+          config: args.config,
+          passAllowed: args.timeLeftMs >= args.config.passMinTimeMs && budget > 0,
+          passBudget: budget,
+        });
+  if (args.passBudget && args.cadence !== "every_tick") {
+    args.passBudget.remaining = Math.max(0, args.passBudget.remaining - plan.counts.chunk);
+  }
+  const cadence: TickCadence = {
+    mode: args.cadence,
+    nights: plan.nights.length,
+    touched: plan.counts.touched,
+    momentum: plan.counts.momentum,
+    chunk: plan.counts.chunk,
+    passStarted: plan.pass?.start ? plan.pass.reason : null,
+    passNext: plan.pass ? plan.pass.next : null,
+    failedNights: 0,
+  };
+  const passWorkLeft = plan.passWorkLeft || plan.passDue !== null;
+  const settled = work;
+  const notVouchedAfter = (priced: boolean): RatePushOptions["notVouched"] => {
+    const pricedNights = new Set(priced ? plan.nights : []);
+    return {
+      unpriced: new Set(settled.dirty.map((d) => d.stay_date).filter((d) => !pricedNights.has(d))),
+      stale: unsettledNights({
+        work: settled,
+        plan,
+        priced,
+        nowMs: Date.parse(clock.at),
+        maxAgeMs: pushMaxPriceAgeMs(),
+        today: clock.today,
+        lastNight,
+        dayStartedMs: Date.parse(hotelDayStartIso(clock.today, clock.timeZone)),
+        passMaxLagMs: args.config.passMaxLagMinutes * 60_000,
+      }),
+    };
+  };
+
+  // Nothing to price: a heartbeat, so the change log and the status page see
+  // a tick that ran and found nothing to change.
+  if (plan.nights.length === 0) {
+    try {
+      const recorded = await recordPricingRun(supabase, hotelId, {
+        at: clock.at,
+        first: clock.today,
+        last: lastNight,
+        nights: [],
+        dirty: [],
+        failed: plan.deferred,
+        again: [],
+        pass: null,
+        momentum: [],
+        msPerNight: null,
+        idle: true,
+        runId: crypto.randomUUID(),
+      });
+      if (recorded === CADENCE_MISSING) cadenceMissingSeen = true;
+    } catch (e) {
+      cadence.error = errorText(e, "pricing run not recorded");
+      console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_run_done", error: cadence.error }));
+    }
+    return {
+      evaluate: { idle: true },
+      vouchedAt: clock.at,
+      cadence,
+      passWorkLeft,
+      notVouched: notVouchedAfter(true),
+      horizonDays,
+    };
+  }
+
+  const report = emptyReport();
+  let evaluate: PricingTickResult<E>["evaluate"];
+  try {
+    evaluate = await args.evaluate(supabase, hotelId, clock.at, horizonDays, {
+      // A whole-window plan prices the window the way it always has.
+      ...(args.cadence === "every_tick" ? {} : { nights: plan.nights }),
+      runKind: args.cadence === "every_tick" ? "window" : "nights",
+      report,
+    });
+  } catch (e) {
+    // Nothing is cleared and the pass does not move: the next tick prices
+    // the same nights again. The push judges prices by the last good run.
+    return {
+      evaluate: { error: errorText(e, "evaluate failed") },
+      vouchedAt: work.state?.last_ok_run_at ?? undefined,
+      cadence,
+      passWorkLeft: true,
+      notVouched: notVouchedAfter(false),
+      horizonDays,
+    };
+  }
+
+  cadence.failedNights = report.failedNights.length;
+  cadence.again = report.changedNights.length;
+  const pricedNights = report.nights.length > 0 ? report.nights : plan.nights;
+  try {
+    const recorded = await recordPricingRun(supabase, hotelId, {
+      at: clock.at,
+      first: clock.today,
+      last: lastNight,
+      nights: pricedNights,
+      dirty: plan.dirtyRead,
+      failed: [...new Set([...report.failedNights, ...plan.deferred])].sort(),
+      again: report.changedNights,
+      pass: plan.pass,
+      momentum: report.momentumNights,
+      msPerNight: pricedNights.length > 0 ? Math.round((report.engineMs / pricedNights.length) * 1000) / 1000 : null,
+      idle: false,
+    });
+    if (recorded === CADENCE_MISSING) cadenceMissingSeen = true;
+  } catch (e) {
+    // Priced, not recorded: the marks stay and the next tick prices those
+    // nights again.
+    cadence.error = errorText(e, "pricing run not recorded");
+    console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_run_done", error: cadence.error }));
+  }
+  return { evaluate, vouchedAt: clock.at, cadence, passWorkLeft, notVouched: notVouchedAfter(true), horizonDays };
 }
 
 /** Whether the base under this tick was read from the PMS just now, or within the refresh interval. */

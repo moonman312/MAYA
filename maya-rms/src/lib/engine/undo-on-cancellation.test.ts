@@ -171,10 +171,27 @@ function timeline(engine: Engine, o: { rules: FakeRow[]; rows: FakeRow[]; rooms?
     pickup_event: [],
   });
   const waiting = [...o.rows].sort((a, b) => Date.parse(String(b.created_at)) - Date.parse(String(a.created_at)));
+  let lastRun: number | null = null;
   const runAt = async (ms: number) => {
     while (waiting.length > 0 && Date.parse(String(waiting[waiting.length - 1].created_at)) <= ms) {
       fake.tables.reservations.push(waiting.pop()!);
     }
+    // The scheduled ticks between the runs the story makes: nothing reached
+    // MAYA, so each found nothing to price and logged a heartbeat (hourly
+    // here). A pickup count opening at a midnight in between reads the last
+    // snapshot as the night then, not as stale.
+    for (let t = (lastRun ?? ms) + HOUR; t < ms; t += HOUR) {
+      (fake.tables.evaluation_run_log ??= []).push({
+        hotel_id: "h1",
+        evaluation_run_id: `idle-${t}`,
+        evaluated_at: iso(t),
+        cells_checked: 0,
+        cells_changed: 0,
+        run_kind: "idle",
+        nights_priced: 0,
+      });
+    }
+    lastRun = ms;
     vi.setSystemTime(new Date(ms));
     const now = iso(ms);
     await engine.evaluateHotel(fake.client, "h1", now, daysBetween(now.slice(0, 10), LAST) + 1);

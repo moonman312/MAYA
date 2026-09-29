@@ -266,7 +266,7 @@ export async function POST(req: Request) {
       units,
       reason,
     });
-    scheduleReprice(admin, hotelId, "room-types/out-of-service");
+    await scheduleReprice(admin, hotelId, "room-types/out-of-service");
 
     return NextResponse.json({ ok: true, id });
   } catch (error) {
@@ -307,7 +307,7 @@ export async function DELETE(req: Request) {
       end_date: row.end_date,
       units: row.units,
     });
-    scheduleReprice(admin, hotelId, "room-types/out-of-service");
+    await scheduleReprice(admin, hotelId, "room-types/out-of-service");
 
     return NextResponse.json({ ok: true, id, cleared_at: now, cleared_by: userId });
   } catch (error) {

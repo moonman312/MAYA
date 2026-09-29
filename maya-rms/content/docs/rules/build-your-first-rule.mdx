@@ -23,7 +23,7 @@ Open the <Ui>Rules</Ui> tab, click <Ui>+ Add a rule</Ui>, name it, pick a condit
 
 ## Before you start
 
-A rule is one sentence you write once: when a night looks like this, change its price by that much. About every five minutes MAYA checks every rule against your bookings, for tonight and the next 59 nights, and writes down what it did in the <Ui>Change Log</Ui> tab.
+A rule is one sentence you write once: when a night looks like this, change its price by that much. MAYA checks every rule against your bookings on a night within about five minutes of them changing, and on every night up to 395 nights ahead once a day, and writes down what it did in the <Ui>Change Log</Ui> tab.
 
 Rules live on the <Ui>Rules</Ui> tab. From the top down you will find:
 
@@ -66,7 +66,7 @@ Click <Ui>Add Rule</Ui>. The rule appears in the list with its switch on <Ui>On<
 
 <OpenInMaya to="rules.new" name="Busy nights" occupancy="gt80" direction="increase" percent="10" words="Open the rule builder with this rule filled in" />
 
-That is a complete rule. From the next check, about five minutes away, any night in the next 60 with sellable occupancy above 80% has its price raised by 10% for every room type you picked. When a night drops back to 80% or under, the raise comes off again.
+That is a complete rule. From the next check, about five minutes away, any night in the window with sellable occupancy above 80% has its price raised by 10% for every room type you picked. When a night drops back to 80% or under, the raise comes off again.
 
 <Callout kind="careful">
 A new rule is on the moment you add it. If your property is live on Cloudbeds or ThinkReservations, its first price changes go to your system on the next cycle. Nothing is sent to Mews. If you would rather look first, build the rule in the <Ui>Rate Simulator</Ui> tab instead. A rule saved from there arrives on the Rules tab switched off. Read [Trying rules out in the Rate Simulator](/docs/rules/the-rate-simulator).
@@ -137,7 +137,7 @@ Rules run every day of the year, for every night in the window. You cannot yet l
 ## What to read next
 
 - [The rule builder, field by field](/docs/rules/the-rule-builder): every field, every message, and what happens when you click <Ui>Add Rule</Ui>.
-- [How rules run](/docs/rules/how-rules-run): the five-minute cycle, the 60-night window, and how two rules combine on one night.
+- [How rules run](/docs/rules/how-rules-run): the five-minute cycle, the 396-night window, and how two rules combine on one night.
 - [Simulation mode](/docs/live/simulation-mode): what "not sent" means, and how to go live when you are ready.
 
 <Related>

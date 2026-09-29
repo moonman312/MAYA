@@ -7,7 +7,10 @@
  *   2. Refresh the property's own base rates         (ensureBaseRateCalendar)
  *   3. Run the pricing rules engine                  (evaluateHotel)
  *   4. Push changed prices, Live hotels only         (pushRatesForHotel)
- * Steps 2-4 share one hotel date and one horizon (runPricingTick).
+ * Steps 2-4 share one hotel date and one horizon (runPricingTick). Step 3
+ * prices the nights whose inputs changed since they were last priced, the
+ * nights the last run changed a rule's state on, and a chunk of the
+ * once-a-day pass over the whole window (pricing-plan.ts).
  *
  * Parallel to mews-scheduled-sync. Auth: pg_cron/pg_net sends
  * `x-think-cron-secret`, validated against THINK_CRON_SECRET
@@ -22,14 +25,14 @@ import { evaluateHotel } from "../_shared/engine/index.ts";
 import type { PmsRatePushAdapter } from "../_shared/pms/rate-push.ts";
 import { type PricingTickResult, readOutcome, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
+import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotelWaiting,
-  healthyReleaseIntervalSeconds,
   orderClaimedByDue,
-  OUT_OF_TIME_RETRY_SECONDS,
+  releaseIntervalSeconds,
   runScheduledHotels,
   scheduledLoopConfigFromEnv,
 } from "../_shared/pms/scheduled-loop.ts";
@@ -70,9 +73,13 @@ Deno.serve(async (req) => {
   }
 
   const runEvaluate = (getEnv("MAYA_RUN_EVALUATE") ?? "true").toLowerCase() !== "false";
-  // Nights evaluated, refreshed and pushed per tick: 60 by default, the window
-  // the support page promises. Env override: MAYA_PRICING_HORIZON_DAYS.
+  // The window priced, refreshed and pushed: 396 nights by default, tonight
+  // and the next 395. Env override: MAYA_PRICING_HORIZON_DAYS. Which of its
+  // nights a tick prices is the cadence's call (pricing-plan.ts): the ones
+  // that changed, and a chunk of the daily pass, shared out across this
+  // invocation's hotels by MAYA_TICK_PASS_NIGHTS.
   const horizonDays = pricingHorizonDays();
+  const passBudget = { remaining: cadenceConfigFromEnv().tickPassNights };
   // Outbound rate push is OFF unless explicitly enabled, and even then only
   // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
   const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
@@ -264,6 +271,7 @@ Deno.serve(async (req) => {
         // Leaves the room count and the release their time.
         pushDeadlineAt: invocationDeadline - 20_000,
         read: readOutcome(sync),
+        passBudget,
       },
       { evaluate: evaluateHotel },
     );
@@ -283,6 +291,7 @@ Deno.serve(async (req) => {
         calendar,
         pmsEditsAdopted: tick.pmsEditsAdopted,
         evaluate,
+        cadence: tick.cadence,
         push,
         syncMs: tSync - t0,
         calendarMs: tick.calendarMs,
@@ -309,11 +318,15 @@ Deno.serve(async (req) => {
         p_hotel_id: hotelId,
         p_pms_type: "think",
         p_ok: sync.ok,
-        p_interval_seconds: outOfTime
-          ? OUT_OF_TIME_RETRY_SECONDS
-          : sync.ok
-            ? healthyReleaseIntervalSeconds(syncIntervalSeconds, invocationStartedAt, Date.now())
-            : syncIntervalSeconds,
+        // Sooner while today's pass has nights left: see PASS_WORK_RETRY_SECONDS.
+        p_interval_seconds: releaseIntervalSeconds({
+          outOfTime,
+          syncOk: sync.ok,
+          passWorkLeft: tick.passWorkLeft,
+          syncIntervalSeconds,
+          invocationStartedAt,
+          now: Date.now(),
+        }),
       });
       if (releaseErr) {
         // Not fatal: the lease expires on its own and the next tick reclaims it.

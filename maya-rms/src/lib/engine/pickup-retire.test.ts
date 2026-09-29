@@ -69,6 +69,7 @@ function fire(over: Partial<OpenPickupFire> = {}): OpenPickupFire {
     affected_room_type_id: "rt1",
     applied_at: FIRED,
     checked_at: over.checked_at ?? over.applied_at ?? FIRED,
+    count_end_ts: over.count_end_ts ?? over.checked_at ?? over.applied_at ?? FIRED,
     fire_seq: 1,
     action_kind: "percent",
     action_direction: "increase",
@@ -695,9 +696,10 @@ describe("a whole run after the bookings behind a pickup increase cancel", () =>
       base_rate: 100,
       created_at: `${bookedOn}T10:00:00Z`,
     });
-    // One booking a night from long ago; the baseline three days back saw one on NIGHT.
+    // One booking a night from long ago; the window's first day (two days
+    // back: three whole hotel days with today) began with one on NIGHT.
     const reservations = Array.from({ length: HORIZON }, (_, i) => booking(addDays(TODAY, i), 40));
-    const baselineTs = new Date(t0 - 73 * 3_600_000).toISOString();
+    const baselineTs = `${addDays(TODAY, -2)}T00:00:00.000Z`;
     const stay_date_snapshot = reservations.map((r) => ({
       hotel_id: "h1",
       snapshot_ts: baselineTs,

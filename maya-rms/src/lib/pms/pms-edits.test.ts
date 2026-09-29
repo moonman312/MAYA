@@ -852,6 +852,7 @@ describe("a rate changed in the PMS, through the tick", () => {
     const { d, sent, tick, setPmsRate } = setup([settledSend(220)]);
     // Read at 11:40; the hotel set 250 in Cloudbeds at 11:50; at 12:00 a new rule fires on the night.
     d.tables.pms_connections[0].base_rates_refreshed_at = new Date(T0 - 20 * 60_000).toISOString();
+    d.tables.pms_connections[0].base_rates_through = "2026-10-07";
     setPmsRate(250);
     d.tables.pricing_rules.push(busyRule("r2", new Date(T0 - 10 * 60_000).toISOString()));
 

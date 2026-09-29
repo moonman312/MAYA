@@ -114,6 +114,7 @@ const state = vi.hoisted(() => ({
   fake: null as unknown,
 }));
 const evaluateHotel = vi.hoisted(() => vi.fn());
+const nudgeHotelSync = vi.hoisted(() => vi.fn());
 const afterCalls = vi.hoisted(() => [] as Array<() => unknown>);
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -146,6 +147,7 @@ vi.mock("@/lib/rate-limit", async () => {
   };
 });
 vi.mock("@/lib/engine", () => ({ evaluateHotel }));
+vi.mock("@/lib/pms/sync-nudge", () => ({ nudgeHotelSync }));
 
 const { GET, PATCH } = await import("./route");
 const { fallbackSeed, isCountingRoom } = await import("@/lib/room-types");
@@ -190,6 +192,8 @@ beforeEach(() => {
   state.fake = seed();
   evaluateHotel.mockReset();
   evaluateHotel.mockResolvedValue({ run_id: "run-1" });
+  nudgeHotelSync.mockReset();
+  nudgeHotelSync.mockResolvedValue("nudged");
   afterCalls.length = 0;
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -299,7 +303,7 @@ describe("PATCH /api/room-types — doors", () => {
 });
 
 describe("PATCH /api/room-types — the flip", () => {
-  it("writes the flag, logs who/what/before/after, and re-prices behind the response", async () => {
+  it("writes the flag, logs who/what/before/after, and asks the scheduled sync to price it", async () => {
     const res = await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -314,11 +318,11 @@ describe("PATCH /api/room-types — the flip", () => {
       p_detail: { room_type_id: ROOM, name: "Standard", before: null, after: false, via: "settings" },
     });
 
-    // The response went out before the engine ran, and it runs a bounded
-    // horizon — the full 365 does not fit inside the route's wall clock.
-    expect(evaluateHotel).not.toHaveBeenCalled();
+    // The database marks the hotel for a new pass; the route only nudges
+    // the sync that prices it, and never runs the engine itself.
+    expect(nudgeHotelSync).toHaveBeenCalledWith(fake(), HOTEL);
     await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 60);
+    expect(evaluateHotel).not.toHaveBeenCalled();
   });
 
   it("stamps who decided on the row and names them in the audit line", async () => {
@@ -331,13 +335,6 @@ describe("PATCH /api/room-types — the flip", () => {
     expect(log.args.p_detail).toMatchObject({ actor_user_id: USER });
   });
 
-  it("honours MAYA_PRICING_HORIZON_DAYS for the re-price", async () => {
-    vi.stubEnv("MAYA_PRICING_HORIZON_DAYS", "30");
-    await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
-    await flushAfter();
-    expect(evaluateHotel).toHaveBeenCalledWith(fake(), HOTEL, undefined, 30);
-    vi.unstubAllEnvs();
-  });
 
   it("writes the flag without provenance when only the set_by column is missing, and says so", async () => {
     // The migration was run once before counts_as_room_set_by was added to
@@ -357,8 +354,7 @@ describe("PATCH /api/room-types — the flip", () => {
     const res = await patch({ hotelId: HOTEL, roomTypeId: COURT, countsAsRoom: false });
     expect(res.status).toBe(200);
     expect(fake().rpcs.filter((r) => r.name === "platform_log_event")).toEqual([]);
-    await flushAfter();
-    expect(evaluateHotel).not.toHaveBeenCalled();
+    expect(nudgeHotelSync).not.toHaveBeenCalled();
   });
 
   it("confirming the import's guess stamps the owner on it and logs, but has nothing to re-price", async () => {
@@ -369,8 +365,7 @@ describe("PATCH /api/room-types — the flip", () => {
     expect(fake().tables.get("room_types")!.find((r) => r.id === COURT)!.counts_as_room_set_by).toBe(USER);
     const log = fake().rpcs.find((r) => r.name === "platform_log_event")!;
     expect(log.args.p_detail).toMatchObject({ before: false, after: false, confirmed_guess: true, actor_user_id: USER });
-    await flushAfter();
-    expect(evaluateHotel).not.toHaveBeenCalled();
+    expect(nudgeHotelSync).not.toHaveBeenCalled();
   });
 
   it("re-ticking a suspect records the reversal", async () => {
@@ -384,15 +379,13 @@ describe("PATCH /api/room-types — the flip", () => {
     const res = await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     expect(res.status).toBe(503);
     expect((await res.json()).error).toBe("This needs a database update first.");
-    await flushAfter();
-    expect(evaluateHotel).not.toHaveBeenCalled();
+    expect(nudgeHotelSync).not.toHaveBeenCalled();
   });
 
-  it("a failed engine run is logged, not surfaced", async () => {
-    evaluateHotel.mockRejectedValueOnce(new Error("boom"));
+  it("a failed nudge is logged, not surfaced: the next tick prices the change anyway", async () => {
+    nudgeHotelSync.mockRejectedValueOnce(new Error("boom"));
     const res = await patch({ hotelId: HOTEL, roomTypeId: ROOM, countsAsRoom: false });
     expect(res.status).toBe(200);
-    await flushAfter();
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("boom"));
   });
 });

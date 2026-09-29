@@ -85,12 +85,12 @@ When you type a price for a night and room type on the calendar:
 - every booking speed and pickup change already on that night and room type comes off ("this night's price was set by hand" in the change log)
 - every standard rule change already there is held: the rule stays on, so it does not fire again on the same trigger, but it stops moving the price until its condition next changes
 - your number becomes the base, and rules that fire later stack on top of it
-- a booking speed or pickup rule that already existed waits its wait from the moment you saved, then reads its whole window again
+- a booking speed or pickup rule that already existed waits its wait, in whole days from the day you saved, then reads its whole window again
 
 Read [Setting a price yourself](/docs/watch/setting-a-price-yourself). Clearing your price hands the night back: held standard rules move the price again, but the booking speed and pickup changes that came off stay off.
 
 <Callout kind="careful" title="Typing a price is the quickest undo">
-If a price looks wrong and you want it fixed now, type the price you want. It is saved at once. If you are live on Cloudbeds or ThinkReservations it is sent right away or on the next cycle, about five minutes later (the screen says which). A night more than 59 nights ahead is sent when it enters the 60-night window. A 0 is not sent, and nothing is sent to Mews. Read [Undo a price change](/docs/recipes/undo-a-price-change).
+If a price looks wrong and you want it fixed now, type the price you want. It is saved at once. If you are live on Cloudbeds or ThinkReservations it is sent right away or on the next cycle, about five minutes later (the screen says which). A night more than 395 nights ahead is sent when it enters the 396-night window. A 0 is not sent, and nothing is sent to Mews. Read [Undo a price change](/docs/recipes/undo-a-price-change).
 </Callout>
 
 ## A rule that is changed

@@ -1,17 +1,18 @@
 ---
 title: How prices reach your property system
-summary: Every cycle MAYA sends the prices that changed, for tonight and the next 59 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
+summary: Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
 section: live
 order: 30
 readingTime: 19
-keywords: [sending, sent, push, when are prices sent, how many nights, 60 nights, 60 days, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 364 days, price beyond 60 days, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
+keywords: [sending, sent, push, when are prices sent, how many nights, 396 nights, 13 months, a year ahead, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 399 days, price beyond the window, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
 questions:
   - When are prices sent to my property system? {#when-prices-are-sent/every-cycle}
-  - How many nights ahead does MAYA send? {#how-many-nights-60/your-rules-run}
-  - Does going live send all 60 nights at once? {#how-many-nights-60/your-rules-run}
-  - Will MAYA send prices for nights beyond 60 days when I go live? {#how-many-nights-60/your-rules-run}
-  - Does it send prices past 60 days if I typed them? {#how-many-nights-60/when-you-save}
-  - Why do some nights past 60 days show a price on the calendar? {#how-many-nights-60/when-you-save}
+  - How many nights ahead does MAYA send? {#how-many-nights-396/your-rules-price}
+  - Does going live send all 396 nights at once? {#how-many-nights-396/going-live-sends}
+  - Will MAYA send prices for nights beyond 60 days when I go live? {#how-many-nights-396/your-rules-price}
+  - My property went live when MAYA sent 60 nights. What happens to the nights after that? {#how-many-nights-396/if-your-property}
+  - Does it send prices past the window if I typed them? {#how-many-nights-396/a-price-you}
+  - Why does a night past the window show my typed price but no Current price? {#how-many-nights-396/a-price-you}
   - How can I tell that a price landed in Cloudbeds? {#how-maya-confirms-a-send-landed/cloudbeds-cloudbeds-applies}
   - How can I tell that a price landed in ThinkReservations? {#how-maya-confirms-a-send-landed/thinkreservations-thinkreservations-answers}
   - Does MAYA re-send a price that has not changed? {#changed-prices-only}
@@ -34,14 +35,14 @@ updated: 2026-09-27
 ---
 
 <InPlainWords>
-Every cycle, about every five minutes, MAYA sends the prices that changed since the last successful send, for nights from today to 59 days out, one nightly rate per room type. Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. ThinkReservations accepts each price and applies it shortly after, and MAYA's hourly read then finds it there. If a price never appears in your system, MAYA does not send it again until the night's price changes, so compare the night in both places and email us. Mews receives nothing.
+Every cycle, about every five minutes, MAYA sends the prices that changed since the last successful send, for nights from today to 395 days out (about 13 months), one nightly rate per room type. Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. ThinkReservations accepts each price and applies it shortly after, and MAYA's hourly read then finds it there. If a price never appears in your system, MAYA does not send it again until the night's price changes, so compare the night in both places and email us. Mews receives nothing.
 </InPlainWords>
 
 ## The cycle, in one paragraph
 
-About every five minutes MAYA runs one cycle for your property. It reads your bookings. If an hour has passed, or your hotel day has changed, it reads your own rates for the window too. It runs every rule over tonight and the next 59 nights. Then, if the property is live, it sends the prices that changed. A cycle where nothing changed sends nothing. About once a day MAYA reads every booking again, so anything missed is picked up within the day. [How rules run](/docs/rules/how-rules-run) covers what happens inside the rules step.
+About every five minutes MAYA runs one cycle for your property. It reads your bookings. If an hour has passed, or your hotel day has changed, it reads your own rates for the window too. It prices again every night whose bookings changed, and every night a change of yours reaches (a price you typed, a rule, a room type). Once a day, in the first cycles after midnight at your property, it prices every night of the window again, tonight and the next 395 nights, nearest nights first. Then, if the property is live, it sends the prices that changed. A cycle where nothing changed prices nothing and sends nothing. About once a day MAYA reads every booking again, so anything missed is picked up within the day. [How rules run](/docs/rules/how-rules-run) covers what happens inside the rules step.
 
-A price you type is the one thing that does not wait for the cycle. On a live property the save runs the rules for those nights at once and asks MAYA to send them now. The confirmation says "Saved. Sending to Cloudbeds now." If that nudge cannot be made, it says "Saved. Sending to Cloudbeds on the next cycle (about 5 min)."
+A price you type does not wait for the cycle. The save runs the rules for those nights at once and, on a live property, asks MAYA to send them now. The confirmation says "Saved. Sending to Cloudbeds now." If that nudge cannot be made, it says "Saved. Sending to Cloudbeds on the next cycle (about 5 min)."
 
 ## When prices are sent
 
@@ -50,17 +51,17 @@ A price you type is the one thing that does not wait for the cycle. On a live pr
 - **Not on a cycle where the read of your bookings failed.** Nothing is priced or sent on stale bookings. The next cycle reads again.
 - **Not until a read of your bookings has finished.** Your rules run on what has arrived, but MAYA sends nothing until a read of your bookings has finished. On a large property that read can take more than one cycle.
 
-## How many nights: 60
+## How many nights: 396
 
-Your rules run over tonight and the next 59 nights, and MAYA sends what they set. The nights are counted on your property's own calendar, not the clock where you happen to be. That is the window. Every part of a cycle uses the same one: the read of your rates, the rules and the send. No night goes out that the cycle did not price.
+Your rules price tonight and the next 395 nights, about 13 months, and MAYA sends what they set. The nights are counted on your property's own calendar, not the clock where you happen to be. That is the window. Every part of a cycle uses the same one: the read of your rates, the rules and the send. No night goes out that MAYA has not priced.
 
-Nights beyond the window are not sent, and the cycle does not price them. Each morning, at your property's day change, one more night enters the window and is priced and sent from then on. Your own base rate is read only inside the window too. So going live sends the 60 nights of the window, and nothing beyond them until each night's turn comes.
+Nights beyond the window are not sent and not priced. Each day, at your property's midnight, one more night enters the window and is priced and sent from then on. Your own base rate is read only inside the window too, so load rates that far ahead. [Setting up your system](/docs/connect/setting-up-your-system-for-maya#rates-loaded-about-13-months-ahead) has the check.
 
-A price you type can reach further: up to 364 days ahead. It is saved, shown on the calendar and sent on the cycle after its night enters the window. The confirmation says "Saved. It will be sent when the date enters the 60-day push window." For a range that crosses the edge it says how many nights go now and how many wait: "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 60-day window."
+Going live sends every priced night of the window, nearest first.
 
-When you save or clear a price further ahead, MAYA runs your rules past the window. It runs them over every night from tonight to the last night you chose. That is the only time rules run beyond the window.
+If your property went live when MAYA sent 60 nights, it now sends up to 396 nights ahead too. Nights 61 to 396 got their first price over the few cycles after the window grew, and each is sent again whenever its price changes. Once MAYA has sent to one of those nights, a rate changed by hand in your system on it is kept as a manual price, as it always was inside the 60.
 
-Out there MAYA has none of your own rates to start from. A night is priced only when it has another starting point, such as a booking for that room type or a price you typed. Those nights show a Current price on the calendar. None of them is sent until it enters the window, where the cycle prices it again.
+A price you type can reach a little further, up to 399 days ahead. It is saved and shown with its <Ui>Manual</Ui> badge, and priced and sent once its night enters the window. The confirmation says "Saved. It will be sent when the date enters the 396-day push window." For a range that crosses the edge it says how many nights go now and how many wait: "Saved. 12 nights sending to Cloudbeds now; 8 more will be sent as they enter the 396-day window." Until then it has no Current price.
 
 Nights before your property's today are never sent. Tonight stays in the window, priced and sent like any other night, until midnight at the property. After that it leaves the window.
 
@@ -150,7 +151,7 @@ Before every send MAYA checks each room type and night once more, against the ro
 | The price is 0 | A comp night. No property system is confirmed to take a 0 from MAYA, so you set 0 in your system yourself. You are told in the change log. |
 | Your system has the night at 0 and nobody typed a price | The night is closed there, or its rates are not loaded that far out. MAYA leaves it alone. |
 | The price is under the floor or over the ceiling as they are now | A limit you changed after the night was priced. The next cycle re-prices and the hold clears. A typed price widens the limits to include itself. |
-| No pricing run has backed the price within the last 30 minutes | If runs have been failing for half an hour, MAYA stops sending until one succeeds, rather than send an old number. |
+| A change to the night has waited more than 30 minutes to be priced, or the day's pricing is running more than 2 hours behind your property's midnight | If pricing is failing or falling behind, MAYA stops sending those nights until they are priced, rather than send an old number. |
 | The room type has no base rate in your system | Nothing to send to. You are told in the change log. |
 
 Only two of these are shown to you: the price of 0 and the missing base rate, because those need you. The rest are MAYA's own checks, and most clear on a later cycle without you. A room type switched off as a duplicate is never meant to be sent, and a night your system has at 0 waits until you load a rate there.
@@ -205,7 +206,7 @@ MAYA cannot show you what it sent next to what your system has, and there is no 
 
 ## Questions people ask
 
-**Does MAYA pick up new bookings instantly?** No. A booking made in your system is read on the next cycle, within about five minutes. The rules run on that cycle, and any price that changes is sent on the same cycle.
+**Does MAYA pick up new bookings instantly?** No. A booking made in your system is read on the next cycle, within about five minutes. The rules price that night again on that cycle, and any price that changes is sent on the same cycle.
 
 **Why did MAYA send a night again at the same price?** The rate plan behind that room type changed in your system, so MAYA sent the night to the new plan.
 
@@ -214,7 +215,7 @@ MAYA cannot show you what it sent next to what your system has, and there is no 
 <Example title="One cycle at the Harbour Inn">
 Tuesday, 3:05 PM cycle (your browser's clock). MAYA reads the Harbour Inn's bookings and finds one new booking for Friday, November 13, 2026. That night is now 17 of 20 rooms, 85% full. "Busy nights" (occupancy Greater than 80, Increase 10%) fires on every room type: Standard's $150 becomes $165, Deluxe's $200 becomes $220 and Suite's $300 becomes $330.
 
-The send has three changes, all for November 13: Standard $165, Deluxe $220, Suite $330. Each goes to its room type's base rate in Cloudbeds. MAYA asks Cloudbeds what became of the send a few seconds later and records the prices as landed. The other 59 nights are unchanged and are not sent.
+The send has three changes, all for November 13: Standard $165, Deluxe $220, Suite $330. Each goes to its room type's base rate in Cloudbeds. MAYA asks Cloudbeds what became of the send a few seconds later and records the prices as landed. The other 395 nights are unchanged and are not sent.
 
 At 3:10 PM nothing has changed. Nothing is sent, and the change log counts the run into its "Prices checked" line.
 </Example>

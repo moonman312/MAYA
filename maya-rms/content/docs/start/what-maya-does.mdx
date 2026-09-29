@@ -1,6 +1,6 @@
 ---
 title: What MAYA does
-summary: You write pricing rules in plain words. About every five minutes MAYA reads your bookings, runs your rules over the next 60 nights, and sends the prices that changed to your property system (not yet to Mews).
+summary: You write pricing rules in plain words. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).
 section: start
 order: 10
 readingTime: 15
@@ -23,7 +23,7 @@ updated: 2026-09-28
 ---
 
 <InPlainWords>
-You write pricing rules. About every five minutes MAYA reads your bookings, runs your rules over the next 60 nights, and sends the prices that changed to your property system (with Mews, nothing is sent yet). Nothing is sent until you say so. The change log shows the latest changes and why each one happened.
+You write pricing rules. About every five minutes MAYA reads your bookings, runs your rules on every night whose bookings changed, and sends the prices that changed to your property system (with Mews, nothing is sent yet). Once a day, just after midnight at your property, it runs them on every night up to 396 nights ahead. Nothing is sent until you say so. The change log shows the latest changes and why each one happened.
 </InPlainWords>
 
 ## A rule in one sentence
@@ -58,7 +58,7 @@ The <Ui>Rules</Ui> tab lists every rule in a table: its name, how many times it 
 </Example>
 </Step>
 <Step title="MAYA runs them">
-About every five minutes, MAYA reads your bookings and room types from your property system, refreshes your own rates from it about once an hour, runs every rule over the next 60 nights, and sends the prices that changed. Sending only happens once you have gone live, and never to Mews yet. Until then MAYA runs everything and sends nothing.
+About every five minutes, MAYA reads your bookings and room types from your property system, refreshes your own rates from it about once an hour, runs every rule on each night whose bookings changed or that a change of yours reaches, and sends the prices that changed. In the first cycles after midnight at your property it runs every rule on every night from tonight to 395 nights ahead, nearest first. Sending only happens once you have gone live, and never to Mews yet. Until then MAYA runs everything and sends nothing.
 
 This all happens on MAYA's side, day and night, whether or not anyone has MAYA open. Nobody needs to be signed in, and the office computer being off or your own internet being down does not stop it. What stops it is MAYA being unable to reach your property system's service (read [Connection lost](/docs/wrong/connection-lost)), or a subscription that has stopped.
 
@@ -104,7 +104,7 @@ Nothing is sent to Mews yet. MAYA reads your Mews bookings, runs your rules and 
 </PmsTab>
 </PmsTabs>
 
-Only prices that changed go out. A night whose price has not changed since MAYA last sent it is not sent again. On your first live run, every night in the 60-night window that has a price is sent once, including nights your rules left at your own rate. A price of 0 is never sent. For a free night, type 0 in MAYA and set 0 in your property system yourself.
+Only prices that changed go out. A night whose price has not changed since MAYA last sent it is not sent again. On your first live run, every night in the 396-night window that has a price is sent once, including nights your rules left at your own rate. A price of 0 is never sent. For a free night, type 0 in MAYA and set 0 in your property system yourself.
 
 ## What MAYA never touches
 
@@ -152,7 +152,7 @@ So a price moves after bookings arrive, not before them. When you know something
 ## Who sets the prices: you do
 
 - **You write the rules.** The starter rules from your history are added for you during setup and switched on, but while you are in simulation they only show what they would do. You can switch any of them off or delete them before you go live. A rule that is switched off holds the changes it already made. A deleted rule undoes them.
-- **You can type a price** for any room type, for tonight or any night up to a year ahead, from the <Ui>Calendar</Ui> tab. It has to sit within the room type's floor and ceiling, or be 0 for a free (comp) night, and it needs Revenue Manager, General Manager or Hotel Admin access. Your typed price becomes the night's new starting point. The changes your rules had already made there are set aside, and any rule that fires after that works from your number. No rule raises a night set to 0, and a 0 is not sent, so set the night to 0 in your property system too.
+- **You can type a price** for any room type, for tonight or any night up to 399 days ahead, from the <Ui>Calendar</Ui> tab. It has to sit within the room type's floor and ceiling, or be 0 for a free (comp) night, and it needs Revenue Manager, General Manager or Hotel Admin access. Your typed price becomes the night's new starting point. The changes your rules had already made there are set aside, and any rule that fires after that works from your number. No rule raises a night set to 0, and a 0 is not sent, so set the night to 0 in your property system too.
 - **Floors and ceilings hold every rule.** Each room type has a floor and a ceiling that no rule can take its price past. Setup fills them in from your answers to the five questions and, with Cloudbeds and ThinkReservations, from your own rates. Check them before you go live, in the <Ui>Guardrails</Ui> column of the <Ui>Rate Simulator</Ui> tab. A price you set yourself can sit outside them (0 for a free night, or a rate you changed in your property system), and no rule takes it further out. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
 - **You go live.** Every property starts in simulation. MAYA runs every rule and writes every change in the log, but sends nothing to your system until a General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui>, or asks us to switch the property live where there is no button. [Going live](/docs/live/going-live) says which.
 
@@ -171,7 +171,7 @@ A channel manager carries your rates to Booking.com, Expedia and the rest. A rat
 
 ## Simulation first
 
-Every property starts in simulation. Everything runs: bookings are read, rules fire, prices are worked out, the change log fills. Nothing is sent. You can watch for a day or a month, type prices, add rules, and open the <Ui>Rate Simulator</Ui> to make up a night and see what your rules would do to it. When you are ready, you go live, and from the next run MAYA starts sending prices for the next 60 nights to Cloudbeds or ThinkReservations. [Simulation mode](/docs/live/simulation-mode) covers what changes when you do.
+Every property starts in simulation. Everything runs: bookings are read, rules fire, prices are worked out, the change log fills. Nothing is sent. You can watch for a day or a month, type prices, add rules, and open the <Ui>Rate Simulator</Ui> to make up a night and see what your rules would do to it. When you are ready, you go live, and from the next run MAYA starts sending prices for the next 396 nights to Cloudbeds or ThinkReservations, nearest nights first. [Simulation mode](/docs/live/simulation-mode) covers what changes when you do.
 
 ## Who makes MAYA
 

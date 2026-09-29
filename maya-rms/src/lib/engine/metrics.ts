@@ -6,11 +6,9 @@
 
 import type { EngineRule } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { findSnapshotAt, type SnapshotLookup } from "./snapshots";
+import { baselineIsStale, findSnapshotAt, type SnapshotLookup } from "./snapshots";
 import type { RuleMetrics } from "./types";
 
-/** §16.3 — baseline snapshot must not be “too old” vs target baseline_ts. */
-const BASELINE_SNAPSHOT_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
  * §5.1: days_until_arrival = (stay_date - evaluation_local_date).days
@@ -190,8 +188,13 @@ export async function computeRuleMetrics(
         break;
       }
       const row = baselineSnapsFull.get(rtId)!;
-      const age = new Date(baselineTs).getTime() - new Date(row.snapshot_ts).getTime();
-      if (age > BASELINE_SNAPSHOT_MAX_AGE_MS) {
+      // §16.3: a baseline read while pricing was not running is too old to
+      // count. The run's lookup knows when the hotel ran (its gaps); without
+      // it, the snapshot's age against the baseline decides, as before.
+      const stale = lookup?.staleBaseline
+        ? lookup.staleBaseline(baselineTs, row.snapshot_ts)
+        : baselineIsStale(baselineTs, row.snapshot_ts, null);
+      if (stale) {
         pickup_block_reason = "stale_baseline_snapshot";
         break;
       }

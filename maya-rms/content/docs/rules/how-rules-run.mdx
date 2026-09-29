@@ -1,10 +1,10 @@
 ---
 title: How rules run
-summary: The five-minute cycle, the 60-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.
+summary: The five-minute cycle and the daily pass, the 396-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.
 section: rules
 order: 90
-readingTime: 18
-keywords: [how often, every five minutes, cycle, pricing run, 60 nights, 60 days, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 59 days out not 61, fired 90 days out, far-out night, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
+readingTime: 19
+keywords: [how often, every five minutes, cycle, midnight, pricing run, 396 nights, 13 months, a year ahead, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 395 days out not 397, far-out night, whole days, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
 questions:
   - How often do rules run? {#the-cycle}
   - Which nights do rules look at? {#the-window}
@@ -17,8 +17,8 @@ questions:
   - After a raise, which bookings does a rule count? {#counting-after-a-change/once-a-rule}
   - What does the wait do exactly? {#booking-speed-and-pickup-rules-step-by-step/wait}
   - My rule's wait is over and the night still reads faster, so why did it not act again? {#booking-speed-and-pickup-rules-step-by-step/my-rules-wait}
-  - Why did a rule fire 59 days out but not 61? {#the-window}
-  - Why did a rule change a night more than 60 days out? {#the-window}
+  - Why did a rule fire 395 days out but not 397? {#the-window}
+  - Does a price change in the middle of the day with no new bookings? {#the-cycle/waits-and-lookback}
   - Does MAYA send prices or read my rates on Mews? {#what-a-rule-starts-from/every-night-and}
   - Does MAYA round prices? {#putting-the-price-together/for-each-night}
   - Can MAYA round to whole numbers or make prices end in 9? {#putting-the-price-together/for-each-night}
@@ -31,7 +31,7 @@ updated: 2026-09-27
 ---
 
 <InPlainWords>
-About every five minutes MAYA reads your bookings, then checks every rule on every night from today to 59 days out, for each room type. Standard rules (occupancy, booking window) switch on while their condition holds and off when it stops. Booking speed and pickup rules fire, keep their change on the price, wait, and can fire again on the bookings made since. Percent changes compound, fixed amounts add, and the result stays between the floor and ceiling.
+About every five minutes MAYA reads your bookings and checks every rule again on each night whose bookings changed, for each room type. Once a day, just after midnight at your property, it checks every rule on every night from today to 395 days out. Standard rules (occupancy, booking window) switch on while their condition holds and off when it stops. Booking speed and pickup rules fire, keep their change on the price, wait, and can fire again on the bookings made since. Percent changes compound, fixed amounts add, and the result stays between the floor and ceiling.
 </InPlainWords>
 
 ## The cycle
@@ -40,23 +40,27 @@ A cycle is one run of MAYA for your property. It comes round about every five mi
 
 1. reads your bookings from your property system
 2. refreshes your own rates when they are due (Cloudbeds and ThinkReservations)
-3. runs every rule on every night in the window, for every room type
+3. runs every rule, for every room type, on the nights that need it: every night whose bookings changed since the last cycle, every night a change of yours reaches, and, in the first cycles after midnight at your property, every night in the window, nearest nights first
 4. sends the prices that changed, if your property is live (Cloudbeds and ThinkReservations)
+
+A change you make that can move any night (a rule, a room type setting, a closed period, a "not a fair comparison" flag) runs the rules on every night again from the next cycle, nearest first. A typed price, rooms out of service and your answer on the three-changes banner run them on those nights. A change to a stay already over reaches future prices with the next day's pass.
+
+Waits and lookback windows count whole days at your property, so time passing never changes a price during the day: a night nothing happened to keeps its price until the next day's pass.
 
 On Mews, a cycle reads your bookings and runs your rules, and that is all. Your own rates are not read and nothing is sent, live or not. Read [Nothing is sent to Mews](/docs/connect/mews#nothing-is-sent-to-mews).
 
-Typing a price on the calendar runs the rules again at once, without waiting for the next cycle. If a cycle cannot read your bookings, it prices nothing and sends nothing, and the next cycle tries again.
+Typing a price on the calendar runs the rules again on those nights at once, without waiting for the next cycle. If a cycle cannot read your bookings, it prices nothing and sends nothing, and the next cycle tries again.
 
 The <Ui>Change Log</Ui> tab lists each cycle that changed a price as a pricing run, with one sentence per change. Read [The change log](/docs/watch/the-change-log).
 
 ## The window
 
-Each cycle runs your rules on tonight and the next 59 nights: 60 nights in all. "Tonight" is the calendar date at your property, in your property's time zone, at the moment the cycle runs.
+Your rules price tonight and the next 395 nights: 396 nights in all, about 13 months. "Tonight" is the calendar date at your property, in your property's time zone, at the moment the cycle runs.
 
 - Tonight is night 0 and is always priced.
-- A night 59 days away is the last one in a scheduled cycle. A night 60 or more days away is not in it, which is why a rule usually fires 59 days out and not 61. The night comes into the window a day later and is priced then.
+- A night 395 days away is the last one in the window. A night 396 or more days away is not in it, which is why a rule can fire 395 days out and not 397. The night comes into the window at your property's midnight and is priced in that day's pass.
 - Past nights are never priced or re-priced. Once your property's date moves past a night, every change on it is left as it was.
-- A price you type 60 or more nights ahead is saved now and sent when the night enters the window. Saving it also runs your rules once on every night from tonight to the last night you typed, so a rule can act on a night 90 days out then. Those changes count in <Ui>Fired</Ui>, appear in the change log and stay on the far nights until each night enters the window and is checked again. Nothing is sent for a night until it is inside the 60-night window.
+- A price you type further ahead (up to 399 days) is saved now. Your rules price it, and it is sent, once the night enters the window.
 
 ## Two kinds of rule
 
@@ -101,7 +105,7 @@ So a cancellation that drops a night from 82% to 78% takes a "Greater than 80" r
 ## Booking speed and pickup rules, step by step
 
 - **Fire.** The conditions hold, the rule is not waiting on that night and room type, and it wins the competition (below). The change goes on the price. One fire.
-- **Wait.** The rule leaves that night and room type alone for its <Ui>Then waits (advanced)</Ui> setting, 1 day to 2 weeks. A booking speed row starts at 1 week. A pickup count row starts on <Ui>Same as the lookback window</Ui>. A rule with both waits the longer of the two. The wait is counted in 24-hour periods from the fire.
+- **Wait.** The rule leaves that night and room type alone for its <Ui>Then waits (advanced)</Ui> setting, 1 day to 2 weeks. A booking speed row starts at 1 week. A pickup count row starts on <Ui>Same as the lookback window</Ui>. A rule with both waits the longer of the two. The wait counts whole days at your property: a 2-day wait from a fire at any time on Monday is over as Wednesday begins, and the rule reads the night again in the first cycle of that day.
 - **Read again.** When the wait is over, the rule reads the night again, counting only the bookings made since the newest change on that night by itself or by a stronger rule that moves the price the same way, while that change is still on the price. Changes made by rules you have switched off count too, because they stay on the price. If those bookings keep the rule true, it fires again and the change stacks on the earlier one. Read [Counting after a change](#counting-after-a-change).
 - **Tell you at three.** Once three of a rule's changes are on the same night, an amber banner asks you whether to keep going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
@@ -112,7 +116,7 @@ The change log shows a repeat as "Then "Hot-week surge" raised it another 25%, f
 <Example title="A 2-day wait after a Monday fire">
 The starter rule "Hot-week surge" is <Ui>Much Faster Than Normal</Ui> or faster over <Ui>Past week</Ui>, waits <Ui>2 days</Ui>, raises 25%. It fires on the Saturday's price on Monday afternoon.
 
-Tuesday: waiting. Wednesday afternoon: the wait is over. The rule now counts the Saturday's bookings that came in after Monday's raise, from Monday afternoon through Wednesday. Because it raises on a fast pace, those bookings alone have to read Much Faster Than Normal or faster against what similar Saturdays get in a whole week. It never re-counts the bookings that made it fire on Monday.
+Tuesday: waiting. Wednesday, just after midnight: the wait is over. The rule now counts the Saturday's bookings that came in after Monday's raise, from Monday afternoon on, and through Wednesday as they come. Because it raises on a fast pace, those bookings alone have to read Much Faster Than Normal or faster against what similar Saturdays get in a whole week. It never re-counts the bookings that made it fire on Monday.
 
 If Monday's burst was the whole story, the bookings since the raise read Normal and the price holds at one raise. If bookings keep coming, it raises again on Wednesday, waits until Friday, and so on. At three raises on that night, MAYA asks you.
 </Example>
@@ -125,7 +129,7 @@ Once a rule has changed a night, it counts only the bookings made since the newe
 
 - **A rule that raises** counts from the raise itself: on the day of the raise, only the bookings that reached MAYA after it, then every day since. A rule that raises on a fast pace (<Ui>Faster Than Normal</Ui>, <Ui>Much Faster Than Normal</Ui> or <Ui>Surging</Ui>) needs those bookings alone to beat what similar nights get in its whole window. Any other booking speed rule compares them with similar nights over the same days.
 - **A rule that cuts** counts full days only, up to yesterday, on the night and on the nights it is compared with. After a cut it counts the full days after the day of the cut, so it has nothing to judge until one of those has passed.
-- **A pickup rule** counts, inside its lookback window, only the room nights (or revenue) booked after the change and still booked. One set to <Ui>Less than</Ui> waits for a whole lookback window after the change before it judges again, because a short stretch always looks slow.
+- **A pickup rule** counts, inside its lookback window, only the room nights (or revenue) booked after the change and still booked. One set to <Ui>Less than</Ui> counts full days only, up to yesterday, so its last change counted the days before its own. It judges again once a whole lookback window of full days, starting with the day of that change, has passed, because a short stretch always looks slow.
 - **When cancellations hit a change** and bookings made since keep its rule true, the change stays, and every rule keeps counting from when it was made. Counting starts again only when a price changes.
 - **A price you type** starts every rule over: each waits its wait from your price, then reads its whole window again.
 
@@ -184,7 +188,7 @@ Now a festival night, with Standard's rate at $290 and its ceiling at $300: "Bus
 
 ## How often a price changes
 
-Your rules check every night in the window about every five minutes, but a night's price changes only when something changes it, and it is sent to your property system only when it changes (Cloudbeds and ThinkReservations, once you are live). On a quiet property, hours can pass with nothing sent. Guests do not see a price bouncing every five minutes.
+Your rules check a night within about five minutes of its bookings changing, and every night in the window once a day, and a night's price changes only when something changes it, and it is sent to your property system only when it changes (Cloudbeds and ThinkReservations, once you are live). On a quiet property, hours can pass with nothing sent. Guests do not see a price bouncing every five minutes.
 
 What can move a night's price, and how often:
 
@@ -193,7 +197,7 @@ What can move a night's price, and how often:
 - **Three changes** by the same rule on the same night bring the <Ui>Rules that keep adjusting</Ui> banner, which asks whether it should keep going.
 - **You**, when you type a price, and **your own rate**, when it changes in your property system.
 
-So a night can still change more than once in a day when bookings come and go, but never only because five minutes passed.
+So a night can still change more than once in a day when bookings come and go, but never only because time passed: a wait or a lookback window moves on only at your property's midnight.
 
 ## Per room type
 
@@ -212,7 +216,7 @@ In simulation everything above runs and is written to the change log, but nothin
 </Callout>
 
 <Callout kind="not-yet">
-The cycle length and the 60-night window are the same for every property and cannot be changed from the app. Scheduled cycles cover 60 nights, so rules do not keep checking a night further out. For such a night, type a price. It is sent when the night enters the window. There is no rounding or price-ending setting either: prices are rounded to the cent.
+The cycle length and the 396-night window are the same for every property and cannot be changed from the app. Rules do not check a night further out than the window. For such a night, type a price (up to 399 days ahead). It is priced and sent when the night enters the window. There is no rounding or price-ending setting either: prices are rounded to the cent.
 </Callout>
 
 <Related>

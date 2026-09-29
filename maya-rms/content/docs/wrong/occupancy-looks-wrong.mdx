@@ -39,7 +39,7 @@ Read [Sellable occupancy](/docs/rules/sellable-occupancy) for the definition.
 
 ## Why is my occupancy wrong when rooms are out of order?
 
-Because nobody has told MAYA. Rooms out of order in your property system are not read. Enter them in MAYA: on the <Ui>PMS</Ui> tab, under the room type, press <Ui>+ Rooms out of service</Ui>, fill in <Ui>From</Ui>, <Ui>To</Ui>, <Ui>Units</Ui> and an optional <Ui>Reason (optional)</Ui>, and press <Ui>Save</Ui>. Those rooms come off the sellable count for those nights only, and your rules run on those nights again straight away if they fall within the next 60 nights. Nothing is sent to your property system about the block.
+Because nobody has told MAYA. Rooms out of order in your property system are not read. Enter them in MAYA: on the <Ui>PMS</Ui> tab, under the room type, press <Ui>+ Rooms out of service</Ui>, fill in <Ui>From</Ui>, <Ui>To</Ui>, <Ui>Units</Ui> and an optional <Ui>Reason (optional)</Ui>, and press <Ui>Save</Ui>. Those rooms come off the sellable count for those nights only, and your rules run on those nights again from the next cycle if they fall within the 396-night window. Nothing is sent to your property system about the block.
 
 Standard has 12 rooms, 3 are out of service, 8 are booked: 8 of 9, which is 89%. Without the block it reads 8 of 12, which is 67%.
 

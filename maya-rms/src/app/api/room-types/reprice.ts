@@ -1,63 +1,30 @@
 /**
- * Re-run the engine after a room-type change, once the response is out.
+ * Price the hotel again after a room-type change.
  *
- * Reclassifying a type or blocking rooms moves every occupancy denominator,
- * so published prices are stale until the next run. The run itself is minutes
- * of reads; making a checkbox wait on it would turn the review strip into a
- * loading spinner. So it goes through `after()`, and consecutive changes on
- * the same hotel coalesce: one run in flight, at most one queued behind it,
- * because the queued run already sees every change made while waiting.
+ * Reclassifying a type or blocking rooms moves every occupancy denominator.
+ * Database triggers record the change as work for the scheduled sync (a new
+ * daily pass for a room type, the blocked nights for rooms out of service;
+ * 99_supabase_migration_pricing_cadence_v1.sql), which prices it within one
+ * tick, nearest nights first. This only asks that sync to run now, once the
+ * response is out, rather than wait for its next tick. It used to run the
+ * engine here over 60 nights, which the window of a year made impossible
+ * inside a route, and which could run at the same moment as the scheduled
+ * sync: the sync is now the only writer of a hotel's prices, besides a typed
+ * price's own run.
  */
 
-import { evaluateHotel } from "@/lib/engine";
-import { isMissingRelationError } from "@/lib/engine/snapshots";
-import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { after } from "next/server";
+import { isMissingRelationError } from "@/lib/engine/snapshots";
+import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
 
-const running = new Map<string, { again: boolean }>();
-
-/**
- * How far forward a re-price reaches. The full 365 is tens of minutes of
- * sequential reads on a busy hotel and this runs under the route's 300s cap,
- * which would kill it half way with the near dates rewritten and the far
- * ones not. The same window the scheduled syncs evaluate and push
- * (MAYA_PRICING_HORIZON_DAYS, default 60); nights past it are not pushed.
- */
-export function repriceHorizonDays(): number {
-  return pricingHorizonDays();
-}
-
-export function scheduleReprice(admin: SupabaseClient, hotelId: string, source: string): void {
-  after(() => repriceNow(admin, hotelId, source));
-}
-
-async function repriceNow(admin: SupabaseClient, hotelId: string, source: string): Promise<void> {
-  const current = running.get(hotelId);
-  if (current) {
-    current.again = true;
-    return;
-  }
-  const slot = { again: false };
-  running.set(hotelId, slot);
+export async function scheduleReprice(admin: SupabaseClient, hotelId: string, source: string): Promise<void> {
   try {
-    do {
-      slot.again = false;
-      try {
-        await evaluateHotel(admin, hotelId, undefined, repriceHorizonDays());
-      } catch (error) {
-        console.error(
-          JSON.stringify({
-            fn: source,
-            step: "evaluate",
-            hotelId,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-        );
-      }
-    } while (slot.again);
-  } finally {
-    running.delete(hotelId);
+    await nudgeHotelSync(admin, hotelId);
+  } catch (error) {
+    // The scheduled tick picks the change up anyway.
+    console.error(
+      JSON.stringify({ fn: source, step: "nudge", hotelId, error: error instanceof Error ? error.message : String(error) }),
+    );
   }
 }
 

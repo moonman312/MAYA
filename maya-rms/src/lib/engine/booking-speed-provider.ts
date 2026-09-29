@@ -64,6 +64,7 @@ import {
   bookingKeyOf,
   bookingWindowOf,
   earliestBookingWindow,
+  hasAnyRowIndexed,
   pickupInWindowIndexed,
   type SlimReservationRow,
   type StayDateWindows,
@@ -77,6 +78,7 @@ import {
   type ChallengeScope,
 } from "@/lib/observations/reinforcement";
 import { MIGRATIONS, fetchAllRows, isMissingFunctionError } from "./snapshots";
+import { evalIsoToHotelDateString } from "./timezone";
 import type { RuleMetrics } from "./types";
 
 export const HISTORY_YEARS_BACK = 3;
@@ -737,6 +739,12 @@ export async function loadBookingSpeedContext(
   horizonEnd: string = localDate,
   countingRoomTypeIds: readonly string[] = [],
   signalSets: readonly (readonly string[])[] = [],
+  /**
+   * The stay dates a run prices when they are not every date from
+   * `localDate` through `horizonEnd` (sorted). Observations can then be taken
+   * for these and no other; horizonEnd must be the last of them.
+   */
+  targetDates?: readonly string[],
 ): Promise<BookingSpeedContext | null> {
   const historyStart = addDays(localDate, -(HISTORY_YEARS_BACK * 366));
   const historyEnd = addDays(localDate, -1);
@@ -749,7 +757,8 @@ export async function loadBookingSpeedContext(
     if (key !== hotelSetKey && key !== "") setIds.set(key, new Set(kept));
   }
   const targets: string[] = [];
-  for (let d = localDate; d <= horizonEnd; d = addDays(d, 1)) targets.push(d);
+  if (targetDates) targets.push(...targetDates);
+  else for (let d = localDate; d <= horizonEnd; d = addDays(d, 1)) targets.push(d);
 
   // Season inputs come from fully observed (past) dates only — future
   // dates' booking curves are still being written and would read as
@@ -957,6 +966,22 @@ function selectionFor(ctx: BookingSpeedContext, stayDate: string): ComparableSel
 }
 
 /**
+ * Whether a night's Booking Speed reading leans on nearby nights: none of its
+ * comparable nights has a booking in the history of any set of room types
+ * the hotel's rules measure, so its observation falls back to momentum
+ * (observeBookingSpeed), which reads how the nights within
+ * MOMENTUM_RADIUS_DAYS of it are selling now. A booking on one of those
+ * nights then moves this night's reading. Which comparables a night gets,
+ * and whether they have history, depend on the hotel day and past stays
+ * only, so the answer holds for the whole day whatever arrives.
+ */
+export function usesMomentum(ctx: BookingSpeedContext, stayDate: string): boolean {
+  const selection = selectionFor(ctx, stayDate);
+  const indexes = [ctx.windowsByDate, ...(ctx.setWindows?.values() ?? [])];
+  return indexes.some((index) => !selection.comparables.some((c) => hasAnyRowIndexed(index, c.date)));
+}
+
+/**
  * Whether a rule reads complete hotel days only, its stretch ending
  * yesterday: a rule that cuts does, on the night and on every night it is
  * compared with alike (Jake, 2026-09-17: slowdown checks count full hotel
@@ -1141,14 +1166,23 @@ export function bookingSpeedAuditSnapshots(
   return out;
 }
 
-/** True while `anchorAt` is less than `waitDays` whole days (in milliseconds) before `nowIso`. */
+/**
+ * True while a wait of `cooldownDays` whole hotel days from a change at
+ * `lastAppliedAt` runs, for a run on hotel day `localDate` (Jake,
+ * 2026-09-28): a change made on hotel day D waits until hotel day
+ * D + cooldownDays begins, whatever the hour of the change. So a wait never
+ * ends in the middle of a day, and the first run of the day it ends on
+ * (the daily pass) is when the rule may adjust again. 0 never waits.
+ */
 export function isWithinCooldown(
   lastAppliedAt: string | null | undefined,
-  nowIso: string,
+  localDate: string,
   cooldownDays: number,
+  hotelTimeZone: string,
 ): boolean {
-  if (!lastAppliedAt) return false;
-  return Date.parse(nowIso) - Date.parse(lastAppliedAt) < cooldownDays * 86_400_000;
+  if (!lastAppliedAt || !(cooldownDays > 0)) return false;
+  const changeDay = evalIsoToHotelDateString(lastAppliedAt, hotelTimeZone);
+  return localDate < addDays(changeDay, cooldownDays);
 }
 
 /**

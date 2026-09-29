@@ -1,27 +1,27 @@
 /**
- * POST /api/evaluate — trigger an evaluation run for a hotel.
+ * POST /api/evaluate — price every night of the property again.
  *
- * In v1 this is triggered manually or by cron. The nightly scheduler
- * (02:30 local) would hit this endpoint per hotel.
+ * The scheduled sync is the one writer of a hotel's prices. This asks it for
+ * a new daily pass (request_full_reprice, from
+ * 99_supabase_migration_pricing_cadence_v1.sql): the next tick prices every
+ * night of the window, nearest nights first, and this nudges that tick to run
+ * now. It used to run the engine here, under the caller's session, over 365
+ * nights: minutes of reads inside a route, and a second writer racing the
+ * scheduled one.
+ *
+ * Before the migration there is nothing to ask for: every tick prices the
+ * whole window anyway, so the nudge alone does it.
  */
 
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { evaluateHotel } from "@/lib/engine";
+import { isMissingFunctionError } from "@/lib/engine/snapshots";
+import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-
-// A real run is minutes of sequential Supabase reads across the whole horizon.
-// Cap it explicitly rather than inherit whatever the platform default is.
-export const maxDuration = 300;
-
-// One run per hotel at a time. Module scope only reaches this instance, but
-// the double-fire this catches — a second click, a retrying client — lands on
-// the same warm instance in practice; anything past that is the rate limit's
-// problem.
-const inFlight = new Set<string>();
 
 export async function POST() {
   try {
@@ -48,12 +48,7 @@ export async function POST() {
       );
     }
 
-    // The engine runs entirely under this request's cookie-scoped client, so
-    // every write it makes (published_price, evaluation_audit, pickup_event)
-    // is subject to RLS' can_manage_hotel check regardless of what runs here.
-    // Without this gate, a staff/viewer member's reads all succeed while
-    // every write is silently rejected — the run reports success with
-    // non-zero counters despite having written nothing.
+    // Only a manager may ask for the hotel's prices to be worked out again.
     const { data: canManage } = await supabase.rpc("can_manage_hotel", {
       target_hotel_id: hotelId,
     });
@@ -73,19 +68,13 @@ export async function POST() {
     );
     if (throttled) return throttled;
 
-    if (inFlight.has(hotelId)) {
-      return NextResponse.json(
-        { error: "An evaluation is already running for this property." },
-        { status: 409 },
-      );
-    }
-    inFlight.add(hotelId);
-    try {
-      const result = await evaluateHotel(supabase, hotelId);
-      return NextResponse.json(result);
-    } finally {
-      inFlight.delete(hotelId);
-    }
+    // Under the caller's session: the function checks can_manage_hotel itself.
+    const { error: requestError } = await supabase.rpc("request_full_reprice", { p_hotel_id: hotelId });
+    if (requestError && !isMissingFunctionError(requestError)) throw requestError;
+    const requested = !requestError;
+
+    const pushed = isAdminConfigured() ? await nudgeHotelSync(createAdminClient(), hotelId) : "next_cycle";
+    return NextResponse.json({ ok: true, hotel_id: hotelId, requested, pushed });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Evaluation failed." },
