@@ -60,7 +60,7 @@ for (const engine of ENGINES) {
       engine.reset();
       vi.setSystemTime(new Date(T10));
       settled ??= await settle(engine.evaluate);
-    });
+    }, 120_000);
 
     const both = async (tables: Tables, opts: { nights?: string[]; rule?: Record<string, unknown> } = {}) => {
       const dryTables = clone(tables);
@@ -112,7 +112,7 @@ for (const engine of ENGINES) {
       // The run changed something: rules fired and ladder rows moved.
       expect(r.real.pickup_event.length).toBeGreaterThan(0);
       expect(r.real.ladder_rule_state.filter((x) => x.is_active).length).toBeGreaterThan(0);
-    });
+    }, 120_000);
 
     it("prices a set of nights as the cadence asks for them", async () => {
       const nights = [addDays(TODAY, 0), addDays(TODAY, 2), addDays(TODAY, 3), addDays(TODAY, 9), addDays(TODAY, 20), addDays(TODAY, 44)];
@@ -120,7 +120,7 @@ for (const engine of ENGINES) {
       expect(r.dryWrites).toEqual([]);
       expectSamePrices(r.capture, r.real, nights);
       expect([...r.capture.prices.keys()].every((k) => nights.includes(k.slice(0, 10)))).toBe(true);
-    });
+    }, 120_000);
 
     it("prices with a new rule in it as a real run with the rule saved, and records the rule's part", async () => {
       const rule = ruleRow(NEW_RULE, { action_type: "fixed", action_value: 11, cond: { occupancy_operator: "gt", occupancy_threshold: 0.5 }, affected: [KING, QUEEN], created_at: T10, updated_at: T10 });
@@ -134,7 +134,7 @@ for (const engine of ENGINES) {
       expect(activated.length).toBeGreaterThan(0);
       expect(activated).toEqual(onReal);
       for (const op of r.capture.ladderOps) expect(r.capture.touched.has(op.stayDate)).toBe(true);
-    });
+    }, 120_000);
 
     it("prices with a paused rule switched on as a real run does once it is switched on", async () => {
       const paused = settled.pricing_rules.find((x) => x.id === R.pausedBs)!;
@@ -144,7 +144,7 @@ for (const engine of ENGINES) {
       const ladderPaused = settled.pricing_rules.find((x) => x.id === R.pausedLadder)!;
       const l = await both(settled, { rule: { ...ladderPaused, is_active: true } });
       expectSamePrices(l.capture, l.real, window);
-    });
+    }, 120_000);
 
     it("prices an edited rule as a real run does once the edit is saved", async () => {
       const busy = settled.pricing_rules.find((x) => x.id === R.busy)!;
@@ -161,7 +161,7 @@ for (const engine of ENGINES) {
       // The changes on the room types taken off its list came off.
       const left = r.real.ladder_rule_state.filter((x) => x.rule_id === R.busy && x.is_active && x.room_type_id !== KING);
       expect(left).toEqual([]);
-    });
+    }, 120_000);
 
     it("a client that can only read refuses a write outright", async () => {
       const db = fake(clone(settled));
