@@ -175,7 +175,7 @@
 {"q":"Do I have to answer the five questions?","page":"review/the-five-questions","bankSection":5},
 {"q":"What is the \"cost to turn over a room\" used for?","page":"review/the-five-questions","bankSection":5},
 {"q":"What does the \"Taylor Swift\" question set?","page":"review/the-five-questions","bankSection":5},
-{"q":"What does the last question about how MAYA should treat my pricing change?","page":"review/the-five-questions","anchor":"question-5-how-to-treat-your-current-pricing","bankSection":5},
+{"q":"What does the last question about my starting rules change?","page":"review/the-five-questions","anchor":"question-5-what-your-starting-rules-do","bankSection":5},
 {"q":"What does \"Is X actually a room?\" mean?","page":"review/checking-what-maya-found","bankSection":5},
 {"q":"What does \"Were you closed …?\" do?","page":"review/checking-what-maya-found","anchor":"were-you-closed-/maya-found-at","bankSection":5},
 {"q":"I dismissed a closure by mistake; can I add it back?","page":"review/checking-what-maya-found","bankSection":5},

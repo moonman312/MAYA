@@ -1,27 +1,28 @@
 ---
 title: The five questions
-summary: The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer, how the floor ladder works, and what happens if you skip or answer again later.
+summary: The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer (the last one picks your starter rules), how the floor ladder works, and what happens if you skip or answer again later.
 section: review
 order: 30
-readingTime: 9
-keywords: [five questions, skipped the floor question, floor still $1, $1 floor, 30 nights, is it safe to skip, floor went back, floor reset, floors changed after last question, ceiling pinned, suite stuck at ceiling, rates read so far, import complete, lift a ceiling, a few quick questions, all optional, skip the rest, skip this question, property name, looks right, name already taken, turn cost, cost to turn over a room, cleaning cost, floor ladder, i'd take, too low, i'll just type my floor, true floor, tuesday in your slowest month, taylor swift, most you'd charge, ceiling, my pricing works, find money i'm leaving on the table, last question, floor needs to be below ceiling, ceiling lower than floor, ceiling under floor, ceiling didn't save, guardrails, couldn't save that, answer again]
+readingTime: 10
+keywords: [five questions, skipped the floor question, floor still $1, $1 floor, 30 nights, is it safe to skip, floor went back, floor reset, floors changed after last question, ceiling pinned, suite stuck at ceiling, rates read so far, import complete, lift a ceiling, a few quick questions, all optional, skip the rest, skip this question, property name, looks right, name already taken, turn cost, cost to turn over a room, cleaning cost, floor ladder, i'd take, too low, i'll just type my floor, true floor, tuesday in your slowest month, taylor swift, most you'd charge, ceiling, my pricing works, find money i'm leaving on the table, last question, what should your starting rules do, automate it, copy my raises and cuts, which starter rules, starter rules changed after the last question, floor needs to be below ceiling, ceiling lower than floor, ceiling under floor, ceiling didn't save, guardrails, couldn't save that, answer again]
 questions:
   - Do I have to answer the five questions? {#in-plain-words}
   - What is the cost to turn over a room used for? {#question-2-what-a-room-turnover-costs}
   - What does the Taylor Swift question set? {#question-4-the-most-you-would-charge/the-card-opens}
-  - What does the last question about my current pricing change? {#question-5-how-to-treat-your-current-pricing}
+  - What does the last question about my starting rules change? {#question-5-what-your-starting-rules-do}
   - What happens if I skip a question? {#skipping-finishing-and-answering-again/skip-this-question}
   - If I skip the floor question, why is a room type's floor still $1.00? {#question-3-the-floor-ladder/what-the-answer}
   - Can I go back and answer the questions later? {#skipping-finishing-and-answering-again/skip-this-question}
   - Why does the floor question keep offering me a number? {#question-3-the-floor-ladder/the-card-reads}
   - What happens if my ceiling is lower than my floor? {#question-4-the-most-you-would-charge/once-the-progress}
-  - Why did my floors change when I answered the last question? {#question-5-how-to-treat-your-current-pricing}
+  - Why did my floors change when I answered the last question? {#question-5-what-your-starting-rules-do/saving-it-does}
+  - Which answer should I pick on the last question? {#question-5-what-your-starting-rules-do}
   - Why is my Suite stuck at the ceiling I gave? {#question-4-the-most-you-would-charge/once-the-progress}
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
-Five optional questions, one card at a time: your property's name, what a room turnover costs you, the lowest rate you would take on a dead Tuesday, the most you would charge when the town is full, and how you want your current pricing treated. The name renames your property, and the turnover cost only shapes the floor question. The lowest rate becomes every room type's floor, and the highest becomes the ceiling of each room type whose rates read so far fit under it. The last question is not used for anything yet. Careful: saving the floor, ceiling or last card again puts your saved floor back on every room type, over any floor set since.
+Five optional questions, one card at a time: your property's name, what a room turnover costs you, the lowest rate you would take on a dead Tuesday, the most you would charge when the town is full, and what your starting rules should do. The name renames your property, and the turnover cost only shapes the floor question. The lowest rate becomes every room type's floor, and the highest becomes the ceiling of each room type whose rates read so far fit under it. The last answer picks your starter rules: copies of the raises and cuts you already make, or rules that look for money left on the table. Careful: saving the floor, ceiling or last card again puts your saved floor back on every room type, over any floor set since.
 </InPlainWords>
 
 ## Where they are
@@ -88,11 +89,16 @@ Answer with a number above your floor. If you type a ceiling under the floor you
 
 To fix it, open <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> to reopen the questions. Answer the ceiling question with a higher number, or the floor question with a lower one.
 
-## Question 5: how to treat your current pricing
+## Question 5: what your starting rules do
 
-The last card asks how you want your current pricing treated, with two choices: the card that begins "My pricing works" (keep doing what you do, without touching it every day) and "Find money I'm leaving on the table" (show me what the data says).
+The last card asks "Last one: what should your starting rules do?", with two choices:
 
-What the answer does: nothing in MAYA today. It is saved with your answers, and nothing reads it yet. The card's small print says it tunes suggestions. It does not do that yet.
+- **My pricing works, automate it** ("Copy the raises and cuts I already make, so I don't have to touch it every day."). Your starter rules copy the moves your own rates made in the past year: a raise once a night is filling up, a cut (or raise) for last-minute bookings on emptier nights, sized like yours. If nothing of yours can be copied, you get the usual five booking speed rules, and the review says why.
+- **Find money I'm leaving on the table** ("Look in my own bookings for nights I could have priced higher."). You get the five booking speed rules, with bigger raises if many of your nights were already 90% booked two weeks out, and a raise for nights more than 80% booked if your rates stayed flat on them.
+
+Skip it and you get the five booking speed rules as they are. [Your starter rules](/docs/review/your-starter-rules) has each set, what in your bookings it reads and the exact limits.
+
+The import often builds the starter rules before you reach this card. Answering then swaps them for the ones your answer calls for, as long as nobody has changed them, the property is still in simulation and you are a Revenue Manager or higher. Otherwise your answer is used by <Ui>Get suggestions from my data</Ui>, which offers the same rules as cards. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
 Saving it does one more thing: it writes your saved floor and ceiling answers to your room types again, as if you had answered those questions again. Your floor goes back on every active room type, and your ceiling on every room type whose rates fit under it. The first time through, that repeats what questions 3 and 4 wrote.
 
@@ -117,7 +123,7 @@ The questions do not set a floor or ceiling per room type, per night or per seas
 </Callout>
 
 <Example title="Sam answers the questions at The Harbour Inn">
-The name card shows "Harbour Inn", the name Cloudbeds holds. Sam types "The Harbour Inn" and presses <Ui>Looks right</Ui>. Sam types 35 for the turnover cost and sees the first offer, $50. Two presses of <Ui>Too low</Ui> take it to $60, then $70. Sam has a number in mind for a Standard on a dead night, so Sam presses <Ui>I'll just type my floor</Ui> and types 80. Every room type gets an $80 floor. Sam skips the ceiling question, so the import sets the Standard, Deluxe and Suite ceilings from their own rates: $300, $400 and $600. On the last question, the bar under the card reads "First results ready. Importing older years". Sam picks the first card and lands on the review. Deluxe and Suite need higher floors, so Sam emails us and we set them to $110 and $180. If Sam ever saves the floor, ceiling or last card again, both go back to $80.
+The name card shows "Harbour Inn", the name Cloudbeds holds. Sam types "The Harbour Inn" and presses <Ui>Looks right</Ui>. Sam types 35 for the turnover cost and sees the first offer, $50. Two presses of <Ui>Too low</Ui> take it to $60, then $70. Sam has a number in mind for a Standard on a dead night, so Sam presses <Ui>I'll just type my floor</Ui> and types 80. Every room type gets an $80 floor. Sam skips the ceiling question, so the import sets the Standard, Deluxe and Suite ceilings from their own rates: $300, $400 and $600. On the last question, the bar under the card reads "First results ready. Importing older years", so the usual five starter rules are already built. Sam picks the first card, "My pricing works", and the five are swapped for two rules copied from the inn's own rates: a raise once a night is more than 70% booked, and a cut for last-minute bookings on nights under half booked. Sam lands on the review. Deluxe and Suite need higher floors, so Sam emails us and we set them to $110 and $180. If Sam ever saves the floor, ceiling or last card again, both go back to $80.
 </Example>
 
 <Related>

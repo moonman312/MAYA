@@ -1993,9 +1993,9 @@
   "order": 20,
   "title": "Hold My Hand or Let Me Drive",
   "summary": "The two buttons you see once your property is paid for and connected, what each path skips, what happens either way, and how to reach the guided screens later.",
-  "readingTime": 4,
+  "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2043,10 +2043,10 @@
   "slug": "the-five-questions",
   "order": 30,
   "title": "The five questions",
-  "summary": "The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer, how the floor ladder works, and what happens if you skip or answer again later.",
-  "readingTime": 9,
+  "summary": "The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer (the last one picks your starter rules), how the floor ladder works, and what happens if you skip or answer again later.",
+  "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [],
   "headings": [
    {
@@ -2076,8 +2076,8 @@
    },
    {
     "depth": 2,
-    "text": "Question 5: how to treat your current pricing",
-    "id": "question-5-how-to-treat-your-current-pricing"
+    "text": "Question 5: what your starting rules do",
+    "id": "question-5-what-your-starting-rules-do"
    },
    {
     "depth": 2,
@@ -2089,13 +2089,14 @@
    "Do I have to answer the five questions?",
    "What is the cost to turn over a room used for?",
    "What does the Taylor Swift question set?",
-   "What does the last question about my current pricing change?",
+   "What does the last question about my starting rules change?",
    "What happens if I skip a question?",
    "If I skip the floor question, why is a room type's floor still $1.00?",
    "Can I go back and answer the questions later?",
    "Why does the floor question keep offering me a number?",
    "What happens if my ceiling is lower than my floor?",
    "Why did my floors change when I answered the last question?",
+   "Which answer should I pick on the last question?",
    "Why is my Suite stuck at the ceiling I gave?"
   ],
   "faq": []
@@ -2206,8 +2207,8 @@
   "slug": "your-starter-rules",
   "order": 50,
   "title": "Your starter rules",
-  "summary": "The five booking speed rules MAYA builds during a first import, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
-  "readingTime": 12,
+  "summary": "The rules MAYA builds during a first import, which depend on your answer to the last of the five questions, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
+  "readingTime": 19,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [],
@@ -2246,6 +2247,31 @@
     "depth": 3,
     "text": "Sudden-spike catcher",
     "id": "sudden-spike-catcher"
+   },
+   {
+    "depth": 2,
+    "text": "If you picked \"My pricing works\"",
+    "id": "if-you-picked-my-pricing-works"
+   },
+   {
+    "depth": 3,
+    "text": "Weekends and weekdays",
+    "id": "weekends-and-weekdays"
+   },
+   {
+    "depth": 3,
+    "text": "When nothing of yours can be copied",
+    "id": "when-nothing-of-yours-can-be-copied"
+   },
+   {
+    "depth": 2,
+    "text": "If you picked \"Find money I'm leaving on the table\"",
+    "id": "if-you-picked-find-money-im-leaving-on-the-table"
+   },
+   {
+    "depth": 2,
+    "text": "Answering after they were built",
+    "id": "answering-after-they-were-built"
    },
    {
     "depth": 2,
@@ -2297,7 +2323,12 @@
    "Do starter rules change prices straight away?",
    "Which room types do the starter rules cover?",
    "Why did a starter rule fire before one of my own rules?",
-   "Can I edit a starter rule?"
+   "Can I edit a starter rule?",
+   "What starter rules do I get if I pick \"My pricing works\"?",
+   "What starter rules do I get if I pick \"Find money I'm leaving on the table\"?",
+   "I picked \"My pricing works\". Why did I get the usual five rules?",
+   "What happens if I answer the last question after the starter rules were built?",
+   "Why does a starter rule only apply on Fridays and Saturdays?"
   ],
   "faq": []
  },
@@ -2376,8 +2407,8 @@
   "slug": "getting-suggestions-later",
   "order": 70,
   "title": "Getting suggestions later",
-  "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer, and what accepting each one does.",
-  "readingTime": 11,
+  "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer (the rules offered follow your answer to the last of the five questions), and what accepting each one does.",
+  "readingTime": 12,
   "readingNote": null,
   "updated": "2026-09-28",
   "pms": [],
@@ -2439,6 +2470,7 @@
    "Where do I find my suggestions when the read is done?",
    "Who can press Get suggestions from my data?",
    "How do I get the starter rules back after deleting them?",
+   "Which rules does Get suggestions offer after I answered the last of the five questions?",
    "How do I get a floor or ceiling suggested?",
    "Why is there no floor or ceiling card for a room type still at the default?",
    "Should I press Get suggestions from my data on a Mews property?",
@@ -6712,7 +6744,7 @@
   "summary": "For Cloudbeds, click Connect App in that property's Cloudbeds Marketplace and sign in to your existing MAYA account. Each property gets its own subscription, rules and team. For ThinkReservations or Mews, email us.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7744,7 +7776,7 @@
    },
    {
     "q": "Why is \"Show the numbers\" missing on some changes?",
-    "a": "The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system."
+    "a": "The button appears under a change when the run that made it also took a booking speed reading for that night. While any rule you have switched on uses booking speed (every booking speed starter rule does), each run takes that reading on nearly every night in the window. So the button shows under most changes, including ones made by an occupancy or booking window rule, a price you typed, or a rate changed in your system."
    },
    {
     "q": "Whose time zone are the log times in?",
