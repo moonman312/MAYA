@@ -35,6 +35,7 @@ import {
 } from "../_shared/pms/scheduled-loop.ts";
 import { CLOUDBEDS_SYNC_BUDGET_MS } from "../_shared/cloudbeds/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
+import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
 
 /**
  * The sync result carries live Cloudbeds credentials because the rate-push
@@ -140,6 +141,11 @@ Deno.serve(async (req) => {
   // only returns what is actually due, so over-ticking costs one cheap query.
   const syncIntervalSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_INTERVAL_SECONDS") ?? "300") || 300);
   const workerId = crypto.randomUUID();
+
+  // A connection down about an hour is owed one email to the General Manager
+  // and Hotel Admin (G57). Fleet ticks only: they run every few minutes
+  // whatever else is due, and a disconnected property is never claimed below.
+  const outageNotices = bodyHotelId ? [] : await sendDueOutageNotices(supabase, "cloudbeds");
 
   let hotelIds: string[];
   if (bodyHotelId) {
@@ -391,6 +397,8 @@ Deno.serve(async (req) => {
       // Reported rather than merely logged: a hotel silently absent from a run
       // is indistinguishable from one that never had a connection.
       skippedUnpaid: blocked,
+      // Connection-down emails sent (or not, and why) this invocation.
+      outageNotices,
       results,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },

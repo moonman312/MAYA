@@ -98,9 +98,13 @@ export async function deleteMewsCredentials(
   });
   if (secErr) throw new Error(`pms_secret_delete: ${secErr.message}`);
 
+  // Removing the keys is something the owner asked us for, so the outage it
+  // starts is marked as already dealt with: nobody gets the "connection down"
+  // email an hour later (see sendDueOutageNotices).
+  const now = new Date().toISOString();
   const { error: pcErr } = await admin
     .from("pms_connections")
-    .update({ status: "disconnected", updated_at: new Date().toISOString() })
+    .update({ status: "disconnected", updated_at: now, outage_notice_at: now })
     .eq("hotel_id", hotelId)
     .eq("pms_type", "mews");
   if (pcErr) throw new Error(`pms_connections status update: ${pcErr.message}`);

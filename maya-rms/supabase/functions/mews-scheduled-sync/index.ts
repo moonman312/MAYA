@@ -35,6 +35,7 @@ import { pricingHorizonDays, syncDaysForward } from "../_shared/pms/pricing-wind
 import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
 import { readOutcome, runPricingTick } from "../_shared/pms/pricing-tick.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
+import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -102,6 +103,11 @@ Deno.serve(async (req) => {
   // only returns what is actually due, so over-ticking costs one cheap query.
   const syncIntervalSeconds = Math.max(60, Number(getEnv("MAYA_SYNC_INTERVAL_SECONDS") ?? "300") || 300);
   const workerId = crypto.randomUUID();
+
+  // A connection down about an hour is owed one email to the General Manager
+  // and Hotel Admin (G57). Fleet ticks only: they run every few minutes
+  // whatever else is due, and a disconnected property is never claimed below.
+  const outageNotices = bodyHotelId ? [] : await sendDueOutageNotices(supabase, "mews");
 
   let hotelIds: string[];
   if (bodyHotelId) {
@@ -334,6 +340,8 @@ Deno.serve(async (req) => {
       // Reported rather than merely logged: a hotel silently absent from a run
       // is indistinguishable from one that never had a connection.
       skippedUnpaid: blocked,
+      // Connection-down emails sent (or not, and why) this invocation.
+      outageNotices,
       results,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
