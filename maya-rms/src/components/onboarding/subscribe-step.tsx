@@ -199,8 +199,8 @@ export function SubscribeStep({
             status: "bad",
             message:
               res.status === 401
-                ? "Your session expired — sign in again and retry."
-                : body.error ?? "Couldn't check that code — try again in a moment.",
+                ? "Your session expired. Sign in again and retry."
+                : body.error ?? "Couldn't check that code. Try again in a moment.",
           });
           return;
         }
@@ -210,7 +210,7 @@ export function SubscribeStep({
             : { status: "bad", message: body.message ?? "That code didn't work." },
         );
       } catch {
-        if (current) setCodeState({ status: "bad", message: "Couldn't check that code — try again." });
+        if (current) setCodeState({ status: "bad", message: "Couldn't check that code. Try again." });
       }
     }, 450);
 
@@ -303,7 +303,7 @@ export function SubscribeStep({
 
       {cancelled ? (
         <p className="mt-5 max-w-lg rounded border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm text-slate-300">
-          No charge was made — you left checkout before finishing. Pick up where
+          No charge was made: you left checkout before finishing. Pick up where
           you left off whenever you&apos;re ready.
         </p>
       ) : null}
@@ -397,7 +397,7 @@ export function SubscribeStep({
             ) : null}
             <p className="mt-2 text-xs text-slate-500">
               {quote.trialDays
-                ? `Nothing today — your first charge is ${formatUsd(quote.firstCents)} on ${trialEndsOn(quote.trialDays)}. Cancel anytime.`
+                ? `Nothing today. Your first charge is ${formatUsd(quote.firstCents)} on ${trialEndsOn(quote.trialDays)}. Cancel anytime.`
                 : "Billed when you finish checkout. Cancel anytime."}
             </p>
           </div>
@@ -451,12 +451,12 @@ export function SubscribeStep({
             <p className="mt-1.5 text-xs text-rose-300">{codeState.message}</p>
           ) : codeOptional ? (
             <p className="mt-1.5 text-xs text-slate-400">
-              Got a discount or trial code? Enter it here — otherwise leave this
+              Got a discount or trial code? Enter it here, or leave this
               blank.
             </p>
           ) : (
             <p className="mt-1.5 text-xs text-slate-400">
-              MAYA is invite-only for now — you&apos;ll have been given a code.
+              MAYA is invite-only for now, so you&apos;ll have been given a code.
             </p>
           )}
         </label>
@@ -484,7 +484,7 @@ export function SubscribeStep({
                 disabled={deferring || submitting}
                 className="cursor-pointer underline decoration-slate-700 underline-offset-2 transition-colors hover:text-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {deferring ? "Setting it aside…" : "Not now — set this property up later"}
+                {deferring ? "Setting it aside…" : "Not now, set this property up later"}
               </button>
               <NotNowHelp />
             </p>

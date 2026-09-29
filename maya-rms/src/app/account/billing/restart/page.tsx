@@ -68,7 +68,7 @@ export default async function RestartPage() {
       <MayaLockup height={32} className="mb-6" />
       <SubscribeStep
         title="Restart your subscription"
-        intro="Same pricing as always — per room, per month. Confirm the size and period and you're back; pricing picks up as soon as checkout completes."
+        intro="Same pricing as always: per room, per month. Confirm the size and period and you're back; pricing picks up as soon as checkout completes."
         footnote="Card details are handled by Stripe. They never touch MAYA. Your PMS connection is still in place, so there's nothing to set up again."
         initialRooms={billing.rooms || undefined}
         initialInterval={billing.interval}

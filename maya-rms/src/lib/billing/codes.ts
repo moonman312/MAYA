@@ -59,7 +59,7 @@ export type CodeRejection =
 export function rejectionMessage(reason: CodeRejection): string {
   switch (reason) {
     case "unknown":
-      return "We don't recognize that code — check it for typos.";
+      return "We don't recognize that code. Check it for typos.";
     case "inactive":
       return "That code has been turned off.";
     case "expired":
@@ -112,7 +112,7 @@ export function describeCode(
     if (!months) return opening + lower(`${pct}% off, for as long as you stay.`);
     if (interval === "year" && months < 12) {
       const spec = checkoutEffectFor(code, "year").couponNeeded;
-      return opening + lower(`${pct}% off your first ${months} month${months === 1 ? "" : "s"} — taken as ${spec?.percentOff}% off your first year, which is the same saving.`);
+      return opening + lower(`${pct}% off your first ${months} month${months === 1 ? "" : "s"}, taken as ${spec?.percentOff}% off your first year, which is the same saving.`);
     }
     return opening + lower(`${pct}% off for your first ${months} month${months === 1 ? "" : "s"}.`);
   }
@@ -122,7 +122,7 @@ export function describeCode(
     if (!months) return opening + `${dollars} off every month, for as long as you stay.`;
     if (interval === "year") {
       const total = usd((code.amount_off_cents ?? 0) * months);
-      return opening + `${dollars} off your first ${months} month${months === 1 ? "" : "s"} — taken as ${total} off your first invoice, which is the same saving.`;
+      return opening + `${dollars} off your first ${months} month${months === 1 ? "" : "s"}, taken as ${total} off your first invoice, which is the same saving.`;
     }
     return opening + `${dollars} off each of your first ${months} month${months === 1 ? "" : "s"}.`;
   }

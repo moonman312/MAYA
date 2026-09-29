@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<string, string> = {
   trialing: "On trial",
   active: "Active",
   past_due: "Payment overdue",
-  unpaid: "Unpaid — stopped",
+  unpaid: "Unpaid (stopped)",
   canceled: "Cancelled",
   incomplete: "Never completed",
   incomplete_expired: "Never completed",
@@ -77,7 +77,7 @@ export default async function BillingPage() {
     return (
       <Shell>
         <p className="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-300">
-          This property has no subscription — it was set up by hand rather than through checkout, so
+          This property has no subscription. It was set up by hand rather than through checkout, so
           there is nothing to bill or manage here.
         </p>
         <NotSetUpYet items={deferred} />
@@ -141,7 +141,7 @@ export default async function BillingPage() {
           <p className="mt-1 text-sm text-amber-100/80">
             We checked it on {longDate(billing.cardTrouble.since)} and your bank declined it
             {billing.cardTrouble.code ? ` (${billing.cardTrouble.code})` : ""}. Nothing has failed
-            yet — updating it now avoids an interruption.
+            yet, and updating it now avoids an interruption.
           </p>
         </section>
       )}
@@ -201,7 +201,7 @@ export default async function BillingPage() {
             >
               Your PMS currently shows <strong>{billing.roomTruth.measured} active rooms</strong>.
               {billing.roomTruth.kind === "over"
-                ? " You're paying for more than that — lower it here and your next invoice drops."
+                ? " You're paying for more than that. Lower it here and your next invoice drops."
                 : " We take this from your property management system, so it updates on its own as you open or close rooms."}
             </p>
           )}

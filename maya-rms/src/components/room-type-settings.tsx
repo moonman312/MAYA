@@ -52,7 +52,7 @@ export function needsAnswer(rt: { counts_as_room?: boolean | null }): boolean {
 
 /** The strip's question, with the count as the owner will read it. */
 export function roomCountQuestion(counting: number): string {
-  return `We're counting ${counting} room type${counting === 1 ? "" : "s"} as rooms — anything here that isn't?`;
+  return `We're counting ${counting} room type${counting === 1 ? "" : "s"} as rooms. Anything here that isn't?`;
 }
 
 async function readError(res: Response, fallback: string): Promise<string> {
@@ -72,10 +72,10 @@ export async function saveCountsAsRoom(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ hotelId, roomTypeId, countsAsRoom }),
     });
-    if (!res.ok) return readError(res, "That didn't save — try again.");
+    if (!res.ok) return readError(res, "That didn't save. Try again.");
     return null;
   } catch {
-    return "That didn't save — try again.";
+    return "That didn't save. Try again.";
   }
 }
 
@@ -176,7 +176,7 @@ export const COUNTS_AS_ROOM_HELP = {
   title: "What counts as a room",
   lines: [
     "Ticked types are what MAYA divides by: sellable occupancy, RevPAR, and the room count you're billed for.",
-    "Untick anything nobody sleeps in — a meeting room, a spa slot, a court. It still gets priced if you want it to.",
+    "Untick anything nobody sleeps in, like a meeting room, a spa slot or a court. It still gets priced if you want it to.",
     "You can change this any time from the PMS tab.",
   ],
 };
@@ -194,7 +194,7 @@ const OUT_OF_SERVICE_HELP = {
   label: "What rooms out of service changes",
   title: "Rooms out of service",
   lines: [
-    "Units you take off sale for a stretch — a renovation, a repair — come off the sellable count for those nights only.",
+    "Units you take off sale for a stretch (a renovation, a repair) come off the sellable count for those nights only.",
     "Occupancy then reads against what you can actually sell, so occupancy rules don't under-fire.",
     "Nothing is sent to your property system.",
   ],
@@ -285,12 +285,12 @@ export function RoomTypeSettings({
           reason: input.reason || undefined,
         }),
       });
-      if (!res.ok) return readError(res, "That didn't save — try again.");
+      if (!res.ok) return readError(res, "That didn't save. Try again.");
       await load();
       onChanged?.();
       return null;
     } catch {
-      return "That didn't save — try again.";
+      return "That didn't save. Try again.";
     }
   }
 
@@ -304,13 +304,13 @@ export function RoomTypeSettings({
         body: JSON.stringify({ hotelId, id }),
       });
       if (!res.ok) {
-        setError(await readError(res, "That didn't clear — try again."));
+        setError(await readError(res, "That didn't clear. Try again."));
         return;
       }
       setBlocks((prev) => prev?.filter((b) => b.id !== id) ?? prev);
       onChanged?.();
     } catch {
-      setError("That didn't clear — try again.");
+      setError("That didn't clear. Try again.");
     } finally {
       setBusyId(null);
     }

@@ -136,7 +136,7 @@ function ConfirmingPaymentInner() {
 
       <h1 className="mt-5 text-xl font-semibold text-slate-100">Payment received</h1>
       <p className="mt-2 text-sm text-slate-400" aria-live="polite">
-        {phase === "waiting" && "Setting up your account — this takes a few seconds."}
+        {phase === "waiting" && "Setting up your account. This takes a few seconds."}
         {phase === "slow" &&
           "Your payment went through, but our side is taking longer than usual to catch up."}
         {phase === "stalled" &&
@@ -157,8 +157,8 @@ function ConfirmingPaymentInner() {
         <div className="mt-6 space-y-3">
           <p className="text-sm text-slate-400">
             {phase === "stalled"
-              ? "We've stopped checking automatically. Nothing is lost and you have not been charged twice — leave this page and we'll email you when it's ready, or ask again below."
-              : "Nothing is lost and you have not been charged twice. You can leave this page — we'll email you when it's ready, and your card details are already saved."}
+              ? "We've stopped checking automatically. Nothing is lost and you have not been charged twice. Leave this page and we'll email you when it's ready, or ask again below."
+              : "Nothing is lost and you have not been charged twice. You can leave this page: we'll email you when it's ready, and your card details are already saved."}
           </p>
           <button
             type="button"

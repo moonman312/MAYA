@@ -148,8 +148,8 @@ describe("FindingCard", () => {
 
 describe("the room-count strip", () => {
   it("asks the question with the count, singular and plural", () => {
-    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms — anything here that isn't?");
-    expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms — anything here that isn't?");
+    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms. Anything here that isn't?");
+    expect(roomCountQuestion(1)).toBe("We're counting 1 room type as rooms. Anything here that isn't?");
   });
 
   it("ticks everything the import didn't flag — null is ticked, only false is unticked", () => {

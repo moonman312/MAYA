@@ -6,7 +6,14 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RoomTypeSettings, needsAnswer, type RoomTypeOption } from "@/components/room-type-settings";
+import {
+  COUNTS_AS_ROOM_HELP,
+  RoomTypeSettings,
+  needsAnswer,
+  roomCountQuestion,
+  saveCountsAsRoom,
+  type RoomTypeOption,
+} from "@/components/room-type-settings";
 
 const TYPES: RoomTypeOption[] = [
   { id: "rt-king", name: "King Room", total_rooms: 20, counts_as_room: true },
@@ -65,5 +72,21 @@ describe("RoomTypeSettings", () => {
     await waitFor(() => expect(patches).toEqual([{ hotelId: "hotel-1", roomTypeId: "rt-court", countsAsRoom: true }]));
     expect(court.checked).toBe(true);
     expect(screen.queryByText("needs your answer")).toBeNull();
+  });
+});
+
+describe("room type wording", () => {
+  it("asks and explains without an em dash", () => {
+    expect(roomCountQuestion(3)).toBe("We're counting 3 room types as rooms. Anything here that isn't?");
+    for (const line of COUNTS_AS_ROOM_HELP.lines) expect(line).not.toContain("—");
+  });
+
+  it("says a failed save plainly", async () => {
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 500 }));
+    expect(await saveCountsAsRoom("hotel-1", "rt-king", true)).toBe("That didn't save. Try again.");
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("offline");
+    });
+    expect(await saveCountsAsRoom("hotel-1", "rt-king", true)).toBe("That didn't save. Try again.");
   });
 });

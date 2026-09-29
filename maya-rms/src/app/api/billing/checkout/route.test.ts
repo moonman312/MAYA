@@ -367,6 +367,9 @@ describe("a first-time signup, with no property yet", () => {
     const res = await post({ rooms: 0, interval: "month", code: "MHSFOUNDER" });
     expect(res.status).toBe(400);
     expect(tables.get("hotels") ?? []).toHaveLength(0);
+    expect(((await res.json()) as { error: string }).error).toBe(
+      "Tell us how many rooms you have: any number from 1 to 500.",
+    );
   });
 
   it("refuses a second subscription for a property that already has one", async () => {

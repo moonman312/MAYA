@@ -113,7 +113,7 @@ export async function POST(request: Request) {
   const rooms = body?.rooms;
   if (!isBillableRoomCount(rooms)) {
     return NextResponse.json(
-      { error: `Tell us how many rooms you have — any number from 1 to ${MAX_ROOMS}.` },
+      { error: `Tell us how many rooms you have: any number from 1 to ${MAX_ROOMS}.` },
       { status: 400 },
     );
   }
