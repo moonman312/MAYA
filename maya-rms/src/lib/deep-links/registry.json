@@ -1065,7 +1065,8 @@
       "corrections": "watch/not-a-fair-comparison#your-corrections",
       "reconnect": "connect/reconnect-and-disconnect",
       "go-live": "live/going-live",
-      "room-count": "billing/your-room-count"
+      "room-count": "billing/your-room-count",
+      "rule-activation": "rules/turning-a-rule-on#what-the-days-mean"
     }
   }
 }

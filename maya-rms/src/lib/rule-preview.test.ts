@@ -80,7 +80,7 @@ type Case = {
 };
 
 const created = { created_at: T10, updated_at: T10 };
-const edited = (t: Tables, id: string, patch: Record<string, unknown>) => {
+const edited = (t: Tables, id: string, patch: Record<string, unknown>): FakeRow => {
   const stored = t.pricing_rules.find((r) => r.id === id)!;
   return { ...stored, ...patch, version: Number(stored.version) + 1, updated_at: T10 };
 };
@@ -352,7 +352,7 @@ for (const engine of ENGINES) {
       expect(kept.every((r) => Number(r.action_value) === 15)).toBe(true);
 
       // Apply later (the Skip cleared): the popup's days are the prices that move.
-      const reapplied = { ...after, skip_at: null };
+      const reapplied: FakeRow = { ...after, skip_at: null };
       vi.setSystemTime(new Date(T20));
       const storedNow = skipped.pricing_rules.find((r) => r.id === R.busy)!;
       const preview = await previewRule(

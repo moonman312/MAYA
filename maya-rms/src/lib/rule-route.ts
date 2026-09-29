@@ -81,10 +81,13 @@ export type ActivationBody = {
 
 /**
  * Save a plan, through the popup where it needs one: the owner's Apply or
- * Skip, on the numbers the popup showed. When anything that could change
- * those numbers moved since (previewFingerprint), nothing is saved and the
- * answer is 409 "stale": the popup works the days out again, and saves at
- * once if they are the same, or shows the new ones.
+ * Skip. Apply is saved only on the numbers the popup showed: when anything
+ * that could change them moved since (previewFingerprint), nothing is saved
+ * and the answer is 409 "stale", and the popup works the days out again and
+ * saves at once if they are the same, or shows the new ones. Skip moves no
+ * price whatever the days are (its marks are worked out here, at the save),
+ * so it needs no check, and the popup offers it even when the days could
+ * not be worked out.
  */
 export async function saveThroughPopup(
   gate: Extract<RuleGate, { ok: true }>,
@@ -99,9 +102,11 @@ export async function saveThroughPopup(
       throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
     }
     choice = body.activation;
-    const now = await previewFingerprint(gate.admin, gate.hotelId, at);
-    if (typeof body.fingerprint !== "string" || body.fingerprint !== now) {
-      throw new RuleSaveError(409, DAYS_CHANGED, "stale");
+    if (choice === "apply") {
+      const now = await previewFingerprint(gate.admin, gate.hotelId, at);
+      if (typeof body.fingerprint !== "string" || body.fingerprint !== now) {
+        throw new RuleSaveError(409, DAYS_CHANGED, "stale");
+      }
     }
   }
   const horizonDays = await hotelPricingHorizon(gate.admin, gate.hotelId);

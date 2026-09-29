@@ -480,7 +480,7 @@ export async function loadPausedEventRules(supabase: SupabaseClient, hotelId: st
   // No skip_at yet (99_supabase_migration_rule_activation_v1.sql): no rule was ever skipped.
   if (error && isMissingColumnError(error)) ({ data, error } = await read(false));
   if (error) throw new Error(`Failed to load paused rules: ${error.message}`);
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
     const raw = Array.isArray(r.rule_condition) ? r.rule_condition[0] : r.rule_condition;
     const rc = (raw ?? {}) as Record<string, unknown>;
     return {

@@ -55,6 +55,24 @@ export const UI_EVENTS = {
   "deeplink.opened": { dest: LINK_DESTINATIONS, filled: "flag", noted: "flag" },
   /** Help in a header, or Learn more in a "?" panel, was opened. */
   "help.opened": { from: ["header", "panel"] },
+  /** A rule was opened in the rule builder to edit (the rules list's Edit). */
+  "rule.edit_opened": {},
+  /**
+   * The activation popup opened: switching a rule on, adding one on, saving
+   * an edit to one that is on, or a suggestion on the Rules tab.
+   */
+  "rule.preview_opened": { from: ["switch", "builder_new", "builder_edit", "suggestion"], kind: ["standard", "event"] },
+  /** Its days came back: how many, how long the owner waited, how many nights the engine ran. */
+  "rule.preview_shown": {
+    from: ["switch", "builder_new", "builder_edit", "suggestion"],
+    days: "count",
+    ms: "count",
+    nights_checked: "count",
+  },
+  /** Its days could not be worked out. */
+  "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion"] },
+  /** Cancel: nothing saved, nothing switched on. */
+  "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion"], days: "count" },
 } as const satisfies Record<string, Record<string, PropSpec>>;
 
 export type UiEventName = keyof typeof UI_EVENTS;

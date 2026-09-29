@@ -45,4 +45,5 @@ export type HelpPanel =
   | "corrections"
   | "reconnect"
   | "go-live"
-  | "room-count";
+  | "room-count"
+  | "rule-activation";

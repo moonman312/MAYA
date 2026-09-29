@@ -221,6 +221,7 @@ describe("saving through the popup", () => {
     expect(without.status).toBe(409);
     expect(await without.json()).toMatchObject({ code: "activation_required" });
 
+    // Skip moves no price, so it needs no check; Apply does.
     const stale = await create(json("/api/rules", { ...draft, id: NEW_ID, activation: "apply", fingerprint: "old" }));
     expect(stale.status).toBe(409);
     expect(await stale.json()).toMatchObject({ code: "stale", error: "Your bookings changed while this was open, so the days were checked again." });
