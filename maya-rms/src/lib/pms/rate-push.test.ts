@@ -1954,3 +1954,94 @@ describe("pushRatesForHotel and manual prices", () => {
     expect(db.tables.rate_updates.every((r) => r.status === "sent" && !("confirmed_at" in r) && !("pms_edited_at" in r))).toBe(true);
   });
 });
+
+describe("pushRatesForHotel and Try again on a typed price", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetDecidedJobs();
+  });
+  const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+  const VALUE_REFUSED = "Cloudbeds patchRate failed (400): Rate must be greater than 500";
+  const OUTAGE = "Cloudbeds patchRate failed (503): Service Unavailable";
+  const KING = { stay_date: "2026-08-01", room_type_id: "rt-king", external_rate_id: "rate-100" };
+
+  function liveHotel(ledger: Row[], fault?: Parameters<typeof fakeSupabase>[1]) {
+    return fakeSupabase(
+      {
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", ...OPEN_BOUNDS }],
+        published_price: [{ hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, computed_at: JUST_NOW }],
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+        rate_updates: ledger.map((r) => ({ hotel_id: "hotel-1", ...r })),
+      },
+      fault,
+    );
+  }
+  const row = (db: ReturnType<typeof liveHotel>) => db.tables.rate_updates.find((r) => r.room_type_id === "rt-king")!;
+
+  it("sends a held cell once more when Try again was pressed after its last try, and the try spends the press", async () => {
+    const pressed = minutesAgo(1);
+    const db = liveHotel([
+      { ...KING, price: 210, status: "failed", attempts: 1, error: VALUE_REFUSED, pushed_at: minutesAgo(5), retry_requested_at: pressed },
+    ]);
+    const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 1 });
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-KING"]);
+    // The press stays on the row untouched; the try's pushed_at is past it.
+    expect(row(db)).toMatchObject({ status: "sent", attempts: 2, retry_requested_at: pressed });
+    expect(Date.parse(String(row(db).pushed_at))).toBeGreaterThan(Date.parse(pressed));
+    expect(db.calls.some((c) => c.table === "rate_updates" && c.op === "upsert" && callTouchesColumn(c, "retry_requested_at"))).toBe(false);
+  });
+
+  it("gives an exhausted cell exactly one more try per press", async () => {
+    const db = liveHotel([
+      { ...KING, price: 210, status: "failed", attempts: 10, error: OUTAGE, pushed_at: minutesAgo(5), retry_requested_at: minutesAgo(1) },
+    ]);
+    const refused = makeAdapter({ "CB-KING": "rate-100" });
+    refused.adapter.pushCells = async (cells) => cells.map((cell) => ({ cell, ok: false, error: OUTAGE, httpStatus: 503 }));
+
+    const first = await pushRatesForHotel(db.client, "hotel-1", refused.adapter, WIDE);
+    expect(first).toMatchObject({ failed: 1, skippedExhausted: 0 });
+    expect(row(db)).toMatchObject({ status: "failed", attempts: 11 });
+
+    // The press is older than that try now, so the cell rests again.
+    const second = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
+    expect(second).toMatchObject({ sent: 0, skippedExhausted: 1 });
+  });
+
+  it("leaves a press that came before the last try alone", async () => {
+    const db = liveHotel([
+      { ...KING, price: 210, status: "failed", attempts: 1, error: VALUE_REFUSED, pushed_at: minutesAgo(5), retry_requested_at: minutesAgo(30) },
+    ]);
+    const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 0, skippedHeld: 1 });
+    expect(attempts).toEqual([]);
+  });
+
+  it("reads the ledger without retry_requested_at on a database that does not have it yet", async () => {
+    const db = liveHotel(
+      [{ ...KING, price: 210, status: "failed", attempts: 1, error: VALUE_REFUSED, pushed_at: minutesAgo(5) }],
+      {
+        fault: (c) =>
+          c.table === "rate_updates" && c.op === "select" && c.columns.includes("retry_requested_at")
+            ? missingColumn("rate_updates", "retry_requested_at")
+            : null,
+      },
+    );
+    const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    // Still held: the row was read, just without the column.
+    expect(res).toMatchObject({ sent: 0, skippedHeld: 1 });
+    expect(attempts).toEqual([]);
+    const reads = db.calls.filter((c) => c.table === "rate_updates" && c.op === "select");
+    expect(reads.map((c) => c.columns.includes("retry_requested_at"))).toEqual([true, false]);
+  });
+});

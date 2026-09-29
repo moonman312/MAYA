@@ -597,6 +597,10 @@ export function describePushCause(
  * soon as the connection was re-authorized after the last try
  * (`reauthorizedAtMs`, pms_connections.reauthorized_at): the owner did what
  * the change log asked, so waiting a day would only leave their rates stale.
+ * Either wait also ends when someone pressed Try again on the price after
+ * the last try (`retryRequestedAtMs`, rate_updates.retry_requested_at): one
+ * more send, whatever the cause. The try's own write moves pushed_at past
+ * the request, so a second try needs a second press.
  */
 export function retryDecision(p: {
   failure: Pick<PushFailure, "retry"> & { clearedByReconnect?: boolean };
@@ -604,16 +608,22 @@ export function retryDecision(p: {
   lastAttemptAtMs: number;
   nowMs: number;
   reauthorizedAtMs?: number;
+  retryRequestedAtMs?: number;
 }): "retry" | "held" | "exhausted" {
   const rested = !(p.nowMs - p.lastAttemptAtMs < RETRY_AFTER_GIVING_UP_MS);
+  const requested =
+    p.retryRequestedAtMs != null &&
+    Number.isFinite(p.retryRequestedAtMs) &&
+    Number.isFinite(p.lastAttemptAtMs) &&
+    p.retryRequestedAtMs > p.lastAttemptAtMs;
   if (p.failure.retry === "hold") {
     const reconnected =
       p.failure.clearedByReconnect === true &&
       p.reauthorizedAtMs != null &&
       Number.isFinite(p.lastAttemptAtMs) &&
       p.reauthorizedAtMs > p.lastAttemptAtMs;
-    return rested || reconnected ? "retry" : "held";
+    return rested || reconnected || requested ? "retry" : "held";
   }
-  if (p.attempts >= MAX_PUSH_ATTEMPTS) return rested ? "retry" : "exhausted";
+  if (p.attempts >= MAX_PUSH_ATTEMPTS) return rested || requested ? "retry" : "exhausted";
   return "retry";
 }

@@ -393,6 +393,37 @@ async function fetchAll(makeQuery: () => any): Promise<any[]> {
   return all;
 }
 
+/** Ledger columns the retry decision reads, plus the ones the reconcile and the resend read. */
+const LEDGER_COLUMNS =
+  "room_type_id, external_room_type_id, stay_date, price, status, attempts, error, pms_job_reference, external_rate_id, pushed_at";
+
+/**
+ * The window's ledger rows. retry_requested_at arrives with the manual price
+ * retry migration; before it, the rows are read again without the column, and
+ * no cell is ever taken as asked for.
+ */
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readLedger(supabase: SupabaseClient, hotelId: string, firstDate: string, lastDate: string): Promise<any[]> {
+  const read = (columns: string) =>
+    fetchAll(() =>
+      supabase
+        .from("rate_updates")
+        .select(columns)
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+  try {
+    return await read(`${LEDGER_COLUMNS}, retry_requested_at`);
+  } catch (e) {
+    if (!isMissingColumnError(e)) throw e;
+    return await read(LEDGER_COLUMNS);
+  }
+}
+
 export async function pushRatesForHotel(
   supabase: SupabaseClient,
   hotelId: string,
@@ -449,18 +480,7 @@ export async function pushRatesForHotel(
   }
 
   // Ledger: last state per (room_type, stay_date)
-  const ledgerRows = await fetchAll(() =>
-    supabase
-      .from("rate_updates")
-      .select(
-        "room_type_id, external_room_type_id, stay_date, price, status, attempts, error, pms_job_reference, external_rate_id, pushed_at",
-      )
-      .eq("hotel_id", hotelId)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
-      .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true }),
-  );
+  const ledgerRows = await readLedger(supabase, hotelId, firstDate, lastDate);
   const nowMs = Date.now();
   const lastSent = new Map<string, number>();
   // The rate each sent cell went to, so a cell whose target has since moved is sent again.
@@ -520,6 +540,7 @@ export async function pushRatesForHotel(
         jobReference: l.pms_job_reference != null ? String(l.pms_job_reference) : null,
         externalRateId: l.external_rate_id != null ? String(l.external_rate_id) : null,
         pushedAtMs: l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN,
+        retryRequestedAtMs: l.retry_requested_at != null ? Date.parse(String(l.retry_requested_at)) : NaN,
       });
     } else if (l.status === "skipped" && isIncidentSkipReason(l.error)) {
       mayHaveOpen = true;
@@ -674,7 +695,14 @@ export async function pushRatesForHotel(
     const failed = lastFailed.get(key);
     if (failed && failed.price === c.price) {
       const failure = ledgerFailure(adapter.pmsType, failed);
-      const verdict = retryDecision({ failure, attempts: failed.attempts, lastAttemptAtMs: failed.pushedAtMs, nowMs, reauthorizedAtMs });
+      const verdict = retryDecision({
+        failure,
+        attempts: failed.attempts,
+        lastAttemptAtMs: failed.pushedAtMs,
+        nowMs,
+        reauthorizedAtMs,
+        retryRequestedAtMs: failed.retryRequestedAtMs,
+      });
       if (verdict !== "retry") {
         sittingOut.push({ cell, failed, verdict });
         run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
@@ -1080,6 +1108,8 @@ type FailedCell = {
   /** The rate it was sent to, so a re-resolved target that differs lets it go again. */
   externalRateId: string | null;
   pushedAtMs: number;
+  /** When Try again was last pressed on the price (rate_updates.retry_requested_at); NaN when never. */
+  retryRequestedAtMs: number;
 };
 
 type RunTrack = { cells: Map<string, RunCell>; failures: RunFailure[] };

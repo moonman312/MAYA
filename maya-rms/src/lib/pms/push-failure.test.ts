@@ -267,4 +267,20 @@ describe("retryDecision", () => {
   it("retries a row with no time on it rather than holding it forever", () => {
     expect(retryDecision({ failure: hold, attempts: 3, lastAttemptAtMs: NaN, nowMs: NOW })).toBe("retry");
   });
+
+  it("sends a held or exhausted cell once more when Try again was pressed after its last try", () => {
+    const tried = NOW - 10 * 60_000;
+    const pressed = NOW - 60_000;
+    expect(retryDecision({ failure: hold, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, retryRequestedAtMs: pressed })).toBe("retry");
+    expect(
+      retryDecision({ failure: quiet, attempts: MAX_PUSH_ATTEMPTS, lastAttemptAtMs: tried, nowMs: NOW, retryRequestedAtMs: pressed }),
+    ).toBe("retry");
+    // A press before the last try was already spent by that try.
+    expect(retryDecision({ failure: hold, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, retryRequestedAtMs: tried - 60_000 })).toBe("held");
+    expect(
+      retryDecision({ failure: quiet, attempts: MAX_PUSH_ATTEMPTS, lastAttemptAtMs: tried, nowMs: NOW, retryRequestedAtMs: tried - 60_000 }),
+    ).toBe("exhausted");
+    // No press on record reads as before.
+    expect(retryDecision({ failure: hold, attempts: 1, lastAttemptAtMs: tried, nowMs: NOW, retryRequestedAtMs: NaN })).toBe("held");
+  });
 });
