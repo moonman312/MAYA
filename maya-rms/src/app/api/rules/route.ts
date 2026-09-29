@@ -9,6 +9,8 @@ import {
   ruleConditionForInsert,
   undoOnCancellationError,
 } from "@/lib/rule-form";
+import { ruleErrorResponse, ruleGate, saveThroughPopup } from "@/lib/rule-route";
+import { parseDraft, planRuleChange } from "@/lib/rule-save";
 import { createRule, listRules } from "@/lib/rules-store";
 import type { CreateRuleInput } from "@/lib/rules-store";
 import type { RuleCondition } from "@/types/domain";
@@ -71,6 +73,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: setError }, { status: 400 });
     }
 
+    // A rule saved on goes through the activation popup: the builder sends
+    // the id the popup previewed it under and the owner's Apply or Skip
+    // (src/lib/rule-route.ts). Only a rule saved off (the Rate Simulator's
+    // Save This Rule) and demo mode take the plain path below.
+    if (isSupabaseConfigured() && body.is_active !== false) {
+      return await createThroughPopup(body as Record<string, unknown>);
+    }
+
     const supabase = isSupabaseConfigured() ? createClient(await cookies()) : undefined;
     let hotelId: string | null = null;
     if (supabase) {
@@ -125,5 +135,26 @@ export async function POST(req: Request) {
       { error: error instanceof Error ? error.message : "Failed to create rule." },
       { status: 500 },
     );
+  }
+}
+
+async function createThroughPopup(body: Record<string, unknown>) {
+  const gate = await ruleGate();
+  if (!gate.ok) return gate.response;
+  try {
+    const draft = parseDraft(body);
+    const plan = await planRuleChange(gate.admin, gate.hotelId, {
+      intent: "create",
+      ruleId: body.id,
+      draft,
+      at: new Date().toISOString(),
+    });
+    const { result, choice } = await saveThroughPopup(gate, plan, body, "builder_new");
+    return NextResponse.json(
+      { id: result.id, version: result.version, enabled: result.is_active, skipped: choice === "skip" },
+      { status: 201 },
+    );
+  } catch (e) {
+    return ruleErrorResponse(e, "Could not save the rule. Try again in a moment.");
   }
 }

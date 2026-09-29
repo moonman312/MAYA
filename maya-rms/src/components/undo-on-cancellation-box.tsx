@@ -37,34 +37,3 @@ export function UndoOnCancellationField({
     </div>
   );
 }
-
-/** What to say when a saved rule's box didn't save. */
-export const UNDO_BOX_NOT_SAVED = "That didn't save. Try again.";
-
-/**
- * Save a saved rule's box (PUT /api/rules/[id], not an edit), kept for
- * rule editing. null when it saved; otherwise what to tell the person: the
- * route's reason when their role can't change rules (403), a plain retry
- * line for anything else.
- */
-export async function saveUndoOnCancellation(
-  ruleId: string,
-  value: boolean,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string | null> {
-  try {
-    const res = await fetchImpl(`/api/rules/${ruleId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ undo_on_cancellation: value }),
-    });
-    if (res.ok) return null;
-    if (res.status === 403) {
-      const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
-      if (typeof body?.error === "string") return body.error;
-    }
-    return UNDO_BOX_NOT_SAVED;
-  } catch {
-    return UNDO_BOX_NOT_SAVED;
-  }
-}

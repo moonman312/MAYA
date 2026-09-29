@@ -4,8 +4,8 @@
  * Aligned with Rules Engine Implementation Guide v1:
  *   - Single-row `rule_condition` (column-family model)
  *   - Separate `rule_signal_room_type` / `rule_affected_room_type`
- *   - Version bumping on behavioral edits
- *   - Pickup event retirement on rule edit
+ *   - Version bumping on behavioral edits (the engine judges existing
+ *     changes against the new version when the rule is on)
  *
  * Legacy `pricing_rule_conditions` and `pricing_rule_room_types` are written
  * alongside the new tables for backward compatibility with existing UI code.
@@ -138,7 +138,7 @@ function dbActionToUi(actionType: string, direction: string, value: number): Rul
   return { adjust_rate_percent: 0 };
 }
 
-function uiActionToDb(action: RuleAction): {
+export function uiActionToDb(action: RuleAction): {
   action_type: ActionKind;
   action_direction: ActionDirection;
   action_value: number;
@@ -158,6 +158,29 @@ function uiActionToDb(action: RuleAction): {
     return { action_type: "fixed", action_direction: "decrease", action_value: Math.abs(d) };
   }
   return { action_type: "percent", action_direction: "increase", action_value: 0 };
+}
+
+/**
+ * The rows createRule writes to the older pricing_rule_conditions table for a
+ * legacy condition map (ruleConditionToLegacyConditions), which a few screens
+ * still read.
+ */
+export function legacyConditionRows(
+  conditions: Record<string, RuleConditionValue>,
+): { metric: string; operator: string; numeric_value?: number; text_value?: string }[] {
+  const out: { metric: string; operator: string; numeric_value?: number; text_value?: string }[] = [];
+  for (const [key, val] of Object.entries(conditions)) {
+    const metric = uiMetricToDb(key);
+    if (!metric) continue;
+    if (metric === "room_type") {
+      out.push({ metric, operator: "eq", text_value: String(val) });
+      continue;
+    }
+    const parsed = parseConditionString(String(val));
+    if (!parsed) continue;
+    out.push({ metric, operator: parsed.op, numeric_value: parsed.num });
+  }
+  return out;
 }
 
 /* ── DB row converters ─────────────────────────────────────────── */
@@ -596,6 +619,11 @@ export type CreateRuleInput = {
    * Defaults to true: only an explicit false unticks it.
    */
   undo_on_cancellation?: boolean;
+  /**
+   * The id to save the rule under: the one the activation popup previewed it
+   * with (rule effects apply in rule id order). Generated when absent.
+   */
+  id?: string;
 };
 
 export async function createRule(
@@ -681,6 +709,7 @@ export async function createRule(
   const { data: ruleRow, error: insErr } = await supabase
     .from("pricing_rules")
     .insert({
+      ...(input.id ? { id: input.id } : {}),
       hotel_id: hotelId,
       name: input.rule_name,
       priority: input.priority ?? 100,
@@ -859,8 +888,16 @@ export type UpdateRuleInput = {
 
 /**
  * Update a rule. If conditions, action, scope, or room-type sets change,
- * bump version and retire active pickup events per §7.4. Renaming, pausing
- * and the undo box change none of that.
+ * bump version. Renaming, pausing and the undo box change none of that.
+ *
+ * Nothing on the price moves here: the engine judges the rule's changes
+ * against the new version on its next run (an event rule's changes of an
+ * older version come off unless the owner chose Skip; a ladder rule's are
+ * kept at the new amount where the edited rule holds and come off where it
+ * doesn't), and only while the rule is on. An edit to a rule that is off
+ * reaches the price when it is switched on, through the activation popup.
+ * This used to take an event rule's changes off at once, which moved the
+ * prices of a rule that was off.
  */
 export async function updateRule(
   id: string,
@@ -957,22 +994,6 @@ export async function updateRule(
   // Row security lets staff and viewers read a rule but not change it: the
   // update touched nothing, and nothing else here is theirs to write either.
   if ((saved ?? []).length === 0) return false;
-
-  if (isBehavioralEdit) {
-    // Retire every open fire of this rule (§7.4), after the new version is
-    // stored: a fire of an older version never holds the edited rule back,
-    // and the next run takes off any this write missed.
-    const { error: retireError } = await supabase
-      .from("pickup_event")
-      .update({ retired_at: new Date().toISOString(), retired_reason: "rule_edited" })
-      .eq("rule_id", id)
-      .is("retired_at", null);
-    if (retireError) {
-      console.error(
-        JSON.stringify({ fn: "updateRule", step: "retire_fires", ruleId: id, error: retireError.message }),
-      );
-    }
-  }
 
   // Update condition row. The old row is fetched first so a failed insert
   // can be repaired rather than leaving the rule with zero conditions —

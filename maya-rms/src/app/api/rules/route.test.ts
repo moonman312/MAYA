@@ -2,6 +2,10 @@
  * The rules routes refuse a room type set that would leave a rule measuring
  * or changing nothing, and a rule with both a percent and a fixed amount,
  * before anything reaches the store.
+ *
+ * These go through the plain save, which is for a rule saved off (the Rate
+ * Simulator's Save This Rule) and for the older partial updates; a rule
+ * saved on goes through the activation popup (activation-routes.test.ts).
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -33,6 +37,7 @@ const { RoomTypeSetError, RuleAmountError } = await import("@/lib/rule-form");
 const { PUT } = await import("@/app/api/rules/[id]/route");
 
 const base = {
+  is_active: false,
   rule_name: "Busy",
   conditions: {},
   condition: { occupancy_operator: "gt", occupancy_threshold: 0.8 },
