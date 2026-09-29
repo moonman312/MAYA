@@ -147,6 +147,8 @@ async function applyRuleSuggestion(
       condition: Record<string, unknown>;
       action: { action_type: string; action_direction: string; action_value: number };
       is_pickup_rule: boolean;
+      /** Set on a rule copied from the owner's own weekend or weekday moves. */
+      dow_mask?: number;
     };
     const { data: ruleRow, error: insErr } = await supabase
       .from("pricing_rules")
@@ -159,7 +161,7 @@ async function applyRuleSuggestion(
         start_date: null,
         end_date: null,
         is_annual: false,
-        dow_mask: 127,
+        dow_mask: validDowMask(spec.dow_mask),
         action_type: spec.action.action_type,
         action_direction: spec.action.action_direction,
         action_value: spec.action.action_value,
@@ -400,4 +402,9 @@ export async function POST(
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/** A suggested rule's days, or every day when the payload carries none that fits. */
+function validDowMask(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 127 ? value : 127;
 }

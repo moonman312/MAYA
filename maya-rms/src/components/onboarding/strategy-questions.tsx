@@ -172,8 +172,8 @@ export function StrategyQuestions() {
 
       {step === "confidence" ? (
         <QuestionCard
-          title="Last one: how should Maya think about your current pricing?"
-          subtitle="There's no wrong answer — this just tunes how adventurous our suggestions are."
+          title="Last one: what should your starting rules do?"
+          subtitle="There's no wrong answer. It sets what your starter rules and later suggestions look for in your bookings."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <button
@@ -183,10 +183,10 @@ export function StrategyQuestions() {
               className="cursor-pointer rounded-lg border border-slate-700 bg-slate-950 p-4 text-left transition-colors hover:border-sky-500/60 disabled:opacity-60"
             >
               <div className="text-sm font-semibold text-slate-100">
-                My pricing works — automate it
+                My pricing works, automate it
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                I mostly want Maya to do what I already do, without me having
+                Copy the raises and cuts I already make, so I don&apos;t have
                 to touch it every day.
               </p>
             </button>
@@ -200,8 +200,7 @@ export function StrategyQuestions() {
                 Find money I&apos;m leaving on the table
               </div>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-400">
-                I suspect there&apos;s a better way to price — show me what the
-                data says.
+                Look in my own bookings for nights I could have priced higher.
               </p>
             </button>
           </div>

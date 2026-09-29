@@ -7,6 +7,7 @@ import {
   type InitialGuardrailInput,
 } from "../../../supabase/functions/_shared/onboarding/suggest";
 import { computeStarterRules } from "../../../supabase/functions/_shared/onboarding/generate-rules";
+import { starterRuleSets, type RateMoves } from "../../../supabase/functions/_shared/onboarding/rate-moves";
 
 const PACE_SPECS = computeStarterRules({ daysOfHistory: 400 });
 const OCC_REF = { surgePct: 85, peakPct: 95 };
@@ -43,6 +44,56 @@ function bookingSpeedRule(o: Partial<ExistingRuleSummary> = {}): ExistingRuleSum
     ...o,
   });
 }
+
+describe("computeRuleSuggestions with the set the last onboarding question calls for", () => {
+  const moves: RateMoves = {
+    nightsRead: 300,
+    fill: [{ group: "weekend", thresholdPct: 60, changePct: 20, nights: 40, bookings: 120 }],
+    late: [{ group: "all", withinDays: 7, changePct: -10, nights: 90, bookings: 260 }],
+    flatWhenNearlyFull: { changePct: 0, nights: 30, bookings: 80 },
+    filledEarly: { nights: 40, share: 0.13 },
+  };
+  const sets = starterRuleSets({ daysOfHistory: 400, moves });
+  const adds = (out: ReturnType<typeof computeRuleSuggestions>) =>
+    out.flatMap((s) => (s.suggestion_type === "add_rule" ? [[s.spec.name, s.rationale]] : []));
+
+  it("offers the owner's own moves for My pricing works, and no pace ladder", () => {
+    expect(adds(computeRuleSuggestions([], sets.automate_current.rules, null))).toEqual([
+      ["Filling-up raise (Fri and Sat)", "Your own rates already made this move, and no rule of yours makes it yet."],
+      ["Last-minute cut", "Your own rates already made this move, and no rule of yours makes it yet."],
+    ]);
+  });
+
+  it("leaves out a copied move a rule of the same kind already makes, switched off or not", () => {
+    const occupancyRaise = rule({ is_active: false, occupancy_operator: "gt" });
+    const lastMinute = rule({ id: "r2", name: "Late deal", occupancy_operator: null, occupancy_threshold: null, dta_operator: "lt" });
+    expect(adds(computeRuleSuggestions([occupancyRaise], sets.automate_current.rules, null)).map(([n]) => n)).toEqual([
+      "Last-minute cut",
+    ]);
+    expect(adds(computeRuleSuggestions([lastMinute], sets.automate_current.rules, null)).map(([n]) => n)).toEqual([
+      "Filling-up raise (Fri and Sat)",
+    ]);
+    // A booking speed rule does not stand in for either.
+    expect(adds(computeRuleSuggestions([bookingSpeedRule()], sets.automate_current.rules, null))).toHaveLength(2);
+  });
+
+  it("offers the bigger ladder and the nearly-full raise for Find money, each with its own guard", () => {
+    // This owner has no fill raise, so the flat nearly full nights count.
+    const upside = starterRuleSets({ daysOfHistory: 400, moves: { ...moves, fill: [] } }).find_upside.rules;
+    const offered = adds(computeRuleSuggestions([], upside, null));
+    expect(offered.map(([n]) => n)).toEqual([
+      "Slow-date rescue",
+      "Slow-date trim",
+      "Warm-date bump",
+      "Hot-week surge",
+      "Sudden-spike catcher",
+      "Nearly-full raise",
+    ]);
+    expect(offered[5][1]).toBe("Nothing raises your nearly full nights yet.");
+    expect(adds(computeRuleSuggestions([bookingSpeedRule()], upside, null)).map(([n]) => n)).toEqual(["Nearly-full raise"]);
+    expect(adds(computeRuleSuggestions([rule({})], upside, null))).toHaveLength(5);
+  });
+});
 
 describe("computeRuleSuggestions", () => {
   it("offers the whole pace ladder to a hotel with no rules", () => {

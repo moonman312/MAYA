@@ -22,6 +22,8 @@ export type ExistingRuleSummary = {
   occupancy_threshold: number | null; // fraction
   pickup_operator: string | null;
   pickup_threshold: number | null;
+  /** The booking window condition's operator, when the rule has one. */
+  dta_operator?: string | null;
   /** True when the rule carries a booking-speed condition. */
   has_booking_speed: boolean;
   start_date: string | null;
@@ -107,9 +109,28 @@ function coversScopeOf(bs: ExistingRuleSummary, r: ExistingRuleSummary): boolean
   return (bs.start_date ?? "") <= rStart && rEnd <= (bs.end_date ?? "9999-12-31");
 }
 
+/** The first sentence of an "Add a rule" card, by where the rule came from. */
+function addRuleRationale(spec: StarterRuleSpec): string {
+  if (spec.source === "your_moves") {
+    return "Your own rates already made this move, and no rule of yours makes it yet.";
+  }
+  if (!spec.condition.booking_speed_operator) {
+    return "Nothing raises your nearly full nights yet.";
+  }
+  return spec.action.action_direction === "decrease"
+    ? "Nothing watches for dates falling behind their normal booking pace — slow nights sit at full price until it is too late to rescue them."
+    : "Nothing watches for dates booking ahead of their normal pace — demand spikes pass by unpriced.";
+}
+
+/**
+ * `offered` is the starter set the owner's answer to the last onboarding
+ * question calls for (rate-moves.ts starterRuleSets): the booking speed
+ * ladder with no answer, their own moves as standard rules for "My pricing
+ * works", the ladder and a nearly-full raise for "Find money".
+ */
 export function computeRuleSuggestions(
   existing: ExistingRuleSummary[],
-  paceSpecs: StarterRuleSpec[],
+  offered: StarterRuleSpec[],
   occupancyRef: { surgePct: number; peakPct: number } | null,
 ): RuleSuggestion[] {
   const out: RuleSuggestion[] = [];
@@ -124,15 +145,20 @@ export function computeRuleSuggestions(
   // same five rules as fresh "add" suggestions and create active duplicates
   // of a set the owner will likely re-enable later. Same guard
   // generateStarterRules already uses.
+  //
+  // The standard rules in an offered set follow the same idea by kind: a
+  // raise on how full a night is is offered only while no rule has an
+  // occupancy "more than" condition, and a last-minute move only while no
+  // rule has a booking window "less than" one, switched off or not.
   const hasBookingSpeedRule = existing.some((r) => r.has_booking_speed);
-  if (!hasBookingSpeedRule) {
-    for (const spec of paceSpecs) {
-      const rationale =
-        spec.action.action_direction === "decrease"
-          ? "Nothing watches for dates falling behind their normal booking pace — slow nights sit at full price until it is too late to rescue them."
-          : "Nothing watches for dates booking ahead of their normal pace — demand spikes pass by unpriced.";
-      out.push({ suggestion_type: "add_rule", spec, rationale });
+  const hasFullnessRaise = existing.some((r) => r.occupancy_operator === "gt");
+  const hasLastMinute = existing.some((r) => r.dta_operator === "lt");
+  for (const spec of offered) {
+    const c = spec.condition;
+    if (c.booking_speed_operator ? hasBookingSpeedRule : c.dta_operator === "lt" ? hasLastMinute : hasFullnessRaise) {
+      continue;
     }
+    out.push({ suggestion_type: "add_rule", spec, rationale: addRuleRationale(spec) });
   }
 
   // Raw-pickup rules conflict with the booking-speed ladder outright: both

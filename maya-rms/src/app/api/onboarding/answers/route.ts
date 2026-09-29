@@ -1,5 +1,6 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
+import { swapStarterRulesForAnswer } from "@/lib/onboarding/starter-swap";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -18,7 +19,9 @@ type AnswersBody = {
  * Saves strategy answers (all optional). Raw answers merge into
  * onboarding_states.questions; normalized values land on hotel_settings and
  * are projected onto room_types guardrails. A user-entered property name
- * always wins over the PMS-derived one.
+ * always wins over the PMS-derived one. An answer to the last question swaps
+ * the starter rules for the set it calls for, when they are still as built
+ * (src/lib/onboarding/starter-swap.ts).
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -40,6 +43,15 @@ export async function POST(request: Request) {
 
   const body = (await request.json().catch(() => null)) as AnswersBody | null;
   if (!body) {
+    return NextResponse.json({ error: "Invalid body" }, { status: 400 });
+  }
+
+  if (
+    body.confidence !== undefined &&
+    body.confidence !== null &&
+    body.confidence !== "automate_current" &&
+    body.confidence !== "find_upside"
+  ) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
 
@@ -109,6 +121,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: setErr.message }, { status: 500 });
     }
     await projectStrategyOntoRoomTypes(supabase, hotelId);
+  }
+
+  if (body.confidence !== undefined) {
+    const swap = await swapStarterRulesForAnswer(supabase, hotelId, body.confidence ?? null);
+    if (swap.swapped) {
+      await supabase
+        .from("onboarding_states")
+        .update({ questions: { ...merged, starterRulesFor: swap.builtFor }, updated_at: new Date().toISOString() })
+        .eq("hotel_id", hotelId);
+    }
   }
 
   return NextResponse.json({ ok: true });
