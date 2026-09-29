@@ -106,6 +106,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_room_count_zero_v1.sql",
   "99_supabase_migration_undo_on_cancellation_v1.sql",
   "99_supabase_migration_docs_ask_tally_v1.sql",
+  "99_supabase_migration_rule_activation_v1.sql",
 ];
 
 type Db = {
@@ -115,7 +116,7 @@ type Db = {
 };
 
 /** What Supabase provides and the files assume: the roles, auth's functions and users table, vault. */
-const PLATFORM = `
+export const PLATFORM = `
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
@@ -139,7 +140,7 @@ grant execute on all functions in schema auth to anon, authenticated, service_ro
 create schema vault;
 `;
 
-function fileSql(name: string): string {
+export function fileSql(name: string): string {
   let sql = readFileSync(resolve(ROOT, name), "utf8");
   // Supabase's vault extension isn't in PGlite; its functions are never called here.
   sql = sql.replace(/create extension if not exists supabase_vault[^;]*;/gi, "");
