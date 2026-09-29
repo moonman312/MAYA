@@ -368,6 +368,39 @@ describe("add_rule: an accepted suggestion", () => {
     });
   });
 
+  it("on the Rules tab's suggestions, a confirm without the owner's choice from the popup is refused, and the card stays", async () => {
+    const { client, rpcs, tables } = fakeSupabase({
+      room_types: [{ id: RT1, hotel_id: HOTEL, is_active: true, counts_as_room: true }],
+      onboarding_states: [{ hotel_id: HOTEL, import_job_id: "job-refresh" }],
+      import_jobs: [{ id: "job-refresh", hotel_id: HOTEL, stats: { mode: "refresh" } }],
+      onboarding_findings: [
+        {
+          id: "f1",
+          hotel_id: HOTEL,
+          kind: "rule_suggestion",
+          status: "proposed",
+          payload: {
+            suggestion_type: "add_rule",
+            room_type_ids: [RT1],
+            spec: {
+              name: "Busy nights",
+              priority: 100,
+              condition: { occupancy_operator: "gt", occupancy_threshold: 0.8 },
+              action: { action_type: "percent", action_direction: "increase", action_value: 10 },
+              is_pickup_rule: false,
+            },
+          },
+        },
+      ],
+    });
+    state.client = client;
+    const res = await post({ action: "confirm" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "activation_required" });
+    expect(rpcs.find((r) => r.name === "save_rule")).toBeUndefined();
+    expect(tables.get("onboarding_findings")?.[0]).toMatchObject({ status: "proposed" });
+  });
+
   it("keeps the days of a rule copied from the owner's weekend moves, and every day otherwise", async () => {
     const finding = (id: string, spec: Record<string, unknown>) => ({
       id,

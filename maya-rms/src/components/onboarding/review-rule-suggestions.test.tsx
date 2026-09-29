@@ -50,13 +50,17 @@ const FINDINGS = [
 
 let sent: { url: string; body: Record<string, unknown> }[] = [];
 let mode: string | undefined;
+/** Reads that fail, to see a card that can't open the popup. */
+let failing = new Set<string>();
 
 beforeEach(() => {
   sent = [];
+  failing = new Set();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (failing.has(url)) throw new TypeError("Failed to fetch");
       const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
       if (init?.method === "POST" && url !== "/api/events") sent.push({ url, body });
       if (url === "/api/onboarding/findings") return json({ findings: FINDINGS });
@@ -122,6 +126,15 @@ describe("rule suggestions from the Rules tab", () => {
       url: "/api/onboarding/findings/f-add",
       body: expect.objectContaining({ action: "confirm", ruleId: preview.ruleId, activation: "skip" }),
     });
+  });
+
+  it("a card that can't open the popup says so and saves nothing", async () => {
+    failing = new Set(["/api/rules/engine"]);
+    await openRecommendations();
+    fireEvent.click(await screen.findByRole("button", { name: "Make that change" }));
+    await screen.findByText("The days could not be checked. Try again.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(confirms()).toEqual([]);
   });
 
   it("Make that change previews the rule with its new bar", async () => {

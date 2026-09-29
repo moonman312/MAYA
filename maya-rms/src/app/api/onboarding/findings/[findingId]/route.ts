@@ -160,6 +160,12 @@ async function applyRuleSuggestion(
       if (body.activation === "apply" || body.activation === "skip") {
         await saveThroughPopup(gate, plan, body, "suggestion");
       } else {
+        // The Rules tab's suggestions always come with the owner's choice
+        // from the popup. A confirm without one there (the card could not
+        // open the popup) is refused rather than applied unseen.
+        if (plan.needsActivation && (await reviewIsRulesTab(supabase, hotelId))) {
+          throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
+        }
         // No popup here (the first review): the owner's confirm applies it.
         const horizonDays = await hotelPricingHorizon(admin, hotelId);
         await commitRuleChange(supabase, admin, plan, plan.needsActivation ? "apply" : null, { at, horizonDays, touched: [] });
@@ -204,6 +210,24 @@ async function applyRuleSuggestion(
   }
 
   return NextResponse.json({ error: "Unrecognized suggestion payload" }, { status: 500 });
+}
+
+/**
+ * Whether the review is showing the Rules tab's "Get suggestions from my
+ * data" (the job it points at was asked for from there), as the review
+ * screen itself decides (status: job.stats.mode). A read that fails counts
+ * as the first review, as it always has.
+ */
+async function reviewIsRulesTab(supabase: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data: state, error } = await supabase
+    .from("onboarding_states")
+    .select("import_job_id")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error || !state?.import_job_id) return false;
+  const { data: job } = await supabase.from("import_jobs").select("stats").eq("id", state.import_job_id).maybeSingle();
+  const stats = (job?.stats ?? null) as { mode?: unknown } | null;
+  return stats?.mode === "refresh";
 }
 
 /**

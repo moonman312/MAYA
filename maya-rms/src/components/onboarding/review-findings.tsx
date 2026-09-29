@@ -40,6 +40,7 @@ type Finding = {
 };
 
 const FINISH_FAILED = "Couldn't finish the review. Try again.";
+const POPUP_FAILED = "The days could not be checked. Try again.";
 
 export function ReviewFindings({
   initialStep = "assumptions",
@@ -176,7 +177,12 @@ export function ReviewFindings({
 
   async function act(id: string, action: "confirm" | "dismiss", value?: number, keepRule?: boolean) {
     const finding = findings?.find((f) => f.id === id);
-    if (action === "confirm" && fromRulesTab && finding?.kind === "rule_suggestion" && (await openRulePopup(finding))) return;
+    if (action === "confirm" && fromRulesTab && finding?.kind === "rule_suggestion") {
+      // The popup, or nothing: a card that can't open it saves nothing.
+      setError(null);
+      if (!(await openRulePopup(finding))) setError(POPUP_FAILED);
+      return;
+    }
     setBusy(id);
     setError(null);
     try {
