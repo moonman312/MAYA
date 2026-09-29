@@ -60,7 +60,7 @@ describe("a property on Mews", () => {
       const subject = renewalNudgeSubject({ ...input, isFirstCharge });
       expect(subject).not.toMatch(/two minutes/i);
       expect(subject).toContain("isn't connected to your PMS yet");
-      expect(subject).not.toContain("—");
+      expect(subject).not.toContain("\u2014");
     }
   });
 

@@ -73,7 +73,7 @@ describe("headlineFor", () => {
         /^Your rules no longer run on a schedule and nothing is sent to your PMS\. /,
       );
       expect(h.detail).not.toMatch(/calculated/i);
-      expect(h.detail).not.toContain("—");
+      expect(h.detail).not.toContain("\u2014");
     }
   });
 
