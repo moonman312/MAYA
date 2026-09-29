@@ -143,7 +143,7 @@ export function tooManyRequests(result: RateLimitResult, message?: string): Next
     : 60;
 
   return NextResponse.json(
-    { error: message ?? "That's a bit fast — try again shortly.", retryAfterSeconds },
+    { error: message ?? "That's a bit fast. Try again shortly.", retryAfterSeconds },
     {
       status: 429,
       headers: {

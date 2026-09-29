@@ -110,5 +110,8 @@ describe("POST /api/evaluate", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBeTruthy();
     expect(requests()).toEqual([]);
+    expect((await res.json()).error).toBe(
+      "An evaluation just ran. Prices are re-checked automatically, so give it a few minutes.",
+    );
   });
 });

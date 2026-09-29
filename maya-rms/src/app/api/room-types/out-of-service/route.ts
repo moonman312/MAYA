@@ -204,7 +204,7 @@ export async function POST(req: Request) {
     const name = String(roomType.display_name || roomType.name || "");
     const total = Number(roomType.total_rooms) || 0;
     if (units > total) {
-      return bad(`${name} has ${total} room${total === 1 ? "" : "s"} — you can't block more than that.`);
+      return bad(`${name} has ${total} room${total === 1 ? "" : "s"}, so you can't block more than that.`);
     }
 
     // Blocks stack (the snapshot sums every open row on a night), so the cap
@@ -233,8 +233,8 @@ export async function POST(req: Request) {
     );
     if (alreadyOut > 0 && alreadyOut + units > total) {
       return bad(
-        `${name} already has ${alreadyOut} room${alreadyOut === 1 ? "" : "s"} out of service on some of those nights — ` +
-          `that leaves ${total - alreadyOut} you can still block.`,
+        `${name} already has ${alreadyOut} room${alreadyOut === 1 ? "" : "s"} out of service on some of those nights. ` +
+          `That leaves ${total - alreadyOut} you can still block.`,
       );
     }
 
