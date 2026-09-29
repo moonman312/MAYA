@@ -613,19 +613,47 @@ export type RunSummary = {
   hasChanges: boolean;
   /** The run's top change rows with full details, in topChangeRows order. */
   topRows: AuditChangeRow[];
+  /** Every change the run made that the read found, shown or not. Older callers omit it. */
+  totalChanges?: number;
+  /** False when some nights were not checked, so totalChanges is a minimum. */
+  countedAll?: boolean;
 };
+
+/**
+ * A cycle's count of its changes, when it shows only some of them: every
+ * change found, and whether that is a minimum. Nothing when all are shown.
+ */
+function changeTotal(total: number | undefined, shown: number, minimum: boolean) {
+  if (total == null || total <= shown) return {};
+  return { total_changes: total, ...(minimum ? { total_is_minimum: true } : {}) };
+}
 
 /** buildCyclesFromAudit for runs that were each read on their own (newest first). */
 export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookups): ChangelogCycle[] {
   const capped = runs.slice(0, MAX_CHANGED_RUNS);
-  return capped.map((run, index) => ({
-    cycle: capped.length - index,
-    timestamp: run.timestamp,
-    has_changes: run.hasChanges,
-    changes: run.topRows
+  return capped.map((run, index) => {
+    const changes = run.topRows
       .map((row) => buildEntry(row, lookups))
-      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct)),
-  }));
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct));
+    return {
+      cycle: capped.length - index,
+      timestamp: run.timestamp,
+      has_changes: run.hasChanges,
+      changes,
+      ...changeTotal(run.totalChanges, changes.length, run.countedAll === false),
+    };
+  });
+}
+
+/**
+ * The line under a run that shows only its biggest changes: "And 23 more
+ * changes in this run." Null when the run shows every change it made.
+ */
+export function moreChangesLine(cycle: Pick<ChangelogCycle, "changes" | "total_changes" | "total_is_minimum">): string | null {
+  const more = (cycle.total_changes ?? 0) - cycle.changes.length;
+  if (more <= 0) return null;
+  const count = cycle.total_is_minimum ? `at least ${more}` : String(more);
+  return `And ${count} more ${more === 1 ? "change" : "changes"} in this run.`;
 }
 
 /**
@@ -639,8 +667,12 @@ export function buildCyclesFromAudit(
   rows: AuditChangeRow[],
   lookups: ChangelogLookups,
   heartbeats: RunHeartbeat[] = [],
+  /** The read stopped at its row limit, so its oldest run may be cut short. */
+  readWasCapped = false,
 ): ChangelogCycle[] {
-  const runs = mergeHeartbeats(groupAuditRunsUncapped(rows), heartbeats).slice(0, MAX_AUDIT_RUNS);
+  const grouped = groupAuditRunsUncapped(rows);
+  const cutShort = readWasCapped ? grouped[grouped.length - 1]?.evaluation_run_id : undefined;
+  const runs = mergeHeartbeats(grouped, heartbeats).slice(0, MAX_AUDIT_RUNS);
   return runs.map((run, index) => {
     const changeRows = run.rows.filter(isChangeRow);
     const changes = changeRows
@@ -652,6 +684,7 @@ export function buildCyclesFromAudit(
       timestamp: run.timestamp,
       has_changes: changeRows.length > 0,
       changes,
+      ...changeTotal(changeRows.length, changes.length, run.evaluation_run_id === cutShort),
     };
   });
 }

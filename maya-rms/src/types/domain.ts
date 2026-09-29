@@ -458,7 +458,12 @@ export type ChangelogCycle = {
   cycle: number;
   timestamp: string;
   has_changes: boolean;
+  /** The run's biggest changes, at most MAX_ENTRIES_PER_CYCLE. */
   changes: ChangelogEntry[];
+  /** Every change the run made, when that is more than `changes` shows. */
+  total_changes?: number;
+  /** total_changes is a minimum: some nights were not checked. */
+  total_is_minimum?: boolean;
 };
 
 /** Tries at a push problem that went the same way, condensed to one line. */
