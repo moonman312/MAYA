@@ -614,7 +614,7 @@
   "summary": "The one box every agreement goes through, where it appears, why you agree to the Terms but only acknowledge the Privacy Policy, what MAYA records when you tick it, and what the Terms lines on the payment screen and in the go-live dialog mean.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5109,7 +5109,7 @@
   "summary": "How to cancel and when it takes effect, what stops and what stays, your invoices after cancelling, restarting later, pausing instead, cancel versus disconnect, prices after you leave, starting again from scratch, deleting your data, and what happens to a property that never pays.",
   "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8524,6 +8524,7 @@
    "Does MAYA sell my data, share it, or use it to price other hotels?",
    "How long do you keep my data?",
    "What do you keep after deletion?",
+   "How often do you back up our data, and for how long?",
    "Do you back up our data, and what happens if your servers lose it?",
    "Can I get a copy of my data?",
    "Is there a cookie banner?",
@@ -8544,7 +8545,7 @@
   "summary": "The Terms of Service in plain words. Who the agreement is with and where they are based, why every price is yours, who is liable if a price costs you money, uptime and what happens when MAYA is down, who owns your data, fees and refunds in brief, how you hear about changes to MAYA, and how disputes are settled under Wyoming law.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
