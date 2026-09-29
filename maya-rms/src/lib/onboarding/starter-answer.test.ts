@@ -6,7 +6,12 @@
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { analyzeImport } from "../../../supabase/functions/_shared/onboarding/analysis";
-import { loadRateHistory, MAX_RATE_ROWS } from "../../../supabase/functions/_shared/onboarding/rate-moves";
+import {
+  loadRateHistory,
+  MAX_RATE_ROWS,
+  readRateMoves,
+  starterRuleSets,
+} from "../../../supabase/functions/_shared/onboarding/rate-moves";
 import type { ImportJobRow } from "../../../supabase/functions/_shared/onboarding/worker-core";
 import { fakeSupabase, type FakeCall, type FakeError, type FakeRow } from "../engine/fake-supabase.test";
 import { INN, seasonal, usualLead, year, TODAY } from "./__fixtures__/rate-history";
@@ -362,5 +367,62 @@ describe("reading the past year", () => {
     expect(rows.length).toBeGreaterThan(MAX_RATE_ROWS - 2 * PER_NIGHT);
     expect([...perNight.values()].every((n) => n === PER_NIGHT)).toBe(true);
     expect(perNight.has(new Date(today - 86_400_000).toISOString().slice(0, 10))).toBe(true);
+  });
+
+  it("keeps only bookings made before MAYA first sent a price, a day early for time zones", async () => {
+    const row = (id: string, booking_date: string) => ({
+      id,
+      hotel_id: HOTEL,
+      stay_date: "2026-09-01",
+      booking_date,
+      room_type_id: "std",
+      current_rate: 150,
+    });
+    const db = fakeSupabase({
+      room_types: [{ id: "std", hotel_id: HOTEL, total_rooms: 14 }],
+      reservations: [row("a", "2026-06-08"), row("b", "2026-06-09"), row("c", "2026-06-10"), row("d", "2026-08-01")],
+      rate_updates: [
+        { hotel_id: HOTEL, stay_date: "2026-06-20", status: "failed", created_at: "2026-06-10T08:00:00Z" },
+        { hotel_id: HOTEL, stay_date: "2026-06-21", status: "sent", created_at: "2026-06-11T08:00:00Z" },
+        { hotel_id: "other", stay_date: "2026-06-21", status: "sent", created_at: "2026-01-01T08:00:00Z" },
+      ],
+    });
+    const { rows } = await loadRateHistory(db.client, HOTEL, ["std"], TODAY);
+    expect(rows.map((r) => r.booking_date)).toEqual(["2026-06-08"]);
+  });
+
+  it("never reads MAYA's own raises on a live property as the owner's move", async () => {
+    // The owner kept flat rates. From April MAYA was live, and one of its
+    // rules raised 15% once a night was more than 70% booked.
+    const LIVE_FROM = "2026-04-01";
+    const flat = year({ types: INN, occupancy: seasonal, lead: usualLead, price: ({ plan }) => plan, seed: 11 });
+    const byNight = new Map<string, string[]>();
+    for (const r of flat.rows) byNight.set(r.stay_date, [...(byNight.get(r.stay_date) ?? []), r.booking_date]);
+    const booked = flat.rows.map((r) => {
+      if (r.booking_date < LIVE_FROM) return r;
+      const before = byNight.get(r.stay_date)!.filter((b) => b < r.booking_date).length;
+      return before / flat.rooms > 0.7 ? { ...r, rate: Math.round(r.rate * 115) / 100 } : r;
+    });
+    // Read as a whole, the year shows a Filling-up raise: MAYA's.
+    expect(readRateMoves(booked, flat.rooms).fill.length).toBeGreaterThan(0);
+
+    const db = fakeSupabase({
+      room_types: INN.map((t) => ({ id: t.id, hotel_id: HOTEL, total_rooms: t.rooms })),
+      reservations: booked.map((r, i) => ({
+        id: `res-${String(i).padStart(6, "0")}`,
+        hotel_id: HOTEL,
+        stay_date: r.stay_date,
+        booking_date: r.booking_date,
+        room_type_id: r.room_type_id,
+        current_rate: r.rate,
+      })),
+      rate_updates: [{ hotel_id: HOTEL, stay_date: "2026-04-10", status: "sent", created_at: "2026-04-02T06:00:00Z" }],
+    });
+    const { rows, rooms } = await loadRateHistory(db.client, HOTEL, INN.map((t) => t.id), TODAY);
+    expect(rows.length).toBeGreaterThan(0);
+    const moves = readRateMoves(rows, rooms);
+    expect(moves.fill).toEqual([]);
+    const sets = starterRuleSets({ daysOfHistory: 365, moves });
+    expect(sets.automate_current.rules.map((r) => r.name)).not.toContain("Filling-up raise");
   });
 });

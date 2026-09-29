@@ -483,11 +483,37 @@ export function starterRuleSets(input: { daysOfHistory: number; moves: RateMoves
 export const MAX_RATE_ROWS = 50_000;
 
 /**
+ * The first day a booking may carry MAYA's price rather than the owner's:
+ * the day before MAYA first tried to send a price to the property's system
+ * (the day before, so no time zone puts a booking made after it on the day
+ * before in the property's calendar). Null when MAYA never has. Every
+ * rate_updates row is a send MAYA made or tried while live; its created_at
+ * is the first time that night was sent, and rows are never deleted.
+ */
+export async function ownRatesUntil(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("rate_updates")
+    .select("created_at")
+    .eq("hotel_id", hotelId)
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (error) throw new Error(`first price sent read failed: ${error.message}`);
+  const first = (data ?? [])[0] as { created_at?: unknown } | undefined;
+  const at = first?.created_at != null ? Date.parse(String(first.created_at)) : NaN;
+  if (!Number.isFinite(at)) return null;
+  return new Date(at - DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
  * The past year's booking-nights on `roomTypeIds`, with a booking date and a
  * rate above 0, and how many rooms those room types hold. Paged on
  * (stay_date, id), newest first, like the engine's reads; past MAX_RATE_ROWS
  * the oldest night read is dropped, since it may be only partly read. A
  * failed page throws, so the worker retries instead of reading a fragment.
+ *
+ * Only bookings made before MAYA first sent a price count (ownRatesUntil):
+ * after that a booking's rate may be MAYA's, and a rule copied from it would
+ * be MAYA's own rules read back as the owner's moves.
  */
 export async function loadRateHistory(
   supabase: SupabaseClient,
@@ -504,6 +530,9 @@ export async function loadRateHistory(
   const rooms = (types ?? []).reduce((sum, t) => sum + (Number(t.total_rooms) || 0), 0);
 
   const from = new Date(Date.parse(`${todayYmd}T00:00:00Z`) - RATE_MOVES_DAYS * DAY_MS).toISOString().slice(0, 10);
+  // How full a kept booking's night already was counts only bookings made
+  // before it, which are all kept too, so the cutoff leaves that reading whole.
+  const bookedBefore = await ownRatesUntil(supabase, hotelId);
   const PAGE = 1000;
   const rows: RateHistoryRow[] = [];
   let cursor: { stayDate: string; id: string } | null = null;
@@ -517,6 +546,7 @@ export async function loadRateHistory(
       .in("room_type_id", roomTypeIds)
       .not("booking_date", "is", null)
       .gt("current_rate", 0);
+    if (bookedBefore != null) q = q.lt("booking_date", bookedBefore);
     if (cursor) q = q.or(`stay_date.lt.${cursor.stayDate},and(stay_date.eq.${cursor.stayDate},id.lt.${cursor.id})`);
     const { data, error } = await q
       .order("stay_date", { ascending: false })
