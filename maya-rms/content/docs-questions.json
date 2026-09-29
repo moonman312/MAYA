@@ -596,7 +596,7 @@
 {"q":"Who can see the change log?","page":"team/roles","bankSection":16},
 {"q":"Is there an audit trail of who did what?","page":"team/inviting-and-removing-people","bankSection":16},
 {"q":"What should I do when an employee leaves?","page":"team/inviting-and-removing-people","bankSection":16},
-{"q":"Why did it say \"Invitation sent\" when they already had an account?","page":"team/inviting-and-removing-people","bankSection":16},
+{"q":"Why did it say \"Added\" instead of \"Invitation sent\"?","page":"team/inviting-and-removing-people","bankSection":16},
 {"q":"Can the accountant have a login just for invoices?","page":"billing/cards-payments-and-invoices","anchor":"invoices-and-receipts","bankSection":16},
 {"q":"What does the invitation email say?","page":"team/inviting-and-removing-people","bankSection":16},
 {"q":"What happens when someone accepts an invite?","page":"team/inviting-and-removing-people","bankSection":16},

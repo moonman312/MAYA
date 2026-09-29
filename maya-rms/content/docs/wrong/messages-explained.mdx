@@ -3,7 +3,7 @@ title: Messages you might see, explained
 summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
 section: wrong
 order: 100
-readingTime: 42
+readingTime: 44
 readingNote: Type a few words of the message to jump to it
 keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, marketplace-initiated, Think Reservations connection failed]
 questions:
@@ -37,16 +37,28 @@ Type a few words of the message into the box below to jump to it. Every message 
 
 <Group>
 
-- **"Sign in to MAYA"** and **"Create your MAYA account"**: the two modes of the one sign-in card. The links "New to MAYA? Create your account" and "Already have an account? Sign in" switch between them.
+- **"Sign in to MAYA"** and **"Create your MAYA account"**: two modes of the one sign-in card. The links "New to MAYA? Create your account" and "Already have an account? Sign in" switch between them.
+- **"Forgot password?"**: under the <Ui>Sign In</Ui> button. It opens **"Reset your password"**, with "Type the email you sign in with, and we'll send you a link to set a new password." and a <Ui>Send reset link</Ui> button. **"Remembered it? Sign in"** goes back. [Reset your password](/docs/recipes/reset-your-password)
 - **"Welcome back."**: the ordinary sign-in intro.
 - **"Set a password and you're on your way. Your property comes next."**: the create-account intro. After the account, you pay, then connect.
 - **"Your Cloudbeds property is connected. Create your account to finish setting it up."**: you arrived from the Cloudbeds Marketplace. Create an account, or sign in to attach the property to an account you already have.
 - **"Your Cloudbeds connection is active again. Sign in to pick up where you left off."**: you pressed <Ui>Connect App</Ui> in the Marketplace for a property MAYA already had. Sign in; everything is as you left it. [Connection lost](/docs/wrong/connection-lost)
 - **"Passwords don't match."**: retype both password fields.
 - **"That email already has an account. Sign in instead."**: the card has switched to sign-in mode. [Account and billing problems](/docs/wrong/account-and-billing-problems)
-- **"Invalid login credentials"**: wrong email or password. Passwords are at least 8 characters. There is no reset link; email us for one. [Account and billing problems](/docs/wrong/account-and-billing-problems)
-- **"Check your email"**: a confirmation link is on its way. Open it, then come back and sign in. **"Your Cloudbeds property is saved and will be waiting."** means the Marketplace property is kept for you meanwhile.
-- **"Back to sign in"**: returns you to the card after the confirmation message.
+- **"Invalid login credentials"**: wrong email or password. Passwords are at least 8 characters. Forgotten it? Click <Ui>Forgot password?</Ui>. [Account and billing problems](/docs/wrong/account-and-billing-problems)
+- **"Check your email"**: after creating an account, a confirmation link is on its way. Open it, then come back and sign in. **"Your Cloudbeds property is saved and will be waiting."** means the Marketplace property is kept for you meanwhile.
+- **"Check your email"** with **"If name@yourhotel.com has a MAYA account, a link to set a new password is on its way. Open it in this browser. The link works once."**: you asked for a reset. The words are the same whether or not the address has an account. No email after a few minutes? Check spam. [Reset your password](/docs/recipes/reset-your-password)
+- **"Sending..."**: the reset link is being asked for. It takes a moment.
+- **"Back to sign in"**: returns you to the card after either "Check your email" message.
+- **"Set a new password"** with **"Choose a new password for"** your address: the page the reset link opens. Type the new password twice and press <Ui>Save new password</Ui>.
+- **"Checking your link…"**: the reset link is being checked. Wait a moment.
+- **"This link has expired or was already used. If you set your new password already, sign in. If not, ask for a new link."**, on the "Set a new password" page: each reset link works once and runs out. Sign in, or ask for a new link. [Reset your password](/docs/recipes/reset-your-password)
+- **"Open this link in the browser where you asked for it. Or ask for a new link from this one."**: the reset link was opened in a different browser or on another device. Open it where you asked for it, or ask again from here.
+- **"We couldn't check this link just now. Reload the page to try again."**, on the "Set a new password" or "Set your password" page: the check got no answer. Reload; the link still works.
+- **"That's the password you have now. Choose a different one."**: pick a password you do not use today.
+- **"That password is too easy to guess. Choose a different one."**: pick a less common password.
+- **"Could not save your new password. Try again, or ask for a new link from the sign-in page."**: the new password did not save. Press <Ui>Save new password</Ui> again. If it fails again, ask for a new link.
+- **"Your new password is set. Taking you to MAYA…"**: done. MAYA opens, signed in.
 - **"Could not finish connecting your property."**: the Marketplace hand-over failed after sign-in. Go back to the Marketplace and press <Ui>Connect App</Ui> again.
 - **"That connection link is not valid."**: the hand-over link is broken. Press <Ui>Connect App</Ui> in the Marketplace again.
 - **"That connection has already been claimed."**: another account owns the property. Ask them to invite you. [Account and billing problems](/docs/wrong/account-and-billing-problems)
@@ -58,7 +70,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"We couldn't save that"** (please try again): the acceptance did not save. Press <Ui>Continue</Ui> again.
 - **"Set your password"**: the invitation page. Set a password, tick the box, press <Ui>Set password & continue</Ui>.
 - **"Verifying your invite…"**: the link is being checked. Wait a moment.
-- **A message that the invite link is invalid or has expired**, on the "Set your password" page: the link has expired or was already used. If you already set your password with it, sign in. If not, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) from the invited address and we send a new link. Inviting you again does not send a new email. [Inviting and removing people](/docs/team/inviting-and-removing-people)
+- **"This link has expired or was already used. If you set your password already, sign in. If not, email us for a new link."**, on the "Set your password" page: the invitation link works once and runs out. If you already set your password with it, click <Ui>sign in</Ui>. If not, click <Ui>email us</Ui>, which writes to us from your own email, and we send a new link to the invited address. [Inviting and removing people](/docs/team/inviting-and-removing-people)
 - **"Password must be at least 8 characters."**: choose a longer one.
 - **"Password set. Redirecting to the app…"**: done. The dashboard opens.
 - **"Hotel not accessible."**: you tried to open a property you are not a member of.
@@ -413,20 +425,22 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Your team"** with **"Add someone"**, **"Their email"**, **"What they can do"**, **"Send invitation"**: invite a colleague. [Inviting and removing people](/docs/team/inviting-and-removing-people)
 - **"2 of 4 seats used · 24 rooms"**: seats come with your room count.
 - **"You've used every seat your plan includes. Remove someone below, or raise your room count on the billing page if the property has grown."**: the property is full.
-- **"Invitation sent to name@yourhotel.com. They'll get an email with a link to join."**: sent. If they already use MAYA, they are added at once and no email goes out.
+- **"Invitation sent to name@yourhotel.com. They'll get an email with a link to join."**: an email with a link to set a password went out, and they are on the property already.
+- **"Added. name@yourhotel.com already uses MAYA and will see this property next time they sign in."**: they have signed in to MAYA before, so no email went out. They are on the property already.
 - **"Enter a valid email address."**, **"Pick a role."**: fix the form.
 - **"You can't give someone a role above your own."** and **"That's above your own access level."**: a General Manager cannot grant or change Hotel Admin. [Roles](/docs/team/roles)
 - **"That person is already on this property."**, **"They already have an invitation pending."**: nothing to do, or cancel the pending one first.
 - **"Your plan covers 4 people at 24 rooms."**: the seat limit in full.
 - **"Too many invitations"** (try again shortly): 20 invitations per property per hour.
-- **"Could not send that invitation."**, **"Could not change that role."**, **"Could not remove them."**, **"Could not cancel that invitation."**: try again.
+- **"Could not send that invitation. Try again in a minute."**: nobody was added. Send it again in a minute. If it keeps failing, [email us](mailto:info@modern-hospitality-solutions.com?subject=Invitation%20failed).
+- **"Could not send that invitation."**, **"Could not change that role."**, **"Could not remove them."**, **"Could not cancel that invitation."**: the connection dropped or the change did not save. Try again.
 - **"On this property"** with **"Invited · Revenue Manager · not accepted yet"**, **"Cancel"**, **"Remove"**: your members and pending invitations.
 - **"That person isn't on this property."**, **"That invitation isn't on this property."**: reload.
 - **"This is the property's only Hotel Admin. Make someone else one first."**: the last Hotel Admin cannot be demoted or removed.
 - **"We couldn't load your team"** with **"Try again"**: the list could not load.
 - **"Who can access this property is managed by its General Manager or Hotel Admin. Ask one of them if you need someone added or removed."**: your role cannot manage the team.
 - **"Staff"**: an older name for the Viewer role. [Roles](/docs/team/roles)
-- **Email "You have been invited to The Harbour Inn on MAYA"** with **"You're invited"** and **"Accept the invite"**: the invitation. The link is single-use and expires.
+- **Email "You have been invited to The Harbour Inn on MAYA"** with **"You're invited"** and **"Accept the invite"**: the invitation. The link works once and expires. If it has expired and they have not set a password yet, the email says to email us for a new link.
 
 </Group>
 
