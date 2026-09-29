@@ -38,6 +38,14 @@
  *      except where it has fires (open or taken off, where it can wait),
  *      and "before" runs on those nights alone.
  *
+ * Every run of one preview reads the booking history booking speed compares
+ * with once and shares it, with the season model, each night's comparable
+ * nights and each reading worked out from it (they are at the same instant
+ * against the same data), and reads the history of nights already over from
+ * the hotel day's store where a scheduled run saved it (HistoryLoad in
+ * engine/booking-speed-provider.ts). booking-speed-reuse.test.ts proves the
+ * days and prices come out exactly as without.
+ *
  * rule-preview.test.ts proves each step gives the nights a full "after"
  * against a full "before" gives, and that Apply then changes exactly those
  * prices, on both copies of the engine.
@@ -45,6 +53,7 @@
 
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { historyReuse, type HistoryLoad } from "@/lib/engine/booking-speed-provider";
 import { dryRunCapture, evaluateHotel, type DryRunCapture } from "@/lib/engine/evaluate";
 import type { LadderOp } from "@/lib/engine/ladder";
 import { computeDta } from "@/lib/engine/metrics";
@@ -95,6 +104,17 @@ export type PreviewInput = {
   from?: string;
   to?: string;
 };
+
+/**
+ * How a preview reads the booking history (see the header): shared by its
+ * runs and read from the store, unless a test asks for every run to read
+ * afresh to compare.
+ */
+export type PreviewHistory = { reuse?: boolean; store?: boolean };
+
+function historyFor(opts: PreviewHistory): HistoryLoad {
+  return { reuse: opts.reuse === false ? null : historyReuse(), store: opts.store === false ? null : "read" };
+}
 
 export type PreviewResult = {
   ruleId: string;
@@ -414,6 +434,7 @@ export async function previewRule(
   client: SupabaseClient,
   input: PreviewInput,
   evaluate: EvaluateFn = evaluateHotel,
+  historyOpts: PreviewHistory = {},
 ): Promise<PreviewResult> {
   const started = Date.now();
   const ruleId = String(input.after.id);
@@ -442,11 +463,13 @@ export async function previewRule(
   if (from > to) return result(new Map(), [], 0);
 
   const ro = readOnlyClient(client);
+  const history = historyFor(historyOpts);
   const run = async (nights: string[], withRule: boolean, opts: { watch?: boolean; ladderOnly?: boolean } = {}) => {
     const capture = dryRunCapture();
     if (nights.length === 0) return capture;
     await evaluate(ro, input.hotelId, input.at, horizon, {
       nights,
+      history,
       dryRun: {
         ...(withRule ? { rule: after } : {}),
         ...(opts.watch ? { watch: ruleId } : {}),
@@ -642,6 +665,7 @@ export async function previewFingerprint(client: SupabaseClient, hotelId: string
 /** The functions a dry run may call: reads only. */
 const READ_RPCS = new Set([
   "audit_last_signatures",
+  "booking_history_cache_get",
   "booking_speed_first_stay_date",
   "booking_speed_history_summary",
   "booking_speed_windows",

@@ -70,6 +70,14 @@ import { type HotelClock, lastNightOf, readHotelClock } from "./pricing-window.t
 import { pushMaxPriceAgeMs } from "./push-guardrails.ts";
 import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushOptions, type RatePushSummary } from "./rate-push.ts";
 
+/**
+ * Every scheduled run reads the booking history booking speed compares with
+ * from the hotel day's store, and saves what it had to read afresh
+ * (HistoryLoad in engine/booking-speed-provider.ts): the popup and the next
+ * ticks then read it instead of the whole history again.
+ */
+const KEEP_HISTORY: EvaluateOptions["history"] = { store: "write" };
+
 /** Before the cadence migration, every tick prices the whole window, and never past this. */
 export const PRE_CADENCE_HORIZON_DAYS = 60;
 
@@ -234,7 +242,7 @@ export async function runPricingTick<E>(
     // Without a clock the engine reads the timezone itself, as it always has,
     // over the whole window; the push below does not run on that date.
     try {
-      evaluate = await deps.evaluate(supabase, hotelId, undefined, horizonDays);
+      evaluate = await deps.evaluate(supabase, hotelId, undefined, horizonDays, { history: KEEP_HISTORY });
     } catch (e) {
       evaluate = { error: errorText(e, "evaluate failed") };
     }
@@ -414,7 +422,7 @@ async function priceNights<E>(
       ...(workError ? { error: workError } : {}),
     };
     try {
-      const evaluate = await args.evaluate(supabase, hotelId, clock.at, horizonDays);
+      const evaluate = await args.evaluate(supabase, hotelId, clock.at, horizonDays, { history: KEEP_HISTORY });
       return { evaluate, vouchedAt: clock.at, cadence, passWorkLeft: false, horizonDays };
     } catch (e) {
       return { evaluate: { error: errorText(e, "evaluate failed") }, cadence, passWorkLeft: false, horizonDays };
@@ -508,6 +516,7 @@ async function priceNights<E>(
       ...(args.cadence === "every_tick" ? {} : { nights: plan.nights }),
       runKind: args.cadence === "every_tick" ? "window" : "nights",
       report,
+      history: KEEP_HISTORY,
     });
   } catch (e) {
     // Nothing is cleared and the pass does not move: the next tick prices

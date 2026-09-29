@@ -90,10 +90,10 @@ export function browserToday(now = new Date()): string {
  * on: three requests at once, the nearest two months first, so the popup
  * fills in as they land. The first part starts at the hotel's today and the
  * last runs to the window's end, whatever the browser's date. Near nights
- * cost the engine more than far ones (more bookings to count), so these
- * parts of 60, 120 and 216 nights take about as long as each other (a
- * 200-room hotel: 1.9, 2.7 and 2.5 s on a dev Mac; three equal parts of
- * 132 made the first 3.7 s).
+ * cost the engine more than far ones (more bookings to count), so the parts
+ * are 60, 120 and 216 nights (a 200-room hotel with 33 rules on a dev Mac,
+ * with the day's booking history kept: 0.7, 0.8 and 0.4 s; three equal parts
+ * of 132 made the first 1.4 s).
  */
 export function previewParts(kind: "standard" | "event", today: string): { from?: string; to?: string }[] {
   if (kind === "standard") return [{}];
