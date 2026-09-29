@@ -36,6 +36,8 @@ describe("describeSave", () => {
     expect(describeSave({ pushed: "reconnect", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe(
       "Saved. It will be sent once you reconnect.",
     );
+    // The connection or the mode could not be read: no promise either way.
+    expect(describeSave({ pushed: "saved", suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds")).toBe("Saved.");
     const paused = (billingStatus?: string) =>
       describeSave({ pushed: "billing_paused", billingStatus, suppressedRules: 0, retiredPickups: 0 }, "Cloudbeds");
     expect(paused("unpaid")).toBe(

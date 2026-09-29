@@ -626,6 +626,19 @@ describe("POST /api/manual-price — pushed", () => {
     expect((await (await post()).json()).pushed).toBe("nudged");
   });
 
+  it("says only saved when the connection or the mode cannot be read, never that it is sending", async () => {
+    const down = { code: "57014", message: "canceling statement due to statement timeout" };
+    for (const table of ["pms_connections", "hotel_settings"]) {
+      state.fake = seed({}, { [table]: down });
+      const body = await (await post()).json();
+      expect(body.pushed, table).toBe("saved");
+      // The price is still saved and priced.
+      expect(tables().get("manual_price"), table).toHaveLength(1);
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(evaluateHotel).toHaveBeenCalled();
+  });
+
   it("leaves a Mews property's line as it was: nothing is sent to Mews either way", async () => {
     state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "error" }] });
     expect((await (await post()).json()).pushed).toBe("next_cycle");

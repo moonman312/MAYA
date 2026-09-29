@@ -72,6 +72,8 @@ const MAX_PRICE = 99_999_999.99;
  * carries billingStatus, because the way back differs by status.
  * "reconnect": the hotel's connection is Disconnected or Error, and the
  * syncs never claim it, so nothing goes out until the owner reconnects.
+ * "saved": the hotel's mode or its connection could not be read just now, so
+ * the line promises nothing about sending.
  */
 type Pushed =
   | "nudged"
@@ -80,7 +82,8 @@ type Pushed =
   | "beyond_window"
   | "zero_not_sent"
   | "billing_paused"
-  | "reconnect";
+  | "reconnect"
+  | "saved";
 
 /**
  * How many of the saved nights the scheduled push covers today (`now`) and how
@@ -313,9 +316,11 @@ const SENDS_PRICES = new Set(["cloudbeds", "think"]);
  * of its works: the syncs never claim such a connection, so a price waits
  * for a reconnect. A working connection beside a stale one decides it, as it
  * does for the nudge (hotelPmsType); Pending, or no connection, is not down.
+ * Null when the connections could not be read: nobody can say.
  */
-async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<boolean> {
-  const { data } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
+async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<boolean | null> {
+  const { data, error } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
+  if (error) return null;
   const rows = ((data ?? []) as { pms_type?: unknown; status?: unknown }[]).map((r) => ({
     pms: String(r.pms_type),
     status: String(r.status),
@@ -350,7 +355,7 @@ async function pushFor(
     );
   }
 
-  const [billingStatus, { data: settings }, down] = await Promise.all([
+  const [billingStatus, { data: settings, error: settingsError }, down] = await Promise.all([
     stoppedSubscription(admin, range.hotelId),
     admin.from("hotel_settings").select("simulation_mode").eq("hotel_id", range.hotelId).maybeSingle(),
     connectionDown(admin, range.hotelId),
@@ -358,8 +363,12 @@ async function pushFor(
   // A stopped subscription first: nothing runs or goes out for the hotel,
   // live or not, and the way back is on the Billing page.
   if (billingStatus) return { pushed: "billing_paused", billingStatus };
+  // A mode or connection that could not be read: "saved", and no promise
+  // either way. The push decides for itself on its next cycle.
+  if (settingsError) return { pushed: "saved" };
   // Same reading as the push gate itself: no settings row is not Live.
   if (settings?.simulation_mode !== false) return { pushed: "simulation" };
+  if (down === null) return { pushed: "saved" };
   // Nothing goes out until the owner reconnects, so no nudge either.
   if (down) return { pushed: "reconnect" };
   // Only when NOTHING in the range is pushable. A range that straddles the

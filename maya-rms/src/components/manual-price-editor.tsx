@@ -20,7 +20,8 @@ type Pushed =
   | "beyond_window"
   | "zero_not_sent"
   | "billing_paused"
-  | "reconnect";
+  | "reconnect"
+  | "saved";
 
 type SaveResponse = {
   ok: boolean;
@@ -88,6 +89,7 @@ function pushedCopy(
       return billingPausedCopy(billingStatus);
     case "reconnect":
       return "Saved. It will be sent once you reconnect.";
+    case "saved":
     default:
       return "Saved.";
   }
