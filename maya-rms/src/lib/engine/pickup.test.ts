@@ -829,13 +829,12 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     expect(heads.get(fireHeadKey("raise", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 });
   });
 
-  it("leaves out a raise this run took off, one from an older version of its rule, and one whose rule it wasn't given", () => {
+  it("leaves out a raise this run took off and one whose rule it wasn't given", () => {
     const heads = openFireHeads(
       [raise, edited],
       [
         fire({ id: "open", applied_at: "2026-09-20T12:00:00.000Z" }),
         fire({ id: "cancelled", applied_at: "2026-09-23T12:00:00.000Z" }),
-        fire({ id: "old", rule_id: "edited", rule_version: 1, applied_at: "2026-09-24T12:00:00.000Z" }),
         fire({ id: "orphan", rule_id: "deleted", applied_at: "2026-09-25T12:00:00.000Z" }),
       ],
       new Set(["cancelled"]),
@@ -843,6 +842,18 @@ describe("where a pickup count opens: the fires still on the night (openFireHead
     expect([...heads.entries()]).toEqual([
       [fireHeadKey("raise", NIGHT, "rt1"), { lastCountedAt: "2026-09-20T12:00:00.000Z", counted: 1 }],
     ]);
+  });
+
+  it("a raise of an older version still on the price covers what it counted, and doesn't count toward the alert", () => {
+    // A rule edited while it was off keeps its changes on the price, frozen,
+    // and so does one saved with Skip; a running rule's older changes are
+    // taken off before this (firesToReset).
+    const heads = openFireHeads(
+      [edited],
+      [fire({ id: "old", rule_id: "edited", rule_version: 1, applied_at: "2026-09-24T12:00:00.000Z" })],
+      new Set(),
+    );
+    expect(heads.get(fireHeadKey("edited", NIGHT, "rt1"))).toEqual({ lastCountedAt: "2026-09-24T12:00:00.000Z", counted: 0 });
   });
 
   it("so a stronger rule's raise that came off for cancellations covers no weaker rule, where the fire history would", () => {

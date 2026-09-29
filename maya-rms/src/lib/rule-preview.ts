@@ -25,10 +25,13 @@
  *   2. A standard (ladder) rule's decisions read only its own numbers and
  *      state, never another rule's: a dry run of its ladder part alone finds
  *      the nights where its change on the price moves (on, off, a new
- *      amount), and only those are run whole, both ways.
+ *      amount), and only those are run whole, both ways. For an edit to a
+ *      rule that is on, the rule as stored is run the same way, since left
+ *      alone it would act on what it matches now too.
  *   3. An event rule (booking speed or pickup count) runs whole on the
  *      nights left; "before" then runs where it had a part (a change on the
- *      price, or its condition met: DryRunCapture.touched).
+ *      price, or its condition met: DryRunCapture.touched), or, for an edit
+ *      to a rule that is on, on the same nights as "after".
  *
  * rule-preview.test.ts proves each step gives the nights a full "after"
  * against a full "before" gives, and that Apply then changes exactly those
@@ -71,6 +74,12 @@ export type PreviewInput = {
   hotelId: string;
   /** The rule as it will be after Apply, in the engine's shape. Taken as on, with no Skip. */
   after: EngineRuleRow;
+  /**
+   * The rule as stored, when it is on now (an edit to a rule that is on):
+   * left alone, it would act on what it matches now, so the nights where it
+   * would count too.
+   */
+  before?: EngineRuleRow | null;
   /** The instant both runs are for. */
   at: string;
   /** The hotel's pricing window, in nights (hotelPricingHorizon). */
@@ -263,17 +272,36 @@ export async function previewRule(
     return capture;
   };
 
+  // The rule as stored, where it acts now (an edit to a rule that is on).
+  const before = input.before?.is_active ? input.before : null;
+  const window = nightsFrom(from, to);
   const state = await nightsWithState(client, input.hotelId, ruleId, from, to);
-  const scoped = new Set([...nightsInScope(after, nightsFrom(from, to), today, input.at, timeZone), ...state]);
+  const scoped = new Set([
+    ...nightsInScope(after, window, today, input.at, timeZone),
+    ...(before ? nightsInScope(before, window, today, input.at, timeZone) : []),
+    ...state,
+  ]);
   const p0 = [...scoped].sort();
 
-  if (kind === "standard") {
-    // Where its ladder part moves its change on the price: only there can
-    // the hotel's prices differ.
-    const ladder = await run(p0, true, { watch: true, ladderOnly: true });
-    const p1 = [...new Set(ladder.ladderOps.filter(ladderOpMovesPrice).map((op) => op.stayDate))].sort();
+  if (kind === "standard" && (!before || !isEventRuleRow(before))) {
+    // Where its ladder part moves its change on the price, as saved or as
+    // stored: only there can the hotel's prices differ.
+    const [ladderAfter, ladderBefore] = await Promise.all([
+      run(p0, true, { watch: true, ladderOnly: true }),
+      before ? run(p0, false, { watch: true, ladderOnly: true }) : Promise.resolve(dryRunCapture()),
+    ]);
+    const p1 = [
+      ...new Set([...ladderAfter.ladderOps, ...ladderBefore.ladderOps].filter(ladderOpMovesPrice).map((op) => op.stayDate)),
+    ].sort();
     const [a, b] = await Promise.all([run(p1, true), run(p1, false)]);
     return result(nightsThatDiffer(a.prices, b.prices, new Set(p1)), p1, p1.length * 2);
+  }
+
+  if (before) {
+    // The rule acts both ways: every night it could act on, both ways.
+    const [a, b] = await Promise.all([run(p0, true, { watch: true }), run(p0, false, { watch: true })]);
+    const touched = [...new Set([...a.touched, ...b.touched])].filter((d) => scoped.has(d)).sort();
+    return result(nightsThatDiffer(a.prices, b.prices, scoped), touched, p0.length * 2);
   }
 
   const a: DryRunCapture = await run(p0, true, { watch: true });

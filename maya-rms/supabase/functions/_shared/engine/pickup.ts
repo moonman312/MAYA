@@ -582,11 +582,11 @@ export function countFromFireAt(
 }
 
 /**
- * Per `rule_id|stay_date|room_type_id` (fireHeadKey), the fires still on
- * the night from each given rule's current version, leaving out `retired`
- * (the fires this run took off): how many (counted, what the three-changes
- * alert counts) and the newest applied_at among them (lastCountedAt: where
- * every rule counts from, countFromFireAt). A change the cancellation check
+ * Per `rule_id|stay_date|room_type_id` (fireHeadKey), the fires of each
+ * given rule still on the night, leaving out `retired` (the fires this run
+ * took off): how many of its current version (counted, what the
+ * three-changes alert counts) and the newest applied_at among them all
+ * (lastCountedAt: where every rule counts from, countFromFireAt). A change the cancellation check
  * kept on bookings made since still counts from when it was made: its
  * checked_at is the check's alone, and counting starts again only when a
  * price changes. A change that came off for cancellations is not among
@@ -604,11 +604,14 @@ export function openFireHeads(
   for (const fire of openFires) {
     if (retired.has(fire.id)) continue;
     const rule = ruleOf.get(fire.rule_id);
-    const current = rule?.version === fire.rule_version;
-    // A change the owner's Skip left on the price still covers what it
-    // counted, whichever version made it; only the current version's count
-    // toward the three-changes alert.
-    if (!current && !keptBySkip(rule, fire)) continue;
+    if (!rule) continue;
+    // A change still on the price covers what it counted, whichever version
+    // of its rule made it: one the owner's Skip left on (keptBySkip), or one
+    // of a rule edited while it was off (its changes stay on, frozen, until
+    // it is switched on). A running rule's older changes came off before
+    // this (firesToReset). Only the current version's count toward the
+    // three-changes alert.
+    const current = rule.version === fire.rule_version;
     const key = fireHeadKey(fire.rule_id, fire.stay_date, fire.affected_room_type_id);
     const head = out.get(key);
     if (!head) {
