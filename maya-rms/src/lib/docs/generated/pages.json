@@ -1004,7 +1004,7 @@
   "summary": "Cloudbeds and ThinkReservations connect from the app and receive prices. Mews is connected by us and is read-only for now. Every other system is not yet supported.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1065,7 +1065,7 @@
   "summary": "How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds"
   ],
@@ -1143,7 +1143,7 @@
   "summary": "How to connect ThinkReservations from inside MAYA, what MAYA reads there, which rate type it sends prices to, how a send is checked, and what is different about room counts and disconnects.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "thinkreservations"
   ],
@@ -1244,9 +1244,9 @@
   "order": 40,
   "title": "Mews: what works today",
   "summary": "Mews is read-only for now. We connect it for you, MAYA reads your bookings and shows what your rules would do, and nothing is sent to Mews. It costs the same as any other property.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "mews"
   ],
@@ -1437,9 +1437,9 @@
   "order": 60,
   "title": "Reconnecting and disconnecting",
   "summary": "What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.",
-  "readingTime": 14,
+  "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1455,6 +1455,11 @@
     "depth": 3,
     "text": "When there is no banner",
     "id": "when-there-is-no-banner"
+   },
+   {
+    "depth": 2,
+    "text": "The email after an hour",
+    "id": "the-email-after-an-hour"
    },
    {
     "depth": 2,
@@ -1513,7 +1518,9 @@
    "What do Connected, Pending, Degraded, Error and Disconnected mean on the PMS tab?",
    "Does disconnecting delete anything?",
    "Can I type a price while MAYA is disconnected?",
-   "Last sync stopped but the PMS tab says Connected and there is no banner, why?"
+   "Last sync stopped but the PMS tab says Connected and there is no banner, why?",
+   "Will I get an email when the connection breaks?",
+   "Who is emailed when the connection is down?"
   ],
   "faq": []
  },
@@ -1528,7 +1535,7 @@
   "summary": "A short checklist for a Cloudbeds property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds"
   ],
@@ -1583,9 +1590,9 @@
   "order": 80,
   "title": "MAYA with ThinkReservations, start to finish",
   "summary": "A short checklist for a ThinkReservations property's first weeks with MAYA, in order, with a link to the page that explains each step.",
-  "readingTime": 6,
+  "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-28",
   "pms": [
    "thinkreservations"
   ],
@@ -1641,7 +1648,7 @@
   "summary": "A short checklist for a Mews property's first weeks with MAYA. We connect it, you build rules, and you use MAYA's calendar as your guide while nothing is sent to Mews.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "mews"
   ],
@@ -4249,9 +4256,9 @@
   "order": 80,
   "title": "The PMS tab: connection health",
   "summary": "What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, and the reconnect link.",
-  "readingTime": 6,
+  "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4631,7 +4638,7 @@
   "summary": "What the \"Rates not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5206,10 +5213,10 @@
   "slug": "emails-maya-sends",
   "order": 50,
   "title": "Emails MAYA sends",
-  "summary": "The three emails MAYA itself sends (the team invitation, the room count email, and a nudge before a charge when nothing is connected), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
-  "readingTime": 7,
+  "summary": "The four emails MAYA itself sends (the team invitation, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
+  "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5218,8 +5225,8 @@
   "headings": [
    {
     "depth": 2,
-    "text": "The three emails MAYA sends",
-    "id": "the-three-emails-maya-sends"
+    "text": "The four emails MAYA sends",
+    "id": "the-four-emails-maya-sends"
    },
    {
     "depth": 3,
@@ -5235,6 +5242,11 @@
     "depth": 3,
     "text": "The nudge before a charge when nothing is connected",
     "id": "the-nudge-before-a-charge-when-nothing-is-connected"
+   },
+   {
+    "depth": 3,
+    "text": "The connection-down email",
+    "id": "the-connection-down-email"
    },
    {
     "depth": 2,
@@ -5278,7 +5290,9 @@
    "Which emails come from Stripe and which from MAYA?",
    "An email did not arrive, what should I check?",
    "Which address do MAYA's emails come from, so we can allow them through our spam filter?",
-   "I use Mews and got a reminder that my system is not connected. What should I do?"
+   "I use Mews and got a reminder that my system is not connected. What should I do?",
+   "Will MAYA email me if the connection to my property system breaks?",
+   "Who gets the email when the connection is down?"
   ],
   "faq": []
  },
@@ -6617,9 +6631,9 @@
   "order": 260,
   "title": "Reconnect your property system",
   "summary": "When MAYA loses its connection, a General Manager or Hotel Admin clicks Reconnect on the banner or the PMS tab, signs in at Cloudbeds or ThinkReservations, and lands back on the dashboard. Mews is reconnected by us.",
-  "readingTime": 3,
+  "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6643,7 +6657,8 @@
    "Who can reconnect?",
    "I uninstalled the app in Cloudbeds by accident, how do I get it back?",
    "What happens to my prices while the connection is down?",
-   "Why do I not see the reconnect banner?"
+   "Why do I not see the reconnect banner?",
+   "Will I get an email when the connection drops?"
   ],
   "faq": []
  },
@@ -7321,7 +7336,7 @@
   "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Rates not reaching\" sentence asks you to do.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7413,10 +7428,10 @@
   "slug": "connection-lost",
   "order": 70,
   "title": "Connection lost",
-  "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, and how to tell when Mews reads have stopped with no banner.",
-  "readingTime": 9,
+  "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, how to tell when Mews reads have stopped with no banner, and the email that follows when the connection stays down.",
+  "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7465,6 +7480,11 @@
    },
    {
     "depth": 2,
+    "text": "Will I get an email?",
+    "id": "will-i-get-an-email"
+   },
+   {
+    "depth": 2,
     "text": "Why is \"Last sync\" old?",
     "id": "why-is-last-sync-old"
    },
@@ -7509,7 +7529,9 @@
    "The log says reconnect on the PMS tab but I see no banner",
    "After reconnecting I landed on the dashboard with no message",
    "It says this login is for a different property",
-   "What happens to my prices while the connection is down?"
+   "What happens to my prices while the connection is down?",
+   "Will I get an email when the connection is lost?",
+   "I got an email saying MAYA has lost its connection"
   ],
   "faq": [
    {
@@ -7523,6 +7545,10 @@
    {
     "q": "ThinkReservations lost its connection, how would I tell?",
     "a": "MAYA shows the banner and the Reconnect Think Reservations button when the connection stops working and its status changes. Because ThinkReservations does not tell MAYA, that can lag: MAYA's reads fail first and are retried with a growing gap of up to an hour, and the banner follows once the status is marked. If Last sync on the PMS tab is hours old and no banner shows, press Reconnect Think Reservations there anyway, with a login for this hotel only. It is harmless on a working connection."
+   },
+   {
+    "q": "Will I get an email?",
+    "a": "Yes, once the connection has read Error or Disconnected for about an hour. Every General Manager and Hotel Admin on the property gets one email, headed \"MAYA has lost its connection to Cloudbeds\" (or your system), saying when it went down, what happened, what it means for your prices and how to reconnect. Its button, Open the PMS tab, opens the tab where you reconnect. On Mews, reply to it and we arrange new keys with you."
    },
    {
     "q": "Why is \"Last sync\" old?",
@@ -8297,7 +8323,7 @@
   "summary": "Every limit in one list, grouped by rules, prices and sending, property systems, the calendar and change log, account and billing, and your data, each with what to do instead and the page that explains it.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-28",
   "pms": [
    "cloudbeds",
    "thinkreservations",

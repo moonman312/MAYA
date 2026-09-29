@@ -1,10 +1,10 @@
 ---
 title: Emails MAYA sends
-summary: The three emails MAYA itself sends (the team invitation, the room count email, and a nudge before a charge when nothing is connected), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
+summary: The four emails MAYA itself sends (the team invitation, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
 section: billing
 order: 50
-readingTime: 7
-keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available]
+readingTime: 9
+keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available, connection down, connection lost email, lost its connection, disconnected email, reconnect email, down for an hour, outage, keys refused]
 questions:
   - What billing emails will I get? {#emails-that-come-from-stripe}
   - 'What is the "your subscription starts" email?' {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
@@ -17,23 +17,26 @@ questions:
   - An email did not arrive, what should I check? {#if-an-email-did-not-arrive/check-spam-and}
   - Which address do MAYA's emails come from, so we can allow them through our spam filter? {#the-sending-address}
   - I use Mews and got a reminder that my system is not connected. What should I do? {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
+  - Will MAYA email me if the connection to my property system breaks? {#the-connection-down-email}
+  - Who gets the email when the connection is down? {#the-connection-down-email}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-24
+updated: 2026-09-28
 ---
 
 <InPlainWords>
-MAYA itself sends three emails: the team invitation, the room count email, and a nudge before your subscription starts or renews if your property system is not connected. Creating an account may also bring a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
+MAYA itself sends four emails: the team invitation, the room count email, a nudge before your subscription starts or renews if your property system is not connected, and an email to your General Managers and Hotel Admins once the connection to your property system has been down about an hour. Creating an account may also bring a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
 </InPlainWords>
 
-## The three emails MAYA sends
+## The four emails MAYA sends
 
 | Email | When | Subject |
 |---|---|---|
 | The team invitation | Someone on your team invites an address that does not have a MAYA account yet | "You have been invited to The Harbour Inn on MAYA" |
 | The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms" followed by what your system shows |
 | The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" the date "and isn't connected to your PMS yet" |
+| The connection-down email | The connection to your property system has read <Ui>Disconnected</Ui> or <Ui>Error</Ui> for about an hour | "MAYA has lost its connection to Cloudbeds at The Harbour Inn", with your system and property |
 
-All three come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
+All four come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
 
 ### The team invitation
 
@@ -52,6 +55,23 @@ Sent to a property with a subscription, on a trial or paid, whose property syste
 It says that your first payment (or renewal) of a stated amount is scheduled for a stated date. It goes on to say that your property system is not connected yet, so your rules have not been able to run, and that connecting takes about two minutes. Its button reads <Ui>Finish setting up MAYA</Ui>. It also states what you are paying for ("20 rooms at $5.50 per room, per month") and says that if that number is wrong, connecting first opens your <Ui>Billing</Ui> page, where you can change it before the charge.
 
 If your property uses Mews, we connect it for you, and until we have, this email can still arrive. Its button cannot connect Mews. It leads to the connect screen, where Mews is listed as <Ui>Not yet available</Ui>, so the two minutes the email mentions do not apply. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Connect%20Mews) instead and we connect it with you.
+
+### The connection-down email
+
+Sent once the <Ui>Connection</Ui> card on the <Ui>PMS</Ui> tab has read <Ui>Disconnected</Ui> or <Ui>Error</Ui> for about an hour. It goes to every General Manager and Hotel Admin on the property, at the address they sign in with, and our team is told at the same time. <Ui>Degraded</Ui> never sends it, because MAYA is still reading and sending then.
+
+It goes once per outage. Moving between <Ui>Disconnected</Ui> and <Ui>Error</Ui> is the same outage. If the connection comes back and later breaks again, a new email follows about an hour after the new break.
+
+Headed "MAYA has lost its connection to Cloudbeds" (or your system), it says:
+
+- **When it went down**, in your property's time.
+- **What happened.** For example, the app was uninstalled or disconnected in Cloudbeds, your system refused to renew MAYA's access, or Mews refused MAYA's keys three reads in a row.
+- **What it means for your prices.** MAYA can't read your bookings, so your prices aren't updating. When you are live on Cloudbeds or ThinkReservations, it also says no prices are sent, and that the rates already in your system stay as they are.
+- **How to reconnect.** On Cloudbeds and ThinkReservations: open the <Ui>PMS</Ui> tab, click <Ui>Reconnect Cloudbeds</Ui> (or <Ui>Reconnect Think Reservations</Ui>) and sign in with a login for this property only. On Mews: reply to the email and we arrange new keys with you.
+
+Its button, <Ui>Open the PMS tab</Ui>, opens MAYA on that tab. A reply reaches us. When the connection reads <Ui>Disconnected</Ui>, the email adds that you can ignore it if you disconnected MAYA on purpose.
+
+It is not sent when your subscription has stopped (cancelled, or unpaid after the bank's retries), because MAYA has paused work on the property anyway. It is not sent when we remove your Mews keys at your request. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
 ## The account confirmation email
 
@@ -72,13 +92,13 @@ Stripe, not MAYA, sends everything about money: receipts and invoices, a failed-
 
 ## Changing the billing email
 
-The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. Change it in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
+The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. The connection-down email is different: it goes to the sign-in address of each General Manager and Hotel Admin. Change it in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
 
 ## The sending address
 
-MAYA's three emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
+MAYA's four emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
 
-In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us.
+In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us, and a reply to the connection-down email comes to us.
 
 The other emails come from elsewhere: anything about money from Stripe, and the account confirmation email from the sign-in service. Allow those separately.
 
@@ -88,11 +108,12 @@ The other emails come from elsewhere: anything about money from Stripe, and the 
 - For an invitation: if the person already has a MAYA account, no email is sent, because they are on the property already. Ask them to sign in and pick it in the <Ui>Property</Ui> selector. If they are new to MAYA and the email is lost, [email us](mailto:info@modern-hospitality-solutions.com?subject=New%20invitation%20link) for a new link.
 - For the account confirmation: check spam, then [email us](mailto:info@modern-hospitality-solutions.com?subject=Confirmation%20email) with the address you used.
 - For the room count email or the nudge: it went to the billing email, which may not be the address you sign in with.
+- For the connection-down email: it goes only to General Managers and Hotel Admins, at the address they sign in with, about an hour after the <Ui>Connection</Ui> card first read <Ui>Disconnected</Ui> or <Ui>Error</Ui>, and only once for that outage. <Ui>Degraded</Ui> sends none. Check the <Ui>PMS</Ui> tab, which is always up to date.
 - For a receipt or a Stripe reminder: the same billing email, and it depends on Stripe's settings.
 - Still nothing? [Email us](mailto:info@modern-hospitality-solutions.com?subject=Missing%20email) and say which email and which address.
 
 <Callout kind="not-yet">
-No payment-confirmed email. No price or rule alerts by email. No digest. No email preferences screen: the three emails are sent when their moment comes and cannot be switched off individually.
+No payment-confirmed email. No price or rule alerts by email. No digest. No email preferences screen: the four emails are sent when their moment comes and cannot be switched off individually.
 </Callout>
 
 <Related>
