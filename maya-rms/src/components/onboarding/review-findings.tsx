@@ -641,14 +641,14 @@ export function describeFinding(f: Finding): {
         const years = Number(p.years_observed ?? 0);
         return {
           title: `Is your property normally closed ${String(p.season_label)}?`,
-          body: `We see the same closure ${years} years running. One confirmation covers all of them — we'll keep those stretches from skewing your pricing analysis.`,
+          body: `This closure appears in ${years} different years. One confirmation covers all of them, and those stretches are left out when your nights are compared.`,
           confirmLabel: "Yes, that's our season",
           dismissLabel: "No, we were open",
         };
       }
       return {
         title: `Were you closed ${String(p.start_date)} → ${String(p.end_date)}?`,
-        body: `We found ${String(p.days)} straight days with zero occupancy, with normal bookings on both sides. If the property was closed (renovation, season, anything), confirming keeps this stretch from skewing your pricing analysis.`,
+        body: `We found ${String(p.days)} straight days with zero occupancy, with normal bookings on both sides. If the property was closed (renovation, season, anything), confirming leaves this stretch out when your nights are compared.`,
         confirmLabel: "Yes, we were closed",
         dismissLabel: "No, we were open",
       };
@@ -672,14 +672,14 @@ export function describeFinding(f: Finding): {
     case "rate_outlier":
       return {
         title: `Some "${String(p.name)}" rates look like typos`,
-        body: `The highest rate we saw (${Number(p.max_rate).toLocaleString()}) is far beyond this room's normal range (median ${Number(p.median_rate).toLocaleString()}). Usually a test booking or a fat-fingered rate. Confirming just notes it — we'll ignore extreme values in analysis.`,
+        body: `The highest rate we saw (${Number(p.max_rate).toLocaleString()}) is far beyond this room's normal range (median ${Number(p.median_rate).toLocaleString()}). Usually a test booking or a fat-fingered rate. Confirming just notes it. A single extreme rate like this never sets a ceiling.`,
         confirmLabel: "Probably a typo",
         dismissLabel: "Those are real",
       };
     case "zero_rate_rows":
       return {
         title: "Some stays have a $0 rate",
-        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate — usually comps or data gaps. Nothing you have to do — we'll ignore them for the purpose of this analysis.`,
+        body: `${Number(p.count).toLocaleString()} room-nights came through with no rate, usually comps or data gaps. Nothing you have to do: they're left out when your floors and ceilings are worked out.`,
         confirmLabel: "Got it",
         dismissLabel: "Dismiss",
         acknowledgeOnly: true,

@@ -17,7 +17,28 @@ describe("describeFinding", () => {
     const c = describeFinding(finding("zero_rate_rows", { count: 42 }));
     expect(c.acknowledgeOnly).toBe(true);
     expect(c.confirmLabel).toBe("Got it");
-    expect(c.body.endsWith("Nothing you have to do — we'll ignore them for the purpose of this analysis.")).toBe(true);
+    expect(c.body.endsWith("Nothing you have to do: they're left out when your floors and ceilings are worked out.")).toBe(true);
+  });
+
+  it("counts a seasonal closure's years without calling them a run, and says what confirming does", () => {
+    const c = describeFinding(finding("closed_period", { recurring: true, years_observed: 3, season_label: "all of August" }));
+    expect(c.title).toBe("Is your property normally closed all of August?");
+    expect(c.body).toBe(
+      "This closure appears in 3 different years. One confirmation covers all of them, and those stretches are left out when your nights are compared.",
+    );
+  });
+
+  it("never says the review analyses anything", () => {
+    const kinds: Array<[string, Record<string, unknown>]> = [
+      ["closed_period", { recurring: true, years_observed: 2, season_label: "all of August" }],
+      ["closed_period", { start_date: "2025-01-01", end_date: "2025-01-10", days: 10 }],
+      ["rate_outlier", { name: "Suite", max_rate: 9999, median_rate: 200 }],
+      ["zero_rate_rows", { count: 42 }],
+    ];
+    for (const [kind, payload] of kinds) {
+      const c = describeFinding(finding(kind, payload));
+      expect(`${c.title} ${c.body}`).not.toMatch(/analy|—/i);
+    }
   });
 
   it("marks unmapped_room_type as acknowledge-only with reassurance copy", () => {
