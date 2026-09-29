@@ -4,7 +4,7 @@ import { isEntitledStatus } from "./entitlement";
 import { compareRooms, graceDaysLeft, measureRooms, type RoomVerdict } from "./room-count";
 import { noticeCoversShortfall } from "./room-truing";
 import { isStripeConfigured, stripeClient } from "./stripe";
-import { formatUsd, priceCents, type BillingInterval } from "./tiers";
+import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "./tiers";
 
 /**
  * What a hotel owner sees about their own subscription.
@@ -248,11 +248,23 @@ export function headlineFor(billing: AccountBilling, now = new Date()): BillingH
   if (billing.roomTruth.kind === "short") {
     const { measured, billed, shortBy } = billing.roomTruth;
     const days = billing.roomGraceDaysLeft;
+    const lead = `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. `;
+    // Above the self-serve ceiling nothing here can fix it: the count box stops
+    // at MAX_ROOMS, and the notice email and the correction both skip these
+    // rows (room-truing.ts), so promising an email would promise nothing.
+    if (measured > MAX_ROOMS) {
+      return {
+        tone: "warn",
+        title: `You're billed for ${billed} rooms but running ${measured}`,
+        detail: `${lead}That's above what we sell self-serve. Email us and we'll set it up with you.`,
+        emailSubject: `Over ${MAX_ROOMS} rooms`,
+      };
+    }
     return {
       tone: "warn",
       title: `You're billed for ${billed} rooms but running ${measured}`,
       detail:
-        `MAYA charges per room, so ${shortBy} ${shortBy === 1 ? "room is" : "rooms are"} not being paid for. ` +
+        lead +
         (days === null
           ? "Set the count right below. We'll email you before anything changes."
           : days > 0

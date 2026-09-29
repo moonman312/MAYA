@@ -142,6 +142,31 @@ describe("headlineFor", () => {
       expect(h.detail).toContain("We'll email you before anything changes.");
       expect(h.detail).not.toMatch(/shortly|within \d/);
     });
+
+    it("sends a count above 500 to us, and promises no email that never comes", () => {
+      // Neither the notice email nor the correction touches a count above the
+      // self-serve ceiling, and the count box cannot take one either.
+      const h = headlineFor(
+        billing({
+          roomTruth: { kind: "short", measured: 600, billed: 20, shortBy: 580 },
+          roomGraceDaysLeft: null,
+        }),
+        NOW,
+      );
+      expect(h.title).toBe("You're billed for 20 rooms but running 600");
+      expect(h.detail).toBe(
+        "MAYA charges per room, so 580 rooms are not being paid for. That's above what we sell self-serve. Email us and we'll set it up with you.",
+      );
+      expect(h.emailSubject).toBe("Over 500 rooms");
+
+      // At the ceiling itself the ordinary path still applies.
+      const at = headlineFor(
+        billing({ roomTruth: { kind: "short", measured: 500, billed: 20, shortBy: 480 }, roomGraceDaysLeft: null }),
+        NOW,
+      );
+      expect(at.detail).toContain("We'll email you before anything changes.");
+      expect(at.emailSubject).toBeUndefined();
+    });
   });
 
   it("says a pending cancellation still has time left on it", () => {
