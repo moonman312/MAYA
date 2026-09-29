@@ -21,7 +21,9 @@
  * "knew", "expected" or "called".
  */
 
-import { MIN_TARGET_COMPARABLES, NO_MODEL_SEASON_SPAN_DAYS } from "@/lib/observations/comparable-dates";
+// The tunables alone: comparable-dates would pull the whole search, the
+// season detection and the holiday calendar into the browser.
+import { MIN_TARGET_COMPARABLES, NO_MODEL_SEASON_SPAN_DAYS } from "@/lib/observations/comparable-tunables";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 

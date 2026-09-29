@@ -41,11 +41,13 @@ import { seasonForDate, type SeasonModel } from "./seasons.ts";
 
 /* ── Tunables ────────────────────────────────────────────────── */
 
-export const MAX_COMPARABLES = 8;
-export const MIN_TARGET_COMPARABLES = 4;
-export const MAX_YEARS_BACK = 3;
-/** Fallback season window (± days around the target's day of year) when no season model exists. */
-export const NO_MODEL_SEASON_SPAN_DAYS = 45;
+import {
+  MAX_COMPARABLES,
+  MAX_YEARS_BACK,
+  MIN_TARGET_COMPARABLES,
+  NO_MODEL_SEASON_SPAN_DAYS,
+} from "./comparable-tunables.ts";
+export { MAX_COMPARABLES, MAX_YEARS_BACK, MIN_TARGET_COMPARABLES, NO_MODEL_SEASON_SPAN_DAYS };
 
 /* ── Types ───────────────────────────────────────────────────── */
 
