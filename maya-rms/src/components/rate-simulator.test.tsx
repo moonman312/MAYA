@@ -74,6 +74,15 @@ describe("the Rate Simulator's amounts", () => {
     render(<RateSimulator activeHotelId="h1" />);
     expect(await screen.findByText(/\$50\.00\s*–\s*\$500\.00/)).toBeTruthy();
   });
+
+  it("shows a night no rule moves with a short dash in the Change column", async () => {
+    stubApi();
+    const view = render(<RateSimulator activeHotelId="h1" />);
+    await screen.findByText("No rule fires on this night");
+    const change = screen.getByText("No rule fires on this night").closest("td")?.previousElementSibling;
+    expect(change?.textContent).toBe("–");
+    expect(view.container.textContent).not.toContain("—");
+  });
 });
 
 describe("the Rate Simulator's words", () => {

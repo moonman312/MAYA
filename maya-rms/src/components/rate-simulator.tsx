@@ -862,7 +862,7 @@ export function RateSimulator({
                       )}
                     </td>
                     <td className={`py-2 pr-3 tabular-nums ${cls}`}>
-                      {delta === 0 ? "—" : `${delta > 0 ? "+" : ""}${money(delta, currencySymbol)}`}
+                      {delta === 0 ? "–" : `${delta > 0 ? "+" : ""}${money(delta, currencySymbol)}`}
                     </td>
                     <td className="py-2 pr-3">
                       {fired.length === 0 ? (
