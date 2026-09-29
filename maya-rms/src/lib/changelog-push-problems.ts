@@ -27,6 +27,7 @@ import type {
   ChangelogPushProblem,
   ChangelogQuietChecks,
   ChangelogRuleAlertChoice,
+  ChangelogSupportChange,
   PushProblemRetries,
 } from "@/types/domain";
 
@@ -189,7 +190,8 @@ function startOf(c: ChangelogCycle | ChangelogQuietChecks): string {
 export function mergeTimeline(
   cycles: (ChangelogCycle | ChangelogQuietChecks)[],
   problems: ChangelogPushProblem[],
-  answers: ChangelogRuleAlertChoice[] = [],
+  // The owner's answers, and the changes MAYA support made: each sits where it happened.
+  answers: (ChangelogRuleAlertChoice | ChangelogSupportChange)[] = [],
   opts: { after?: string | null } = {},
 ): ChangelogItem[] {
   const newestFirst = <T>(list: { item: T; at: number }[]) =>

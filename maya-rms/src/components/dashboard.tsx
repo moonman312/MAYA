@@ -22,6 +22,8 @@ import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
 import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
+import { isSupportChange } from "@/lib/changelog-support";
+import { SupportChangeItem } from "@/components/support-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
@@ -291,11 +293,19 @@ function PmsStatusBadge({ status }: { status: string | null }) {
   );
 }
 
+/**
+ * How a platform admin stands on a property they do not belong to: a Viewer
+ * ("read_only") until God Mode is on ("god_mode"). Null for everyone else.
+ */
+export type SupportView = "read_only" | "god_mode" | null;
+
 export function Dashboard({
   isPlatformAdmin = false,
+  supportView = null,
   initialSearch = "",
 }: {
   isPlatformAdmin?: boolean;
+  supportView?: SupportView;
   /** The query the page was rendered with: the tab and place a link or a refresh asked for. */
   initialSearch?: string;
 }) {
@@ -853,7 +863,7 @@ export function Dashboard({
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
     const run = arrival.params.run;
-    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
+    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
       setArrivalNote("entry-gone");
     }
   }, [arrival, changelog]);
@@ -868,7 +878,7 @@ export function Dashboard({
     // A push problem is always shown: it is never a "nothing changed" run.
     () =>
       changesOnly
-        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || (!isQuietChecks(c) && c.has_changes))
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || isSupportChange(c) || (!isQuietChecks(c) && c.has_changes))
         : changelog,
     [changesOnly, changelog],
   );
@@ -991,6 +1001,13 @@ export function Dashboard({
             </div>
           </div>
         </header>
+
+        {supportView === "read_only" ? (
+          <p className="mb-6 rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">
+            You are viewing this property as MAYA support. Turn on God Mode from the Command Center to
+            change anything here.
+          </p>
+        ) : null}
 
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
           <nav className="flex flex-wrap gap-2">
@@ -1994,6 +2011,17 @@ export function Dashboard({
                   );
                 }
                 const whenRelative = formatRelativeAge(cycle.timestamp);
+                if (isSupportChange(cycle)) {
+                  return (
+                    <SupportChangeItem
+                      key={`support-${cycle.id}`}
+                      item={cycle}
+                      formatWhen={formatFriendlyDateTime}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                    />
+                  );
+                }
                 if (isRuleAlertChoice(cycle)) {
                   return (
                     <div key={`alert-${cycle.id}`} className="rounded border border-slate-800 p-3">
@@ -2003,7 +2031,9 @@ export function Dashboard({
                           title={formatDisplayTime(cycle.timestamp)}
                           className="not-italic"
                         >
-                          <span className="font-medium text-slate-300">Your answer</span>
+                          <span className="font-medium text-slate-300">
+                            {cycle.by_support ? "MAYA support's answer" : "Your answer"}
+                          </span>
                           <span className="text-slate-500"> · </span>
                           <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
                           {whenRelative ? (

@@ -1,4 +1,6 @@
-import { Dashboard } from "@/components/dashboard";
+import { Dashboard, type SupportView } from "@/components/dashboard";
+import { godModeStatus } from "@/lib/admin/god-mode";
+import { memberRole } from "@/lib/deep-links/member-role";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -11,6 +13,7 @@ export default async function Home({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   let isPlatformAdmin = false;
+  let supportView: SupportView = null;
 
   if (isSupabaseConfigured()) {
     const supabase = createClient(await cookies());
@@ -42,6 +45,13 @@ export default async function Home({
     if (!hotelId) {
       redirect(isPlatformAdmin ? "/admin" : "/onboarding");
     }
+
+    // A platform admin on a property they do not belong to is a Viewer
+    // unless God Mode is on: the database refuses their writes either way,
+    // and the dashboard says which it is.
+    if (isPlatformAdmin && !(await memberRole(supabase, user.id, hotelId))) {
+      supportView = (await godModeStatus(supabase)).active ? "god_mode" : "read_only";
+    }
   }
 
   // The tab and place the address asks for (and anything a link brought),
@@ -53,5 +63,5 @@ export default async function Home({
   }
   const initialSearch = query.size ? `?${query.toString()}` : "";
 
-  return <Dashboard isPlatformAdmin={isPlatformAdmin} initialSearch={initialSearch} />;
+  return <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} />;
 }

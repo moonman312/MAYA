@@ -527,6 +527,22 @@ export type ChangelogRuleAlertChoice = {
   last_night: string;
   /** What the log says happened, in one sentence. */
   title: string;
+  /** The answer was given by MAYA support (a platform admin), not by someone on the property. */
+  by_support?: boolean;
+};
+
+/**
+ * A change MAYA support made to the property in God Mode, as one change log
+ * line: "Changed by MAYA support: <what changed>". One item per row changed,
+ * as support_changes records them.
+ */
+export type ChangelogSupportChange = {
+  kind: "support_change";
+  id: string;
+  /** When the change was made. */
+  timestamp: string;
+  /** What changed, in one line. */
+  summary: string;
 };
 
 /**
@@ -561,4 +577,5 @@ export type ChangelogItem =
   | ChangelogCycle
   | ChangelogQuietChecks
   | ChangelogPushProblem
-  | ChangelogRuleAlertChoice;
+  | ChangelogRuleAlertChoice
+  | ChangelogSupportChange;

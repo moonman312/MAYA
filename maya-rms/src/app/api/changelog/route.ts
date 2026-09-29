@@ -52,11 +52,13 @@ import {
   mergeTimeline,
   oldestShownRun,
 } from "@/lib/changelog-push-problems";
+import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
+import { buildSupportChanges, MAX_SUPPORT_CHANGES, type SupportChangeRow } from "@/lib/changelog-support";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import type { ChangelogPushProblem, RuleCondition } from "@/types/domain";
+import type { ChangelogPushProblem, ChangelogSupportChange, RuleCondition } from "@/types/domain";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -456,11 +458,12 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       auditRows.length >= AUDIT_ROW_LIMIT,
     );
     const since = oldestShownRun(cycles);
-    const [problems, answers] = await Promise.all([
+    const [problems, answers, support] = await Promise.all([
       loadPushProblems(supabase, hotelId, roomTypeNames, since),
       loadAlertChoices(supabase, hotelId, lookups, since),
+      loadSupportChanges(supabase, hotelId, since),
     ]);
-    return mergeTimeline(cycles, problems, answers);
+    return mergeTimeline(cycles, problems, [...answers, ...support]);
   }
 
   // The log covers everything after the newest run it did not read, or the
@@ -469,20 +472,68 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
   // where they happened, and split the quiet stretch they fall in.
   const cycles = buildCyclesFromRuns(history.shown, lookups);
   const since = history.readBackTo ?? history.firstRunAt;
-  const [problems, answers] = await Promise.all([
+  const [problems, answers, support] = await Promise.all([
     loadPushProblems(supabase, hotelId, roomTypeNames, since),
     loadAlertChoices(supabase, hotelId, lookups, since),
+    loadSupportChanges(supabase, hotelId, since),
   ]);
   const gaps = planQuietGaps({
     changes: cycles.map((c) => c.timestamp),
     splitAt: [
       ...problems.filter((p) => p.status !== "ongoing").map((p) => p.resolved_at ?? p.timestamp),
       ...answers.map((a) => a.timestamp),
+      ...support.map((s) => s.timestamp),
     ],
     readBackTo: history.readBackTo,
   });
   const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap), history.folded);
-  return mergeTimeline([...cycles, ...quiet], problems, answers, { after: history.readBackTo });
+  return mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support], { after: history.readBackTo });
+}
+
+/**
+ * What MAYA support changed on the property in God Mode, within the runs
+ * shown: one line per row, from support_changes (which members may read for
+ * their own property). Never fails the change log, and a database without
+ * the table yet has nothing to show.
+ */
+async function loadSupportChanges(
+  supabase: SupabaseClient,
+  hotelId: string,
+  since: string | null,
+): Promise<ChangelogSupportChange[]> {
+  try {
+    let query = supabase
+      .from("support_changes")
+      .select("id, at, summary, table_name, op")
+      .eq("hotel_id", hotelId)
+      .order("at", { ascending: false })
+      .limit(MAX_SUPPORT_CHANGES);
+    if (since) query = query.gte("at", since);
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingRelationError(error)) return [];
+      throw error;
+    }
+    return buildSupportChanges((data ?? []) as SupportChangeRow[]);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
+    console.error(
+      JSON.stringify({ fn: "api/changelog", step: "support_changes", hotelId, error: message.slice(0, 300) }),
+    );
+    return [];
+  }
+}
+
+/** How the log names a member of MAYA staff, wherever it would name a person. */
+const SUPPORT_NAME = "MAYA support";
+
+/**
+ * Which of these ids are platform admins, read with the service role
+ * (app_roles is out of a customer's reach). Nobody, without one.
+ */
+async function supportIdsAmong(ids: Iterable<string>): Promise<Set<string>> {
+  if (!isAdminConfigured()) return new Set();
+  return platformAdminIds(createAdminClient(), ids);
 }
 
 /**
@@ -544,10 +595,21 @@ async function loadAlertChoices(
       })),
     ];
     const names = await chooserNamesFor(supabase, rows);
-    return buildAlertChoices(rows, { rules: lookups.rules, setterNames: names }).slice(
+    const items = buildAlertChoices(rows, { rules: lookups.rules, setterNames: names }).slice(
       0,
       MAX_ALERT_CHOICES,
     );
+    // An answer given by MAYA support is headed as such. buildAlertChoices
+    // keys each item on (rule, choice, instant), the same key its rows share.
+    const byOf = new Map<string, string | null>();
+    for (const r of rows) {
+      const key = `${r.rule_id}|${r.choice}|${r.at}`;
+      if (!byOf.has(key)) byOf.set(key, r.by);
+    }
+    return items.map((item) => {
+      const by = byOf.get(item.id);
+      return by && names.get(by) === SUPPORT_NAME ? { ...item, by_support: true } : item;
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
     console.error(
@@ -571,6 +633,7 @@ async function chooserNamesFor(
     const name = typeof p.full_name === "string" ? p.full_name.trim() : "";
     if (name) names.set(String(p.id), name);
   }
+  for (const id of await supportIdsAmong(ids)) names.set(id, SUPPORT_NAME);
   return names;
 }
 
@@ -745,5 +808,7 @@ async function setterNamesFor(
     const name = typeof p.full_name === "string" ? p.full_name.trim() : "";
     if (name) names.set(String(p.id), name);
   }
+  // A member of MAYA staff is named as support, never by their own name.
+  for (const id of await supportIdsAmong(ids)) names.set(id, SUPPORT_NAME);
   return names;
 }
