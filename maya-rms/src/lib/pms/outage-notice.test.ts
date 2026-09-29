@@ -11,6 +11,7 @@ import {
   NOTICES_PER_RUN,
   OUTAGE_NOTICE_AFTER_MS,
   RETRY_FOR_MS,
+  RUN_BUDGET_MS,
   sendDueOutageNotices,
   type OutageNoticeDeps,
 } from "../../../supabase/functions/_shared/pms/outage-notice";
@@ -277,15 +278,39 @@ describe("sendDueOutageNotices", () => {
     expect(tables.pms_connections[0].outage_notice_at).not.toBeNull();
   });
 
-  it("still tells Slack when email is not set up or nobody can be emailed", async () => {
-    const unconfigured = world();
+  it("tells Slack while email is not set up, and emails once it is", async () => {
+    const { supabase, tables } = world();
     const u = deps({ emailConfigured: () => false });
-    expect(await sendDueOutageNotices(unconfigured.supabase, "cloudbeds", u.d)).toEqual([
-      { hotelId: HOTEL, outcome: "not_emailed", reason: "email_not_configured", recipients: 2, sent: 0 },
+    expect(await sendDueOutageNotices(supabase, "cloudbeds", u.d)).toEqual([
+      { hotelId: HOTEL, outcome: "retry", reason: "email_not_configured" },
     ]);
     expect(u.sent).toEqual([]);
+    expect(u.alerts).toHaveLength(1);
     expect(u.alerts[0].detail).toContain("email_not_configured");
+    expect(tables.pms_connections[0].outage_notice_at).toBeNull();
 
+    // Still not set up an hour later, and past the retry window: still owed,
+    // never given up on. Slack's own dedupe keeps that quiet.
+    const later = deps({ emailConfigured: () => false, now: () => NOW + RETRY_FOR_MS + 60 * 60 * 1000 });
+    expect(await sendDueOutageNotices(supabase, "cloudbeds", later.d)).toEqual([
+      { hotelId: HOTEL, outcome: "retry", reason: "email_not_configured" },
+    ]);
+    expect(later.alerts[0].key).toBe(u.alerts[0].key);
+    expect(tables.pms_connections[0].outage_notice_at).toBeNull();
+
+    // The secrets go in: the next tick emails it, once, and Slack hears
+    // under the outage's own key.
+    const configured = deps({ now: () => NOW + RETRY_FOR_MS + 2 * 60 * 60 * 1000 });
+    expect(await sendDueOutageNotices(supabase, "cloudbeds", configured.d)).toEqual([
+      { hotelId: HOTEL, outcome: "emailed", recipients: 2, sent: 2 },
+    ]);
+    expect(configured.sent).toHaveLength(2);
+    expect(configured.alerts[0].key).not.toBe(u.alerts[0].key);
+    expect(configured.alerts[0].detail).toContain("Emailed 2 of 2");
+    expect(await sendDueOutageNotices(supabase, "cloudbeds", deps().d)).toEqual([]);
+  });
+
+  it("tells Slack when nobody can be emailed", async () => {
     const nobody = world();
     nobody.tables.hotel_memberships = [];
     const n = deps();
@@ -307,6 +332,80 @@ describe("sendDueOutageNotices", () => {
     const { d } = deps();
     const results = await sendDueOutageNotices(supabase, "cloudbeds", d);
     expect(results.map((r) => r.hotelId)).toEqual(rows.slice(0, NOTICES_PER_RUN).map((r) => r.hotel_id));
+  });
+
+  it("gives the notices about 20 seconds a run, so a hanging Resend cannot eat the sync's time", async () => {
+    // Three properties down, each with two people to email, and every send
+    // hanging for its full 10 s before failing.
+    const hotels = [HOTEL, "22222222-2222-4222-8222-222222222222", "33333333-3333-4333-8333-333333333333"];
+    const db = fakeDb({
+      pms_connections: hotels.map((h, i) => ({
+        id: `conn-${i}`,
+        hotel_id: h,
+        pms_type: "cloudbeds",
+        status: "disconnected",
+        down_since: minutesAgo(90 - i),
+        outage_notice_at: null,
+      })),
+      hotels: hotels.map((h) => ({ id: h, name: `Inn ${h.slice(0, 1)}`, timezone: "UTC", is_active: true })),
+      hotel_subscriptions: [],
+      hotel_settings: [],
+      hotel_memberships: hotels.flatMap((h) => [
+        { hotel_id: h, user_id: "u_admin", role: "hotel_admin", status: "active" },
+        { hotel_id: h, user_id: "u_gm", role: "general_manager", status: "active" },
+      ]),
+    });
+    let clock = 0;
+    let readCost = 0;
+    const admin = db.supabase.auth.admin as unknown as { getUserById: (id: string) => Promise<unknown> };
+    const getUser = admin.getUserById;
+    admin.getUserById = async (id) => {
+      clock += readCost;
+      return getUser(id);
+    };
+    const hanging = deps({
+      clock: () => clock,
+      send: async () => {
+        clock += 10_000;
+        throw new Error("The operation was aborted due to timeout");
+      },
+    });
+    const results = await sendDueOutageNotices(db.supabase, "cloudbeds", hanging.d);
+
+    // The first property's two sends use up the budget; nothing else starts.
+    expect(clock).toBeLessThanOrEqual(RUN_BUDGET_MS);
+    expect(results).toEqual([{ hotelId: HOTEL, outcome: "retry", reason: "all_sends_failed", recipients: 2, sent: 0 }]);
+    // Nothing is claimed, so the next tick tries all three again.
+    expect(db.tables.pms_connections.every((c) => c.outage_notice_at == null)).toBe(true);
+
+    // A slow first property leaves the next one's sends for the next tick.
+    clock = 0;
+    readCost = 1_500;
+    const slowReads = deps({
+      clock: () => clock,
+      send: async (input) => {
+        clock += 8_000;
+        return { id: input.to };
+      },
+    });
+    const [first, second] = await sendDueOutageNotices(db.supabase, "cloudbeds", slowReads.d);
+    expect(first).toMatchObject({ outcome: "emailed", sent: 2 });
+    expect(second).toMatchObject({ outcome: "retry", reason: "out_of_time", sent: 0 });
+    expect(db.tables.pms_connections[1].outage_notice_at).toBeNull();
+    expect(db.tables.pms_connections[2].outage_notice_at).toBeNull();
+  });
+
+  it("tells someone with another property how to reach this one, since the button opens the last one they had open", async () => {
+    const { supabase, tables } = world();
+    tables.hotel_memberships.push({ hotel_id: "other-hotel", user_id: "u_gm", role: "revenue_manager", status: "active" });
+    const { d, sent } = deps();
+    await sendDueOutageNotices(supabase, "cloudbeds", d);
+    const gm = sent.find((s) => s.to === "gm@harbour.test")!;
+    const admin = sent.find((s) => s.to === "sam@harbour.test")!;
+    const line = "You look after more than one property in MAYA. If the PMS tab opens on another one, pick The Harbour Inn in the Property dropdown.";
+    expect(gm.text).toContain(line);
+    expect(gm.html).toContain(line);
+    expect(admin.text).not.toContain("more than one property");
   });
 
   it("never throws, whatever the database does", async () => {

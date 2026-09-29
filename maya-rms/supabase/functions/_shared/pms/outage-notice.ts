@@ -24,6 +24,13 @@
  * is sent, so two invocations running together cannot both send it. If every
  * email then fails for a reason worth retrying, the claim is handed back and
  * the next tick tries again, for up to RETRY_FOR_MS after the notice was due.
+ * While email isn't set up (no Resend secrets) the claim is always handed
+ * back, so the first tick after they are set sends it; Slack hears about it
+ * meanwhile, at most once per six hours (raiseAlert's dedupe).
+ *
+ * Time: one invocation spends at most about RUN_BUDGET_MS here. Past it, no
+ * new notice is started, and a notice with nothing sent yet stops and is
+ * handed back, so a hanging Resend cannot eat the sync's budget.
  *
  * Never throws: it runs ahead of the syncs in the same invocation, and a
  * failed email must not cost anyone a sync.
@@ -41,6 +48,8 @@ export const OUTAGE_NOTICE_AFTER_MS = 60 * 60 * 1000;
 export const RETRY_FOR_MS = 6 * 60 * 60 * 1000;
 /** Notices one invocation takes on, so a mass outage cannot eat a sync's budget. */
 export const NOTICES_PER_RUN = 5;
+/** Time one invocation gives the notices before it gets on with the syncs. */
+export const RUN_BUDGET_MS = 20_000;
 /** Down, for this email. Degraded is left out on purpose. */
 export const DOWN_STATUSES = ["disconnected", "error"] as const;
 /** Who is emailed: the two roles that can reconnect. */
@@ -67,6 +76,8 @@ function readEnv(name: string): string | undefined {
 
 export type OutageNoticeDeps = {
   now?: () => number;
+  /** The wall clock RUN_BUDGET_MS is measured on. Date.now; tests move it. */
+  clock?: () => number;
   send?: (input: SendEmailInput) => Promise<{ id: string }>;
   emailConfigured?: () => boolean;
   alert?: typeof raiseAlert;
@@ -135,11 +146,46 @@ async function logEvent(supabase: SupabaseClient, hotelId: string, detail: Recor
   }
 }
 
+type Recipient = {
+  userId: string;
+  email: string;
+  /**
+   * They can open more than one property. The email's button opens the PMS
+   * tab of whichever property they last had open (/go never switches
+   * property on a click from outside MAYA), so the email says how to get
+   * to this one.
+   */
+  otherProperties: boolean;
+};
+
+/**
+ * Who has another property besides this one. A failed read says everyone
+ * does: the extra line is harmless, a wrong tab is not.
+ */
+async function withOtherProperties(
+  supabase: SupabaseClient,
+  hotelId: string,
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set();
+  const { data, error } = await supabase
+    .from("hotel_memberships")
+    .select("user_id, hotel_id")
+    .in("user_id", userIds)
+    .eq("status", "active");
+  if (error) return new Set(userIds);
+  const out = new Set<string>();
+  for (const r of (data ?? []) as { user_id: unknown; hotel_id: unknown }[]) {
+    if (String(r.hotel_id) !== hotelId) out.add(String(r.user_id));
+  }
+  return out;
+}
+
 /** Email addresses of the property's active General Managers and Hotel Admins. */
 async function recipientsFor(
   supabase: SupabaseClient,
   hotelId: string,
-): Promise<{ userId: string; email: string }[]> {
+): Promise<Recipient[]> {
   const { data, error } = await supabase
     .from("hotel_memberships")
     .select("user_id")
@@ -149,12 +195,13 @@ async function recipientsFor(
   if (error) throw new Error(`hotel_memberships read failed: ${error.message}`);
 
   const userIds = [...new Set((data ?? []).map((r) => String((r as { user_id: unknown }).user_id)))];
-  const out: { userId: string; email: string }[] = [];
+  const others = await withOtherProperties(supabase, hotelId, userIds);
+  const out: Recipient[] = [];
   for (const userId of userIds) {
     const { data: u, error: uErr } = await supabase.auth.admin.getUserById(userId);
     if (uErr) throw new Error(`auth user read failed: ${uErr.message}`);
     const email = u?.user?.email?.trim();
-    if (email) out.push({ userId, email });
+    if (email) out.push({ userId, email, otherProperties: others.has(userId) });
   }
   return out;
 }
@@ -163,6 +210,7 @@ async function handleOne(
   supabase: SupabaseClient,
   row: DueRow,
   deps: Required<OutageNoticeDeps>,
+  deadline: number,
 ): Promise<OutageNoticeResult> {
   const hotelId = row.hotel_id;
   const pms = row.pms_type as OutagePms;
@@ -236,13 +284,6 @@ async function handleOne(
       .maybeSingle();
     const live = (settings as { simulation_mode?: unknown } | null)?.simulation_mode === false;
 
-    let recipients: { userId: string; email: string }[];
-    try {
-      recipients = await recipientsFor(supabase, hotelId);
-    } catch (e) {
-      return await retryOrGiveUp(e instanceof Error ? e.message : String(e));
-    }
-
     const hotelName = typeof h.name === "string" && h.name.trim() ? h.name.trim() : "your property";
     const downSince = formatDownSince(row.down_since, typeof h.timezone === "string" ? h.timezone : null);
     const appUrl = deps.appUrl.replace(/\/+$/, "");
@@ -254,43 +295,81 @@ async function handleOne(
       sending: live && SENDS_PRICES.has(pms),
       pmsTabUrl: `${appUrl}/go/pms?hotel=${encodeURIComponent(hotelId)}`,
     };
+    const alertKey = `pms_outage_notice:${pms}:${hotelId}:${Date.parse(row.down_since)}`;
+    const alertTitle = `${hotelName}: ${PMS_LABEL[pms] ?? pms} connection ${row.status} since ${row.down_since}`;
+    const pricesLine = input.sending ? "Live: no prices are going out." : "Not sending prices before this either.";
 
-    const configured = deps.emailConfigured();
+    // Email isn't set up yet: nothing is sent and nothing is given up. The
+    // notice is handed back, so the first tick after the Resend secrets are
+    // set emails it. Slack hears now, at most once per six hours, under its
+    // own key so the emailed notice still posts when it goes out.
+    if (!deps.emailConfigured()) {
+      try {
+        await deps.alert(supabase, {
+          severity: "critical",
+          key: `${alertKey}:email_not_configured`,
+          title: alertTitle,
+          detail:
+            "Not emailed yet (email_not_configured): set the RESEND_API_KEY and RESEND_FROM_EMAIL secrets " +
+            `and it goes out on the next tick. ${pricesLine}`,
+          hotelId,
+        });
+      } catch (e) {
+        log({ hotelId, step: "alert", error: e instanceof Error ? e.message : String(e) }, "error");
+      }
+      await release();
+      log({ hotelId, pmsType: pms, retry: "email_not_configured" });
+      return { hotelId, outcome: "retry", reason: "email_not_configured" };
+    }
+
+    let recipients: Recipient[];
+    try {
+      recipients = await recipientsFor(supabase, hotelId);
+    } catch (e) {
+      return await retryOrGiveUp(e instanceof Error ? e.message : String(e));
+    }
+
     let sent = 0;
+    let outOfTime = false;
     const failures: string[] = [];
-    if (configured) {
-      const downMs = Date.parse(row.down_since);
-      for (const r of recipients) {
-        try {
-          await deps.send({
-            to: r.email,
-            subject: outageSubject(input),
-            html: outageHtml(input),
-            text: outageText(input),
-            replyTo: REPLY_TO,
-            idempotencyKey: `pms-outage:${row.id}:${downMs}:${r.userId}`,
-          });
-          sent += 1;
-        } catch (e) {
-          failures.push(e instanceof Error ? e.message : String(e));
-        }
+    const downMs = Date.parse(row.down_since);
+    for (const r of recipients) {
+      // Out of time with nothing sent: stop and hand it back. Once one has
+      // gone out the rest follow, since a retry would send that one again.
+      if (sent === 0 && deps.clock() >= deadline) {
+        outOfTime = true;
+        break;
+      }
+      const mine = { ...input, otherProperties: r.otherProperties };
+      try {
+        await deps.send({
+          to: r.email,
+          subject: outageSubject(mine),
+          html: outageHtml(mine),
+          text: outageText(mine),
+          replyTo: REPLY_TO,
+          idempotencyKey: `pms-outage:${row.id}:${downMs}:${r.userId}`,
+        });
+        sent += 1;
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : String(e));
       }
     }
+    const nothingSent = outOfTime ? "out_of_time" : "all_sends_failed";
 
-    // Every send failed: try again on a later tick rather than tell Slack the
+    // Nothing went out: try again on a later tick rather than tell Slack the
     // owner knows when they don't.
-    if (configured && recipients.length > 0 && sent === 0 && !lateForRetry) {
-      log({ hotelId, pmsType: pms, retry: "all_sends_failed", errors: failures.slice(0, 3) }, "error");
+    if (recipients.length > 0 && sent === 0 && !lateForRetry) {
+      log({ hotelId, pmsType: pms, retry: nothingSent, errors: failures.slice(0, 3) }, "error");
       await release();
-      return { hotelId, outcome: "retry", reason: "all_sends_failed", recipients: recipients.length, sent };
+      return { hotelId, outcome: "retry", reason: nothingSent, recipients: recipients.length, sent };
     }
 
-    const reason = !configured
-      ? "email_not_configured"
-      : recipients.length === 0
+    const reason =
+      recipients.length === 0
         ? "no_general_manager_or_hotel_admin"
         : sent === 0
-          ? "all_sends_failed"
+          ? nothingSent
           : sent < recipients.length
             ? "some_sends_failed"
             : undefined;
@@ -300,12 +379,12 @@ async function handleOne(
     try {
       await deps.alert(supabase, {
         severity: "critical",
-        key: `pms_outage_notice:${pms}:${hotelId}:${Date.parse(row.down_since)}`,
-        title: `${hotelName}: ${PMS_LABEL[pms] ?? pms} connection ${row.status} since ${row.down_since}`,
+        key: alertKey,
+        title: alertTitle,
         detail:
           `Emailed ${sent} of ${recipients.length} General Manager / Hotel Admin` +
           (reason ? ` (${reason})` : "") +
-          `. ${input.sending ? "Live: no prices are going out." : "Not sending prices before this either."}`,
+          `. ${pricesLine}`,
         hotelId,
       });
     } catch (e) {
@@ -346,12 +425,14 @@ export async function sendDueOutageNotices(
 ): Promise<OutageNoticeResult[]> {
   const full: Required<OutageNoticeDeps> = {
     now: deps.now ?? Date.now,
+    clock: deps.clock ?? Date.now,
     send: deps.send ?? sendEmail,
     emailConfigured: deps.emailConfigured ?? isResendConfigured,
     alert: deps.alert ?? raiseAlert,
     appUrl: deps.appUrl ?? readEnv("MAYA_APP_URL") ?? DEFAULT_APP_URL,
   };
 
+  const deadline = full.clock() + RUN_BUDGET_MS;
   try {
     const cutoffIso = new Date(full.now() - OUTAGE_NOTICE_AFTER_MS).toISOString();
     const { data, error } = await supabase
@@ -370,7 +451,12 @@ export async function sendDueOutageNotices(
 
     const results: OutageNoticeResult[] = [];
     for (const row of (data ?? []) as DueRow[]) {
-      results.push(await handleOne(supabase, row, full));
+      // The rest wait for the next tick, unclaimed.
+      if (full.clock() >= deadline) {
+        log({ pmsType, step: "run", outOfTime: true, left: (data ?? []).length - results.length });
+        break;
+      }
+      results.push(await handleOne(supabase, row, full, deadline));
     }
     return results;
   } catch (e) {

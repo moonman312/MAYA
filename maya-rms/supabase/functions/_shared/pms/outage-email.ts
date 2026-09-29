@@ -36,8 +36,14 @@ export type OutageEmailInput = {
    * "no prices are sent" would read as news.
    */
   sending: boolean;
-  /** Opens the PMS tab for this property. */
+  /** Opens the PMS tab (of the property they last had open, for a click from an inbox). */
   pmsTabUrl: string;
+  /**
+   * The reader can open other properties too. /go never switches property on
+   * a click from outside MAYA, so the button lands on whichever one they last
+   * had open, and the email says how to get to this one.
+   */
+  otherProperties?: boolean;
 };
 
 /** The system's name as the docs write it. */
@@ -54,7 +60,7 @@ const RECONNECT_LABEL: Record<OutagePms, string | null> = {
   mews: null,
 };
 
-type Section = { what: string; means: string; fix: string; onPurpose: string | null };
+type Section = { what: string; means: string; fix: string; pick: string | null; onPurpose: string | null };
 
 function sections(input: OutageEmailInput): Section {
   const pms = PMS_NAME[input.pmsType];
@@ -81,10 +87,14 @@ function sections(input: OutageEmailInput): Section {
     ? `Open the PMS tab in MAYA and click ${label}, then sign in at ${pms} with a login for ${input.hotelName} only. The button shows for General Managers and Hotel Admins. Your rules, history and settings are all untouched.`
     : "Mews connects with keys, so this can't be fixed from inside MAYA. Reply to this email and we'll arrange new keys with you. Leave the keys themselves out of your reply: we set up a secure way to share them.";
 
+  const pick = input.otherProperties
+    ? `You look after more than one property in MAYA. If the PMS tab opens on another one, pick ${input.hotelName} in the Property dropdown.`
+    : null;
+
   const onPurpose =
     input.status === "disconnected" ? "If you disconnected MAYA on purpose, you can ignore this email." : null;
 
-  return { what, means, fix, onPurpose };
+  return { what, means, fix, pick, onPurpose };
 }
 
 export function outageSubject(input: OutageEmailInput): string {
@@ -111,6 +121,7 @@ export function outageText(input: OutageEmailInput): string {
     s.means,
     "",
     s.fix,
+    ...(s.pick ? ["", s.pick] : []),
     "",
     `Open the PMS tab: ${input.pmsTabUrl}`,
   ];
@@ -139,6 +150,7 @@ export function outageHtml(input: OutageEmailInput): string {
       ${p(s.what)}
       ${p(s.means)}
       ${p(s.fix)}
+      ${s.pick ? p(s.pick) : ""}
       <p style="margin:24px 0 0">
         <a href="${escapeHtml(input.pmsTabUrl)}"
            style="display:inline-block;background:${COLORS.cta};color:${COLORS.ctaText};text-decoration:none;padding:12px 20px;border-radius:8px;font-size:15px;font-weight:600">
