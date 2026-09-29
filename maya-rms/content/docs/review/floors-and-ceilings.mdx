@@ -96,7 +96,7 @@ The rationale on a card tells you which line it came from: "You said the lowest 
 ## Rules for the numbers
 
 - A floor must be above 0.
-- A ceiling must be at least the floor. A card that would break this is refused with an error. The five questions do not check it. If your ceiling answer is under your floor answer, the questions move on without a word, and they never write that ceiling to a room type. Read [The five questions](/docs/review/the-five-questions).
+- A ceiling must be at least the floor. A card that would break this is refused with an error. The five questions check it too: a ceiling answer at or under your floor answer is refused, and nothing is saved. An answer that one room type's own floor or ceiling rules out is saved on every other room type, and the card names the room type that kept its number and says why. Read [The five questions](/docs/review/the-five-questions).
 - One floor and one ceiling per room type. Not per night, per season, per weekday or for weekends.
 - Amounts are in your property's currency, to two decimal places. The defaults are plain numbers in your currency too: 1.00 and 99,999.99, whatever the currency.
 

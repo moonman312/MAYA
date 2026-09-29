@@ -3,4 +3,8 @@
  * lives in supabase/functions/_shared/onboarding/project-strategy.ts so the
  * import worker can re-project after the import finishes).
  */
-export { projectStrategyOntoRoomTypes } from "../../../supabase/functions/_shared/onboarding/project-strategy";
+export {
+  describeGuardrailNotSaved,
+  projectStrategyOntoRoomTypes,
+  type GuardrailNotSaved,
+} from "../../../supabase/functions/_shared/onboarding/project-strategy";

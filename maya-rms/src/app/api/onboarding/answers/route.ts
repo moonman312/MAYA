@@ -1,7 +1,8 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
+import { describeGuardrailNotSaved, projectStrategyOntoRoomTypes } from "@/lib/onboarding/project-strategy";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
@@ -19,6 +20,10 @@ type AnswersBody = {
  * onboarding_states.questions; normalized values land on hotel_settings and
  * are projected onto room_types guardrails. A user-entered property name
  * always wins over the PMS-derived one.
+ *
+ * A floor or ceiling answer that a room type cannot take (it would put that
+ * room type's floor above its ceiling) is saved everywhere else and answered
+ * with a 409 naming the room type, so the card stays up and says why.
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -51,6 +56,30 @@ export async function POST(request: Request) {
       { error: "Your floor price needs to be below your ceiling price." },
       { status: 400 },
     );
+  }
+  // The cards save one answer at a time, so the other one is already on file.
+  if ((floor !== null && body.ceiling === undefined) || (ceiling !== null && body.floor === undefined)) {
+    const { data: saved } = await supabase
+      .from("hotel_settings")
+      .select("strategy_floor, strategy_ceiling")
+      .eq("hotel_id", hotelId)
+      .maybeSingle();
+    const savedFloor = saved?.strategy_floor != null ? Number(saved.strategy_floor) : null;
+    const savedCeiling = saved?.strategy_ceiling != null ? Number(saved.strategy_ceiling) : null;
+    if (floor !== null && body.ceiling === undefined && savedCeiling !== null && floor >= savedCeiling) {
+      const money = await moneyFor(supabase, hotelId);
+      return NextResponse.json(
+        { error: `Your floor price needs to be below your ceiling price of ${money(savedCeiling)}.` },
+        { status: 400 },
+      );
+    }
+    if (ceiling !== null && body.floor === undefined && savedFloor !== null && savedFloor >= ceiling) {
+      const money = await moneyFor(supabase, hotelId);
+      return NextResponse.json(
+        { error: `Your ceiling price needs to be above your floor price of ${money(savedFloor)}.` },
+        { status: 400 },
+      );
+    }
   }
 
   // Rename: user input wins. A name collision is a real conflict — tell them.
@@ -108,10 +137,30 @@ export async function POST(request: Request) {
     if (setErr) {
       return NextResponse.json({ error: setErr.message }, { status: 500 });
     }
-    await projectStrategyOntoRoomTypes(supabase, hotelId);
+    const notSaved = await projectStrategyOntoRoomTypes(supabase, hotelId);
+    // Saving one card writes the other answer on file again too. A clash on
+    // that one was reported when it was given, so only this card's are.
+    const answered = notSaved.filter((n) =>
+      n.fields.some((f) => (f === "floor" ? body.floor !== undefined : body.ceiling !== undefined)),
+    );
+    if (answered.length > 0) {
+      const money = await moneyFor(supabase, hotelId);
+      return NextResponse.json(
+        { error: answered.map((n) => describeGuardrailNotSaved(n, money)).join(" ") },
+        { status: answered.some((n) => n.reason === "save_failed") ? 500 : 409 },
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });
+}
+
+/** Amounts the way the question cards show them: "$" for US dollars, otherwise the code. */
+async function moneyFor(supabase: SupabaseClient, hotelId: string): Promise<(amount: number) => string> {
+  const { data: hotel } = await supabase.from("hotels").select("currency").eq("id", hotelId).maybeSingle();
+  const code = hotel?.currency ? String(hotel.currency) : "USD";
+  const symbol = code === "USD" ? "$" : `${code} `;
+  return (amount) => `${symbol}${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
 function numOrNull(v: unknown): number | null {

@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  describeGuardrailNotSaved,
   projectStrategyOntoRoomTypes,
   resetMaxRatesLogOnce,
 } from "../../../supabase/functions/_shared/onboarding/project-strategy";
@@ -112,5 +113,133 @@ describe("projectStrategyOntoRoomTypes", () => {
     const { client, tables } = fakeSupabase(seed, { rpc: () => new FakeRpcError({ code: "57014", message: "timeout" }) });
     await projectStrategyOntoRoomTypes(client, "h1");
     for (const rt of tables.room_types) expect([rt.floor_price, rt.ceiling_price]).toEqual([60, 99999.99]);
+  });
+});
+
+/**
+ * room_types keeps ceiling_price >= floor_price and refuses the whole row
+ * otherwise. The fake refuses it the same way, so an answer that clashes with
+ * a room type's own number fails as it does in Postgres.
+ */
+function withFloorCeilingCheck(seed: Record<string, FakeRow[]>, failIds: string[] = []) {
+  const db: { tables?: Record<string, FakeRow[]> } = {};
+  const made = fakeSupabase(seed, {
+    fault: (call) => {
+      if (call.table !== "room_types" || call.op !== "update") return null;
+      const id = call.filters.find((f) => f.col === "id")?.value;
+      if (failIds.includes(String(id))) return { message: "connection reset" };
+      const row = db.tables!.room_types.find((r) => r.id === id)!;
+      const next = { ...row, ...(call.payload as FakeRow) };
+      return Number(next.floor_price) > Number(next.ceiling_price)
+        ? { code: "23514", message: 'new row for relation "room_types" violates check constraint "room_types_check"' }
+        : null;
+    },
+  });
+  db.tables = made.tables;
+  return made;
+}
+
+function hotel(settings: { strategy_floor: number | null; strategy_ceiling: number | null }, types: FakeRow[]) {
+  return {
+    hotel_settings: [{ hotel_id: "h1", ...settings }],
+    room_types: types.map((t) => ({ hotel_id: "h1", is_active: true, floor_price: 1, ceiling_price: 99999.99, ...t })),
+    reservations: [] as FakeRow[],
+  };
+}
+
+describe("an answer a room type can't take", () => {
+  it("saves the floor everywhere it fits and names the room type whose ceiling is under it", async () => {
+    const { client, tables } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 200, strategy_ceiling: null }, [
+        { id: "rt-std", name: "Standard" },
+        { id: "rt-king", name: "Deluxe King", ceiling_price: 150 },
+      ]),
+    );
+    const notSaved = await projectStrategyOntoRoomTypes(client, "h1");
+    expect(ceilings(tables.room_types)).toEqual({ "rt-std": [200, 99999.99], "rt-king": [1, 150] });
+    expect(notSaved).toEqual([
+      expect.objectContaining({
+        roomTypeId: "rt-king",
+        roomTypeName: "Deluxe King",
+        fields: ["floor"],
+        reason: "above_ceiling",
+        floor: 200,
+        savedCeiling: 150,
+      }),
+    ]);
+  });
+
+  it("names the room type whose floor is above the ceiling answer", async () => {
+    const { client, tables } = withFloorCeilingCheck(
+      hotel({ strategy_floor: null, strategy_ceiling: 300 }, [
+        { id: "rt-std", name: "Standard" },
+        { id: "rt-suite", name: "Suite", display_name: "Garden Suite", floor_price: 350 },
+      ]),
+    );
+    const notSaved = await projectStrategyOntoRoomTypes(client, "h1");
+    expect(ceilings(tables.room_types)).toEqual({ "rt-std": [1, 300], "rt-suite": [350, 99999.99] });
+    expect(notSaved).toEqual([
+      expect.objectContaining({
+        roomTypeName: "Garden Suite",
+        fields: ["ceiling"],
+        reason: "below_floor",
+        ceiling: 300,
+        savedFloor: 350,
+      }),
+    ]);
+  });
+
+  it("writes neither answer when the floor on file is above the ceiling on file", async () => {
+    const { client, tables } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 200, strategy_ceiling: 150 }, [{ id: "rt-std", name: "Standard" }]),
+    );
+    const notSaved = await projectStrategyOntoRoomTypes(client, "h1");
+    expect(ceilings(tables.room_types)).toEqual({ "rt-std": [1, 99999.99] });
+    expect(notSaved).toEqual([expect.objectContaining({ fields: ["floor", "ceiling"], reason: "answers_clash" })]);
+  });
+
+  it("reports a save that did not go through", async () => {
+    const { client } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 80, strategy_ceiling: null }, [
+        { id: "rt-std", name: "Standard" },
+        { id: "rt-king", name: "Deluxe King" },
+      ]),
+      ["rt-king"],
+    );
+    const notSaved = await projectStrategyOntoRoomTypes(client, "h1");
+    expect(notSaved).toEqual([
+      expect.objectContaining({ roomTypeName: "Deluxe King", fields: ["floor"], reason: "save_failed" }),
+    ]);
+  });
+
+  it("reports nothing when every room type takes the answers", async () => {
+    const { client } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 80, strategy_ceiling: 400 }, [{ id: "rt-std", name: "Standard", ceiling_price: 300 }]),
+    );
+    expect(await projectStrategyOntoRoomTypes(client, "h1")).toEqual([]);
+  });
+
+  it("says which room type, which answer and what it clashed with, in plain words", () => {
+    const money = (n: number) => `$${n}`;
+    const base = {
+      roomTypeId: "rt",
+      roomTypeName: "Deluxe King",
+      floor: 200,
+      ceiling: 150,
+      savedFloor: 250,
+      savedCeiling: 120,
+    };
+    expect(describeGuardrailNotSaved({ ...base, fields: ["floor"], reason: "above_ceiling" }, money)).toBe(
+      "Your floor of $200 wasn't saved for Deluxe King: its ceiling is $120, and a floor can't be above the ceiling.",
+    );
+    expect(describeGuardrailNotSaved({ ...base, fields: ["ceiling"], reason: "below_floor" }, money)).toBe(
+      "Your ceiling of $150 wasn't saved for Deluxe King: its floor is $250, and a ceiling can't be below the floor.",
+    );
+    expect(describeGuardrailNotSaved({ ...base, fields: ["floor", "ceiling"], reason: "answers_clash" }, money)).toBe(
+      "Your floor of $200 and ceiling of $150 weren't saved for Deluxe King, because the floor is above the ceiling.",
+    );
+    expect(describeGuardrailNotSaved({ ...base, fields: ["floor"], reason: "save_failed" }, money)).toBe(
+      "Your floor wasn't saved for Deluxe King. Try again in a moment.",
+    );
   });
 });

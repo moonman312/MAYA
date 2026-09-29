@@ -3,8 +3,8 @@ title: The five questions
 summary: The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer, how the floor ladder works, and what happens if you skip or answer again later.
 section: review
 order: 30
-readingTime: 9
-keywords: [five questions, skipped the floor question, floor still $1, $1 floor, 30 nights, is it safe to skip, floor went back, floor reset, floors changed after last question, ceiling pinned, suite stuck at ceiling, rates read so far, import complete, lift a ceiling, a few quick questions, all optional, skip the rest, skip this question, property name, looks right, name already taken, turn cost, cost to turn over a room, cleaning cost, floor ladder, i'd take, too low, i'll just type my floor, true floor, tuesday in your slowest month, biggest concert, concert next door, most you'd charge, ceiling, my pricing works, find money i'm leaving on the table, last question, floor needs to be below ceiling, ceiling lower than floor, ceiling under floor, ceiling didn't save, guardrails, couldn't save that, answer again]
+readingTime: 11
+keywords: [five questions, skipped the floor question, floor still $1, $1 floor, 30 nights, is it safe to skip, floor went back, floor reset, floors changed after last question, ceiling pinned, suite stuck at ceiling, rates read so far, import complete, lift a ceiling, a few quick questions, all optional, skip the rest, skip this question, property name, looks right, name already taken, turn cost, cost to turn over a room, cleaning cost, floor ladder, i'd take, too low, i'll just type my floor, true floor, tuesday in your slowest month, biggest concert, concert next door, most you'd charge, ceiling, my pricing works, find money i'm leaving on the table, last question, floor needs to be below ceiling, ceiling lower than floor, ceiling under floor, ceiling didn't save, wasn't saved for, floor can't be above the ceiling, ceiling can't be below the floor, kept its own floor, guardrails, couldn't save that, answer again]
 questions:
   - Do I have to answer the five questions? {#in-plain-words}
   - What is the cost to turn over a room used for? {#question-2-what-a-room-turnover-costs}
@@ -14,14 +14,16 @@ questions:
   - If I skip the floor question, why is a room type's floor still $1.00? {#question-3-the-floor-ladder/what-the-answer}
   - Can I go back and answer the questions later? {#skipping-finishing-and-answering-again/skip-this-question}
   - Why does the floor question keep offering me a number? {#question-3-the-floor-ladder/the-card-reads}
-  - What happens if my ceiling is lower than my floor? {#question-4-the-most-you-would-charge/once-the-progress}
+  - What happens if my ceiling is lower than my floor? {#question-4-the-most-you-would-charge/answer-with-a}
+  - Why wasn't my floor saved for one room type? {#question-3-the-floor-ladder/a-room-type}
+  - Why wasn't my ceiling saved for one room type? {#question-4-the-most-you-would-charge/a-room-type}
   - Why did my floors change when I answered the last question? {#question-5-how-to-treat-your-current-pricing}
   - Why is my Suite stuck at the ceiling I gave? {#question-4-the-most-you-would-charge/once-the-progress}
 updated: 2026-09-24
 ---
 
 <InPlainWords>
-Five optional questions, one card at a time: your property's name, what a room turnover costs you, the lowest rate you would take on a dead Tuesday, the most you would charge when the town is full, and how you want your current pricing treated. The name renames your property, and the turnover cost only shapes the floor question. The lowest rate becomes every room type's floor, and the highest becomes the ceiling of each room type whose rates read so far fit under it. The last question is not used for anything yet. Careful: saving the floor, ceiling or last card again puts your saved floor back on every room type, over any floor set since.
+Five optional questions, one card at a time: your property's name, what a room turnover costs you, the lowest rate you would take on a dead Tuesday, the most you would charge when the town is full, and how you want your current pricing treated. The name renames your property, and the turnover cost only shapes the floor question. The lowest rate becomes every room type's floor, and the highest becomes the ceiling of each room type whose rates read so far fit under it. A room type whose own floor or ceiling rules an answer out keeps its number, and the card names it. The last question is not used for anything yet. Careful: saving the floor, ceiling or last card again puts your saved floor back on every room type, over any floor set since.
 </InPlainWords>
 
 ## Where they are
@@ -66,6 +68,10 @@ The first offer is your turnover cost times 1.2, plus 5, rounded up to the next 
 
 What the answer does: it becomes the floor of every active room type, straight away. A floor is the lowest price MAYA will publish for that room type. The same number is written again once the import's first results are in, so room types the import adds get it too.
 
+A room type whose ceiling is already under your answer keeps its own floor, because a floor can't be above the ceiling. Every other room type takes your answer, and the card stays up and names each room type that did not, for example: "Your floor of $200 wasn't saved for Deluxe King: its ceiling is $150, and a floor can't be above the ceiling." Type a lower floor, or skip the question to leave it that way.
+
+When you answer again and a ceiling answer is already saved, a floor at or above it is refused with "Your floor price needs to be below your ceiling price of $300." (your ceiling in place of $300). Nothing is saved and the card stays.
+
 <Callout kind="careful">
 Your answer goes to every room type, the Suite included. If your room types need different floors, answer with your cheapest room type's floor and [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) to raise the others. Once you have answered, the import fills in only ceilings.
 </Callout>
@@ -84,9 +90,9 @@ If the first results arrive after you answer, your saved answer is written again
 
 Once the progress bar reads "Import complete", check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. If a ceiling pins a room type down, [email us](mailto:info@modern-hospitality-solutions.com?subject=Lift%20a%20ceiling) and we will lift it.
 
-Answer with a number above your floor. If you type a ceiling under the floor you gave, the card still moves on. That ceiling is not written to any room type, and nothing on screen tells you.
+Answer with a number above your floor. A ceiling at or under the floor you gave is refused with "Your ceiling price needs to be above your floor price of $80." (your floor in place of $80). Nothing is saved and the card stays, so type a higher number or skip the question.
 
-To fix it, open <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> to reopen the questions. Answer the ceiling question with a higher number, or the floor question with a lower one.
+A room type whose own floor is above your answer keeps its ceiling, because a ceiling can't be below the floor. Every other room type that fits takes your answer, and the card stays up and names each room type that did not, for example: "Your ceiling of $150 wasn't saved for Suite: its floor is $180, and a ceiling can't be below the floor." Type a higher number, or skip the question to leave it that way.
 
 ## Question 5: how to treat your current pricing
 
@@ -104,13 +110,13 @@ Saving it does one more thing: it writes your saved floor and ceiling answers to
 
 You can reopen the questions any time after your property is connected at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink>. The cards do not show your earlier answers (the name card shows the property's current name). A new answer replaces the old one.
 
-Saving the floor card, the ceiling card or the last card writes both your saved answers again: your floor onto every active room type, and your ceiling onto every room type whose rates fit under it, over whatever limits they had. A room type whose ceiling is under the new floor keeps its old floor, and nothing on screen says so.
+Saving the floor card, the ceiling card or the last card writes both your saved answers again: your floor onto every active room type, and your ceiling onto every room type whose rates fit under it, over whatever limits they had. A room type that cannot take them (its ceiling under the floor, or its floor over the ceiling) keeps the floor and ceiling it had. The floor card names such a room type for your floor, and the ceiling card for your ceiling. When a card writes your other saved answer again, a room type that cannot take that one is not named again.
 
 <Callout kind="careful">
 Answering only the ceiling question, or only the last one, also puts your saved floor answer back on every active room type, over any floor set since. That includes a floor you accepted from a suggestion card or one we set for you by email. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
 </Callout>
 
-If a save fails you see "Couldn't save that" with an invitation to try again. Your earlier answers are unaffected.
+If a save fails you see "Couldn't save that" with an invitation to try again. Your earlier answers are unaffected. If your answer was saved but one room type's save failed, the card names it, for example "Your floor wasn't saved for Deluxe King. Try again in a moment."
 
 <Callout kind="not-yet">
 The questions do not set a floor or ceiling per room type, per night or per season, and there is no floor and ceiling editor yet. After the import there are three ways to change one: [a suggestion card](/docs/review/getting-suggestions-later) for a room type still at MAYA's default ($1.00 for a floor, $99,999.99 for a ceiling), answering these questions again (every room type at once), or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) for one room type.
