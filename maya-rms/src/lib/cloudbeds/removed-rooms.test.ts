@@ -483,16 +483,47 @@ describe("a booking deleted in Cloudbeds", () => {
     const db = hotelDb([
       ...["2026-08-10", "2026-08-11"].flatMap((n) => [storedNight(`${DELETED}-1`, n), storedNight(`${DELETED}-2`, n), storedNight(`${DELETED}-3`, n)]),
     ]);
+    serve([group([king(GROUP)])]);
     client.cloudbedsLookUpReservation.mockImplementation(async () => ({ gone: "not found" }));
 
     expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
 
-    expect(db.tables.reservations).toEqual([]);
+    expect(rowIdsOf(db)).toEqual([`${GROUP}-1`]);
     expect(client.cloudbedsLookUpReservation).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays when the full read returned no booking at all: a read that empty went wrong, not the hotel", async () => {
+    // Three bookings ahead, all within the limit a small book allows, and
+    // Cloudbeds answers with an empty book and would call each one gone.
+    const db = hotelDb([DELETED, OTHER, "5538214799009"].flatMap((id) => ["2026-08-10", "2026-08-11"].map((n) => storedNight(`${id}-1`, n))));
+    serve([]);
+    client.cloudbedsLookUpReservation.mockImplementation(async () => ({ gone: "not found" }));
+
+    const res = await runCloudbedsSyncForHotel(db.client, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(db.tables.reservations).toHaveLength(6);
+    expect(client.cloudbedsLookUpReservation).not.toHaveBeenCalled();
+    if (res.ok) {
+      expect(res.ingest.missingBookings).toEqual({
+        checked: true,
+        stored: 3,
+        missing: 3,
+        removed: 0,
+        stillHeld: 0,
+        unconfirmed: 3,
+        overLimit: true,
+        emptyRead: true,
+      });
+    }
+    expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes("returned no booking"))).toBe(true);
+    // Raised to the alert channel too, as the limit is (here with nowhere to go).
+    expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes('"key":"cloudbeds_missing_bookings:hotel-1"'))).toBe(true);
   });
 
   it("keeps its nights when Cloudbeds still holds it: the read missed it, the booking is real", async () => {
     const db = hotelDb(deletedStay());
+    serve([group([king(GROUP)])]);
     client.cloudbedsLookUpReservation.mockImplementation(async () => ({
       found: { reservationID: DELETED, status: "confirmed", assigned: [] },
     }));
@@ -500,7 +531,7 @@ describe("a booking deleted in Cloudbeds", () => {
     const res = await runCloudbedsSyncForHotel(db.client, "hotel-1");
 
     expect(res.ok).toBe(true);
-    expect(db.tables.reservations).toHaveLength(5);
+    expect(futureNightsOf(db, `${DELETED}-1`)).toHaveLength(5);
     if (res.ok) expect(res.ingest.missingBookings).toMatchObject({ missing: 1, removed: 0, stillHeld: 1 });
     // Said where someone will see it: a full read that leaves out a live booking is a fault.
     expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes('"stillHeld":1'))).toBe(true);
@@ -508,24 +539,27 @@ describe("a booking deleted in Cloudbeds", () => {
 
   it("keeps its nights when Cloudbeds gives no answer about it", async () => {
     const db = hotelDb(deletedStay());
+    serve([group([king(GROUP)])]);
     client.cloudbedsLookUpReservation.mockImplementation(async () => ({ unknown: "Cloudbeds getReservation failed (503): Service Unavailable" }));
 
     const res = await runCloudbedsSyncForHotel(db.client, "hotel-1");
 
     expect(res.ok).toBe(true);
-    expect(db.tables.reservations).toHaveLength(5);
+    expect(futureNightsOf(db, `${DELETED}-1`)).toHaveLength(5);
     if (res.ok) expect(res.ingest.missingBookings).toMatchObject({ missing: 1, removed: 0, unconfirmed: 1 });
+    expect(client.cloudbedsLookUpReservation).toHaveBeenCalledTimes(1);
   });
 
   it("loses all of its nights when Cloudbeds has it as cancelled", async () => {
     const db = hotelDb(deletedStay());
+    serve([group([king(GROUP)])]);
     client.cloudbedsLookUpReservation.mockImplementation(async () => ({
       found: { reservationID: DELETED, status: "canceled", assigned: [] },
     }));
 
     expect((await runCloudbedsSyncForHotel(db.client, "hotel-1")).ok).toBe(true);
 
-    expect(db.tables.reservations).toEqual([]);
+    expect(rowIdsOf(db)).toEqual([`${GROUP}-1`]);
   });
 
   it("is removed from the same pages when Cloudbeds returns it flagged as deleted", async () => {
@@ -763,7 +797,27 @@ describe("a read that leaves out more bookings than anyone deletes in a day", ()
         stillHeld: 0,
         unconfirmed: 40,
         overLimit: true,
+        emptyRead: true,
       });
+    }
+    expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes("returned no booking"))).toBe(true);
+  });
+
+  it("removes none of them when the read left out more than the limit, however many it returned", async () => {
+    // Forty stored, ten of them in Cloudbeds' answer: thirty missing is more than a fifth.
+    const kept = Array.from({ length: 10 }, (_, i) => String(8800000000500 + i));
+    const missing = Array.from({ length: 30 }, (_, i) => String(8800000000600 + i));
+    const db = hotelDb([...kept, ...missing].map((id) => storedNight(`${id}-1`, "2026-08-20")));
+    client.cloudbedsLookUpReservation.mockImplementation(async () => ({ gone: "not found" }));
+    serve(kept.map((id) => booking({ id, status: "confirmed", checkIn: "2026-08-20", checkOut: "2026-08-21" })));
+
+    const res = await runCloudbedsSyncForHotel(db.client, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(db.tables.reservations).toHaveLength(40);
+    expect(client.cloudbedsLookUpReservation).not.toHaveBeenCalled();
+    if (res.ok) {
+      expect(res.ingest.missingBookings).toEqual({ checked: true, stored: 40, missing: 30, removed: 0, stillHeld: 0, unconfirmed: 30, overLimit: true });
     }
     expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes("too many stored bookings missing"))).toBe(true);
   });

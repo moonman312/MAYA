@@ -101,7 +101,9 @@ type Json = Record<string, unknown>;
  * come, whichever is more. Bookings are deleted in Cloudbeds one at a time,
  * by a person. A read that comes back without a fifth of the book has gone
  * wrong in a way nobody thought of, and removing those nights would empty the
- * hotel's occupancy and send its prices down.
+ * hotel's occupancy and send its prices down. A read that returned no booking
+ * at all while some are stored is over the limit whatever the count: on a
+ * small book every stored booking fits under it.
  */
 const MISSING_BOOKINGS_LIMIT = 5;
 const MISSING_BOOKINGS_SHARE = 0.2;
@@ -187,6 +189,8 @@ export type MissingBookingsCheck =
       unconfirmed: number;
       /** Too many were missing to believe: none was asked about, none removed. */
       overLimit?: true;
+      /** The read returned no booking at all while some are stored: the same, whatever the count. */
+      emptyRead?: true;
     };
 
 export type MissingBookingsSkip =
@@ -1114,18 +1118,35 @@ async function removeMissingBookings(args: {
     if (missing.length === 0) return check;
 
     const limit = Math.max(MISSING_BOOKINGS_LIMIT, Math.floor(stored.bookings.size * MISSING_BOOKINGS_SHARE));
-    if (missing.length > limit) {
-      log({ stored: check.stored, missing: check.missing, limit, error: "too many stored bookings missing from the read; none removed" }, "error");
+    // A read that returned no booking at all while MAYA holds some with
+    // nights to come is a read that went wrong, whatever the count: on a
+    // small book every stored booking is within the limit, and asking about
+    // each would let one run empty the hotel's occupancy.
+    const emptyRead = seen.size === 0;
+    if (missing.length > limit || emptyRead) {
+      log(
+        {
+          stored: check.stored,
+          missing: check.missing,
+          limit,
+          returned: seen.size,
+          error: emptyRead
+            ? "the full read returned no booking while some are stored with nights to come; none removed"
+            : "too many stored bookings missing from the read; none removed",
+        },
+        "error",
+      );
       await raiseAlert(supabase, {
         severity: "warn",
         key: `cloudbeds_missing_bookings:${hotelId}`,
-        title: "Cloudbeds read left out too many stored bookings",
+        title: emptyRead ? "Cloudbeds read returned no bookings" : "Cloudbeds read left out too many stored bookings",
         detail:
           `${check.missing} of ${check.stored} stored bookings with nights to come were not in a full read ` +
-          `(limit ${limit}). Nothing was removed. Compare the hotel's bookings in Cloudbeds with MAYA's.`,
+          `(${emptyRead ? "the read returned no booking at all" : `limit ${limit}`}). Nothing was removed. ` +
+          `Compare the hotel's bookings in Cloudbeds with MAYA's.`,
         hotelId,
       });
-      return { ...check, unconfirmed: missing.length, overLimit: true };
+      return { ...check, unconfirmed: missing.length, overLimit: true, ...(emptyRead ? { emptyRead: true } : {}) };
     }
 
     const gone: string[] = [];

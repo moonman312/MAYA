@@ -34,6 +34,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("cloudbeds 429 handling", () => {
@@ -266,18 +267,58 @@ describe("asking Cloudbeds about one reservation", () => {
     await expect(ask()).resolves.toEqual({ found: { reservationID: "5538214799003", status: "confirmed" } });
   });
 
-  it("takes Cloudbeds' word that there is no such reservation", async () => {
+  it("takes Cloudbeds' word that there is no such reservation, and only that", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const answer of [
       json(200, { success: false, message: "Reservation not found" }),
       json(404, { success: false, message: "Invalid reservationID" }),
       json(400, { success: false, message: "The reservation was deleted" }),
+      json(200, { success: false, message: "Reservation 5538214799003 does not exist" }),
+      json(200, { success: false, message: "No such reservation" }),
     ]) {
       vi.stubGlobal("fetch", vi.fn(async () => answer));
       expect(await ask()).toHaveProperty("gone");
     }
+    // Wording it recognises is not logged as unrecognised.
+    expect(errors).not.toHaveBeenCalled();
   });
 
-  it("does not take anything else for that", async () => {
+  it("does not take a refusal in Cloudbeds' format that says something else for that: the booking stays, and the wording is logged", async () => {
+    // Cloudbeds reports most errors as HTTP 200 with success:false. None of
+    // these is about the reservation asked for, and every one used to read
+    // as "gone" and delete the booking's nights.
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const notAboutIt = [
+      json(200, { success: false, message: "Property is temporarily unavailable" }),
+      json(200, { success: false, message: "Request limit reached, try again later" }),
+      json(200, { success: false, message: "Internal error" }),
+      json(200, { success: false, message: "Maintenance in progress" }),
+      json(200, { success: false, message: "Invalid API version" }),
+      json(400, { success: false, message: "Bad request" }),
+      json(200, { success: false, message: "Something went wrong" }),
+      json(200, { success: false }),
+    ];
+    for (const answer of notAboutIt) {
+      vi.stubGlobal("fetch", vi.fn(async () => answer));
+      expect(await ask()).toHaveProperty("unknown");
+    }
+    // The ones no list knows are said at error level, with the wording, so the
+    // list can be widened after the first live sighting of a deleted booking.
+    const logged = errors.mock.calls.map((c) => JSON.parse(String(c[0])));
+    expect(logged.every((l) => l.fn === "cloudbedsLookUpReservation" && l.reason === "unrecognised_wording" && l.reservationId === "5538214799003")).toBe(true);
+    expect(logged.map((l) => l.message)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Property is temporarily unavailable"),
+        expect.stringContaining("Internal error"),
+        expect.stringContaining("Maintenance in progress"),
+        expect.stringContaining("Bad request"),
+        expect.stringContaining("Something went wrong"),
+      ]),
+    );
+  });
+
+  it("does not take anything else for that either", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     for (const answer of [
       json(503, { success: false, message: "Service unavailable" }),
       json(500, {}),
@@ -285,9 +326,14 @@ describe("asking Cloudbeds about one reservation", () => {
       new Response("", { status: 404 }),
       json(401, { success: false, message: "Access token is invalid or has expired." }),
       json(403, { success: false, message: "Forbidden" }),
+      // Refused with the words of the list, and still not the reservation's fault.
+      json(401, { success: false, message: "Token not found" }),
+      json(403, { success: false, message: "Reservation not found: access denied" }),
       json(200, { success: false, message: "Scope required for this call was not granted by property." }),
       json(200, { success: false, message: "Application is not available to be connected." }),
       json(200, { success: false, message: "Parameter propertyID is not valid" }),
+      json(200, { success: false, message: "Property ID not found" }),
+      json(200, { success: false, message: "The application was deleted" }),
       json(200, { success: true, data: [] }),
       json(200, { success: true }),
     ]) {

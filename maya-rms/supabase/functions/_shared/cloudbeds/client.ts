@@ -586,9 +586,33 @@ export type CloudbedsReservationLookup =
   | { unknown: string };
 
 /**
+ * Cloudbeds' words for a reservation it has no record of. Only a refusal in
+ * its own format that says one of these (and none of
+ * NOT_ABOUT_THE_RESERVATION) is taken as "gone"; any other wording is
+ * unknown, and the booking stays. Cloudbeds reports most errors as HTTP 200
+ * with success:false, so the wording is the only thing that tells "no such
+ * reservation" from "come back later", and a wrong "gone" deletes a booking.
+ *
+ * ⚠ Unverified: what Cloudbeds says for a reservation deleted in it has not
+ * been seen live. An unrecognised refusal is logged at error level
+ * (fn cloudbedsLookUpReservation, reason unrecognised_wording) so this list
+ * can be widened after the first sighting.
+ */
+const NO_SUCH_RESERVATION = [
+  "not found",
+  "no such",
+  "not exist",
+  "doesn't exist",
+  "invalid reservationid",
+  "invalid reservation id",
+  "deleted",
+];
+
+/**
  * Wording that is about the app or the call rather than the reservation
- * asked for. Unverified guesses apart from the scope message, seen live from
- * getTaxesAndFees 2026-09-08.
+ * asked for: never "gone", whatever else the message says. Unverified
+ * guesses apart from the scope message, seen live from getTaxesAndFees
+ * 2026-09-08.
  */
 const NOT_ABOUT_THE_RESERVATION = [
   "scope",
@@ -599,8 +623,11 @@ const NOT_ABOUT_THE_RESERVATION = [
   "unauthorized",
   "too many requests",
   "rate limit",
+  "limit reached",
   "propertyid",
   "property id",
+  "application",
+  "api version",
 ];
 
 /**
@@ -608,10 +635,10 @@ const NOT_ABOUT_THE_RESERVATION = [
  * "Cloudbeds did not answer". For a caller about to act on a booking being
  * gone: cloudbedsGetReservationDetail answers null for both.
  *
- * ⚠ What Cloudbeds says about a reservation deleted in it has not been seen
- * live. Any refusal in its own format that is not about the app, the token,
- * a permission or the property is taken as that answer; everything else is
- * unknown, and the caller leaves the booking alone.
+ * Gone only when Cloudbeds refuses in its own format with the words of
+ * NO_SUCH_RESERVATION, not with 401, 403 or its not-connected wording, not
+ * about the app, the token, a permission or the property, and not an outage.
+ * Everything else is unknown, and the caller leaves the booking alone.
  */
 export async function cloudbedsLookUpReservation(
   creds: CloudbedsResolvedCredentials,
@@ -637,7 +664,20 @@ export async function cloudbedsLookUpReservation(
     if (outage || refused || NOT_ABOUT_THE_RESERVATION.some((p) => said.includes(p))) {
       return { unknown: errorText(e) };
     }
-    return { gone: errorText(e) };
+    if (NO_SUCH_RESERVATION.some((p) => said.includes(p))) return { gone: errorText(e) };
+    // Cloudbeds' own format, about nothing this recognises: not a reason to
+    // remove anything. Said where someone will see it, so the wording for a
+    // deleted reservation can be added once it has been seen.
+    console.error(
+      JSON.stringify({
+        fn: "cloudbedsLookUpReservation",
+        reservationId,
+        status: e.status,
+        message: e.message.slice(0, 300),
+        reason: "unrecognised_wording",
+      }),
+    );
+    return { unknown: errorText(e) };
   }
 }
 
