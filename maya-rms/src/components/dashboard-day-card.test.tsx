@@ -43,7 +43,8 @@ function month(y: number, m: number): CalendarResponse {
       color: "red",
       room_types: [
         cell({ id: "rt1", name: "Standard", booked: 1, occupancy_pct: 10, rate: 120, revenue: 120 }),
-        cell({ id: "rt2", name: "Suite" }),
+        // The property system has no rate for the Suite yet: unpriced, and the card says why.
+        cell({ id: "rt2", name: "Suite", no_rate_in_pms: true }),
       ],
     };
   }
@@ -93,5 +94,24 @@ describe("the day card's ADR", () => {
 
     expect(await screen.findByText("ADR $120.00")).toBeTruthy();
     expect(screen.getByText("ADR –")).toBeTruthy();
+  });
+});
+
+describe("the day card for a night with no rate in the property system", () => {
+  it("says so in one line, with the why behind a question mark", async () => {
+    window.history.replaceState(null, "", "/?tab=calendar");
+    render(<Dashboard initialSearch={window.location.search} />);
+
+    const tenth = await screen.findByRole("button", { name: /^10\b/ });
+    fireEvent.click(tenth);
+
+    const lines = await screen.findAllByTestId("no-rate-line");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent).toContain("No rate in your PMS for this night yet");
+    // Nothing more on the card until the "?" is opened.
+    expect(screen.queryByText(/has no rate for this night, so your rules have nothing to start from/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Why this night has no price" }));
+    expect(screen.getByText(/has no rate for this night, so your rules have nothing to start from/)).toBeTruthy();
+    expect(screen.getByText(/A price you type is sent as it is/)).toBeTruthy();
   });
 });

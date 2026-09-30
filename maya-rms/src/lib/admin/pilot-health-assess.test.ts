@@ -332,6 +332,31 @@ describe("a Live hotel that is sent nothing", () => {
   });
 });
 
+describe("nights the property system has no rate for", () => {
+  it("are a note, not an outage, with how far the rates were read", () => {
+    const a = assessProperty(healthy({ pms_type: "cloudbeds", no_rate_count: 132, rates_read_through: "2027-02-28" }), NOW);
+    expect(a.problems).toEqual([
+      {
+        kind: "no_rate",
+        severity: "amber",
+        text: "132 room-nights ahead with no rate in the property system: not priced and not sent until it has one. Rates read through 2027-02-28.",
+      },
+    ]);
+    expect(a.worst).toBe("amber");
+    expect(texts(healthy({ pms_type: "cloudbeds", no_rate_count: 1, rates_read_through: null }))).toEqual([
+      "1 room-night ahead with no rate in the property system: not priced and not sent until it has one.",
+    ]);
+  });
+
+  it("say nothing with none, or on a database from before the column", () => {
+    expect(texts(healthy({ pms_type: "cloudbeds", no_rate_count: 0, rates_read_through: "2027-10-29" }))).toEqual([]);
+    const old = healthy({ pms_type: "cloudbeds" });
+    delete old.no_rate_count;
+    delete old.rates_read_through;
+    expect(texts(old)).toEqual([]);
+  });
+});
+
 describe("nights held until the hotel's rates can be read", () => {
   const waiting = (minutes: number, o: Partial<PilotHealthRow> = {}) =>
     healthy({
