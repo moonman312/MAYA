@@ -9,7 +9,26 @@ import {
 } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Alert } from "../../../supabase/functions/_shared/pms/alerting";
-import { callTouchesColumn, fakeSupabase, missingColumn, missingRelation } from "../engine/fake-supabase.test";
+import { callTouchesColumn, fakeSupabase as rawFakeSupabase, missingColumn, missingRelation } from "../engine/fake-supabase.test";
+
+/**
+ * The engine publishes only nights the hotel has a rate on record for
+ * (base-price.ts), and the push holds any other (guardrail:no_rate_on_record).
+ * Unless a test says what the calendar holds, a row sits under every
+ * published cell; a test that sets the table afterwards keeps the rows it
+ * does not name (calendarUnder).
+ */
+function fakeSupabase(seed: Record<string, Row[]>, opts?: Parameters<typeof rawFakeSupabase>[1]) {
+  const withCalendar = seed.base_rate_calendar ? seed : { ...seed, base_rate_calendar: calendarUnder(seed.published_price ?? []) };
+  return rawFakeSupabase(withCalendar, opts);
+}
+
+/** A rate on record (100) under each published cell. */
+function calendarUnder(published: Row[], except: (r: Row) => boolean = () => false): Row[] {
+  return published
+    .filter((p) => !except(p))
+    .map((p) => ({ hotel_id: p.hotel_id ?? "hotel-1", stay_date: p.stay_date, room_type_id: p.room_type_id, price: 100 }));
+}
 
 type Row = Record<string, unknown>;
 
@@ -59,7 +78,12 @@ function makeSupabaseStub(fx: Fixture) {
     published_price: fx.publishedPrice ?? [],
     room_types: fx.roomTypes ?? [],
     rate_updates: fx.ledger ?? [],
-    base_rate_calendar: fx.baseRateCalendar ?? [],
+    // The engine publishes only nights with a rate on record (base-price.ts),
+    // and the push holds any other: a row under every published cell unless
+    // the test says what the calendar holds.
+    base_rate_calendar:
+      fx.baseRateCalendar ??
+      (fx.publishedPrice ?? []).map((p) => ({ hotel_id: p.hotel_id, stay_date: p.stay_date, room_type_id: p.room_type_id, price: 100 })),
     manual_price: fx.manualPrice ?? [],
     evaluation_run_log: fx.evaluations ?? [],
   };
@@ -1097,7 +1121,12 @@ describe("pushRatesForHotel keeps the ledger truthful", () => {
       published_price: [night("2026-08-01", "rt-king", 210), night("2026-08-01", "rt-queen", 180), night("2026-08-02", "rt-king", 220), night("2026-08-03", "rt-king", 230)],
       pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
       // Night two was sent at 199 and the PMS has it at 0 now; night three's 230 went out ten minutes ago.
-      base_rate_calendar: [{ hotel_id: "hotel-1", stay_date: "2026-08-02", room_type_id: "rt-king", price: 0 }],
+      base_rate_calendar: [
+        { hotel_id: "hotel-1", stay_date: "2026-08-02", room_type_id: "rt-king", price: 0 },
+        ...calendarUnder(
+          [night("2026-08-01", "rt-king", 210), night("2026-08-01", "rt-queen", 180), night("2026-08-03", "rt-king", 230)],
+        ),
+      ],
       rate_updates: [
         { hotel_id: "hotel-1", stay_date: "2026-08-02", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 199, status: "sent", attempts: 1, external_rate_id: "rate-100", pms_job_reference: "job-then", sent_price: 199, pushed_at: minutesAgo(90) },
         { hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", external_room_type_id: "CB-KING", price: 230, status: "sent", attempts: 1, external_rate_id: "rate-100", pms_job_reference: "job-old", sent_price: 230, pushed_at: minutesAgo(10) },
@@ -1586,7 +1615,7 @@ describe("pushRatesForHotel and nights that wait on a read of the hotel's rates"
   it("counts the hour from when a night was first held, so a night that joins later does not reset it", async () => {
     const db = justLive();
     await tick(db, 0, false);
-    // A day's new night enters the window half an hour in.
+    // A day's new night enters the window half an hour in, with the hotel's own rate under it.
     db.tables.published_price.push({
       hotel_id: "hotel-1",
       stay_date: "2026-08-04",
@@ -1594,6 +1623,7 @@ describe("pushRatesForHotel and nights that wait on a read of the hotel's rates"
       price: 215,
       computed_at: new Date(T0.getTime() + 30 * 60_000).toISOString(),
     });
+    db.tables.base_rate_calendar.push({ hotel_id: "hotel-1", stay_date: "2026-08-04", room_type_id: "rt-king", price: 100 });
     await tick(db, 30, false);
     expect(db.tables.rate_push_incident_cells).toHaveLength(4);
     expect(db.tables.rate_push_incidents[0].customer_visible_at).toBeNull();
@@ -1826,7 +1856,10 @@ describe("pushRatesForHotel checks where an unchanged night went", () => {
     db.tables.published_price[0].price = 1;
     db.tables.published_price[0].computed_at = new Date().toISOString();
     db.tables.rate_updates[0].price = 1;
-    db.tables.base_rate_calendar = [{ hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 0 }];
+    db.tables.base_rate_calendar = [
+      { hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 0 },
+      ...calendarUnder(db.tables.published_price, (r) => r.stay_date === "2026-08-01" && r.room_type_id === "rt-king"),
+    ];
     const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
 
     const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
@@ -2156,7 +2189,10 @@ describe("pushRatesForHotel and manual prices", () => {
     expect(db.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "zero_rate_unsupported", resolved_at: null })]);
 
     // The owner sets the night to 0 in Cloudbeds, and the base rate read stores that.
-    db.tables.base_rate_calendar = [{ hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 }];
+    db.tables.base_rate_calendar = [
+      { hotel_id: "hotel-1", stay_date: "2026-08-03", room_type_id: "rt-king", price: 0 },
+      ...calendarUnder(db.tables.published_price, (r) => r.stay_date === "2026-08-03" && r.room_type_id === "rt-king"),
+    ];
     const second = await pushRatesForHotel(db.client, "hotel-1", makeAdapter({ "CB-KING": "rate-100" }).adapter, WIDE);
 
     expect(second).toMatchObject({ sent: 0, skippedGuardrail: 0, compInPms: 1 });

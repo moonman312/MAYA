@@ -100,6 +100,7 @@ describe("checkPushGuardrails", () => {
       "guardrail:not_a_room",
       "guardrail:invalid_price",
       "guardrail:zero_base",
+      "guardrail:no_rate_on_record",
       "guardrail:invalid_bounds",
       "guardrail:below_floor",
       "guardrail:above_ceiling",

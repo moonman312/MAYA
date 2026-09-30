@@ -415,8 +415,66 @@ describe("ensureBaseRateCalendar refresh", () => {
         base_rates_refreshed_at: "2026-10-01T12:00:00.000Z",
         push_rate_targets: { "EXT-1": "rate-a", "EXT-2": "rate-a" },
         base_rates_through: "2026-10-02",
+        // The PMS returned no nightly rate at all: through the day before the window.
+        base_rates_returned_through: "2026-09-30",
       },
-      { base_rates_refreshed_at: "2026-10-01T14:00:00.000Z", base_rates_through: "2026-10-02" },
+      { base_rates_refreshed_at: "2026-10-01T14:00:00.000Z", base_rates_through: "2026-10-02", base_rates_returned_through: "2026-09-30" },
+    ]);
+  });
+
+  it("records the last night the PMS returned a rate for, apart from the last night it asked for", async () => {
+    // A 5-night window. The PMS has rates loaded for the first three nights
+    // of one room type and the first two of the other: rates read through
+    // the third night, asked through the fifth.
+    const partial = db();
+    const { adapter: some } = makeAdapter([
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-03", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-2", price: 240 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-2", price: 240 },
+    ]);
+    const res = await ensureBaseRateCalendar(partial.client, HOTEL, some, { horizonDays: 5, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(res).toMatchObject({ ok: true, captured: 5, returnedThrough: "2026-10-03" });
+    expect(partial.tables.pms_connections[0]).toMatchObject({ base_rates_through: "2026-10-05", base_rates_returned_through: "2026-10-03" });
+
+    // Every night of the window: read through its last night.
+    const full = db();
+    const { adapter: all } = makeAdapter(
+      ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"].flatMap((stayDate) => [
+        { stayDate, externalRoomTypeId: "EXT-1", price: 200 },
+        { stayDate, externalRoomTypeId: "EXT-2", price: 240 },
+      ]),
+    );
+    await ensureBaseRateCalendar(full.client, HOTEL, all, { horizonDays: 5, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(full.tables.pms_connections[0]).toMatchObject({ base_rates_through: "2026-10-05", base_rates_returned_through: "2026-10-05" });
+
+    // A read that only checks a span before a re-send stamps nothing.
+    const before = structuredClone(full.tables.pms_connections[0]);
+    await ensureBaseRateCalendar(full.client, HOTEL, all, {
+      horizonDays: 5,
+      clock: clock("2026-10-01T12:30:00.000Z"),
+      span: { first: "2026-10-02", last: "2026-10-03" },
+    });
+    expect(full.tables.pms_connections[0]).toEqual(before);
+  });
+
+  it("stamps the refresh without the returned night on a database that does not have the column yet, and says so once", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({}, {
+      fault: (c) =>
+        c.table === "pms_connections" && c.op === "update" && "base_rates_returned_through" in (c.payload ?? {})
+          ? missingColumn("pms_connections", "base_rates_returned_through")
+          : null,
+    });
+    const { adapter } = makeAdapter([{ stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 200 }]);
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(res).toMatchObject({ ok: true, captured: 1 });
+    expect(d.tables.pms_connections[0]).toMatchObject({ base_rates_refreshed_at: "2026-10-01T12:00:00.000Z", base_rates_through: "2026-10-02" });
+    expect(d.tables.pms_connections[0]).not.toHaveProperty("base_rates_returned_through");
+    const lines = err.mock.calls.map((c) => JSON.parse(String(c[0])));
+    expect(lines.filter((l) => l.step === "mark_refreshed")).toEqual([
+      expect.objectContaining({ schema: "pre-migration", migration: "99_supabase_migration_no_rate_on_record_v1.sql" }),
     ]);
   });
 

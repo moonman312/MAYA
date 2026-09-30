@@ -23,9 +23,11 @@ export type PilotHealth =
       hiddenTest: number;
       /**
        * Set when the function is the one from before
-       * 99_supabase_migration_pilot_health_v2.sql: its rows cannot say
-       * whether published prices are waiting to be sent, so "Looks fine"
-       * does not cover that, and the page says which file to run.
+       * 99_supabase_migration_pilot_health_v2.sql (its rows cannot say
+       * whether published prices are waiting to be sent) or before
+       * 99_supabase_migration_no_rate_on_record_v1.sql (nor which nights
+       * have no rate on record), so "Looks fine" does not cover that, and
+       * the page says which file to run.
        */
       missing?: string;
     };
@@ -41,12 +43,15 @@ export async function loadPilotHealth(ssr: SupabaseClient, opts: { includeTest: 
   const all = (data ?? []) as PilotHealthRow[];
   const rows = opts.includeTest ? all : all.filter((r) => !r.is_test);
   const beforeV2 = all.some((r) => r.unsent_count === undefined);
+  const beforeV4 = all.some((r) => r.no_rate_count === undefined);
   return {
     available: true,
     rows,
     hiddenTest: all.length - rows.length,
     ...(beforeV2
       ? { missing: "Run 99_supabase_migration_pilot_health_v2.sql to see prices that were published and not sent." }
-      : {}),
+      : beforeV4
+        ? { missing: "Run 99_supabase_migration_no_rate_on_record_v1.sql to see the nights the property system has no rate for." }
+        : {}),
   };
 }

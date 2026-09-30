@@ -36,6 +36,13 @@ function db(seed: Record<string, FakeRow[]> = {}, opts: Parameters<typeof fakeSu
   );
 }
 
+/**
+ * A PMS stub. Its rates reach the last night of every window it is asked
+ * for (a rate on that night at 200, besides `entries`), so the nights the
+ * engine stand-in publishes are never past what the PMS returned: a night
+ * past that is held, on purpose (base-price.ts, audit A6), and that is not
+ * what these tests are about.
+ */
 function makeAdapter(entries: RateCalendarEntry[] = []) {
   const log: string[] = [];
   const adapter: PmsRatePushAdapter = {
@@ -46,7 +53,8 @@ function makeAdapter(entries: RateCalendarEntry[] = []) {
     },
     async readBaseRateCalendar(start, end) {
       log.push(`calendar:${start}..${end}`);
-      return { targets: { "CB-KING": "base-1" }, entries };
+      const last = entries.some((e) => e.stayDate === end) ? [] : [{ stayDate: end, externalRoomTypeId: "CB-KING", price: 200 }];
+      return { targets: { "CB-KING": "base-1" }, entries: [...entries, ...last] };
     },
     async pushCells(cells: Array<RateCell & { externalRateId: string }>): Promise<CellPushResult[]> {
       log.push(`push:${cells.map((c) => c.stayDate).join(",")}`);
@@ -56,7 +64,13 @@ function makeAdapter(entries: RateCalendarEntry[] = []) {
   return { adapter, log };
 }
 
-/** An engine stand-in: records what it was asked and publishes the nights it is told to. */
+/**
+ * An engine stand-in: records what it was asked and publishes the nights it
+ * is told to. The real engine prices only a night the hotel has a rate on
+ * record for (base-price.ts), and the push holds any other, so the stand-in
+ * leaves a calendar row under each night it publishes when the refresh did
+ * not; `baseAtStart` is what the refresh had written before it ran.
+ */
 function makeEvaluate(d: ReturnType<typeof db>, log: string[], nights: string[]) {
   const seen: { evalTs: string | undefined; horizonDays: number; baseAtStart: FakeRow[] }[] = [];
   const evaluate = async (_s: SupabaseClient, _h: string, evalTs: string | undefined, horizonDays: number) => {
@@ -64,6 +78,9 @@ function makeEvaluate(d: ReturnType<typeof db>, log: string[], nights: string[])
     seen.push({ evalTs, horizonDays, baseAtStart: (d.tables.base_rate_calendar ?? []).map((r) => ({ ...r })) });
     for (const stay_date of nights) {
       d.tables.published_price.push({ hotel_id: HOTEL, stay_date, room_type_id: "rt-king", price: 250 });
+      if (!(d.tables.base_rate_calendar ?? []).some((r) => r.stay_date === stay_date && r.room_type_id === "rt-king")) {
+        d.tables.base_rate_calendar.push({ hotel_id: HOTEL, stay_date, room_type_id: "rt-king", price: 200 });
+      }
     }
     return { run_id: "run-1" };
   };
@@ -107,11 +124,14 @@ describe("runPricingTick", () => {
     // The engine got the tick's instant, which is Oct 1 in Los Angeles, and the same horizon.
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ evalTs: "2026-10-02T05:00:00.000Z", horizonDays: 60 });
-    expect(seen[0].baseAtStart).toEqual([expect.objectContaining({ stay_date: "2026-10-01", price: 210 })]);
+    expect(seen[0].baseAtStart).toEqual([
+      expect.objectContaining({ stay_date: "2026-10-01", price: 210 }),
+      expect.objectContaining({ stay_date: "2026-11-29", price: 200 }),
+    ]);
     expect(sentNights(d)).toEqual(["2026-10-01", "2026-11-29"]);
     expect(res).toMatchObject({
       today: "2026-10-01",
-      calendar: { ok: true, captured: 1, pmsEditsAdopted: 0 },
+      calendar: { ok: true, captured: 2, pmsEditsAdopted: 0, returnedThrough: "2026-11-29" },
       evaluate: { run_id: "run-1" },
       push: { pushed: true, sent: 2 },
       pmsEditsAdopted: 0,
@@ -175,8 +195,8 @@ describe("runPricingTick", () => {
     expect(manualAtEvaluation).toEqual([
       expect.objectContaining({ stay_date: "2026-10-03", room_type_id: "rt-king", price: 199, source: "pms", pms_type: "cloudbeds", set_by: null, set_at: new Date(T0).toISOString() }),
     ]);
-    // The hotel's own rate from before MAYA stays as it was.
-    expect(d.tables.base_rate_calendar).toEqual([]);
+    // The hotel's own rate from before MAYA stays as it was: nothing captured for the night MAYA sent to.
+    expect(d.tables.base_rate_calendar.filter((r) => r.stay_date === "2026-10-03")).toEqual([]);
   });
 
   it("starts nothing past the evaluation cut-off", async () => {
@@ -270,10 +290,10 @@ describe("runPricingTick", () => {
     expect(nothing.reads).toBe(1);
 
     // MAYA's own read failed after the PMS answered: the PMS is asked again before the re-send.
+    let calendarReads = 0;
     const ours = await tick(async () => ({ targets: { "CB-KING": "base-1" }, entries: [] }), {
-      // The refresh's read of the stored base, not the push's read of closed nights.
-      fault: (c) =>
-        c.table === "base_rate_calendar" && c.op === "select" && !c.filters.some((f) => f.col === "price") ? { message: "statement timeout" } : null,
+      // The refresh's read of the stored base (the tick's first), not the push's read of what is on record.
+      fault: (c) => (c.table === "base_rate_calendar" && c.op === "select" && calendarReads++ === 0 ? { message: "statement timeout" } : null),
     });
     expect(ours.res.calendar).toEqual({ ok: false, reason: "failed", captured: 0 });
     expect(ours.reads).toBe(2);
@@ -441,8 +461,10 @@ describe("runPricingTick", () => {
   it("vouches for prices its own evaluation left unchanged, and not for them once evaluation fails", async () => {
     // Written two days ago and unchanged since: the engine writes on change only.
     const old = { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 180, computed_at: "2026-09-30T05:00:00Z" };
+    // The hotel's own rate under it: a night with none is held, whatever vouches for its price.
+    const onRecord = { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 170 };
 
-    const good = db({ published_price: [{ ...old }] });
+    const good = db({ published_price: [{ ...old }], base_rate_calendar: [{ ...onRecord }] });
     const ok = await runPricingTick(
       good.client,
       HOTEL,
@@ -453,6 +475,7 @@ describe("runPricingTick", () => {
 
     const bad = db({
       published_price: [{ ...old }],
+      base_rate_calendar: [{ ...onRecord }],
       // The last evaluation that worked was hours ago.
       evaluation_run_log: [{ hotel_id: HOTEL, evaluation_run_id: "run-0", evaluated_at: "2026-10-01T23:00:00Z" }],
     });

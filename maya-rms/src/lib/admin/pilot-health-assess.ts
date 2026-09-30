@@ -57,6 +57,17 @@ export type PilotHealthRow = {
   /** Nights held until the hotel's own rates have been read, and when the first was held. */
   rate_read_waiting?: number | null;
   rate_read_waiting_since?: string | null;
+  /**
+   * From 99_supabase_migration_no_rate_on_record_v1.sql, so absent before it.
+   *
+   * Room-nights ahead the property system has no rate on record for and
+   * nobody typed a price for: not priced, not sent. Only for a system MAYA
+   * reads rates from (Cloudbeds, ThinkReservations). And the last night the
+   * property system returned a rate for on its last read (YYYY-MM-DD), null
+   * until a read has recorded one.
+   */
+  no_rate_count?: number | null;
+  rates_read_through?: string | null;
 };
 
 /** A read older than this is a problem: the overview page's own stale sync line. */
@@ -89,7 +100,7 @@ export const RATE_READ_WAIT_MINUTES = 60;
 export const RATE_READ_CAUSE = "awaiting_rate_read";
 
 export type ProblemSeverity = "amber" | "rose";
-export type ProblemKind = "connection" | "read" | "pass" | "sending" | "unsent" | "rate_read" | "queue";
+export type ProblemKind = "connection" | "read" | "pass" | "sending" | "unsent" | "rate_read" | "no_rate" | "queue";
 export type PropertyProblem = { kind: ProblemKind; severity: ProblemSeverity; text: string };
 
 export type PricedThrough =
@@ -238,6 +249,20 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
       kind: "rate_read",
       severity: "rose",
       text: `${plural(held, "night")} held for ${ageLabel(row.rate_read_waiting_since, nowIso)} until the hotel's own rates can be read. Nothing is sent to them meanwhile.`,
+    });
+  }
+
+  // Nights the property system has no rate on record for. Not an outage:
+  // a hotel that loads its rates six months out has these all year round.
+  // Said as a note, so nobody reads "Looks fine" over nights MAYA cannot
+  // price, with how far the rates were last read.
+  const noRate = row.no_rate_count ?? 0;
+  if (noRate > 0) {
+    const through = row.rates_read_through ? ` Rates read through ${row.rates_read_through}.` : "";
+    problems.push({
+      kind: "no_rate",
+      severity: "amber",
+      text: `${plural(noRate, "room-night")} ahead with no rate in the property system: not priced and not sent until it has one.${through}`,
     });
   }
 

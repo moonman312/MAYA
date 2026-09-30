@@ -64,6 +64,7 @@ export const PUSH_CAUSES = [
   "pms_rates_shared_ratio",
   "awaiting_rate_read",
   "guardrail_not_a_room",
+  "guardrail_no_rate_on_record",
 ] as const;
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
@@ -298,6 +299,10 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
   guardrail_not_a_room: guardrail("the room type is not a room and no rule changes it", false),
   guardrail_invalid_price: guardrail("the published price is not a number above 0", true),
   guardrail_zero_base: guardrail("the PMS has the night at 0 and nobody typed a price", false),
+  // Not a bug: the engine no longer prices such a night, and this catches a
+  // row from before it stopped, or one priced before the read that dropped
+  // the night. Once the PMS has a rate for it, it is priced and sent.
+  guardrail_no_rate_on_record: guardrail("the PMS has no rate on record for the night and nobody typed a price", false),
   guardrail_invalid_bounds: guardrail("the room type's floor or ceiling is not usable", true),
   // Not bugs: a floor raised or a ceiling lowered after the night was
   // published lands here until the re-price that follows the change finishes.
@@ -377,6 +382,7 @@ const GUARDRAIL_CAUSE: Record<string, PushCause> = {
   [GUARDRAIL.notARoom]: "guardrail_not_a_room",
   [GUARDRAIL.invalidPrice]: "guardrail_invalid_price",
   [GUARDRAIL.zeroBase]: "guardrail_zero_base",
+  [GUARDRAIL.noRateOnRecord]: "guardrail_no_rate_on_record",
   [GUARDRAIL.invalidBounds]: "guardrail_invalid_bounds",
   [GUARDRAIL.belowFloor]: "guardrail_below_floor",
   [GUARDRAIL.aboveCeiling]: "guardrail_above_ceiling",
