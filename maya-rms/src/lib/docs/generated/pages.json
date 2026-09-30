@@ -7,7 +7,7 @@
   "slug": "what-maya-does",
   "order": 10,
   "title": "What MAYA does",
-  "summary": "You write pricing rules in plain words. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
+  "summary": "You build pricing rules from dropdowns, and each one reads back as a plain sentence. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
   "readingTime": 15,
   "readingNote": null,
   "updated": "2026-09-28",

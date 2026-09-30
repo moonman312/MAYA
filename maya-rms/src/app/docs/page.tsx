@@ -5,6 +5,7 @@ import { sectionsWithPages } from "@/lib/docs/content";
 import { PMS_CARDS, START_WHERE_YOU_ARE, SUPPORT_EMAIL, TOP_QUESTIONS } from "@/lib/docs/home";
 import { SECTION_ICONS } from "@/components/docs/section-icons";
 import { HeroSearch } from "@/components/docs/hero-search";
+import { SHARE_IMAGE } from "@/lib/docs/share";
 
 export const metadata: Metadata = {
   title: { absolute: "MAYA docs" },
@@ -16,9 +17,11 @@ export const metadata: Metadata = {
     description: "Everything about MAYA, in plain words, with nothing left out.",
     url: "/docs",
     siteName: "MAYA",
+    images: [SHARE_IMAGE],
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
+    images: [SHARE_IMAGE.url],
     title: "MAYA docs",
     description: "Everything about MAYA, in plain words, with nothing left out.",
   },
