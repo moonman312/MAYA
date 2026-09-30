@@ -38,8 +38,13 @@ const READS_AT_ONCE = 8;
  * The hotels connected from inside MAYA whose credential names one of these
  * properties, by property ID. A Marketplace hotel carries its property on its
  * row (external_enterprise_id) and is found by that, so only the rest have
- * their credential read. Throws when anything cannot be read: a caller about
- * to add a property must not take an outage for "not in MAYA".
+ * their credential read. Every connection row counts, whatever its status: a
+ * disconnected hotel keeps its credential and can reconnect by its property,
+ * and two MAYA hotels on one property would both read its bookings and send
+ * it prices. (A purged hotel has no connection row or credential left.) The
+ * caller names the hotel found in its log so support can clear it. Throws
+ * when anything cannot be read: a caller about to add a property must not
+ * take an outage for "not in MAYA".
  */
 export async function hotelsConnectedInsideMaya(
   admin: SupabaseClient,

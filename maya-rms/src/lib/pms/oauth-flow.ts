@@ -604,7 +604,27 @@ async function boundPropertyForGrant(
     // sent to it, from the wrong property. A login that reaches exactly one
     // property is bound to it here, so the check holds from now on.
     try {
-      if (await anyPropertyBelongsElsewhere(admin, hotelId, pmsType, reachable)) {
+      const elsewhere = await anyPropertyBelongsElsewhere(admin, hotelId, pmsType, reachable);
+      if (elsewhere) {
+        // Named for support: the person is told only that the property is
+        // another hotel's. A hotel that has since been disconnected, or was
+        // set up for a test, still holds its property (it can reconnect by
+        // it, and two hotels on one property would both send prices to it),
+        // so the way through is to clear or invite from that hotel, and
+        // this line says which one.
+        console.error(
+          JSON.stringify({
+            fn: "handleOAuthCallback",
+            step: "property_elsewhere",
+            hotelId,
+            propertyId: elsewhere.propertyId,
+            blockingHotelId: elsewhere.hotelId,
+            blockingHotelName: elsewhere.name,
+            blockingVia: elsewhere.via,
+            blockingConnectionStatus: elsewhere.connectionStatus,
+            refused: true,
+          }),
+        );
         return { ok: false, message: ALREADY_ANOTHER_HOTELS };
       }
     } catch (e) {
@@ -632,23 +652,36 @@ export const ALREADY_ANOTHER_HOTELS =
   "This Cloudbeds login is for a property that is already connected to another property in MAYA, so nothing was changed. " +
   "If that property should be this one, ask its General Manager for an invitation, or email us.";
 
+/** The other MAYA hotel a property already belongs to, for the admin log. */
+type PropertyElsewhere = {
+  propertyId: string;
+  hotelId: string;
+  name: string | null;
+  /** How the hotel holds the property: on its row (Marketplace) or with its credential (connected inside MAYA). */
+  via: "marketplace" | "credential";
+  /** That hotel's connection status for this PMS, when it has a connection row. */
+  connectionStatus: string | null;
+};
+
 /**
- * Whether any of these Cloudbeds properties is already some other MAYA
- * hotel's: a Marketplace hotel carries its property on its row and counts
- * once someone is a member of it (an unclaimed parked row is nobody's yet);
- * a hotel connected from inside MAYA keeps its property with its credential.
- * Throws when anything cannot be read, so an outage is never "not in MAYA".
+ * The first of these Cloudbeds properties that is already some other MAYA
+ * hotel's, or null: a Marketplace hotel carries its property on its row and
+ * counts once someone is a member of it (an unclaimed parked row is nobody's
+ * yet); a hotel connected from inside MAYA keeps its property with its
+ * credential, whatever its connection's status (a disconnected hotel can
+ * reconnect by its property, so it still holds it). Throws when anything
+ * cannot be read, so an outage is never "not in MAYA".
  */
 async function anyPropertyBelongsElsewhere(
   admin: SupabaseClient,
   hotelId: string,
   pmsType: PmsType,
   propertyIds: string[],
-): Promise<boolean> {
-  if (propertyIds.length === 0) return false;
+): Promise<PropertyElsewhere | null> {
+  if (propertyIds.length === 0) return null;
   const { data: keyed, error } = await admin
     .from("hotels")
-    .select("id")
+    .select("id, name, external_enterprise_id")
     .in(
       "external_enterprise_id",
       propertyIds.map((p) => enterpriseKey(pmsType, p)),
@@ -662,11 +695,30 @@ async function anyPropertyBelongsElsewhere(
       .eq("hotel_id", String(h.id))
       .limit(1);
     if (memberErr) throw new Error(`hotel_memberships: ${memberErr.message}`);
-    if ((members ?? []).length > 0) return true;
+    if ((members ?? []).length > 0) {
+      const key = String(h.external_enterprise_id ?? "");
+      return {
+        propertyId: key.startsWith(`${pmsType}:`) ? key.slice(pmsType.length + 1) : key,
+        hotelId: String(h.id),
+        name: h.name != null ? String(h.name) : null,
+        via: "marketplace",
+        connectionStatus: await connectionStatusOf(admin, String(h.id), pmsType),
+      };
+    }
   }
   const inside = await hotelsConnectedInsideMaya(admin, pmsType, propertyIds);
-  for (const hotel of inside.values()) if (hotel.id !== hotelId) return true;
-  return false;
+  for (const [propertyId, hotel] of inside) {
+    if (hotel.id === hotelId) continue;
+    return { propertyId, hotelId: hotel.id, name: hotel.name, via: "credential", connectionStatus: await connectionStatusOf(admin, hotel.id, pmsType) };
+  }
+  return null;
+}
+
+/** A hotel's connection status for this PMS, for the log; null when it has none or it cannot be read (the log is not worth a refusal). */
+async function connectionStatusOf(admin: SupabaseClient, hotelId: string, pmsType: PmsType): Promise<string | null> {
+  const { data, error } = await admin.from("pms_connections").select("status").eq("hotel_id", hotelId).eq("pms_type", pmsType).maybeSingle();
+  if (error || data?.status == null) return null;
+  return String(data.status);
 }
 
 /**

@@ -453,28 +453,55 @@ describe("a login for a property that is already another MAYA hotel's", () => {
   // The hotel has no Cloudbeds property on record (checkout's placeholder is
   // enough), so any login used to be taken and stored under it.
   const unbound = () => property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
-  const refused = async (db: ReturnType<typeof property>) => {
+  /** The admin log line that names the hotel in the way, which the person is not told. */
+  const blockingLine = (errors: ReturnType<typeof vi.spyOn>) => {
+    const lines = errors.mock.calls.map((c) => {
+      try {
+        return JSON.parse(String(c[0])) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    });
+    return lines.find((l) => l.step === "property_elsewhere" && l.refused === true);
+  };
+  const refused = async (db: ReturnType<typeof property>, blocking: Record<string, unknown>) => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await callback();
     expect(res.status).toBe(400);
     const text = await res.text();
     expect(text).toContain("already connected to another property in MAYA");
     expect(text).not.toContain("Command Center");
+    expect(text).not.toContain(String(blocking.blockingHotelName));
     expect(storedSecret()).toBeUndefined();
     expect(db.tables.pms_connections[0]).toMatchObject({ status: "disconnected" });
     expect(db.tables.import_jobs).toEqual([]);
+    // Support can see which hotel holds the property, and how.
+    expect(blockingLine(errors)).toMatchObject({ fn: "handleOAuthCallback", hotelId: "hotel-1", ...blocking });
+    errors.mockRestore();
   };
 
   it("is refused when a Marketplace hotel with a member already is that property", async () => {
     state.otherHotels = [{ id: "hotel-2", name: "Pilot Hotel", external_enterprise_id: "cloudbeds:320691", is_active: true, setup_pending_at: null }];
     state.otherMemberships = [{ hotel_id: "hotel-2", user_id: "user-9", status: "active" }];
-    await refused(unbound());
+    await refused(unbound(), { propertyId: "320691", blockingHotelId: "hotel-2", blockingHotelName: "Pilot Hotel", blockingVia: "marketplace", blockingConnectionStatus: null });
   });
 
   it("is refused when a hotel connected from inside MAYA keeps that property with its credential", async () => {
     state.otherHotels = [{ id: "hotel-2", name: "Pilot Hotel", external_enterprise_id: null, is_active: true, setup_pending_at: null }];
     state.otherConnections = [{ hotel_id: "hotel-2", pms_type: "cloudbeds", status: "connected", updated_at: "2026-09-01T00:00:00.000Z" }];
     state.otherStoredProperties = { "hotel-2": "320691" };
-    await refused(unbound());
+    await refused(unbound(), { propertyId: "320691", blockingHotelId: "hotel-2", blockingHotelName: "Pilot Hotel", blockingVia: "credential", blockingConnectionStatus: "connected" });
+  });
+
+  it("is refused over a hotel that has since been disconnected too, since it can reconnect by that property, and the log says which and in what state", async () => {
+    // An abandoned or test hotel that once connected this property from
+    // inside MAYA. Its credential is kept (a reconnect needs it), so it holds
+    // the property; letting a second hotel in would leave both able to read
+    // and price it. The way through is to clear that hotel, and the log names it.
+    state.otherHotels = [{ id: "hotel-2", name: "Old test hotel", external_enterprise_id: null, is_active: true, setup_pending_at: null }];
+    state.otherConnections = [{ hotel_id: "hotel-2", pms_type: "cloudbeds", status: "disconnected", updated_at: "2026-06-01T00:00:00.000Z" }];
+    state.otherStoredProperties = { "hotel-2": "320691" };
+    await refused(unbound(), { propertyId: "320691", blockingHotelId: "hotel-2", blockingHotelName: "Old test hotel", blockingVia: "credential", blockingConnectionStatus: "disconnected" });
   });
 
   it("is refused when any property of a group login is another hotel's", async () => {
@@ -484,7 +511,7 @@ describe("a login for a property that is already another MAYA hotel's", () => {
     ];
     state.otherHotels = [{ id: "hotel-2", name: "Annex in MAYA", external_enterprise_id: "cloudbeds:320690", is_active: true, setup_pending_at: null }];
     state.otherMemberships = [{ hotel_id: "hotel-2", user_id: "user-9", status: "active" }];
-    await refused(unbound());
+    await refused(unbound(), { propertyId: "320690", blockingHotelId: "hotel-2", blockingHotelName: "Annex in MAYA", blockingVia: "marketplace" });
   });
 
   it("is not refused over an unclaimed Marketplace row, which is nobody's yet", async () => {
