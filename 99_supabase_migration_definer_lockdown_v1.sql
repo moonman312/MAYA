@@ -20,7 +20,14 @@
 --      function in the public schema that is not a trigger function. Found
 --      from the catalogue at run time, so a function this repository does
 --      not know about is closed too, and each one is named in a notice.
---      authenticated and service_role keep exactly what they have.
+--      authenticated and service_role keep exactly what they have: whether
+--      each may execute the function is recorded before the revoke, and
+--      where it may, and the revoke from public would have taken that away
+--      (the role held EXECUTE through public alone, with no grant of its
+--      own), EXECUTE is granted to it directly. Such a function is named in
+--      a notice too. So a policy that calls can_manage_finances or
+--      my_hotel_rank answers a signed-in owner after this file exactly as it
+--      did before, whatever grants the function was created with.
 --
 --   2. hotel_has_live_subscription(uuid) answered any signed-in caller for
 --      any property id whether that property has a live subscription. No
@@ -49,13 +56,19 @@
 begin;
 
 -- 1. No signed-out caller may run a function that runs with the owner's rights.
+--    authenticated and service_role keep what they had: recorded per function
+--    before the revoke, granted back directly where the revoke from public
+--    would otherwise have taken it away.
 do $$
 declare
   fn record;
   n integer := 0;
+  kept integer := 0;
+  had_authenticated boolean;
+  had_service_role boolean;
 begin
   for fn in
-    select p.oid::regprocedure as sig
+    select p.oid as oid, p.oid::regprocedure as sig
       from pg_proc p
       join pg_namespace ns on ns.oid = p.pronamespace
      where ns.nspname = 'public'
@@ -66,11 +79,23 @@ begin
             or has_function_privilege('public', p.oid, 'execute'))
      order by p.proname
   loop
+    had_authenticated := has_function_privilege('authenticated', fn.oid, 'execute');
+    had_service_role := has_function_privilege('service_role', fn.oid, 'execute');
     execute format('revoke all on function %s from public, anon', fn.sig);
+    if had_authenticated and not has_function_privilege('authenticated', fn.oid, 'execute') then
+      execute format('grant execute on function %s to authenticated', fn.sig);
+      raise notice 'definer_lockdown_v1: kept authenticated''s execute on % (it came through public alone)', fn.sig;
+      kept := kept + 1;
+    end if;
+    if had_service_role and not has_function_privilege('service_role', fn.oid, 'execute') then
+      execute format('grant execute on function %s to service_role', fn.sig);
+      raise notice 'definer_lockdown_v1: kept service_role''s execute on % (it came through public alone)', fn.sig;
+      kept := kept + 1;
+    end if;
     raise notice 'definer_lockdown_v1: closed % to anon', fn.sig;
     n := n + 1;
   end loop;
-  raise notice 'definer_lockdown_v1: % function(s) closed to anon', n;
+  raise notice 'definer_lockdown_v1: % function(s) closed to anon, % grant(s) restated for authenticated or service_role', n, kept;
 end $$;
 
 -- 2. hotel_has_live_subscription: unused by any policy or app path, and it
@@ -108,11 +133,14 @@ end $$;
 
 commit;
 
--- To see what is open to whom, at any time:
+-- To see what is open to whom, at any time (run it before this file too, and
+-- keep the output: the same query afterwards must show the same
+-- authenticated and service_role columns, and false for anon):
 --
 --   select p.oid::regprocedure as fn,
 --          has_function_privilege('anon', p.oid, 'execute') as anon,
---          has_function_privilege('authenticated', p.oid, 'execute') as authenticated
+--          has_function_privilege('authenticated', p.oid, 'execute') as authenticated,
+--          has_function_privilege('service_role', p.oid, 'execute') as service_role
 --     from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
 --    where ns.nspname = 'public' and p.prosecdef and p.prorettype <> 'trigger'::regtype
 --    order by 1;

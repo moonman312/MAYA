@@ -327,6 +327,49 @@ describe.skipIf(!PGLITE_DIR)("the definer lockdown migration in PGlite", () => {
     expect(await definerFunctions(db)).toEqual(once);
   });
 
+  it("keeps authenticated's and the service role's access to a function they could execute only through public", async () => {
+    // Not how Supabase's default privileges create a function (they grant the
+    // three roles directly), but how one created under other defaults, or
+    // with its grants edited by hand, can stand: PostgreSQL's own default
+    // gives EXECUTE to public, and the roles have nothing of their own. A
+    // plain `revoke from public` would close it to a signed-in owner too, and
+    // a policy calling it would answer 42501 to every signed-in query.
+    await db.exec(`
+      create function public.zz_probe_public_only(p_hotel_id uuid) returns boolean
+        language sql security definer set search_path = public, pg_temp as
+        $$ select public.is_hotel_accessible(p_hotel_id) $$;
+      revoke all on function public.zz_probe_public_only(uuid) from anon, authenticated, service_role;
+      grant execute on function public.zz_probe_public_only(uuid) to public;
+      create function public.zz_probe_service_only(p_hotel_id uuid) returns boolean
+        language sql security definer set search_path = public, pg_temp as
+        $$ select true $$;
+      revoke all on function public.zz_probe_service_only(uuid) from public, anon, authenticated;
+    `);
+    const probe = (list: DefinerFunction[], name: string) => list.find((f) => f.name === name)!;
+    const before = await definerFunctions(db);
+    expect(probe(before, "zz_probe_public_only")).toMatchObject({ anon: true, authenticated: true, serviceRole: true });
+    expect(probe(before, "zz_probe_service_only")).toMatchObject({ anon: false, authenticated: false, serviceRole: true });
+
+    await db.exec(fileSql(MIGRATION));
+    const after = await definerFunctions(db);
+    expect(probe(after, "zz_probe_public_only")).toMatchObject({ anon: false, authenticated: true, serviceRole: true });
+    expect(probe(after, "zz_probe_service_only")).toMatchObject({ anon: false, authenticated: false, serviceRole: true });
+    // The grant is now the role's own, not public's.
+    const { rows } = await db.query(
+      `select a.grantee::regrole::text as grantee from pg_proc p, aclexplode(p.proacl) a
+        where p.oid = 'public.zz_probe_public_only(uuid)'::regprocedure and a.privilege_type = 'EXECUTE' order by 1`,
+    );
+    expect(rows.map((r) => r.grantee).sort()).toEqual(["authenticated", "postgres", "service_role"]);
+    // Everyone else exactly as before.
+    const rest = (list: DefinerFunction[]) => list.filter((f) => !f.name.startsWith("zz_probe"));
+    expect(rest(after)).toEqual(rest(before));
+
+    await db.exec(`
+      drop function public.zz_probe_public_only(uuid);
+      drop function public.zz_probe_service_only(uuid);
+    `);
+  });
+
   it("a signed-out caller is refused at the door, and a signed-in one still reaches the body's own check", async () => {
     await db.exec("set role anon");
     try {
