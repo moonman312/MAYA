@@ -3,8 +3,8 @@ title: Turning a rule on, Apply or Skip
 summary: The window that opens whenever a rule is about to start acting, its small calendar of the days the rule will change, what Apply price adjustments and Skip price adjustments each do, and every message it can show.
 section: rules
 order: 105
-readingTime: 13
-keywords: [undo box, unticked, held day cancellations, turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, we weren't able to calculate, could not calculate, days could not be checked, try again, bookings changed while this was open, days were checked again, 0 prices, 0 days, turn it on, nothing to change, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, held days, held until true again, bookings before the rule, counts old bookings, 13 months, 14 months, twelve months, trial run, same as the calendar]
+readingTime: 15
+keywords: [undo box, unticked, held day cancellations, turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, we weren't able to calculate, could not calculate, days could not be checked, try again, bookings changed while this was open, days were checked again, 0 prices, 0 days, turn it on, nothing to change, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, held days, held until true again, bookings before the rule, counts old bookings, 13 months, 14 months, twelve months, trial run, same as the calendar, the cut repeats, reaches 396 nights, nights ahead, amber lines, cut on low pickup, far-out cut, no booking window condition, once your rules have run for]
 questions:
   - Why did a window with a calendar open when I switched a rule on? {#in-plain-words}
   - What does "X days will be affected by this rule" mean? {#what-the-days-mean}
@@ -16,13 +16,14 @@ questions:
   - What happens to the held days if I switch the rule off and on again? {#skip-price-adjustments/off-and-on-again}
   - Why does the calendar show 13 or 14 months? {#the-calendar}
   - The window says "0 prices will be affected by this rule." What do Turn it on and Save changes do? {#what-the-days-mean/0-prices}
+  - What do "this rule reaches 396 of the 396 nights ahead" and "The cut repeats" mean? {#what-the-days-mean/a-cut-on}
   - I unticked the undo box. Does a held day still end when bookings cancel? {#skip-price-adjustments}
   - What does "Your bookings changed while this was open, so the days were checked again" mean? {#when-something-changes-while-it-is-open}
   - What does "We weren't able to calculate how many days would be affected by this rule." mean? {#when-the-days-cannot-be-checked}
   - Why is it still checking my calendar? {#how-long-it-takes}
   - Does Cancel change anything? {#cancel}
   - When does the window open, and when not? {#when-it-opens}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -68,6 +69,8 @@ For a change to a rule that is on, "as things stand" is the rule as it is saved 
 Nothing is saved while the window is open, and the days are the ones the next pricing run would change if nothing else changes first.
 
 **0 prices.** "0 prices will be affected by this rule." means no price moves now: the rule is not true anywhere yet, or where it is, something else holds the price. With nothing to change, applying and skipping come to the same thing, so the window offers one button, <Ui>Turn it on</Ui>, and <Ui>Cancel</Ui>. For an edit to a rule that is already on, the button reads <Ui>Save changes</Ui> instead. Either one saves the rule on, as <Ui>Apply price adjustments</Ui> does. From then on it acts on what becomes true, and a booking speed or pickup rule counts every booking on the books, the ones made before the rule included. If the days changed while the window was open, the new days show with <Ui>Apply price adjustments</Ui> and <Ui>Skip price adjustments</Ui> instead (read [When something changes while it is open](#when-something-changes-while-it-is-open)).
+
+**A cut on low pickup with no booking window.** When the rule is <Ui>Decrease the rate</Ui> with a <Ui>Pickup count (advanced)</Ui> row set to <Ui>Less than</Ui> and no <Ui>Booking window (days to stay)</Ui> row, two amber lines follow the count, worked out in the same trial run: "With no booking window condition, this rule reaches 396 of the 396 nights ahead. A night that gained under 1 room night over the 7 full days before counts as quiet, and a far-out night with no bookings yet always will, once your rules have run for 1 week." and "The cut repeats: each time its wait of 1 week is over and the night is still quiet, it cuts again, on top of the cut before." The first number is every night the rule can act on (fewer when it has a date range or weekdays), the second is the window your rules price, and the amount, lookback and wait are the rule's own. The count above can be "0 prices" while your rules have run for less than the lookback window, and these lines say what happens once they have. The rule builder fills a booking window row in for you when you build a rule of this shape. Read [A cut on low pickup, far out](/docs/rules/pickup-count#a-cut-on-low-pickup-far-out).
 
 ## Apply price adjustments
 

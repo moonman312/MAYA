@@ -13,7 +13,7 @@ questions:
   - Why does the log say "past the 7-day mark" for a night 5 days out? {#the-change-log-sentence}
   - How do I price last-minute nights differently? {#combining-with-occupancy}
   - Does MAYA's day change at midnight or when we run the night audit? {#the-hotel-day}
-updated: 2026-09-24
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -27,6 +27,8 @@ For each night your rules run on, booking window is the stay date minus today's 
 The condition has nothing to do with when a guest booked. It is about how far away the night is right now.
 
 The rule builder's label is <Ui>Booking window (days to stay)</Ui>. Its fields are <Ui>Compare</Ui> (<Ui>Greater than</Ui> or <Ui>Less than</Ui>) and <Ui>Threshold</Ui>, which starts at 7. A threshold with a decimal is rounded to whole days when you save.
+
+When you build a cut on low pickup with no booking window row, the builder fills this row in for you, <Ui>Less than</Ui> 60, with a "?" beside it that says why. Change the number or remove the row as you like. Read [A cut on low pickup, far out](/docs/rules/pickup-count#a-cut-on-low-pickup-far-out).
 
 <DateStrip />
 

@@ -3,8 +3,8 @@ title: Pickup count (advanced)
 summary: What the Pickup count condition measures, how its 1, 3 and 7 day lookback and its own wait work, what it counts after a change, when it cannot be measured, how to read its card and change log line, and when booking speed is the better choice.
 section: rules
 order: 70
-readingTime: 12
-keywords: [pickup, pickup count, pickup rate, pickup rule, lookback window, lookback, 1 day, 3 days, 7 days, room nights, units, revenue, revenue pickup, net pickup, negative pickup, cancellations, snapshot, stale, cannot measure pickup, pickup did not fire, pickup blocked, pickup card says bookings, card says bookings, bookings arrived in the last 3 days, booking mark, fixed number, advanced, pickup or booking speed, remove my pickup rule, remove pickup rule, suggestion, pickup rule waits, then waits, same as the lookback window, pickup wait, low pickup holds it, booking speed holds it, since the latest raise, stronger rule, 12 hours, far-out nights, end of the window, whole days, today so far, up to yesterday, room nights meaning, delete undoes changes, which unit, revenue or room nights, covers my pickup rule, pickup after booking speed raise]
+readingTime: 13
+keywords: [pickup, pickup count, pickup rate, pickup rule, lookback window, lookback, 1 day, 3 days, 7 days, room nights, units, revenue, revenue pickup, net pickup, negative pickup, cancellations, snapshot, stale, cannot measure pickup, pickup did not fire, pickup blocked, pickup card says bookings, card says bookings, bookings arrived in the last 3 days, booking mark, fixed number, advanced, pickup or booking speed, remove my pickup rule, remove pickup rule, suggestion, pickup rule waits, then waits, same as the lookback window, pickup wait, low pickup holds it, booking speed holds it, since the latest raise, stronger rule, 12 hours, far-out nights, end of the window, whole days, today so far, up to yesterday, room nights meaning, delete undoes changes, which unit, revenue or room nights, covers my pickup rule, pickup after booking speed raise, far-out cut, keeps cutting, cuts again every week, cut repeats, every quiet night, no booking window, booking window row added, within 60 days, filled in for you, reaches 396 nights]
 questions:
   - What is pickup count? {#in-plain-words}
   - Should I use pickup count or booking speed? {#pickup-or-booking-speed/both-look-at}
@@ -16,7 +16,9 @@ questions:
   - Why did my pickup rule not fire? {#when-pickup-cannot-be-measured/a-pickup-rule}
   - Why does my pickup rule never fire on the furthest nights? {#when-pickup-cannot-be-measured/on-the-furthest}
   - How long does a pickup rule wait before it acts again? {#a-pickup-rule-fires-holds-waits-and-can-fire-again}
-updated: 2026-09-29
+  - Why does my pickup rule keep cutting far-out nights every week? {#a-cut-on-low-pickup-far-out}
+  - Why did a Booking window row appear when I built a pickup rule? {#a-cut-on-low-pickup-far-out/two-things-keep}
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -98,6 +100,12 @@ A rule that has both a pickup row and a booking speed row waits the longer of th
 <Callout kind="good-to-know">
 Pickup rules and booking speed rules rank on one list, so a stronger rule's raise covers the weaker ones whichever kind each is: they count only the bookings made after it. A stronger rule changes the price by more, and at the same change a rule that watches booking speed is stronger than one that does not. Read [Counting after a change](/docs/rules/how-rules-run#counting-after-a-change).
 </Callout>
+
+## A cut on low pickup, far out
+
+A rule set to <Ui>Less than</Ui> looks for quiet nights, and a night far in the future with no bookings yet is always quiet. So a cut on low pickup with no <Ui>Booking window (days to stay)</Ui> row reaches every night of the 396-night window, and each time its wait is over (its lookback window at least, read above) a night that is still quiet gets the cut again, on top of the one before. With a 7-day lookback that is a cut a week on every quiet night: nine cuts in ten weeks on a night nothing has happened to. Cancellations never undo them, since fewer bookings only make the rule truer, and the <Ui>Rules that keep adjusting</Ui> banner asks you after three changes on a night but the rule keeps adjusting until you answer. Read [Answer the keeps-adjusting banner](/docs/recipes/answer-the-keeps-adjusting-banner).
+
+Two things keep this in your sight. The rule builder fills a <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 60 row in the moment your rule takes this shape, with a "?" beside it that says why; change the number or remove the row, and saving never adds it back. And the window that opens when you add the rule or turn it on says how many nights it reaches and that the cut repeats, from the same trial run as its count of days. Read [The rule builder](/docs/rules/the-rule-builder#conditions) and [Turning a rule on](/docs/rules/turning-a-rule-on#what-the-days-mean). Rules you saved before are left as they are. To cut only the nights that need it, keep a booking window row, or add a <Ui>Sellable occupancy (%)</Ui> row so both must be true.
 
 ## When a pickup raise comes off
 

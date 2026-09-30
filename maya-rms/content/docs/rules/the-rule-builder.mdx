@@ -3,12 +3,14 @@ title: The rule builder, field by field
 summary: Every field in + Add a rule, what each one accepts, editing a saved rule, what happens when you click Add Rule or Save changes, and every message the form can show.
 section: rules
 order: 20
-readingTime: 15
-keywords: [rule builder, add a rule, edit a rule, edit mode, save changes, cancel editing, apply price adjustments, skip price adjustments, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits]
+readingTime: 16
+keywords: [rule builder, add a rule, edit a rule, edit mode, save changes, cancel editing, apply price adjustments, skip price adjustments, conditions, metric, compare, threshold, direction, percent, fixed amount, dollar amount, apply to room types, not a room, meeting room never fires, select all, add rule, form stays open, draft kept, switch tabs, please fill out this field, please select an item in the list, value must be greater than or equal to 0, browser message, invalid payload, invalid room types, no accessible hotel, viewer, failed to save, 40 active rules, maximum, too many rules, amount of 0, both percent and fixed, limit on the amount, maximum percent, how big a cut, 100% cut, 150%, typo, price went to $1, price at the floor, combine conditions, four conditions, undo box, undo the change if cancellations mean this rule is no longer true, ticked by default, pickup wait, then waits, booking window row appeared, row added by itself, filled in for you, within 60 days, less than 60, cut on low pickup, why this condition was added, remove the added row]
 questions:
   - What are the parts of a rule? {#in-plain-words}
   - What conditions can a rule use? {#conditions/metric-label-what}
   - Can I combine conditions in one rule? {#conditions/the-conditions-section}
+  - Why did a Booking window row appear by itself when I built a cut on pickup? {#conditions/a-cut-on}
+  - Can I remove the booking window row the builder added? {#conditions/a-cut-on}
   - Should I use a percent or a fixed amount? {#rate-adjustment/the-rate-adjustment}
   - Can I use both a percent and a fixed amount in one rule? {#rate-adjustment/a-rule-has}
   - Why did my rule fail to save with an amount of 0? {#rate-adjustment/careful-an-amount}
@@ -27,7 +29,7 @@ questions:
   - What does "This property already has 40 active rules" mean? {#messages-you-can-meet}
   - How do I edit a rule I already saved? {#where-the-builder-is/edit-on-a}
   - Why did a window with a calendar open when I clicked Add Rule? {#add-rule-and-what-happens-next}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -51,6 +53,8 @@ The <Ui to="rules.new" q="focus=conditions">Conditions</Ui> section is headed "M
 A rule needs at least one condition and can have four at most, one of each kind. The first row is there when the form opens, set to occupancy. Click <Ui>+ Add condition</Ui> to add another row. Each new row starts on the next kind you have not used yet, in this order: occupancy, booking speed, booking window, pickup. Once a kind is used, it is greyed out in the other rows' <Ui>Metric</Ui> dropdown. When all four are in use, the button disappears.
 
 Each row has a round red button labelled "Remove condition". Removing the last row puts a fresh occupancy row in its place, because a rule cannot be saved with no condition. Changing a row's <Ui>Metric</Ui> puts its <Ui>Threshold</Ui>, <Ui>Speed</Ui>, <Ui>Measured over</Ui>, <Ui>Lookback window</Ui> and <Ui>Pickup measures</Ui> back to their defaults. <Ui>Compare</Ui> and <Ui>Then waits (advanced)</Ui> keep whatever you had chosen, so check them after a switch.
+
+A cut on low pickup with no booking window row gets one filled in for you. The moment your rule is <Ui>Decrease the rate</Ui> with a <Ui>Pickup count (advanced)</Ui> row set to <Ui>Less than</Ui> and no <Ui>Booking window (days to stay)</Ui> row, a booking window row appears, <Ui>Less than</Ui> 60, with a "?" beside its <Ui>Metric</Ui> label that says why: without it the rule reaches every night of the 396-night window, a far-out night with no bookings yet always counts as quiet, and the cut repeats each time the rule's wait is over. Change the number, or remove the row with its red button. It is offered once per rule you build or edit, never comes back on its own, and saving never adds it: the rule saved is exactly the rows on screen. Rules you saved before are left as they are, and <Ui>Edit</Ui> on one offers the row the same way. Read [A cut on low pickup, far out](/docs/rules/pickup-count#a-cut-on-low-pickup-far-out).
 
 The <Ui>Metric</Ui> dropdown has four choices. Each has its own page.
 
