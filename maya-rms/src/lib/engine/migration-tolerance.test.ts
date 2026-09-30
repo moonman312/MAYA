@@ -33,6 +33,8 @@ function seed(extra: Record<string, FakeRow[]> = {}): Record<string, FakeRow[]> 
       id: `b${i}`, hotel_id: "h1", stay_date: D0, room_type_id: "rt1",
       base_rate: 100, current_rate: 100, created_at: "2026-09-01T00:00:00Z",
     })),
+    // The hotel's own rate: a booking's rate is never a base (base-price.ts).
+    base_rate_calendar: [{ hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 100 }],
     pricing_rules: [
       {
         id: "r1", hotel_id: "h1", name: "Busy", is_active: true, version: 1, priority: 100,

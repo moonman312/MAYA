@@ -386,8 +386,6 @@ export function sellableUnitsFor(
 export type ReservationCells = {
   /** Room-nights and the sum of current_rate (null as 0). */
   booked: Map<string, { units: number; revenue: number }>;
-  /** base_rate of the newest row (created_at, then lowest id), null when that row has none. */
-  latestBase: Map<string, { base_rate: number | null; created_at: string }>;
 };
 
 let loggedReservationCellsMissing = false;
@@ -400,9 +398,10 @@ export function resetReservationCellsLogOnce(): void {
 /**
  * The horizon's reservations, grouped per cell in the database
  * (engine_reservation_cells). The engine used to read every room-night in the
- * horizon twice, once for the snapshot and once for base rates: on a
- * 500-room property that is over 100,000 rows each time. Null before the
- * migration; the caller reads the rows as it always did.
+ * horizon for the snapshot: on a 500-room property that is over 100,000 rows.
+ * Null before the migration; the caller reads the rows as it always did. The
+ * function also returns each cell's newest base_rate, which nothing reads any
+ * more: a booking's rate is never a base (base-price.ts).
  */
 export async function loadReservationCells(
   supabase: SupabaseClient,
@@ -413,11 +412,10 @@ export async function loadReservationCells(
   nights?: NightSet,
 ): Promise<ReservationCells | null> {
   const booked = new Map<string, { units: number; revenue: number }>();
-  const latestBase = new Map<string, { base_rate: number | null; created_at: string }>();
   for (const [from, to] of rangesForNights(nights, firstDate, lastDate)) {
-    if (!(await readReservationCells(supabase, hotelId, from, to, booked, latestBase))) return null;
+    if (!(await readReservationCells(supabase, hotelId, from, to, booked))) return null;
   }
-  return { booked, latestBase };
+  return { booked };
 }
 
 async function readReservationCells(
@@ -426,7 +424,6 @@ async function readReservationCells(
   firstDate: string,
   lastDate: string,
   booked: Map<string, { units: number; revenue: number }>,
-  latestBase: Map<string, { base_rate: number | null; created_at: string }>,
 ): Promise<boolean> {
   for (let from = 0; ; from += 1000) {
     const { data, error } = await supabase
@@ -456,16 +453,37 @@ async function readReservationCells(
     }
     const rows = (data ?? []) as Record<string, unknown>[];
     for (const r of rows) {
-      const key = `${r.stay_date}|${r.room_type_id}`;
-      booked.set(key, { units: Number(r.units), revenue: Number(r.revenue) });
-      latestBase.set(key, {
-        base_rate: r.latest_base_rate != null ? Number(r.latest_base_rate) : null,
-        created_at: String(r.latest_created_at ?? ""),
-      });
+      booked.set(`${r.stay_date}|${r.room_type_id}`, { units: Number(r.units), revenue: Number(r.revenue) });
     }
     if (rows.length < 1000) break;
   }
   return true;
+}
+
+/**
+ * The last night the PMS returned a rate for on its last full read of the
+ * hotel's own rates (pms_connections.base_rates_returned_through, stamped by
+ * base-rate-calendar.ts), YYYY-MM-DD. The connection in service is read: a
+ * connected one first, else the newest. Null when no read has recorded one,
+ * when there is no connection, or before the column's migration
+ * (99_supabase_migration_no_rate_on_record_v1.sql): every calendar row then
+ * counts, as it did before. Any other failure throws: a run that cannot
+ * tell how far the rates go must not price on rows the PMS may have dropped.
+ */
+export async function loadRatesReturnedThrough(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("pms_connections")
+    .select("base_rates_returned_through, status, updated_at")
+    .eq("hotel_id", hotelId)
+    .order("updated_at", { ascending: false });
+  if (error) {
+    if (isMissingColumnError(error)) return null;
+    throw new Error(`Failed to read how far the hotel's rates were read: ${error.message}`);
+  }
+  const rows = (data ?? []) as { base_rates_returned_through?: unknown; status?: unknown }[];
+  const row = rows.find((r) => r.status === "connected") ?? rows[0];
+  const through = row?.base_rates_returned_through;
+  return through != null && String(through).length >= 10 ? String(through).slice(0, 10) : null;
 }
 
 /** Room nights on one night and room type, and the sum of their current_rate (null as 0). */

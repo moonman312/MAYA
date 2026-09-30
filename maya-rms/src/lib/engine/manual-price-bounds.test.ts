@@ -63,7 +63,7 @@ describe("priceBounds", () => {
       expect(fn(89, 1000, 1500, "manual")).toEqual({ floor: 89, ceiling: 1500 });
       expect(fn(89, 1000, 150, "manual")).toEqual({ floor: 89, ceiling: 1000 });
       expect(fn(89, 1000, 0, "calendar")).toEqual({ floor: 89, ceiling: 1000 });
-      expect(fn(89, 1000, 1500, "reservation")).toEqual({ floor: 89, ceiling: 1000 });
+      expect(fn(89, 1000, 1500, "calendar")).toEqual({ floor: 89, ceiling: 1000 });
     }
   });
 });

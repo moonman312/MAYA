@@ -80,6 +80,12 @@ function hotelSeed(): Record<string, FakeRow[]> {
       roomType("rt3", "Cabin", 10, null),
     ],
     reservations: bookings("rt1", 16, 100),
+    // The hotel's own rates: a booking's rate is never a base (base-price.ts).
+    base_rate_calendar: [
+      { hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 100 },
+      { hotel_id: "h1", stay_date: D0, room_type_id: "rt2", price: 40 },
+      { hotel_id: "h1", stay_date: D0, room_type_id: "rt3", price: 80 },
+    ],
     published_price: [
       { id: "p2", hotel_id: "h1", stay_date: D0, room_type_id: "rt2", price: 40, base_price: 40 },
       { id: "p3", hotel_id: "h1", stay_date: D0, room_type_id: "rt3", price: 80, base_price: 80 },

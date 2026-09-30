@@ -224,7 +224,12 @@ export type EvaluationAuditDetails = {
    * entry per distinct window length consulted.
    */
   booking_speed_observations?: Record<string, unknown>[];
-  /** Which precedence slot supplied the base. Rows written before manual prices existed lack it. */
+  /**
+   * Which slot supplied the base: a typed price or the hotel's own rate. Rows
+   * written before manual prices existed lack it; rows from before audit A6
+   * (2026-09-29) may say "reservation" or "remembered", bases the engine no
+   * longer prices on.
+   */
   base_source?: "manual" | "calendar" | "reservation" | "remembered";
   /**
    * Present only when base_source is "manual": who typed the price and when.

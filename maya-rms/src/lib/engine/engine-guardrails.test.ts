@@ -48,8 +48,6 @@ describe("pricesOnBase", () => {
   it("prices a positive base, and a zero only when someone typed it", () => {
     expect(pricesOnBase({ price: 120, source: "calendar" })).toBe(true);
     expect(pricesOnBase({ price: 0, source: "calendar" })).toBe(false);
-    expect(pricesOnBase({ price: 0, source: "reservation" })).toBe(false);
-    expect(pricesOnBase({ price: 0, source: "remembered" })).toBe(false);
     expect(pricesOnBase({ price: -5, source: "calendar" })).toBe(false);
     expect(pricesOnBase({ price: 0, source: "manual" })).toBe(true);
     expect(pricesOnBase({ price: NaN, source: "manual" })).toBe(false);
