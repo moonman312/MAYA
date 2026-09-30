@@ -212,9 +212,11 @@ export const MISSING_MIGRATION =
   "Run 99_supabase_migration_stalled_signups_v1.sql — this list needs the platform_list_stalled_signups function.";
 
 /**
- * Reads under the caller's own session. The RPC re-checks is_platform_admin, so
- * the database is what decides who sees other people's email addresses — a
- * regression in a route guard still hits a closed door.
+ * Reads under the caller's own session. The RPC re-checks the caller (a
+ * platform admin, or Sales past its code: staff_can_read('stalled_signups')),
+ * so the database is what decides who sees other people's email addresses — a
+ * regression in a route guard still hits a closed door. The signup code comes
+ * back blank for anyone but a platform admin.
  */
 export async function listStalledSignups(
   ssr: SupabaseClient,

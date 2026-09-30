@@ -19,8 +19,9 @@ select property_name, pms_type, connected_at, furthest_stage, walked_away_stage,
  where outcome = 'walked_away';
 ```
 
-Both run as-is in the Supabase SQL editor. Through the app they only answer a
-platform admin.
+Both run as-is in the Supabase SQL editor. Through the API they answer a
+platform admin, or a Sales login once it has entered its authenticator code
+(see `staff-roles.md`).
 
 ## How it is recorded
 
@@ -56,17 +57,27 @@ messages (those become an `error_kind`: auth, rate_limit, timeout,
 vendor_error, row_cap, other), not an invite's email. The browser route only
 accepts named events with typed properties (a flag, a count, or a word from a
 fixed list). The follow-up list resolves `owner_user_id` to an email at read
-time, for a platform admin, the same way `platform_list_stalled_signups` does.
+time, for a platform admin or Sales, the same way `platform_list_stalled_signups`
+does.
 
 **Test properties.** Everything excludes `hotels.is_test` by default (the
 panel's "including test properties" link flips it). The flag is copied onto
 each event, so a deleted test hotel stays excluded. Account-level events, which
-have no hotel, use the `+suffix` email convention the panel already used.
+have no hotel, use the `+suffix` email convention the panel already used, and
+MAYA staff are never customers: an event with no hotel whose person holds a
+staff role (`platform_admin`, `developer` or `sales` in `app_roles`) is a test
+one. `product_event_emit` decides it as it writes the row, making someone staff
+marks their earlier events with no hotel the same way, and
+`99_supabase_migration_staff_roles_v1.sql` marked those already recorded. An
+event inside a property (an admin working in God Mode, say) follows the
+property's flag, as before.
 
 **Who can read.** RLS lets platform admins select `product_events`. Nobody
 can update or delete it through the API, the service role included; the
-service role may insert (that is `/api/events`). The functions check
-`is_platform_admin()` for API callers and allow a direct database session.
+service role may insert (that is `/api/events`). The functions call
+`analytics_assert_reader()`, which lets through a platform admin, a Sales login
+at `aal2` (`staff_can_read('analytics')`) and the service role, and allows a
+direct database session.
 
 ## Columns
 
@@ -81,7 +92,7 @@ service role may insert (that is `/api/events`). The functions check
 | `user_id` | the person the event is about: the actor for things a person did, the property's owner (earliest active hotel admin) for billing, PMS and import events |
 | `properties` | typed details, nulls stripped |
 | `source` | `trigger`, `app` (browser), `sweep`, `backfill` |
-| `is_test` | `hotels.is_test` at the time |
+| `is_test` | `hotels.is_test` at the time; with no hotel, true for a `+` address or MAYA staff |
 | `dedupe_key` | only where a retry or re-run must not write twice |
 
 ## Event taxonomy
@@ -358,7 +369,7 @@ and check the caller like every `analytics_*` function.
   counts an account once its email address is confirmed, on the day it was
   confirmed (`auth.users.email_confirmed_at`, profile row or not), the same
   moment `account.created` is dated; an address typed in and never confirmed
-  never counts, and `+` addresses are left out. **Median to first price**:
+  never counts, and `+` addresses and MAYA staff logins are left out. **Median to first price**:
   hours from PMS connect to the property's first engine run, over properties
   whose first run landed in the window.
 

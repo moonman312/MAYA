@@ -7,7 +7,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * definitions live in docs/analytics.md. This file only fetches and names
  * them. The page reads them with the service role, kept for a few minutes
  * (analytics-cache.ts), after checking the caller is a platform admin; each
- * function's own check lets the service role and platform admins through.
+ * function's own check (analytics_assert_reader) lets the service role,
+ * platform admins and Sales logins past their code through.
  *
  * A deployment can run ahead of its migration. Then the functions are missing,
  * and the panel says so in one line rather than failing the whole page, which

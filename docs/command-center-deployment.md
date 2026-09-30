@@ -106,9 +106,11 @@ How long a reset link lasts is Supabase's setting: Authentication → Providers 
 
 Once the Command Center is live and you're only onboarding via invites, Dashboard → Authentication → Providers → Email → **Enable sign-ups: off**. Existing self-signup on `/login` "Create Account" button will fail; the invite flow is unaffected.
 
-### 3.5 Enable TOTP MFA (required for God Mode)
+### 3.5 Enable TOTP MFA (required for God Mode and staff roles)
 
 Dashboard → Authentication → Multi-Factor Authentication → **TOTP: on** (enrol and verify both enabled). Nothing else changes for customers: MFA is never asked of them.
+
+The Developer and Sales staff roles (`99_supabase_migration_staff_roles_v1.sql`) read nothing in the Command Center's database functions and tables until their token is `aal2`, so with TOTP off they can never read anything there. What each role reads, and how to set one, is in `maya-rms/docs/staff-roles.md`.
 
 God Mode (`99_supabase_migration_god_mode_v1.sql`) is how a platform admin changes a customer's property. A platform admin can open and view any property, but every write to a hotel-owned table (rules, prices, room types, team, settings, the PMS connection, going live) is refused by row level security unless the admin's token is `aal2` and they hold an open window in `support_sessions`. The **GOD MODE** button in the Command Center nav (and on each hotel page) asks for a code from an authenticator app; the first press enrols one with a QR code. A window lasts `god_mode_minutes()` (30) and ends by itself, or from the red banner's **End God Mode**. Entering, leaving and expiring are logged in `platform_audit_events` (`god_mode.started` / `ended` / `expired`); every change made in a window is in `support_changes` and shows in the property's change log as "Changed by MAYA support". With TOTP off in the dashboard, the button reports that authenticator codes are not switched on and God Mode cannot start.
 
@@ -140,6 +142,8 @@ select public.is_platform_admin('<paste-uuid>');
 ```
 
 Sign into the app and navigate to `/admin`. If the RLS bypass and env vars are wired correctly you'll see the Command Center dashboard.
+
+To make someone a Developer or Sales login, or another platform admin, use `platform_set_staff_role` (see `maya-rms/docs/staff-roles.md`). It needs God Mode, logs every change, and never removes the last platform admin.
 
 ---
 

@@ -6,7 +6,8 @@ import { isMissingFunction } from "./product-analytics";
 /**
  * The Pilot health page's rows: platform_pilot_health() in
  * 99_supabase_migration_pilot_health_v1.sql (and _v2), read under the caller's own
- * session so the function's platform-admin check is the gate. What each row
+ * session so the function's own check is the gate (a platform admin, or a
+ * developer or Sales login past its code: staff_can_read('pilot_health')). What each row
  * means, and what looks wrong in it, is worked out in pilot-health-assess.ts.
  *
  * One read serves both views: every property comes back and the test ones

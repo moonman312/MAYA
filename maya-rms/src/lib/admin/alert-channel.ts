@@ -47,7 +47,10 @@ export type AlertChannelFacts = {
 
 const READ_LIMIT = 60;
 
-/** Read under the caller's session: platform_audit_events is admin-readable. Throws on a failed read. */
+/**
+ * Read under the caller's session: platform admins read platform_audit_events,
+ * and staff with Pilot Health read these two kinds of line in it. Throws on a failed read.
+ */
 export async function loadAlertChannel(ssr: SupabaseClient): Promise<AlertChannelFacts> {
   const { data, error } = await ssr
     .from("platform_audit_events")
