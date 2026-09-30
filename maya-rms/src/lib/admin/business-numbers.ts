@@ -80,3 +80,17 @@ export function businessTotals(nights: readonly BusinessNight[]): BusinessTotals
     adr: sold > 0 ? Math.round((adrRevenue / sold) * 100) / 100 : null,
   };
 }
+
+/** The nights month by month (YYYY-MM, oldest first), each added up as businessTotals does. */
+export function businessByMonth(nights: readonly BusinessNight[]): { month: string; totals: BusinessTotals }[] {
+  const months = new Map<string, BusinessNight[]>();
+  for (const n of nights) {
+    const month = n.stayDate.slice(0, 7);
+    const list = months.get(month);
+    if (list) list.push(n);
+    else months.set(month, [n]);
+  }
+  return [...months.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([month, list]) => ({ month, totals: businessTotals(list) }));
+}
