@@ -13,9 +13,7 @@
  * Each case runs the app's engine and the edge functions' copy.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateHotel as edgeEvaluateHotel } from "../../../supabase/functions/_shared/engine/evaluate";
-import type { Alert } from "../../../supabase/functions/_shared/pms/alerting";
 import { resetCadenceMissingSeen, runPricingTick } from "../../../supabase/functions/_shared/pms/pricing-tick";
 import type { CellPushResult, PmsRatePushAdapter, RateCell } from "../../../supabase/functions/_shared/pms/rate-push";
 import { cadenceRpc } from "../engine/cadence-rpc-model.test";
@@ -31,7 +29,6 @@ type Engine = (typeof ENGINES)[number];
 const H = "h1";
 const RT = "a0000000-0000-4000-8000-000000000001";
 const MIN = 60_000;
-const HOUR = 60 * MIN;
 const HORIZON = 30;
 const LOCAL0 = "2026-10-06";
 const addDays = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -136,7 +133,7 @@ function hotel(extra: Record<string, FakeRow[]> = {}) {
         {
           evaluate: engine.evaluateHotel,
           now: () => atMs,
-          alert: async (_s: SupabaseClient, _alert: Alert) => ({ sent: true }),
+          alert: async () => ({ sent: true }),
         },
       );
     },
