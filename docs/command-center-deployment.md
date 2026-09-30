@@ -217,6 +217,6 @@ The /admin UI will render a "not configured" banner until `v2` is reapplied.
 - `src/app/api/admin/hotels/[hotelId]/memberships/[membershipId]/route.ts` — PATCH / DELETE
 - `src/app/api/admin/pending-invites/[pendingId]/route.ts` — POST resend / DELETE revoke
 - `src/app/api/admin/pms/mews/test/route.ts` — POST test (wizard-only, no hotel id)
-- `src/app/api/admin/users/[userId]/platform-admin/route.ts` — PUT / DELETE grant/revoke platform_admin alone
-- `src/app/api/admin/users/[userId]/staff-role/route.ts` — PUT a staff role (the Users page's picker)
-- `src/components/admin/{admin-top-nav,status-pill,staff-role-picker,invite-row-actions,hotel-pms-card,hotel-memberships-card,create-hotel-wizard}.tsx` — UI
+- `src/app/api/admin/users/[userId]/platform-admin/route.ts`: PUT / DELETE grant/revoke platform_admin alone
+- `src/app/api/admin/users/[userId]/staff-role/route.ts`: PUT a staff role (the Users page's picker)
+- `src/components/admin/{admin-top-nav,status-pill,staff-role-picker,invite-row-actions,hotel-pms-card,hotel-memberships-card,create-hotel-wizard}.tsx`: UI
