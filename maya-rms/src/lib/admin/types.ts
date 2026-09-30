@@ -1,7 +1,7 @@
 import type { HotelRole } from "@/lib/roles";
 
 export type { HotelRole };
-export type AppRole = "platform_admin" | "platform_support";
+export type AppRole = "platform_admin" | "platform_support" | "developer" | "sales";
 export type MembershipStatus = "invited" | "active" | "suspended" | "revoked";
 export type PendingInviteStatus = "pending" | "accepted" | "expired" | "revoked";
 export type PmsType = "mews" | "cloudbeds" | "think" | "opera" | "other";
@@ -30,6 +30,27 @@ export type AdminHotelRow = {
   pms_status: PmsConnectionStatus | null;
   pms_last_sync_at: string | null;
   membership_count: number;
+  /**
+   * From 99_supabase_migration_staff_roles_v1.sql on (undefined before it):
+   * pricing mode, the window the last daily pass used, and the plan and
+   * billing status in words.
+   */
+  simulation_mode?: boolean;
+  pricing_horizon_days?: number | null;
+  billing_status?: string | null;
+  plan_kind?: "stripe" | "internal" | null;
+  billing_interval?: "month" | "year" | null;
+  billed_rooms?: number | null;
+  trial_end?: string | null;
+  cancel_at_period_end?: boolean | null;
+  measured_rooms?: number;
+  /**
+   * The newest hotel_metrics_daily MRR. Null unless the caller may read
+   * business numbers (a platform admin, or sales on a real property).
+   */
+  list_mrr_cents?: number | null;
+  net_mrr_cents?: number | null;
+  mrr_day?: string | null;
 };
 
 export type AdminHotelUserRow = {

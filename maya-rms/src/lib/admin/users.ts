@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingFunction } from "./product-analytics";
+import type { StaffRoleChoice } from "./staff-sections";
 import type { AdminPlatformUserRow, AppRole } from "./types";
 
 export async function listPlatformUsers(
@@ -53,4 +54,35 @@ export async function revokeAppRole(
     p_role: role,
   });
   if (error) throw new Error(`platform_revoke_role: ${error.message}`);
+}
+
+export type SetStaffRoleResult = {
+  role: StaffRoleChoice;
+  /** The staff roles the person held before (platform_admin, developer, sales). */
+  previous: string[];
+  /** False when they already had exactly this role: nothing was written. */
+  changed: boolean;
+};
+
+/**
+ * The Users page's role picker: leaves the person with exactly this staff
+ * role, or none (platform_set_staff_role in
+ * 99_supabase_migration_staff_roles_v1.sql). Call it with the admin's own
+ * session client after requirePlatformAdmin and requireGodMode: the database
+ * checks God Mode again, names the admin on the audit line, and refuses to
+ * remove the last platform admin with a message that can be shown as it is.
+ */
+export async function setStaffRole(
+  ssr: SupabaseClient,
+  userId: string,
+  role: StaffRoleChoice,
+): Promise<SetStaffRoleResult> {
+  const { data, error } = await ssr.rpc("platform_set_staff_role", { p_user_id: userId, p_role: role });
+  if (error) throw new Error(error.message);
+  const out = (data ?? {}) as Record<string, unknown>;
+  return {
+    role,
+    previous: Array.isArray(out.previous) ? out.previous.filter((r): r is string => typeof r === "string") : [],
+    changed: out.changed === true,
+  };
 }
