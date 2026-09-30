@@ -79,7 +79,7 @@ import {
   type AssumptionChallenge,
   type ChallengeScope,
 } from "../observations/reinforcement.ts";
-import { MIGRATIONS, fetchAllRows, isMissingFunctionError } from "./snapshots.ts";
+import { MIGRATIONS, fetchAllRows, isMissingFunctionError, isMissingRelationError } from "./snapshots.ts";
 import { evalIsoToHotelDateString } from "./timezone.ts";
 import type { RuleMetrics } from "./types.ts";
 
@@ -218,11 +218,31 @@ function logNoSplitOnce(hotelId: string, error: unknown): void {
   );
 }
 
+const loggedComparisonTables = new Set<string>();
+
+/** Closed periods or flagged dates read before their table exists: nothing is left out of the comparison, said once. */
+function logComparisonTableMissingOnce(hotelId: string, table: string, migration: string, error: { message?: string | null }): void {
+  if (loggedComparisonTables.has(table)) return;
+  loggedComparisonTables.add(table);
+  console.error(
+    JSON.stringify({
+      fn: "loadBookingSpeedContext",
+      step: table,
+      hotelId,
+      schema: "pre-migration",
+      message: `${table} does not exist yet; no night is left out of the comparison this run. Run ${migration}.`,
+      migration,
+      error: error.message ?? "",
+    }),
+  );
+}
+
 /** Test hook: forget that the pre-migration lines were already logged. */
 export function resetBookingSpeedLogOnce(): void {
   loggedPreMigration = false;
   loggedNoSplit = false;
   loggedStore = false;
+  loggedComparisonTables.clear();
 }
 
 /** The dates an observation may consult: target, comparables, momentum neighbors, and their year-ago counterparts. */
@@ -1120,11 +1140,21 @@ export async function loadBookingSpeedContext(
 
   // Closed periods, the owner's challenges and the season model: the same
   // for every run of one popup when made from the same summary.
+  //
+  // Both tables arrive in migrations, and before them there is nothing to
+  // leave out. Any other failed read stops the run: read as empty, the
+  // nights the hotel was shut, and the dates the owner said are no fair
+  // comparison, were compared with like any other, and the raises and cuts
+  // made on that did not correct themselves on later runs.
   const { isExcluded, seasonModel } = await history.seasons(summary !== null, async () => {
-    const { data: closed } = await supabase
+    const { data: closed, error: closedError } = await supabase
       .from("hotel_closed_periods")
       .select("start_date, end_date")
       .eq("hotel_id", hotelId);
+    if (closedError) {
+      if (!isMissingRelationError(closedError)) throw new Error(`Failed to load closed periods: ${closedError.message}`);
+      logComparisonTableMissingOnce(hotelId, "hotel_closed_periods", MIGRATIONS.closedPeriods, closedError);
+    }
     const exclusions: DatePeriod[] = (closed ?? []).map((p) => ({
       start_date: String(p.start_date),
       end_date: String(p.end_date),
@@ -1134,10 +1164,16 @@ export async function loadBookingSpeedContext(
     // immediately; corroborated recurring windows widen that to every year,
     // and improve_future promotions also come out of season detection's input.
     // (other_text is deliberately not selected — the model never reads it.)
-    const { data: challengeRows } = await supabase
+    const { data: challengeRows, error: challengeError } = await supabase
       .from("assumption_challenges")
       .select("id, challenged_date, reason_key, scope, created_at")
       .eq("hotel_id", hotelId);
+    if (challengeError) {
+      if (!isMissingRelationError(challengeError)) {
+        throw new Error(`Failed to load the dates flagged as no fair comparison: ${challengeError.message}`);
+      }
+      logComparisonTableMissingOnce(hotelId, "assumption_challenges", MIGRATIONS.assumptionChallenges, challengeError);
+    }
     const challenges: AssumptionChallenge[] = (challengeRows ?? [])
       .filter((c) => isKnownChallengeReason(String(c.reason_key)))
       .map((c) => {

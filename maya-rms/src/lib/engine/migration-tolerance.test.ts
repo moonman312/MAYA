@@ -192,17 +192,14 @@ describe("manual_price table missing", () => {
     expect(line.migration).toBe(MANUAL_PRICE_MIGRATION);
   });
 
-  it("any other manual_price failure still degrades to empty but is not blamed on the migration", async () => {
+  it("any other manual_price failure stops the run before it publishes, and is not blamed on the migration", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { client } = fakeSupabase(seed(), {
+    const { client, tables } = fakeSupabase(seed(), {
       fault: (c) => (c.table === "manual_price" ? { code: "57014", message: "statement timeout" } : null),
     });
-    await evaluateHotel(client, "h1", EVAL_TS, 1);
-    expect(err).toHaveBeenCalledTimes(1);
-    const line = JSON.parse(String(err.mock.calls[0][0]));
-    expect(line.step).toBe("manual_price");
-    expect(line.degradedToEmpty).toBe(true);
-    expect(line).not.toHaveProperty("migration");
+    await expect(evaluateHotel(client, "h1", EVAL_TS, 1)).rejects.toThrow(/Failed to load typed prices: statement timeout/);
+    expect(tables.published_price ?? []).toEqual([]);
+    expect(err.mock.calls.some((c) => String(c[0]).includes("pre-migration"))).toBe(false);
   });
 });
 

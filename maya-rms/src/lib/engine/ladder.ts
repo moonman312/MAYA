@@ -140,13 +140,15 @@ export async function evaluateLadderTriple(
   if (batch) {
     priorRow = batch.state(rule.id, stayDate, affectedRoomTypeId);
   } else {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("ladder_rule_state")
       .select("is_active, rule_version")
       .eq("rule_id", rule.id)
       .eq("stay_date", stayDate)
       .eq("room_type_id", affectedRoomTypeId)
       .maybeSingle();
+    // Not "no row yet": a change that is on would be made a second time.
+    if (error) throw new Error(`Failed to load the rule's changes: ${error.message}`);
     priorRow = data;
   }
 

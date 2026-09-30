@@ -119,6 +119,8 @@ import {
   isContiguousNights,
   isMissingColumnError,
   isMissingRelationError,
+  isSchemaGapError,
+  readErrorText,
   bookedBeforeKey,
   loadBookedBefore,
   loadReservationCells,
@@ -367,6 +369,9 @@ export async function evaluateHotel(
       .eq("hotel_id", hotelId)
       .eq("is_active", true);
   }
+  // Never a hotel with no room types: that run priced nothing, reported
+  // every night as priced, and the day's pass moved on without them.
+  if (rtRes.error) throw new Error(`Failed to load room types: ${rtRes.error.message}`);
 
   // deno-lint-ignore no-explicit-any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -754,10 +759,13 @@ export async function evaluateHotel(
 
   // The property's own rate, read from the PMS and never written by us.
   //
-  // Degrades to empty instead of throwing: this table arrives in a migration,
-  // and an engine that dies on every hotel because the deploy landed before
-  // the SQL is a far worse failure than pricing the way we did last week. A
-  // missing calendar simply falls through to the older base sources.
+  // Empty instead of throwing only when the table is not there yet: it
+  // arrives in a migration, and an engine that dies on every hotel because
+  // the deploy landed before the SQL is a far worse failure than pricing the
+  // way we did last week. A missing calendar simply falls through to the
+  // older base sources. Any other failure stops the run: read as empty, every
+  // booked night was priced on what its latest guest paid, which can be one
+  // of MAYA's own prices, and that went out as a good run.
   const calendarBaseByCell = new Map<string, number>();
   if (prices) try {
     const calRows = await fetchAllRows(() =>
@@ -775,6 +783,7 @@ export async function evaluateHotel(
       calendarBaseByCell.set(`${c.stay_date}|${c.room_type_id}`, Number(c.price));
     }
   } catch (e) {
+    if (!isMissingRelationError(e)) throw new Error(`Failed to load the hotel's own rates: ${readErrorText(e)}`);
     console.error(
       JSON.stringify({
         fn: "evaluateHotel",
@@ -782,6 +791,9 @@ export async function evaluateHotel(
         hotelId,
         error: e instanceof Error ? e.message : String(e),
         degradedToEmpty: true,
+        schema: "pre-migration",
+        message: `base_rate_calendar does not exist yet; nights are priced on the older base sources this run. Run ${MIGRATIONS.baseRateCalendar}.`,
+        migration: MIGRATIONS.baseRateCalendar,
       }),
     );
   }
@@ -789,8 +801,10 @@ export async function evaluateHotel(
   // A number a human typed for the cell, or changed in the PMS on a night
   // MAYA had sent (source 'pms'). Open rows only — clearing an override
   // stamps cleared_at and the cell falls back to the tiers above.
-  // Same degrade-to-empty stance as the calendar: this table also arrives in
-  // a migration, and pricing without overrides beats not pricing at all.
+  // Same stance as the calendar: this table also arrives in a migration, and
+  // before it no price was ever typed. Any other failure stops the run: read
+  // as empty, a night the owner typed a price for was priced from the rate
+  // under it and sent.
   // Where a price came from arrives in a later migration; without it every
   // row reads as typed in MAYA.
   const manualByCell = new Map<
@@ -828,7 +842,7 @@ export async function evaluateHotel(
       });
     }
   } catch (e) {
-    const missing = isMissingRelationError(e);
+    if (!isMissingRelationError(e)) throw new Error(`Failed to load typed prices: ${readErrorText(e)}`);
     console.error(
       JSON.stringify({
         fn: "evaluateHotel",
@@ -836,13 +850,9 @@ export async function evaluateHotel(
         hotelId,
         error: e instanceof Error ? e.message : String(e),
         degradedToEmpty: true,
-        ...(missing
-          ? {
-              schema: "pre-migration",
-              message: `manual_price does not exist yet; no manual price overrides apply this run. Run ${MIGRATIONS.manualPrice}.`,
-              migration: MIGRATIONS.manualPrice,
-            }
-          : {}),
+        schema: "pre-migration",
+        message: `manual_price does not exist yet; no manual price overrides apply this run. Run ${MIGRATIONS.manualPrice}.`,
+        migration: MIGRATIONS.manualPrice,
       }),
     );
   }
@@ -1266,7 +1276,9 @@ export async function evaluateHotel(
   // cancellation check can tell those bookings from the others
   // (recordArrivals, recordWindowKeys): one read of those nights at the
   // counts' instants, and one of those nights' bookings. Left unrecorded
-  // when a read fails, which a later check reads as the most it can keep.
+  // only where what the read asks for does not exist yet, which a later
+  // check reads as the most it can keep. Any other failed read stops the
+  // run, before the change it would have been recorded on is made.
   const recordCounts = async (candidates: PickupCandidate[]) => {
     if (candidates.length === 0) return;
     const arrivalPairs = arrivalReads(candidates);
@@ -1275,6 +1287,7 @@ export async function evaluateHotel(
         const booked = await loadBookedBefore(supabase, hotelId, arrivalPairs);
         for (const c of candidates) recordArrivals(c, booked);
       } catch (e) {
+        if (!isSchemaGapError(e)) throw e;
         console.error(
           JSON.stringify({ fn: "evaluateHotel", step: "pickup_arrivals", hotelId, error: e instanceof Error ? e.message : String(e) }),
         );
@@ -1286,6 +1299,7 @@ export async function evaluateHotel(
         const rows = await loadNightBookingRows(supabase, hotelId, keyNights);
         for (const c of candidates) recordWindowKeys(c, bsCtx, rows);
       } catch (e) {
+        if (!isSchemaGapError(e)) throw e;
         console.error(
           JSON.stringify({ fn: "evaluateHotel", step: "window_keys", hotelId, error: e instanceof Error ? e.message : String(e) }),
         );
@@ -1296,8 +1310,9 @@ export async function evaluateHotel(
   // A pickup count that opens at a change counts the room nights first seen
   // after it that are still booked (countPickupSinceChange), from the night
   // as first seen by that change's instant: read for every such count at
-  // once, before it is measured, and kept for the run. A read that fails
-  // leaves those counts net from the snapshot at the change (logged).
+  // once, before it is measured, and kept for the run. Where what the read
+  // asks for does not exist yet, those counts stay net from the snapshot at
+  // the change (logged). Any other failed read stops the run.
   const bookedAtChange = new Map<string, Map<string, { units: number; revenue: number }>>();
   const loadBookedAtChange = async (pairs: { stayDate: string; at: string }[]) => {
     const missing = pairs.filter((p) => !bookedAtChange.has(bookedBeforeKey(p.stayDate, p.at)));
@@ -1305,6 +1320,7 @@ export async function evaluateHotel(
     try {
       for (const [key, cell] of await loadBookedBefore(supabase, hotelId, missing)) bookedAtChange.set(key, cell);
     } catch (e) {
+      if (!isSchemaGapError(e)) throw e;
       console.error(
         JSON.stringify({ fn: "evaluateHotel", step: "pickup_since_change", hotelId, error: e instanceof Error ? e.message : String(e) }),
       );
@@ -1346,9 +1362,11 @@ export async function evaluateHotel(
       }
       return computeOccupancy(cells, [...ids]);
     };
-    // A read that fails leaves every change where it is this run (logged):
-    // one checked on numbers it doesn't have could come off with all its
-    // bookings still there.
+    // A failed read stops the run: a change checked on numbers the run
+    // doesn't have could come off with all its bookings still there, and
+    // one left unchecked stays on a night the run then reports as priced.
+    // Only where what the check reads does not exist yet is every change
+    // left where it is (logged), as before that migration.
     try {
       const booked = await loadBookedBefore(supabase, hotelId, cancellationReads(cancelChecks));
       const gated = cancelChecks.filter(({ fire, rule }) => somethingCancelled(fire, rule, booked));
@@ -1362,6 +1380,7 @@ export async function evaluateHotel(
         );
       }
     } catch (e) {
+      if (!isSchemaGapError(e)) throw e;
       cancelFindings = new Map();
       console.error(
         JSON.stringify({
@@ -1471,7 +1490,9 @@ export async function evaluateHotel(
             }),
           });
         } catch (e) {
-          // Not judged: the change stays as it is this run.
+          // A failed read stops the run. Only where what the recount reads
+          // does not exist yet is the change not judged, and stays as it is.
+          if (!isSchemaGapError(e)) throw e;
           cancelFindings.delete(fire.id);
           console.error(
             JSON.stringify({

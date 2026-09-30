@@ -21,6 +21,7 @@ import type { RoomTypeRow, SnapshotRow } from "./types";
 
 /** The migration files a pre-migration run should name in its log line. */
 export const MIGRATIONS = {
+  baseRateCalendar: "99_supabase_migration_base_rate_calendar_v1.sql",
   manualPrice: "99_supabase_migration_manual_price_v1.sql",
   countsAsRoom: "99_supabase_migration_room_type_counts_as_room_v1.sql",
   outOfService: "99_supabase_migration_room_type_out_of_service_v1.sql",
@@ -32,6 +33,8 @@ export const MIGRATIONS = {
   pricingCadence: "99_supabase_migration_pricing_cadence_v1.sql",
   ruleActivation: "99_supabase_migration_rule_activation_v1.sql",
   bookingHistoryCache: "99_supabase_migration_booking_history_cache_v1.sql",
+  closedPeriods: "99_supabase_migration_onboarding_v1.sql",
+  assumptionChallenges: "99_supabase_migration_assumption_challenges_v1.sql",
 } as const;
 
 /* ── The nights one run prices ─────────────────────────────────────────────
@@ -112,8 +115,10 @@ export function resetRunGapsLogOnce(): void {
 /**
  * The stretches of more than RUN_GAP_STALE_MS without a run of the hotel
  * between `from` and `to` (engine_run_gaps), both ends counting as runs.
- * Null when they can't be read, before the migration included: the caller
- * then judges a baseline by the age of its snapshot, as before.
+ * Null before the migration: the caller then judges a baseline by the age
+ * of its snapshot, as before. Throws on any other failure: judged that way
+ * under the daily pass, most baselines read as stale and no pickup rule
+ * fires.
  */
 export async function loadRunGaps(
   supabase: SupabaseClient,
@@ -127,6 +132,9 @@ export async function loadRunGaps(
     p_to: to,
     p_min_gap_seconds: Math.round(RUN_GAP_STALE_MS / 1000),
   });
+  if (error && !isMissingFunctionError(error)) {
+    throw new Error(`Failed to load when pricing ran: ${error.message}`);
+  }
   if (error || !Array.isArray(data)) {
     if (!loggedRunGapsMissing) {
       loggedRunGapsMissing = true;
@@ -233,6 +241,24 @@ export function isMissingRelationError(e: unknown): boolean {
 export function isMissingFunctionError(e: unknown): boolean {
   const { code, message } = codeAndMessage(e);
   return code === "PGRST202" || code === "42883" || /could not find the function/i.test(message);
+}
+
+/**
+ * A table, column or function no migration has created yet: the one failure
+ * a read may carry on from, the way the hotel was priced before that
+ * migration. Any other failure (a timeout, a refusal, a dropped connection)
+ * says nothing about what the database holds. Read as "nothing there", it
+ * priced a night without the price typed for it, the hotel's own rate or
+ * its closed periods, and published that as a good run; so it stops the run
+ * before anything is published, and the next run prices the same nights.
+ */
+export function isSchemaGapError(e: unknown): boolean {
+  return isMissingColumnError(e) || isMissingRelationError(e) || isMissingFunctionError(e);
+}
+
+/** What a failed read said, for the error that stops the run. */
+export function readErrorText(e: unknown): string {
+  return codeAndMessage(e).message || "unknown error";
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -712,7 +738,10 @@ export type SnapshotRowAt = {
 
 /**
  * Find the nearest snapshot at or before the given timestamp for a set of
- * (hotel, stay_date, room_type) tuples.
+ * (hotel, stay_date, room_type) tuples. Throws on a failed read: a room
+ * type left out of the answer reads as one with no snapshot, so occupancy
+ * came out lower than it is and a change could come off for cancellations
+ * that never happened.
  */
 export async function findSnapshotAt(
   supabase: SupabaseClient,
@@ -724,7 +753,7 @@ export async function findSnapshotAt(
   const result = new Map<string, SnapshotRowAt>();
 
   for (const rtId of roomTypeIds) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("stay_date_snapshot")
       .select("booked_units, booked_revenue, snapshot_ts")
       .eq("hotel_id", hotelId)
@@ -734,6 +763,7 @@ export async function findSnapshotAt(
       .order("snapshot_ts", { ascending: false })
       .limit(1)
       .maybeSingle();
+    if (error) throw new Error(`Failed to load snapshots: ${error.message}`);
 
     if (data) {
       result.set(rtId, {
@@ -853,7 +883,7 @@ export function createSnapshotLookup(
       const key = cellKey(stayDate, roomTypeId, ts);
       const hit = sellableMemo.get(key);
       if (hit !== undefined) return hit;
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("stay_date_snapshot")
         .select("sellable_units")
         .eq("hotel_id", hotelId)
@@ -861,6 +891,8 @@ export function createSnapshotLookup(
         .eq("room_type_id", roomTypeId)
         .eq("snapshot_ts", ts)
         .maybeSingle();
+      // Not 0 rooms to sell: that takes the room type out of occupancy.
+      if (error) throw new Error(`Failed to load snapshots: ${error.message}`);
       const value = data?.sellable_units ?? 0;
       sellableMemo.set(key, value);
       return value;
@@ -883,7 +915,8 @@ export function createSnapshotLookup(
           .range(from, from + 999);
         if (error) {
           // Nothing is memoized from a failed or missing preload; each cell
-          // is read on its own as before.
+          // is read on its own as before, and that read stops the run when
+          // it fails too (findSnapshotAt).
           if (isMissingFunctionError(error)) {
             rpcMissing = true;
             if (!loggedSnapshotCellsMissing) {
@@ -981,7 +1014,8 @@ export function createSnapshotLookup(
             .order("room_type_id", { ascending: true })
             .range(from, from + 999);
           if (error) {
-            // Nothing is memoized from a failed read: `at` reads each cell.
+            // Nothing is memoized from a failed read: `at` reads each cell,
+            // and stops the run when that fails too (findSnapshotAt).
             console.error(JSON.stringify({ fn: "evaluateHotel", step: "snapshots_at_fires", hotelId, error: error.message }));
             break;
           }

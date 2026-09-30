@@ -145,7 +145,7 @@ export async function computeRuleMetrics(
     } else if (lookup) {
       sellable = await lookup.sellableAt(stayDate, rtId, currentSnapshotTs);
     } else {
-      const { data: snapFull } = await supabase
+      const { data: snapFull, error: snapError } = await supabase
         .from("stay_date_snapshot")
         .select("sellable_units")
         .eq("hotel_id", hotelId)
@@ -153,6 +153,8 @@ export async function computeRuleMetrics(
         .eq("room_type_id", rtId)
         .eq("snapshot_ts", currentSnapshotTs)
         .maybeSingle();
+      // Not 0 rooms to sell: that takes the room type out of occupancy.
+      if (snapError) throw new Error(`Failed to load snapshots: ${snapError.message}`);
       sellable = snapFull?.sellable_units ?? 0;
     }
     occMap.set(rtId, {
