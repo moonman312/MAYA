@@ -9,6 +9,7 @@ vi.mock("../../../supabase/functions/_shared/pms/rate-limit.ts", () => limiter);
 import {
   cloudbedsGet,
   cloudbedsGetReservationsWithRateDetailsPage,
+  CloudbedsHttpError,
   cloudbedsPost,
 } from "../../../supabase/functions/_shared/cloudbeds/client";
 
@@ -154,5 +155,104 @@ describe("getReservationsWithRateDetails paging", () => {
     );
 
     expect(page.hasMore).toBe(false);
+  });
+});
+
+describe("a read refused with 401 or 403", () => {
+  const refused = (status = 401) => json(status, { success: false, message: "Access token is invalid or has expired." });
+  const credsThatCanRefresh = (mint: () => Promise<{ accessToken: string; tokenType?: string } | null>) => ({
+    ...CREDS,
+    refresh: { mint: vi.fn(mint) },
+  });
+
+  it("is thrown as it is when the credentials cannot mint a token", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => refused()));
+
+    const err = await cloudbedsGet({ ...CREDS }, "getRoomTypes", {}).catch((e) => e);
+
+    expect(err).toBeInstanceOf(CloudbedsHttpError);
+    expect(err).toMatchObject({ status: 401, foreignBody: false, freshTokenRefused: false });
+  });
+
+  it("is asked again once on the new token, which stays on the credentials", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { headers: Record<string, string> }) => {
+        seen.push(init.headers.Authorization);
+        return init.headers.Authorization === "Bearer cbat_new" ? json(200, { success: true, data: [1] }) : refused();
+      }),
+    );
+    const creds = credsThatCanRefresh(async () => ({ accessToken: "cbat_new" }));
+
+    await expect(cloudbedsGet(creds, "getRoomTypes", {})).resolves.toMatchObject({ data: [1] });
+    await expect(cloudbedsGet(creds, "getRatePlans", {})).resolves.toMatchObject({ data: [1] });
+
+    expect(seen).toEqual(["Bearer cbat_test", "Bearer cbat_new", "Bearer cbat_new"]);
+    expect(creds.refresh.mint).toHaveBeenCalledTimes(1);
+    expect(creds.refresh.mint).toHaveBeenCalledWith("cbat_test");
+  });
+
+  it("says so when the new token is refused too, and never asks for a third", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => refused(403)));
+    const creds = credsThatCanRefresh(async () => ({ accessToken: "cbat_new" }));
+
+    const first = await cloudbedsGet(creds, "getRoomTypes", {}).catch((e) => e);
+    const second = await cloudbedsGet(creds, "getRoomTypes", {}).catch((e) => e);
+
+    expect(first).toMatchObject({ status: 403, freshTokenRefused: true });
+    expect(second).toMatchObject({ status: 403, freshTokenRefused: true });
+    expect(creds.refresh.mint).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("is not called a refusal of a new token when none was to be had", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => refused()));
+    for (const mint of [async () => null, async () => ({ accessToken: "cbat_test" }), async () => Promise.reject(new Error("vault down"))]) {
+      const creds = credsThatCanRefresh(mint);
+      const err = await cloudbedsGet(creds, "getRoomTypes", {}).catch((e) => e);
+      expect(err).toMatchObject({ status: 401, freshTokenRefused: false });
+      expect(creds.accessToken).toBe("cbat_test");
+    }
+  });
+
+  it("asks for no token over a page that is not Cloudbeds' own, and marks it as one", async () => {
+    const pages = [
+      new Response("<html><body>Access denied</body></html>", { status: 403 }),
+      new Response("", { status: 403 }),
+      json(403, { code: 1020 }),
+      json(401, ["unexpected"]),
+    ];
+    for (const page of pages) {
+      vi.stubGlobal("fetch", vi.fn(async () => page));
+      const creds = credsThatCanRefresh(async () => ({ accessToken: "cbat_new" }));
+      const err = await cloudbedsGet(creds, "getRoomTypes", {}).catch((e) => e);
+      expect(err).toBeInstanceOf(CloudbedsHttpError);
+      expect(err.foreignBody).toBe(true);
+      expect(creds.refresh.mint).not.toHaveBeenCalled();
+    }
+  });
+
+  it("asks for no token when Cloudbeds says the app is not connected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json(401, { success: false, message: "Application is not available to be connected." })),
+    );
+    const creds = credsThatCanRefresh(async () => ({ accessToken: "cbat_new" }));
+
+    const err = await cloudbedsGet(creds, "getRoomTypes", {}).catch((e) => e);
+
+    expect(err).toMatchObject({ status: 401, foreignBody: false, freshTokenRefused: false });
+    expect(creds.refresh.mint).not.toHaveBeenCalled();
+  });
+
+  it("leaves Cloudbeds' own refusals of anything else alone", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { success: false, message: "Parameter status is not valid" })));
+    const creds = credsThatCanRefresh(async () => ({ accessToken: "cbat_new" }));
+
+    const err = await cloudbedsGet(creds, "getReservations", {}).catch((e) => e);
+
+    expect(err).toMatchObject({ status: 400, foreignBody: false });
+    expect(creds.refresh.mint).not.toHaveBeenCalled();
   });
 });

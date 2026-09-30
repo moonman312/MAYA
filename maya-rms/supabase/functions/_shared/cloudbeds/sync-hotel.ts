@@ -21,8 +21,10 @@ import {
   type CloudbedsReservation,
 } from "./client.ts";
 import {
-  isAuthRevocation,
   markConnectionDisconnected,
+  noteAuthFailure,
+  readRefusalOf,
+  REFUSED_RUNS_BEFORE_DISCONNECT,
 } from "../pms/connection-health.ts";
 import { raiseAlert } from "../pms/alerting.ts";
 import {
@@ -42,7 +44,11 @@ import {
   parseCloudbedsReservationDetail,
   parseCloudbedsRoomTypes,
 } from "./etl.ts";
-import type { CloudbedsParsedReservationRow, CloudbedsResolvedCredentials } from "./types.ts";
+import type {
+  CloudbedsParsedReservationRow,
+  CloudbedsResolvedCredentials,
+  CloudbedsTokenRefresh,
+} from "./types.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
 import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
@@ -907,6 +913,33 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
 }
 
 /**
+ * How this hotel's reads get a new token when Cloudbeds refuses the one they
+ * carry (client.ts cloudbedsGet). The token in the store is refreshed only
+ * when it is the one refused; one another process has rotated in since is
+ * taken as it is. Null when no other token is to be had, and the refusal
+ * stands as the read's answer.
+ */
+function tokenRefreshFor(supabase: SupabaseClient, hotelId: string): CloudbedsTokenRefresh {
+  return {
+    mint: async (refusedAccessToken) => {
+      const again = await resolveOAuthCredentials(supabase, hotelId, "cloudbeds", { refusedAccessToken });
+      if ("error" in again) {
+        console.error(
+          JSON.stringify({
+            fn: "runCloudbedsSyncForHotel",
+            hotelId,
+            step: "token_after_refusal",
+            error: again.error.slice(0, 300),
+          }),
+        );
+        return null;
+      }
+      return { accessToken: again.accessToken, tokenType: again.tokenType };
+    },
+  };
+}
+
+/**
  * The credentials a sync resolves before it reads anything, for a caller that
  * needs them without syncing (a rate push while the import worker holds the
  * PMS). Null when they cannot be resolved; no property discovery is attempted.
@@ -928,6 +961,7 @@ export async function resolveCloudbedsCredentials(
     tokenType: resolved.tokenType,
     baseUrl: (connRow?.base_url || defaultCloudbedsBaseUrl()).replace(/\/$/, ""),
     propertyId: resolved.propertyId,
+    refresh: tokenRefreshFor(supabase, hotelId),
   };
 }
 
@@ -952,6 +986,9 @@ export async function runCloudbedsSyncForHotel(
       .eq("pms_type", "cloudbeds")
       .maybeSingle();
     const baseUrl = (connRow?.base_url || defaultCloudbedsBaseUrl()).replace(/\/$/, "");
+
+    // One new token for the whole run, asked for by the first read Cloudbeds refuses.
+    const refresh = tokenRefreshFor(supabase, hotelId);
 
     // 3. Property id (discover + persist if not stored on the secret).
     let propertyId = resolved.propertyId;
@@ -978,6 +1015,7 @@ export async function runCloudbedsSyncForHotel(
       tokenType: resolved.tokenType,
       baseUrl,
       propertyId,
+      refresh,
     };
 
     // 4. Room types → room_types upsert. No is_active in the payload: PostgREST
@@ -1298,7 +1336,7 @@ export async function runCloudbedsSyncForHotel(
         duplicateStayNightKeysMerged,
         rowsWithMissingRate,
         unchangedRowsSkipped,
-        tokenRefreshed: resolved.refreshed,
+        tokenRefreshed: resolved.refreshed || refresh.fresh === true,
       },
     };
   } catch (error) {
@@ -1307,8 +1345,28 @@ export async function runCloudbedsSyncForHotel(
       // from out here: the grant is gone but the access token has not expired,
       // so the token-refresh path never runs and never notices. Without this
       // the connection kept reporting "connected" while every call 401'd.
-      if (isAuthRevocation(error.status, error.message)) {
+      //
+      // One refusal is not a grant that is gone, though, and a Disconnected
+      // connection only comes back when someone signs in to Cloudbeds again.
+      // The read has already been asked again on a new token (cloudbedsGet).
+      // The connection is taken offline when Cloudbeds says in words that
+      // the app is not connected, when it refused the new token too, or when
+      // no new token was to be had and this is the third run in a row to end
+      // on a refusal. An error page that is not Cloudbeds' own is an outage.
+      const refusal = readRefusalOf(error);
+      if (refusal === "not_connected" || refusal === "fresh_token_refused") {
         await markConnectionDisconnected(supabase, hotelId, "cloudbeds", error.message);
+      } else if (refusal === "refused") {
+        const noted = await noteAuthFailure(
+          supabase,
+          hotelId,
+          "cloudbeds",
+          REFUSED_RUNS_BEFORE_DISCONNECT,
+          error.message,
+        );
+        if (noted && noted.failures >= REFUSED_RUNS_BEFORE_DISCONNECT) {
+          await markConnectionDisconnected(supabase, hotelId, "cloudbeds", error.message);
+        }
       }
       return {
         ok: false,

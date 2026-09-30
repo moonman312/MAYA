@@ -295,14 +295,20 @@ async function adoptTokenRotatedElsewhere(
 /**
  * Resolve a usable access token for an OAuth PMS, refreshing if near expiry and
  * persisting the rotated secret back to Vault.
+ *
+ * `refusedAccessToken` is a token the vendor has just refused on a read. When
+ * the stored token is that one, it is refreshed whatever its expiry says;
+ * when the store already holds another (someone else refreshed since), that
+ * one is returned and no refresh token is spent.
  */
 export function resolveOAuthCredentials(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: OAuthPmsType,
+  opts: { refusedAccessToken?: string } = {},
 ): Promise<ResolvedOAuthCredentials | { error: string }> {
   return withConnectionLock(connKey(hotelId, pmsType), () =>
-    resolveLocked(supabase, hotelId, pmsType),
+    resolveLocked(supabase, hotelId, pmsType, opts),
   );
 }
 
@@ -310,6 +316,7 @@ async function resolveLocked(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: OAuthPmsType,
+  opts: { refusedAccessToken?: string } = {},
 ): Promise<ResolvedOAuthCredentials | { error: string }> {
   const key = connKey(hotelId, pmsType);
   const read = await readSecret(supabase, hotelId, pmsType);
@@ -333,15 +340,17 @@ async function resolveLocked(
   }
 
   const needsRefresh =
-    expiresAt != null && new Date(expiresAt).getTime() < Date.now() + REFRESH_SKEW_MS;
+    (expiresAt != null && new Date(expiresAt).getTime() < Date.now() + REFRESH_SKEW_MS) ||
+    (opts.refusedAccessToken != null && accessToken === opts.refusedAccessToken);
 
   let refreshed = false;
 
   if (needsRefresh) {
     if (!refreshToken) {
       // Can't refresh — surface a clear error so the operator re-connects.
+      const why = opts.refusedAccessToken != null && accessToken === opts.refusedAccessToken ? "was refused" : "expired";
       return {
-        error: `${pmsType} access token expired and no refresh_token is stored — reconnect via OAuth.`,
+        error: `${pmsType} access token ${why} and no refresh_token is stored — reconnect via OAuth.`,
       };
     }
     const cfg = oauthConfig(pmsType);

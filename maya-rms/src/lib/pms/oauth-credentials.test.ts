@@ -282,3 +282,62 @@ describe("persistPropertyId", () => {
     expect(db.writes).toEqual([]);
   });
 });
+
+describe("a token the vendor has just refused", () => {
+  beforeEach(() => {
+    process.env.CLOUDBEDS_CLIENT_ID = "cid";
+    process.env.CLOUDBEDS_CLIENT_SECRET = "csecret";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete process.env.CLOUDBEDS_CLIENT_ID;
+    delete process.env.CLOUDBEDS_CLIENT_SECRET;
+  });
+
+  it("is refreshed although its expiry says it has an hour left", async () => {
+    const vendor = makeRotatingVendor("RT1");
+    vi.stubGlobal("fetch", vendor.tokenEndpoint);
+    const db = makeSupabaseStub({ secret: fresh("AT1", "RT1") });
+
+    const res = await resolveOAuthCredentials(db.supabase, "hotel-refused", "cloudbeds", { refusedAccessToken: "AT1" });
+
+    expect(res).toMatchObject({ accessToken: "AT2", refreshed: true });
+    expect(vendor.consumed).toEqual(["RT1"]);
+    expect(db.vault.secret).toMatchObject({ accessToken: "AT2", refreshToken: "RT2" });
+  });
+
+  it("is left alone when the store already holds another: someone else refreshed, and no refresh token is spent", async () => {
+    const vendor = makeRotatingVendor("RT2");
+    vi.stubGlobal("fetch", vendor.tokenEndpoint);
+    const db = makeSupabaseStub({ secret: fresh("AT2", "RT2") });
+
+    const res = await resolveOAuthCredentials(db.supabase, "hotel-refused-2", "cloudbeds", { refusedAccessToken: "AT1" });
+
+    expect(res).toMatchObject({ accessToken: "AT2", refreshed: false });
+    expect(vendor.consumed).toEqual([]);
+    expect(db.writes).toEqual([]);
+  });
+
+  it("is never refreshed by a caller that names no refused token", async () => {
+    const vendor = makeRotatingVendor("RT1");
+    vi.stubGlobal("fetch", vendor.tokenEndpoint);
+    const db = makeSupabaseStub({ secret: fresh("AT1", "RT1") });
+
+    const res = await resolveOAuthCredentials(db.supabase, "hotel-refused-3", "cloudbeds");
+
+    expect(res).toMatchObject({ accessToken: "AT1", refreshed: false });
+    expect(vendor.consumed).toEqual([]);
+  });
+
+  it("says the token was refused, not expired, when there is nothing to refresh it with", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const db = makeSupabaseStub({ secret: { ...fresh("AT1", "RT1"), refreshToken: null } });
+
+    const res = await resolveOAuthCredentials(db.supabase, "hotel-refused-4", "cloudbeds", { refusedAccessToken: "AT1" });
+
+    expect(res).toEqual({ error: expect.stringContaining("was refused") });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

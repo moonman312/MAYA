@@ -10,6 +10,7 @@
 
 import type { CloudbedsResolvedCredentials } from "./types.ts";
 import { acquire, record } from "../pms/rate-limit.ts";
+import { REVOCATION_PHRASES } from "../pms/connection-health.ts";
 import {
   CLOUDBEDS_PAGE_SIZE,
   CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
@@ -18,15 +19,58 @@ import {
 type JsonRecord = Record<string, unknown>;
 
 export class CloudbedsHttpError extends Error {
+  /**
+   * The answer was an error, and not in the shape Cloudbeds gives its own: an
+   * HTML page, an empty body, JSON with none of its fields. Something in
+   * front of Cloudbeds said it (a firewall, a gateway), so it says nothing
+   * about the property's grant, whatever its status.
+   */
+  readonly foreignBody: boolean;
+  /**
+   * Refused with 401 or 403, in Cloudbeds' own format, on a token minted
+   * after an earlier refusal in the same run.
+   */
+  readonly freshTokenRefused: boolean;
+
   constructor(
     message: string,
     readonly status: number,
     readonly path: string,
     readonly retryAfterMs?: number | null,
+    detail: { foreignBody?: boolean; freshTokenRefused?: boolean } = {},
   ) {
     super(message);
     this.name = "CloudbedsHttpError";
+    this.foreignBody = detail.foreignBody === true;
+    this.freshTokenRefused = detail.freshTokenRefused === true;
   }
+}
+
+/**
+ * Whether a parsed body is an answer of Cloudbeds' own: its envelope
+ * (`success`, `message`) or its token errors (`error`).
+ */
+function inCloudbedsFormat(body: unknown): boolean {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+  const rec = body as JsonRecord;
+  return typeof rec.success === "boolean" || typeof rec.message === "string" || typeof rec.error === "string";
+}
+
+/**
+ * Swap in a new token after a refusal, once per set of credentials. True when
+ * the credentials now carry a token other than the one refused.
+ */
+async function takeFreshToken(creds: CloudbedsResolvedCredentials): Promise<boolean> {
+  const refresh = creds.refresh;
+  if (!refresh || refresh.asked) return false;
+  refresh.asked = true;
+  const refused = creds.accessToken;
+  const minted = await refresh.mint(refused).catch(() => null);
+  if (!minted?.accessToken || minted.accessToken === refused) return false;
+  creds.accessToken = minted.accessToken;
+  if (minted.tokenType) creds.tokenType = minted.tokenType;
+  refresh.fresh = true;
+  return true;
 }
 
 /* ── Request logging (pluggable, fire-and-forget) ─────────────────────────── */
@@ -67,6 +111,12 @@ function errorText(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 200);
 }
 
+/** Cloudbeds' own words for an app the property has uninstalled (connection-health.ts). */
+function saysNotConnected(message: string): boolean {
+  const said = message.toLowerCase();
+  return REVOCATION_PHRASES.some((p) => said.includes(p));
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -104,6 +154,12 @@ function laneKeyFor(creds: CloudbedsResolvedCredentials): string {
  * `deadlineAt` (ms) bounds a caller that has to hand its time back: no
  * attempt waits past it for its answer, and a 429 whose wait would end past
  * it is thrown instead of slept on.
+ *
+ * A read Cloudbeds refuses with 401 or 403 is asked again once on a new
+ * token, when the credentials can mint one (`creds.refresh`), and the new
+ * token stays on the credentials for every call after it. Not when Cloudbeds
+ * says in words that the app is not connected, which no token changes, and
+ * not for an error page that is not Cloudbeds' own.
  */
 export async function cloudbedsGet(
   creds: CloudbedsResolvedCredentials,
@@ -146,6 +202,8 @@ export async function cloudbedsGet(
           `Cloudbeds ${method} non-JSON (${res.status}): ${text.slice(0, 200)}`,
           res.status,
           method,
+          null,
+          { foreignBody: true },
         );
       }
 
@@ -166,11 +224,23 @@ export async function cloudbedsGet(
       if (!res.ok || rec.success === false) {
         const msg =
           typeof rec.message === "string" ? rec.message : text.slice(0, 300);
+        const ownFormat = inCloudbedsFormat(data);
+        const refused =
+          (res.status === 401 || res.status === 403) && ownFormat && !saysNotConnected(msg);
+        if (refused && (await takeFreshToken(creds))) {
+          // The same call again on the new token; it costs no attempt.
+          attempt -= 1;
+          continue;
+        }
         throw new CloudbedsHttpError(
           `Cloudbeds ${method} failed (${res.status}): ${msg}`,
           res.ok ? 400 : res.status,
           method,
           res.status === 429 ? parseRetryAfterMs(res) : null,
+          {
+            foreignBody: !res.ok && !ownFormat,
+            freshTokenRefused: refused && creds.refresh?.fresh === true,
+          },
         );
       }
 
@@ -546,6 +616,8 @@ export async function cloudbedsPost(
           `Cloudbeds ${method} non-JSON (${res.status}): ${text.slice(0, 200)}`,
           res.status,
           method,
+          null,
+          { foreignBody: true },
         );
       }
       if (res.status === 429) record("cloudbeds", lane, "throttled");

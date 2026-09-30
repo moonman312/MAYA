@@ -9,9 +9,13 @@
  * down — so the PMS tab showed a green "Connected" pill next to a red health
  * badge and a log full of 401s, which is a screen that contradicts itself.
  *
- * A single 401/403 is treated as authoritative because that is what revocation
- * looks like from the outside; anything else (5xx, timeouts, 429) leaves the
- * status alone, since those are outages rather than a withdrawn grant.
+ * A 401 or 403 is what revocation looks like from the outside; anything else
+ * (5xx, timeouts, 429) leaves the status alone, since those are outages rather
+ * than a withdrawn grant. One refusal is not trusted with a Cloudbeds
+ * connection, though: its reads get a new token and a second try first, and
+ * an error page that is not Cloudbeds' own is an outage whatever its status
+ * (readRefusalOf). isAuthRevocation is the plain reading, for callers that
+ * only classify a failure.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -53,6 +57,45 @@ export function isAuthRevocation(
   const m = message.toLowerCase();
   return REVOCATION_PHRASES.some((p) => m.includes(p));
 }
+
+/**
+ * What a failed read says about the grant, for a PMS whose reads get a new
+ * token and a second try before anything is concluded (Cloudbeds: client.ts
+ * cloudbedsGet).
+ *
+ *   not_connected        the vendor said in words that the app is not
+ *                        connected. No token changes that.
+ *   fresh_token_refused  refused with 401 or 403 on a token minted after an
+ *                        earlier refusal in the same run.
+ *   refused              refused with 401 or 403 and no new token was to be
+ *                        had (or the vendor handed the same one back). One of
+ *                        these says little; several runs in a row say the
+ *                        grant is gone (REFUSED_RUNS_BEFORE_DISCONNECT).
+ *   null                 not about the grant: an outage, throttling, or an
+ *                        error page that is not the vendor's own, whatever
+ *                        its status. A firewall's 403 page is an outage.
+ */
+export type ReadRefusal = "not_connected" | "fresh_token_refused" | "refused" | null;
+
+export function readRefusalOf(error: {
+  status: number | null | undefined;
+  message?: string | null;
+  foreignBody?: boolean;
+  freshTokenRefused?: boolean;
+}): ReadRefusal {
+  if (error.foreignBody === true) return null;
+  const said = (error.message ?? "").toLowerCase();
+  if (REVOCATION_PHRASES.some((p) => said.includes(p))) return "not_connected";
+  if (error.status !== 401 && error.status !== 403) return null;
+  return error.freshTokenRefused === true ? "fresh_token_refused" : "refused";
+}
+
+/**
+ * Runs in a row that ended on a refused read before the connection is taken
+ * as gone. Failed runs back off (release_pms_sync: 10, 20, 40 minutes), so
+ * three of them are over an hour of refusals with not one good read between.
+ */
+export const REFUSED_RUNS_BEFORE_DISCONNECT = 3;
 
 /**
  * Count one read the PMS refused as bad credentials, and mark the connection

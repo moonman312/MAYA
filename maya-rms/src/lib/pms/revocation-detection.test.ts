@@ -9,7 +9,7 @@
  * certification.
  */
 import { describe, expect, it } from "vitest";
-import { isAuthRevocation } from "../../../supabase/functions/_shared/pms/connection-health";
+import { isAuthRevocation, readRefusalOf } from "../../../supabase/functions/_shared/pms/connection-health";
 
 const CLOUDBEDS_REVOKED =
   "Cloudbeds getReservations failed (200): Application is not available to be connected. " +
@@ -51,5 +51,30 @@ describe("isAuthRevocation", () => {
     expect(isAuthRevocation(400)).toBe(false);
     expect(isAuthRevocation(400, null)).toBe(false);
     expect(isAuthRevocation(null, undefined)).toBe(false);
+  });
+});
+
+describe("readRefusalOf", () => {
+  it("takes the vendor's own words for an app that is not connected, whatever the status", () => {
+    expect(readRefusalOf({ status: 400, message: CLOUDBEDS_REVOKED })).toBe("not_connected");
+    expect(readRefusalOf({ status: 401, message: "App is not connected" })).toBe("not_connected");
+  });
+
+  it("tells a refusal of a new token from a refusal of the token the run started with", () => {
+    expect(readRefusalOf({ status: 401, message: "invalid token", freshTokenRefused: true })).toBe("fresh_token_refused");
+    expect(readRefusalOf({ status: 403, message: "invalid token" })).toBe("refused");
+    expect(readRefusalOf({ status: 401 })).toBe("refused");
+  });
+
+  it("reads an error page that is not the vendor's own as an outage, whatever it says", () => {
+    expect(readRefusalOf({ status: 403, message: "<html>Access denied</html>", foreignBody: true })).toBeNull();
+    expect(readRefusalOf({ status: 401, message: "app is not connected", foreignBody: true })).toBeNull();
+  });
+
+  it("reads everything else as not about the grant", () => {
+    expect(readRefusalOf({ status: 500, message: "Internal Server Error" })).toBeNull();
+    expect(readRefusalOf({ status: 429, message: "Too Many Requests" })).toBeNull();
+    expect(readRefusalOf({ status: 400, message: "Parameter status is not valid" })).toBeNull();
+    expect(readRefusalOf({ status: null })).toBeNull();
   });
 });
