@@ -323,8 +323,8 @@ describe("the Pilot health line", () => {
       { event_type: ALERT_CHANNEL_EVENT, entity_id: "bad", detail: { state: "odd" }, created_at: NOW },
     ]);
     expect(facts.reports).toEqual([
-      { fn: "cloudbeds-scheduled-sync", state: "ready", minSeverity: "warn", reportedAt: expect.any(String) },
-      { fn: "think-scheduled-sync", state: "missing", minSeverity: "critical", reportedAt: expect.any(String) },
+      { fn: "cloudbeds-scheduled-sync", state: "ready", minSeverity: "warn", reportedAt: expect.any(String), source: "secrets" },
+      { fn: "think-scheduled-sync", state: "missing", minSeverity: "critical", reportedAt: expect.any(String), source: "secrets" },
     ]);
     expect(facts.lastTest).toMatchObject({ fn: "cloudbeds-scheduled-sync", sent: true, sentBy: "j", reason: null });
   });
@@ -351,5 +351,28 @@ describe("the Pilot health line", () => {
     // Within two intervals it is current.
     expect(describeAlertChannel(alertChannelFacts([report("cloudbeds-scheduled-sync", "ready", 11 * 60)]), NOW)).toMatchObject({ verdict: "ready" });
     for (const line of [describeAlertChannel({ reports: [], lastTest: null }, NOW)]) expect(line.text).not.toContain("—");
+  });
+
+  it("the database watchdog reports too, and a missing address there names the Vault secret, not the function secrets", () => {
+    const watchdog = (state: string, minutesAgo: number) => ({
+      event_type: ALERT_CHANNEL_EVENT,
+      entity_id: "pricing-watchdog",
+      detail: { fn: "pricing-watchdog", state, min_severity: "critical", source: "vault" },
+      created_at: new Date(Date.parse(NOW) - minutesAgo * 60_000).toISOString(),
+    });
+    const facts = alertChannelFacts([report("cloudbeds-scheduled-sync", "ready", 3), watchdog("missing", 2)]);
+    expect(facts.reports.find((r) => r.fn === "pricing-watchdog")).toMatchObject({ source: "vault", state: "missing" });
+    expect(describeAlertChannel(facts, NOW)).toMatchObject({
+      verdict: "missing",
+      severity: "rose",
+      text: "Alerts: missing. pricing-watchdog said 2m ago that the Vault secret maya_alert_webhook is not set (the database watchdog reads its address from Vault, not the function secrets), so the alerts it raises are being skipped.",
+    });
+    expect(describeAlertChannel(alertChannelFacts([report("cloudbeds-scheduled-sync", "ready", 3), watchdog("not_https", 2)]), NOW).text).toContain(
+      "the Vault secret maya_alert_webhook is not an https:// address",
+    );
+    expect(describeAlertChannel(alertChannelFacts([report("cloudbeds-scheduled-sync", "ready", 3), watchdog("ready", 2)]), NOW)).toMatchObject({
+      verdict: "ready",
+      text: "Alerts: ready. pricing-watchdog said 2m ago that its alerts have somewhere to go (critical alerts only).",
+    });
   });
 });

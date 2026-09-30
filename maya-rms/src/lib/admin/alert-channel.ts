@@ -16,6 +16,9 @@ import { ageLabel } from "./pilot-health-assess";
  * platform_audit_events (alerting.ts recordAlertChannel), a few rows a day,
  * and the test alert's outcome goes there too. This reads the newest of each
  * per function and says, in one line, whether alerts have anywhere to go.
+ * The database watchdog (pricing_watchdog) reports under the name
+ * pricing-watchdog too, with source "vault": it reads the address from the
+ * Vault secret maya_alert_webhook, not from the function secrets.
  */
 
 export type AlertChannelState = "ready" | "missing" | "not_https";
@@ -25,6 +28,8 @@ export type FunctionAlertReport = {
   state: AlertChannelState;
   minSeverity: "warn" | "critical";
   reportedAt: string;
+  /** Where the reporter reads the address: the function secrets, or Vault (the database watchdog). */
+  source: "secrets" | "vault";
 };
 
 export type AlertTestRecord = {
@@ -73,6 +78,7 @@ export function alertChannelFacts(rows: AuditRow[]): AlertChannelFacts {
         state,
         minSeverity: detail.min_severity === "warn" ? "warn" : "critical",
         reportedAt: String(r.created_at),
+        source: detail.source === "vault" ? "vault" : "secrets",
       });
     } else if (r.event_type === ALERT_CHANNEL_TEST_EVENT && !lastTest) {
       lastTest = {
@@ -126,9 +132,13 @@ export function describeAlertChannel(facts: AlertChannelFacts, nowIso: string): 
   const missing = facts.reports.find((r) => r.state !== "ready");
   if (missing) {
     const why =
-      missing.state === "missing"
-        ? "MAYA_ALERT_WEBHOOK is not set in the Supabase function secrets"
-        : "MAYA_ALERT_WEBHOOK in the Supabase function secrets is not an https:// address";
+      missing.source === "vault"
+        ? missing.state === "missing"
+          ? "the Vault secret maya_alert_webhook is not set (the database watchdog reads its address from Vault, not the function secrets)"
+          : "the Vault secret maya_alert_webhook is not an https:// address"
+        : missing.state === "missing"
+          ? "MAYA_ALERT_WEBHOOK is not set in the Supabase function secrets"
+          : "MAYA_ALERT_WEBHOOK in the Supabase function secrets is not an https:// address";
     return {
       verdict: "missing",
       severity: "rose",
