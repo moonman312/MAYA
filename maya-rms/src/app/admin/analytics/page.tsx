@@ -56,7 +56,8 @@ export default async function AnalyticsPage({
   // is_test and excluded — a Stripe test-mode checkout is a real subscription
   // row and would otherwise read as a customer. The toggle is for verifying
   // the panel itself on a deployment whose only data is test data.
-  // Sales counts customers only; the toggle and Refresh are a platform admin's.
+  // Sales counts customers only and is told a signup used a code, never
+  // which one; the toggle, the codes and Refresh are a platform admin's.
   const asked = analyticsWindow(await searchParams, today);
   const { from, to } = asked;
   const includeTest = isAdmin && asked.includeTest;
@@ -107,7 +108,7 @@ export default async function AnalyticsPage({
       </Suspense>
 
       <Suspense key={`product:${rangeKey}`} fallback={<ProductSkeleton />}>
-        <Product {...shown} />
+        <Product {...shown} showCodes={isAdmin} />
       </Suspense>
 
       <div className="grid gap-4 lg:grid-cols-2">

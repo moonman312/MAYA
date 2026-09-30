@@ -18,6 +18,7 @@ import {
 } from "@/components/admin/product-analytics-panels";
 import { AnalyticsMigrationMissing, type HotelRef, type SubscriptionEvent } from "@/lib/admin/analytics";
 import { analyticsNow, analyticsRange, productAnalytics, pushProblemAnalytics } from "@/lib/admin/analytics-cache";
+import { withoutSignupCodes } from "@/lib/admin/product-analytics";
 import { formatUsd } from "@/lib/billing/tiers";
 
 /**
@@ -286,10 +287,15 @@ export async function EventTables({ from, to, includeTest }: Window) {
 
 // ── Product and rate push ───────────────────────────────────────────────────
 
-export async function Product({ from, to, includeTest }: Window) {
+/**
+ * The product panels. Which signup code a subscription used is for a
+ * platform admin's eyes only (showCodes); anyone else sees "code". The kept
+ * numbers hold the codes for every reader, so they come out here.
+ */
+export async function Product({ from, to, includeTest, showCodes = false }: Window & { showCodes?: boolean }) {
   const r = await settle(productAnalytics(from, to, includeTest), "analyticsProductPanels");
   if (!r.ok) return <Unavailable message={r.message} />;
-  const product = r.value.value;
+  const product = showCodes ? r.value.value : withoutSignupCodes(r.value.value);
   if (!product.available) return <Unavailable message={product.reason} />;
   return (
     <div className="space-y-6">

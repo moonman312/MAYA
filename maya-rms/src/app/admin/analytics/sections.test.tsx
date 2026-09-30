@@ -128,4 +128,38 @@ describe("the analytics sections", () => {
   it("passes the product half's own reason through", async () => {
     expect(text(await html(S.Product(WINDOW)))).toContain("Run the product migration.");
   });
+
+  it("names the signup code behind each source for a platform admin only", async () => {
+    kept.product = stamp({
+      available: true,
+      walkedAwaySummary: [],
+      walkedAway: [],
+      funnel: [],
+      timeToValue: [],
+      trials: [],
+      retention: null,
+      cancellations: [],
+      acquisition: [
+        { channel: "direct", code: "PILOT2026", subscriptions: 2, trialing_now: 2, paying_now: 0, lost_now: 0, billed_rooms: 30 },
+        { channel: "direct", code: "DRIFTWOOD", subscriptions: 1, trialing_now: 0, paying_now: 1, lost_now: 0, billed_rooms: 12 },
+        { channel: "direct", code: "(no code)", subscriptions: 1, trialing_now: 0, paying_now: 1, lost_now: 0, billed_rooms: 9 },
+      ],
+      events: [
+        { event: "signup_code.redeemed", detail: "(all)", occurrences: 3, properties: 3, users: 3, quantity: null },
+        { event: "signup_code.redeemed", detail: "PILOT2026", occurrences: 2, properties: 2, users: 2, quantity: null },
+        { event: "signup_code.redeemed", detail: "DRIFTWOOD", occurrences: 1, properties: 1, users: 1, quantity: null },
+      ],
+      health: [],
+      groups: [],
+      book: null,
+    });
+    const admin = text(await html(S.Product({ ...WINDOW, showCodes: true })));
+    expect(admin).toContain("direct · PILOT2026 2");
+    expect(admin).toContain("direct · DRIFTWOOD 1");
+    for (const out of [text(await html(S.Product(WINDOW))), text(await html(S.Product({ ...WINDOW, showCodes: false })))]) {
+      expect(out).not.toMatch(/PILOT2026|DRIFTWOOD/);
+      expect(out).toContain("direct · code 3 2 1 0 42");
+      expect(out).toContain("direct · (no code) 1 0 1 0 9");
+    }
+  });
 });

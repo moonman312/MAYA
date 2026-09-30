@@ -6,9 +6,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * 99_supabase_migration_product_analytics_v1.sql over product_events, and the
  * definitions live in docs/analytics.md. This file only fetches and names
  * them. The page reads them with the service role, kept for a few minutes
- * (analytics-cache.ts), after checking the caller is a platform admin; each
+ * (analytics-cache.ts), after checking the caller may read analytics; each
  * function's own check (analytics_assert_reader) lets the service role,
- * platform admins and Sales logins past their code through.
+ * platform admins and Sales logins past their code through. Test properties
+ * and which signup code was used are for the service role and platform
+ * admins only (analytics_full_reader), so the page takes the codes out for
+ * Sales itself (withoutSignupCodes).
  *
  * A deployment can run ahead of its migration. Then the functions are missing,
  * and the panel says so in one line rather than failing the whole page, which
@@ -266,6 +269,47 @@ export async function withOwnerEmails(client: SupabaseClient, product: ProductAn
     ...product,
     walkedAway: product.walkedAway.map((r) => ({ ...r, owner_email: r.owner_user_id ? emailById.get(r.owner_user_id) ?? null : null })),
   };
+}
+
+/** What a source says for someone who may not see which signup code was used, as the database says it. */
+export const HIDDEN_SIGNUP_CODE = "code";
+const NO_SIGNUP_CODE = "(no code)";
+
+/**
+ * The product numbers for a reader who may not see signup codes (anyone but
+ * a platform admin: a code lets its holder past the waitlist). Each source
+ * says "code" where one was used, never which, and rows that then say the
+ * same are added up; the event counts keep only the total for redeemed codes.
+ * The kept numbers are read with the service role for every reader, so the
+ * page does this as it is drawn. The database does the same for a Sales
+ * login calling analytics_acquisition or analytics_event_counts itself.
+ */
+export function withoutSignupCodes(product: ProductAnalytics): ProductAnalytics {
+  if (!product.available) return product;
+  const bySource = new Map<string, AcquisitionRow>();
+  for (const row of product.acquisition) {
+    const code = row.code === NO_SIGNUP_CODE ? NO_SIGNUP_CODE : HIDDEN_SIGNUP_CODE;
+    const key = JSON.stringify([row.channel, code]);
+    const had = bySource.get(key);
+    bySource.set(
+      key,
+      had
+        ? {
+            ...had,
+            subscriptions: had.subscriptions + row.subscriptions,
+            trialing_now: had.trialing_now + row.trialing_now,
+            paying_now: had.paying_now + row.paying_now,
+            lost_now: had.lost_now + row.lost_now,
+            billed_rooms: had.billed_rooms + row.billed_rooms,
+          }
+        : { ...row, code },
+    );
+  }
+  const acquisition = [...bySource.values()].sort(
+    (a, b) => b.subscriptions - a.subscriptions || a.channel.localeCompare(b.channel) || a.code.localeCompare(b.code),
+  );
+  const events = product.events.filter((e) => e.event !== "signup_code.redeemed" || e.detail === "(all)" || e.detail == null);
+  return { ...product, acquisition, events };
 }
 
 /** "3.5h", "2.1d": hours read badly past two days, days read badly under one. */

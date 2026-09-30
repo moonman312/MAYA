@@ -154,7 +154,9 @@ vi.mock("@/components/admin/analytics-range-picker", () => ({
 }));
 vi.mock("./analytics/sections", () => {
   const marker = (name: string) => {
-    const Marker = (p: { includeTest?: boolean }) => <i data-c={name} data-test={String(p.includeTest)} />;
+    const Marker = (p: { includeTest?: boolean; showCodes?: boolean }) => (
+      <i data-c={name} data-test={String(p.includeTest)} {...(p.showCodes === undefined ? {} : { "data-codes": String(p.showCodes) })} />
+    );
     Marker.displayName = name;
     return Marker;
   };
@@ -314,5 +316,12 @@ describe("Analytics", () => {
     expect(out).not.toContain("test properties");
     expect(out).not.toContain('data-test="true"');
     expect(out).toContain('data-c="now" data-test="false"');
+  });
+
+  it("names signup codes in the product panels for a platform admin only", async () => {
+    expect(await html("platform_admin", () => AnalyticsPage(props()))).toContain('data-c="product" data-test="false" data-codes="true"');
+    const sales = await html("sales", () => AnalyticsPage(props()));
+    expect(sales).toContain('data-c="product" data-test="false" data-codes="false"');
+    expect(sales).not.toContain('data-codes="true"');
   });
 });

@@ -6,7 +6,10 @@ import {
   isMissingFunction,
   isoWeek,
   loadProductAnalytics,
+  withoutSignupCodes,
+  type AcquisitionRow,
   type EventCountRow,
+  type ProductAnalytics,
 } from "./product-analytics";
 
 describe("isoWeek", () => {
@@ -91,5 +94,53 @@ describe("isMissingFunction", () => {
     expect(isMissingFunction({ code: "42883", message: "function does not exist" })).toBe(true);
     expect(isMissingFunction({ code: "42501", message: "Not authorized" })).toBe(false);
     expect(isMissingFunction(null)).toBe(false);
+  });
+});
+
+describe("withoutSignupCodes", () => {
+  const source = (channel: string, code: string, subscriptions: number, rooms: number): AcquisitionRow => ({
+    channel,
+    code,
+    subscriptions,
+    trialing_now: subscriptions,
+    paying_now: 0,
+    lost_now: 0,
+    billed_rooms: rooms,
+  });
+  const product = (acquisition: AcquisitionRow[], events: EventCountRow[]) =>
+    ({ available: true, acquisition, events }) as unknown as ProductAnalytics;
+  const redeemed = (detail: string | null, occurrences: number): EventCountRow => ({
+    event: "signup_code.redeemed",
+    detail,
+    occurrences,
+    properties: occurrences,
+    users: occurrences,
+    quantity: null,
+  });
+
+  it("says a code was used, never which, and adds up the sources that then read the same", () => {
+    const out = withoutSignupCodes(
+      product(
+        [
+          source("direct", "PILOT2026", 2, 30),
+          source("direct", "(no code)", 4, 50),
+          source("direct", "DRIFTWOOD", 1, 12),
+          source("marketplace", "deleted code", 1, 8),
+        ],
+        [redeemed("(all)", 3), redeemed("PILOT2026", 2), redeemed("DRIFTWOOD", 1), { ...redeemed("owner", 5), event: "rule.created" }],
+      ),
+    );
+    expect(out.available && out.acquisition).toEqual([
+      source("direct", "(no code)", 4, 50),
+      source("direct", "code", 3, 42),
+      source("marketplace", "code", 1, 8),
+    ]);
+    expect(out.available && out.events).toEqual([redeemed("(all)", 3), { ...redeemed("owner", 5), event: "rule.created" }]);
+    expect(JSON.stringify(out)).not.toMatch(/PILOT2026|DRIFTWOOD|deleted code/);
+  });
+
+  it("leaves a panel with nothing to show as it is", () => {
+    const missing = { available: false, reason: "Run the migration." } as const;
+    expect(withoutSignupCodes(missing)).toBe(missing);
   });
 });
