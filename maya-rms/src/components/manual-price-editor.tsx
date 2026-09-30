@@ -659,7 +659,7 @@ function ManualPriceHelp({
         onClick={() => setPinned((p) => !p)}
         onFocus={() => setHovered(true)}
         onBlur={blurOut}
-        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
+        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[0.625rem] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
       </button>
@@ -672,7 +672,7 @@ function ManualPriceHelp({
             id={panelId}
             role="group"
             aria-label="Setting a price yourself"
-            className="block w-72 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
+            className="block w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
           >
             <span className="block text-xs font-semibold text-slate-200">Setting a price yourself</span>
             <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">

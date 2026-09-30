@@ -164,7 +164,7 @@ function ChallengeForm({
               <span>
                 {SCOPE_LABELS[s]}
                 {scope === s ? (
-                  <span className="mt-0.5 block text-[11px] text-slate-500">{SCOPE_HINTS[s]}</span>
+                  <span className="mt-0.5 block text-[0.6875rem] text-slate-500">{SCOPE_HINTS[s]}</span>
                 ) : null}
               </span>
             </label>
@@ -208,7 +208,7 @@ function ObservationView({
 
   return (
     <div className="space-y-2">
-      <div className="space-y-1 text-[13px] leading-relaxed text-slate-300">
+      <div className="space-y-1 text-[0.8125rem] leading-relaxed text-slate-300">
         <p>{view.observed}</p>
         <p>{view.expected}</p>
         <p className="font-medium text-slate-200">{view.verdict}</p>
@@ -254,12 +254,12 @@ function ObservationView({
                     <span className="ml-2 font-normal text-slate-400">{c.summary}</span>
                   </span>
                   {flagged ? (
-                    <span className="text-[11px] text-amber-300">
+                    <span className="text-[0.6875rem] text-amber-300">
                       Set aside. Not used from the next run on.
                     </span>
                   ) : challenging !== c.date ? (
                     <button
-                      className="cursor-pointer text-[11px] text-slate-400 underline decoration-dotted hover:text-slate-200"
+                      className="cursor-pointer text-[0.6875rem] text-slate-400 underline decoration-dotted hover:text-slate-200"
                       onClick={() => setChallenging(c.date)}
                     >
                       Not a fair comparison?
@@ -267,7 +267,7 @@ function ObservationView({
                   ) : null}
                 </div>
                 {c.reasons.length > 0 ? (
-                  <p className="mt-0.5 text-[11px] text-slate-500">{c.reasons.join("; ")}</p>
+                  <p className="mt-0.5 text-[0.6875rem] text-slate-500">{c.reasons.join("; ")}</p>
                 ) : null}
                 {challenging === c.date ? (
                   <ChallengeForm
@@ -487,7 +487,7 @@ export function CorrectionsPanel({
                   </span>
                   <button
                     disabled={removing === c.id}
-                    className="cursor-pointer text-[11px] text-slate-500 underline decoration-dotted hover:text-slate-300 disabled:opacity-60"
+                    className="cursor-pointer text-[0.6875rem] text-slate-500 underline decoration-dotted hover:text-slate-300 disabled:opacity-60"
                     onClick={() => void retract(c.id)}
                   >
                     {removing === c.id ? "Removing…" : "Undo"}
@@ -499,7 +499,7 @@ export function CorrectionsPanel({
           {summary && summary.pending.length > 0 ? (
             <div className="space-y-1">
               {summary.pending.map((p, i) => (
-                <p key={i} className="text-[11px] leading-relaxed text-slate-500">
+                <p key={i} className="text-[0.6875rem] leading-relaxed text-slate-500">
                   {p.description}
                 </p>
               ))}
@@ -508,7 +508,7 @@ export function CorrectionsPanel({
           {summary && summary.promoted.length > 0 ? (
             <div className="space-y-1">
               {summary.promoted.map((p, i) => (
-                <p key={i} className="text-[11px] leading-relaxed text-amber-300/80">
+                <p key={i} className="text-[0.6875rem] leading-relaxed text-amber-300/80">
                   {p.description}
                 </p>
               ))}

@@ -87,13 +87,13 @@ export function PushProblemItem({
         </time>
       </p>
       <p className="mt-2 text-sm font-medium text-slate-200">{item.title}.</p>
-      <p className="mt-0.5 text-[13px] leading-relaxed text-slate-400">
+      <p className="mt-0.5 text-[0.8125rem] leading-relaxed text-slate-400">
         {plural(item.nights, "night", "nights")}
         {item.room_types.length > 0 ? `, ${plural(item.room_types.length, "room type", "room types")}` : ""}
         <span className="text-slate-500"> · </span>
         <span className={ongoing ? "text-amber-200" : undefined}>{ended}</span>
       </p>
-      {item.action ? <p className="mt-0.5 text-[13px] leading-relaxed text-slate-300">{item.action}</p> : null}
+      {item.action ? <p className="mt-0.5 text-[0.8125rem] leading-relaxed text-slate-300">{item.action}</p> : null}
       {item.retries.length > 0 ? (
         <button
           className="mt-1 cursor-pointer text-xs text-sky-400 hover:text-sky-300"

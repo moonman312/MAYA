@@ -63,7 +63,7 @@ export function RoleHelp() {
         // hovering does rather than requiring a guess that Enter will help.
         onFocus={() => setHovered(true)}
         onBlur={blurOut}
-        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
+        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[0.625rem] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
       </button>

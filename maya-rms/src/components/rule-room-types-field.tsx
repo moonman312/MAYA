@@ -72,7 +72,7 @@ function RoomTypeChips({
             >
               {opt.name}
               {room ? null : (
-                <span className="ml-1.5 rounded bg-slate-950/50 px-1 py-px text-[9px] uppercase tracking-wide text-slate-400">
+                <span className="ml-1.5 rounded bg-slate-950/50 px-1 py-px text-[0.5625rem] uppercase tracking-wide text-slate-400">
                   not a room
                 </span>
               )}

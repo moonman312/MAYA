@@ -25,7 +25,7 @@ export function ArrivalNote({ note, onClose }: { note: string | null; onClose: (
 export function FilledChip({ show }: { show: boolean }) {
   if (!show) return null;
   return (
-    <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300">
+    <span className="rounded-full border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 text-[0.6875rem] font-medium text-sky-300">
       Filled in from a link
     </span>
   );

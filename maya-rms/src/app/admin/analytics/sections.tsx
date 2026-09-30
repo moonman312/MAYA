@@ -50,7 +50,7 @@ function Tile({ label, value, hint }: { label: string; value: string; hint?: str
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <div className="text-xs text-slate-400">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-slate-100">{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-slate-500">{hint}</div>}
+      {hint && <div className="mt-1 text-[0.6875rem] text-slate-500">{hint}</div>}
     </div>
   );
 }
@@ -66,7 +66,7 @@ export function TileSkeleton({ count = 1 }: { count?: number }) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
-        <Block key={i} className="h-[92px]" />
+        <Block key={i} className="h-[5.75rem]" />
       ))}
     </>
   );
@@ -79,8 +79,8 @@ export function PanelSkeleton({ className = "h-48" }: { className?: string }) {
 export function ChartsSkeleton() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <Block className="h-[236px]" />
-      <Block className="h-[236px]" />
+      <Block className="h-[14.75rem]" />
+      <Block className="h-[14.75rem]" />
     </div>
   );
 }

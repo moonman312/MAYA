@@ -69,7 +69,7 @@ export function PickupWaitField({
   return (
     <div>
       <div className="mb-0.5 flex items-center gap-1.5">
-        <label htmlFor={id} className="block text-[11px] text-slate-500">
+        <label htmlFor={id} className="block text-[0.6875rem] text-slate-500">
           Then waits (advanced)
         </label>
         <RoomCountHelp {...pickupWaitHelp(waitLabel, bookingSpeedSetsWait(waitInput) ? waitLabel : null, lowPickup)} />

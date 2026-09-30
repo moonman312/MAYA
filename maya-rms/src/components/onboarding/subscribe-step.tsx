@@ -475,7 +475,7 @@ export function SubscribeStep({
           >
             {submitting ? "Taking you to checkout…" : submitLabel}
           </button>
-          <p className="mt-2 text-[11px] text-slate-600">{footnote}</p>
+          <p className="mt-2 text-[0.6875rem] text-slate-600">{footnote}</p>
           {hotelId && deferrable ? (
             <p className="mt-4 flex items-center gap-2 text-xs text-slate-500">
               <button

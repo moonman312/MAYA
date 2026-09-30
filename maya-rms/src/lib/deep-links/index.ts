@@ -47,4 +47,6 @@ export type HelpPanel =
   | "go-live"
   | "room-count"
   | "rule-activation"
-  | "no-rate";
+  | "no-rate"
+  | "calendar-colors"
+  | "settings-colours";

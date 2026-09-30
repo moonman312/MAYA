@@ -71,7 +71,7 @@ function Panel({ title, hint, children }: { title: string; hint?: string; childr
     <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h3 className="text-sm font-semibold text-slate-200">{title}</h3>
-        {hint && <span className="text-[11px] text-slate-500">{hint}</span>}
+        {hint && <span className="text-[0.6875rem] text-slate-500">{hint}</span>}
       </div>
       {children}
     </section>
@@ -163,7 +163,7 @@ export function WalkedAwayCard({
       <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-slate-800 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-slate-200">Connected and walked away</h2>
-          <p className="mt-0.5 text-[11px] text-slate-500">
+          <p className="mt-0.5 text-[0.6875rem] text-slate-500">
             Properties whose first Cloudbeds Marketplace connect was {from} to {to}, as they stand now
           </p>
         </div>
@@ -171,7 +171,7 @@ export function WalkedAwayCard({
           <div className="text-2xl font-semibold text-slate-100">
             {walked} <span className="text-sm font-normal text-slate-400">of {connected}</span>
           </div>
-          <div className="text-[11px] text-slate-500">
+          <div className="text-[0.6875rem] text-slate-500">
             {n("converted")?.properties ?? 0} paying · {n("in_flight")?.properties ?? 0} still in flight
           </div>
         </div>
@@ -248,7 +248,7 @@ export function ProductFunnels({ funnel }: { funnel: FunnelRow[] }) {
                 />
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">Percent is of the stage before.</p>
+            <p className="mt-2 text-[0.6875rem] text-slate-500">Percent is of the stage before.</p>
           </Panel>
         );
       })}
@@ -284,7 +284,7 @@ export function BookTiles({ book }: { book: BookRow | null }) {
         <div key={t.label} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
           <div className="text-xs text-slate-400">{t.label}</div>
           <div className="mt-1 text-2xl font-semibold text-slate-100">{t.value}</div>
-          <div className="mt-1 text-[11px] text-slate-500">{t.hint}</div>
+          <div className="mt-1 text-[0.6875rem] text-slate-500">{t.hint}</div>
         </div>
       ))}
     </section>
@@ -517,7 +517,7 @@ export function PushProblemsPanel({ data }: { data: PushProblemAnalytics }) {
           {samples.map((c) => (
             <ul key={c.cause} className="space-y-1">
               {c.sampleMessages.map((m) => (
-                <li key={m} className="break-words font-mono text-[11px] text-slate-400">
+                <li key={m} className="break-words font-mono text-[0.6875rem] text-slate-400">
                   {m}
                 </li>
               ))}

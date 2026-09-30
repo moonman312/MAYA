@@ -3,6 +3,8 @@ import { Dashboard, type SupportView } from "@/components/dashboard";
 import { godModeStatus } from "@/lib/admin/god-mode";
 import { memberRole } from "@/lib/deep-links/member-role";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { readTextSize } from "@/lib/settings/profile-settings";
+import type { TextSize } from "@/lib/text-size";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -15,6 +17,7 @@ export default async function Home({
 }) {
   let isPlatformAdmin = false;
   let supportView: SupportView = null;
+  let textSize: TextSize | null = null;
 
   if (isSupabaseConfigured()) {
     const supabase = createClient(await cookies());
@@ -28,10 +31,14 @@ export default async function Home({
     // Command Center had no entry point anywhere in the app — a platform
     // admin had to know the URL. Surface it only to those who can use it.
     // Resolved before the redirect below, which needs to know.
-    const { data: admin } = await supabase.rpc("is_platform_admin", {
-      p_user_id: user.id,
-    });
+    // The text size saved on their profile rides along, so a browser that
+    // shows another one (a new device, someone else's cookie) is put right.
+    const [{ data: admin }, savedTextSize] = await Promise.all([
+      supabase.rpc("is_platform_admin", { p_user_id: user.id }),
+      readTextSize(supabase, user.id),
+    ]);
     isPlatformAdmin = Boolean(admin);
+    textSize = savedTextSize;
 
     // Now that the PMS is connected before anyone picks a path, no property
     // means onboarding is genuinely unfinished — there is no way to legitimately
@@ -66,7 +73,7 @@ export default async function Home({
 
   return (
     <>
-      <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} />
+      <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} textSize={textSize} />
       <GodModeBannerSlot isPlatformAdmin={isPlatformAdmin} />
     </>
   );

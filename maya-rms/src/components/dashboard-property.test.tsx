@@ -259,7 +259,7 @@ describe("the calendar's amounts", () => {
     expect(screen.getByText("Manual · $180.00")).toBeTruthy();
   });
 
-  it("show a night with no current price, and the colour legend, with no em dash", async () => {
+  it("show a night with no current price, and the colour key, with no em dash", async () => {
     const cal = october();
     const day = cal.days["10"] as { room_types: Record<string, unknown>[] };
     day.room_types = [{ ...day.room_types[0], current_rate: null, manual_price: null }];
@@ -267,7 +267,9 @@ describe("the calendar's amounts", () => {
     window.history.replaceState(null, "", "/?date=2026-10-10");
     render(<Dashboard initialSearch={window.location.search} />);
     expect(await screen.findByText(/^Current price\s*–$/)).toBeTruthy();
-    expect(screen.getByText(/^Measured by revenue per room/)).toBeTruthy();
+    expect(screen.getByTestId("calendar-color-key").textContent).toContain("Strong night");
+    fireEvent.click(screen.getByRole("button", { name: "What the colours mean" }));
+    expect(screen.getByText(/revenue per room with this property's own nights/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("\u2014");
   });
 });

@@ -71,7 +71,7 @@ function money(n: number, symbol = "$"): string {
 }
 
 const inputClass = "w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm";
-const microLabel = "mb-0.5 block text-[11px] text-slate-500";
+const microLabel = "mb-0.5 block text-[0.6875rem] text-slate-500";
 
 export function RateSimulator({
   activeHotelId,
@@ -412,7 +412,7 @@ export function RateSimulator({
               onChange={(e) => setStayDate(e.target.value)}
               className={inputClass}
             />
-            <p className={`mt-1 text-[11px] ${dateValid ? "text-slate-500" : "text-amber-300"}`}>
+            <p className={`mt-1 text-[0.6875rem] ${dateValid ? "text-slate-500" : "text-amber-300"}`}>
               {dateValid
                 ? "Sets days to arrival, and decides which date windows and weekdays apply."
                 : "Pick a stay date to see what your rules would do."}
@@ -435,7 +435,7 @@ export function RateSimulator({
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[11px] text-slate-500">
+            <p className="mt-1 text-[0.6875rem] text-slate-500">
               Leave on &ldquo;not enough history&rdquo; and booking-speed rules stay quiet. The math
               is the same a real run uses, and a real run keeps them quiet too when there isn&rsquo;t
               enough history to read a pace.
@@ -447,12 +447,12 @@ export function RateSimulator({
       {/* ── Room types ────────────────────────────────────────────── */}
       <div className="rounded border border-slate-800 bg-slate-950/60 p-4">
         <h3 className="mb-1 text-sm font-semibold">Your rooms</h3>
-        <p className="mb-3 text-[11px] text-slate-500">
+        <p className="mb-3 text-[0.6875rem] text-slate-500">
           Real room types from this property. Each starts at the nearest rate MAYA has published for
           it. Change it to whatever night you want to test.
         </p>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-sm">
+          <table className="w-full min-w-[45rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-700 text-left text-slate-300">
                 <th className="py-2 pr-3 font-medium">Room type</th>
@@ -469,7 +469,7 @@ export function RateSimulator({
                   <tr key={rt.id} className="border-b border-slate-800">
                     <td className="py-2 pr-3">
                       <div className="font-medium text-slate-200">{rt.name}</div>
-                      <div className="text-[11px] text-slate-500">{rt.total_rooms} rooms</div>
+                      <div className="text-[0.6875rem] text-slate-500">{rt.total_rooms} rooms</div>
                     </td>
                     <td className="py-2 pr-3">
                       <input
@@ -496,7 +496,7 @@ export function RateSimulator({
                           }
                           className="w-20 rounded border border-slate-700 bg-slate-950 p-2 text-sm tabular-nums"
                         />
-                        <span className="text-[11px] text-slate-500">
+                        <span className="text-[0.6875rem] text-slate-500">
                           %{" "}
                           <span className="tabular-nums">
                             ({Math.round((v.occupancyPct / 100) * rt.total_rooms)} of {rt.total_rooms})
@@ -515,7 +515,7 @@ export function RateSimulator({
                         className="w-20 rounded border border-slate-700 bg-slate-950 p-2 text-sm tabular-nums"
                       />
                     </td>
-                    <td className="py-2 pr-3 text-[11px] text-slate-500 tabular-nums">
+                    <td className="py-2 pr-3 text-[0.6875rem] text-slate-500 tabular-nums">
                       {money(rt.floor_price, currencySymbol)} &ndash; {money(rt.ceiling_price, currencySymbol)}
                     </td>
                   </tr>
@@ -531,7 +531,7 @@ export function RateSimulator({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold">Rules in play</h3>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[0.6875rem] text-slate-500">
               Switched-off rules are included so you can see what turning one on would do.
             </p>
           </div>
@@ -566,22 +566,22 @@ export function RateSimulator({
                     className="cursor-pointer"
                   />
                   <span className="text-slate-200">{r.name}</span>
-                  <span className="text-[11px] text-slate-500">
+                  <span className="text-[0.6875rem] text-slate-500">
                     {r.is_pickup_rule ? "event" : "ladder"}
                   </span>
                   {measuresDifferently(r.signal_room_type_ids, r.affected_room_type_ids, countsAsRoom) && (
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[0.6875rem] text-slate-500">
                       Watches {namesOf(r.signal_room_type_ids.filter(countsAsRoom))} · Changes{" "}
                       {namesOf(r.affected_room_type_ids)}
                     </span>
                   )}
                   {!r.is_active && (
-                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">
+                    <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[0.625rem] text-slate-400">
                       off
                     </span>
                   )}
                   {selectedRuleIds.has(r.id) && firedIds.has(r.id) && (
-                    <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] text-sky-300">
+                    <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[0.625rem] text-sky-300">
                       fires
                     </span>
                   )}
@@ -821,7 +821,7 @@ export function RateSimulator({
               >
                 {saving ? "Saving..." : "Save This Rule"}
               </button>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-[0.6875rem] text-slate-500">
                 Until you press this, the rule exists only on this screen.
               </span>
             </div>
@@ -833,7 +833,7 @@ export function RateSimulator({
       <div className="rounded border border-slate-800 bg-slate-950/60 p-4">
         <h3 className="mb-3 text-sm font-semibold">What would happen</h3>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-sm">
+          <table className="w-full min-w-[45rem] border-collapse text-sm">
             <thead>
               <tr className="border-b border-slate-700 text-left text-slate-300">
                 <th className="py-2 pr-3 font-medium">Room type</th>
@@ -856,7 +856,7 @@ export function RateSimulator({
                     <td className="py-2 pr-3 tabular-nums font-semibold text-slate-100">
                       {money(row.finalPrice, currencySymbol)}
                       {row.clampedBy !== "none" && (
-                        <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-normal text-slate-400">
+                        <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[0.625rem] font-normal text-slate-400">
                           held at your {row.clampedBy}
                         </span>
                       )}
@@ -873,7 +873,7 @@ export function RateSimulator({
                             <li key={o.ruleId} className="text-slate-300">
                               {o.ruleName}
                               {!o.isActive && (
-                                <span className="ml-1.5 text-[10px] text-amber-300">
+                                <span className="ml-1.5 text-[0.625rem] text-amber-300">
                                   (currently off)
                                 </span>
                               )}
@@ -882,7 +882,7 @@ export function RateSimulator({
                         </ul>
                       )}
                       {row.clampedBy !== "none" && (
-                        <div className="mt-1 text-[11px] text-slate-500">
+                        <div className="mt-1 text-[0.6875rem] text-slate-500">
                           Rules asked for {money(row.preClampPrice, currencySymbol)}.
                         </div>
                       )}
@@ -898,7 +898,7 @@ export function RateSimulator({
         {results.some((r) => r.outcomes.some((o) => !o.fired && o.skipReason !== "not_affected")) && (
           <div className="mt-4 border-t border-slate-800 pt-3">
             <div className="mb-1 text-xs text-slate-400">Didn&rsquo;t fire</div>
-            <ul className="space-y-0.5 text-[11px] text-slate-500">
+            <ul className="space-y-0.5 text-[0.6875rem] text-slate-500">
               {Array.from(
                 new Map(
                   results
@@ -922,7 +922,7 @@ export function RateSimulator({
           </div>
         )}
 
-        <p className="mt-4 text-[11px] text-slate-500">
+        <p className="mt-4 text-[0.6875rem] text-slate-500">
           The math is the same a real run uses, but this preview simplifies three things: a ladder
           rule fires on the way into its condition and holds, so this shows where the night settles
           rather than each step; when several event rules match, a real run picks one winner while

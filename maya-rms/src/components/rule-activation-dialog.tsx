@@ -294,7 +294,7 @@ export function RuleActivationDialog({
         >
           {blocks.map((b) => (
             <div key={b.key} className="w-[82px]">
-              <p className="mb-1 text-[10px] font-medium text-slate-400">{b.label}</p>
+              <p className="mb-1 text-[0.625rem] font-medium text-slate-400">{b.label}</p>
               <div className="grid grid-cols-[repeat(7,10px)] gap-[2px]">
                 {Array.from({ length: b.lead }, (_, i) => (
                   <span key={`lead-${i}`} className="size-[10px]" />

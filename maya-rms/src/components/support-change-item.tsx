@@ -32,7 +32,7 @@ export function SupportChangeItem({
           {age ? <span className="text-slate-500"> ({age})</span> : null}
         </time>
       </p>
-      <p className="mt-1 text-[13px] leading-relaxed text-slate-300">
+      <p className="mt-1 text-[0.8125rem] leading-relaxed text-slate-300">
         {SUPPORT_CHANGE_LEAD}: {item.summary}
       </p>
     </div>

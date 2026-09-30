@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { TermsGate } from "@/components/legal/terms-gate";
 import { ThemeGuard } from "@/components/docs/theme-guard";
 import { ThemeScript } from "@/components/docs/theme-script";
+import { TextSizeScript } from "@/components/text-size-script";
 import { WheelGuard } from "@/components/wheel-guard";
 import { APP_ORIGIN } from "@/lib/docs/site";
 import "./globals.css";
@@ -41,11 +42,13 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      // the docs and support pages set their light or dark class before hydrating
+      // the docs and support pages set their light or dark class, and every
+      // page the person's text size, before hydrating
       suppressHydrationWarning
     >
       <head>
         <ThemeScript />
+        <TextSizeScript />
       </head>
       <body className="min-h-full flex flex-col">
         {children}

@@ -15,6 +15,7 @@ import {
   splitRevparSeries,
   type RevparDatum,
 } from "@/lib/calendar-color";
+import { DEFAULT_CALENDAR_DISPLAY } from "@/lib/calendar-display";
 import { formatUtcMonthYear } from "@/lib/calendar-month-label";
 import { ROOM_TYPES } from "@/lib/demo-data";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@/lib/engine/snapshots";
 import { evalIsoToHotelDateString } from "@/lib/engine/timezone";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { readCalendarDisplay } from "@/lib/settings/calendar-settings";
 import type { CalendarDay, CalendarResponse, CalendarRoomType } from "@/types/domain";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -61,6 +63,27 @@ function pad2(n: number): string {
 
 function monthKey(year: number, month: number): string {
   return `${year}-${pad2(month)}`;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * The day's ADR and RevPAR, counting only the room types that count as rooms,
+ * as its occupancy does: their room revenue over the rooms booked in them,
+ * and over the rooms you can sell. Null where there is nothing to divide by.
+ */
+export function dayRates(
+  counting: ReadonlyArray<{ revenue: number; booked: number; total_rooms: number }>,
+): { adr: number | null; sellable_revpar: number | null } {
+  const revenue = counting.reduce((s, rt) => s + rt.revenue, 0);
+  const booked = counting.reduce((s, rt) => s + rt.booked, 0);
+  const sellable = counting.reduce((s, rt) => s + rt.total_rooms, 0);
+  return {
+    adr: booked > 0 ? round2(revenue / booked) : null,
+    sellable_revpar: sellable > 0 ? round2(revenue / sellable) : null,
+  };
 }
 
 /* ── Hotel history cache ──────────────────────────────────────── */
@@ -338,6 +361,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
       room_types: roomTypes,
       revpar,
       color: colorForRevpar(revpar, dateStr < todayStr ? scale.past : scale.future),
+      ...dayRates(roomTypes),
     };
   }
 
@@ -354,6 +378,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
     },
     today: todayStr,
     currency: "USD",
+    display: { ...DEFAULT_CALENDAR_DISPLAY, small: [...DEFAULT_CALENDAR_DISPLAY.small] },
     days,
   };
 }
@@ -617,6 +642,7 @@ async function getCalendarFromDb(
     oosRows,
     ownRateCells,
     rateSource,
+    display,
   ] = await Promise.all([
     supabase
       .from("hotels")
@@ -672,6 +698,10 @@ async function getCalendarFromDb(
     // a typed price is not priced or sent, and the day card says so.
     readOwnRateCells(supabase, hotelId, startDate, endDate),
     readRateSource(supabase, hotelId),
+    // What each day shows and how its colours read (Settings). One row,
+    // read fresh with every month so a change shows on the next load; never
+    // throws, and a database without it shows the default calendar.
+    readCalendarDisplay(supabase, hotelId),
   ]);
 
   const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
@@ -860,6 +890,7 @@ async function getCalendarFromDb(
       room_types: roomTypes,
       revpar,
       color: colorForRevpar(revpar, dateStr < todayStr ? scale.past : scale.future),
+      ...dayRates(counting),
     };
   }
 
@@ -873,6 +904,7 @@ async function getCalendarFromDb(
     range,
     today: todayStr,
     currency: hotelRow?.currency ? String(hotelRow.currency) : null,
+    display,
     days,
   };
 }

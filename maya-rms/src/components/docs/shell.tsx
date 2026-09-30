@@ -101,10 +101,10 @@ function DocsFrame({ sections, children }: { sections: NavSection[]; children: R
   }, []);
 
   return (
-    <div className="docs-shell flex-1 pt-[68px]">
+    <div className="docs-shell flex-1 pt-[4.25rem]">
       <ReadingProgress />
       <div
-        className="sticky top-[68px] z-40 flex items-center gap-1 border-b border-border bg-background/90 px-2 py-1.5 backdrop-blur-lg lg:hidden"
+        className="sticky top-[4.25rem] z-40 flex items-center gap-1 border-b border-border bg-background/90 px-2 py-1.5 backdrop-blur-lg lg:hidden"
         data-print-hide
       >
         <BarButton onClick={() => setMenuOpen(true)} label="Docs menu">
@@ -124,7 +124,7 @@ function DocsFrame({ sections, children }: { sections: NavSection[]; children: R
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6">
         <div className="lg:grid lg:grid-cols-[15.5rem_minmax(0,1fr)] lg:gap-10">
           <aside ref={sidebarRef} className="relative z-30 hidden lg:block" data-print-hide>
-            <div className="sticky top-[68px] flex h-[calc(100dvh-68px)] flex-col pt-8">
+            <div className="sticky top-[4.25rem] flex h-[calc(100dvh-4.25rem)] flex-col pt-8">
               <div className="flex items-center gap-2 pr-2 pb-4">
                 <DocsSearch ref={sidebarSearch} className="flex-1" />
                 <ThemeToggle />

@@ -12,6 +12,7 @@ import {
 import { signupAcceptanceMetadata } from "@/lib/legal/versions";
 import { safeNext } from "@/lib/deep-links";
 import { forgetClaimTicket, readClaimTicket, saveClaimTicket } from "@/lib/pms/claim-ticket";
+import { syncTextSizeFromProfile } from "@/lib/text-size";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import Link from "next/link";
@@ -299,7 +300,7 @@ export default function LoginPage() {
     setResendNote(null);
     try {
       const supabase = createClient();
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signedIn, error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -308,6 +309,8 @@ export default function LoginPage() {
         else setError(signInError.message);
         return;
       }
+      // Their text size, on this browser before the first page after sign-in.
+      await syncTextSizeFromProfile(supabase, signedIn?.user?.id ?? null);
       if (!(await finishClaim())) return;
       afterSignIn();
     } finally {

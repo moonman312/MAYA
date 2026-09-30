@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
   "limits": {
     "rawQueryChars": 1024,
@@ -837,6 +837,16 @@
       "docs": "connect/which-systems-work",
       "docsLinkable": true
     },
+    "settings": {
+      "label": "Open Settings",
+      "opens": "The dashboard with Settings open. Nothing is changed.",
+      "target": {
+        "path": "/"
+      },
+      "params": [],
+      "docs": "watch/settings",
+      "docsLinkable": true
+    },
     "team": {
       "label": "Open the Team page",
       "opens": "Team page.",
@@ -1011,6 +1021,7 @@
     "pms": "pms",
     "room-types": "room-types",
     "connect": "connect",
+    "settings": "settings",
     "team": "team",
     "billing": "billing",
     "review": "review",
@@ -1075,6 +1086,7 @@
       "simulator": "rules/the-rate-simulator",
       "changelog": "watch/the-change-log",
       "pms": "watch/the-pms-tab",
+      "settings": "watch/settings",
       "team": "team/inviting-and-removing-people",
       "billing": "billing/the-billing-page",
       "review": "review/checking-what-maya-found",
@@ -1104,7 +1116,9 @@
       "go-live": "live/going-live",
       "room-count": "billing/your-room-count",
       "rule-activation": "rules/turning-a-rule-on#what-the-days-mean",
-      "no-rate": "wrong/a-price-looks-wrong#why-is-a-night-unpriced"
+      "no-rate": "wrong/a-price-looks-wrong#why-is-a-night-unpriced",
+      "calendar-colors": "watch/the-calendar#what-the-colours-mean",
+      "settings-colours": "watch/settings#colours"
     }
   }
 }

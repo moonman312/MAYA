@@ -335,7 +335,7 @@ export function ReviewFindings({
             >
               Continue to recommendations
             </button>
-            <p className="mt-2 text-[11px] text-slate-600">
+            <p className="mt-2 text-[0.6875rem] text-slate-600">
               Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
@@ -402,7 +402,7 @@ export function ReviewFindings({
           ) : null}
 
           {resolved.length > 0 ? (
-            <div className="text-[11px] text-slate-600">
+            <div className="text-[0.6875rem] text-slate-600">
               {resolved.length} item{resolved.length === 1 ? "" : "s"} already handled
             </div>
           ) : null}
@@ -433,7 +433,7 @@ export function ReviewFindings({
                 ) : null}
               </p>
             ) : null}
-            <p className="mt-2 text-[11px] text-slate-600">
+            <p className="mt-2 text-[0.6875rem] text-slate-600">
               Anything you skip stays available later. This isn&apos;t your only chance.
             </p>
           </div>
@@ -494,13 +494,13 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
       <h2 className="text-base font-semibold text-slate-100">
         While you were here, we built your first pricing rules
       </h2>
-      <p className="mt-1 text-[13px] leading-relaxed text-slate-400">
+      <p className="mt-1 text-[0.8125rem] leading-relaxed text-slate-400">
         Based on your own booking history, and already running in{" "}
         <span className="text-slate-300">simulation mode</span>: watching every
         night and showing what they <em>would</em> do, without touching a
         single price.
       </p>
-      {note ? <p className="mt-2 text-[13px] leading-relaxed text-slate-400">{note}</p> : null}
+      {note ? <p className="mt-2 text-[0.8125rem] leading-relaxed text-slate-400">{note}</p> : null}
 
       <div className="mt-4 space-y-2.5">
         {rules.map((r) => (
@@ -525,7 +525,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
             >
               {going ? "Switching…" : "Turn them on for real"}
             </button>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[0.6875rem] text-slate-400">
               Or leave them in simulation and watch for a while. That works too.
             </span>
           </>
@@ -560,7 +560,7 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
  */
 export function GoLiveConfirmation() {
   return (
-    <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+    <p className="mt-2 text-[0.6875rem] leading-relaxed text-slate-400">
       Going live sends these rates to your PMS automatically. You&apos;re confirming you&apos;ve
       reviewed your rules and limits (
       <a
@@ -652,7 +652,7 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
               {rt.name}
               <span className="text-slate-500">{rt.total_rooms}</span>
               {needsAnswer(rt) ? (
-                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-amber-300">
                   needs your answer
                 </span>
               ) : null}
@@ -699,9 +699,9 @@ export function FindingCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-sm font-semibold text-slate-100">{c.title}</div>
-          <p className="mt-1 text-[13px] leading-relaxed text-slate-400">{c.body}</p>
+          <p className="mt-1 text-[0.8125rem] leading-relaxed text-slate-400">{c.body}</p>
           {finding.status === "auto_applied" ? (
-            <p className="mt-1.5 text-[11px] text-slate-400">
+            <p className="mt-1.5 text-[0.6875rem] text-slate-400">
               We already did this for you. Dismiss to undo it.
             </p>
           ) : null}

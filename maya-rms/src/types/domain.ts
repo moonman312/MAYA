@@ -1,3 +1,5 @@
+import type { CalendarDisplay } from "@/lib/calendar-display";
+
 /* ── Legacy types (kept for backward compatibility with demo/simulation) ── */
 
 export type RuleConditionValue = string | number;
@@ -436,8 +438,20 @@ export type CalendarDay = {
   /**
    * Property-relative RevPAR bucket. Past days are judged against the
    * hotel's historical terciles, future days against the on-the-books ones.
+   * Always the standard colour (green strong, red weak): a property that
+   * reversed its colours in Settings shows it through nightColor().
    */
   color: "green" | "orange" | "red";
+  /**
+   * Room revenue from the room types that count as rooms, divided by the
+   * rooms booked in them, 2dp. Null when nothing is booked. Older servers omit it.
+   */
+  adr?: number | null;
+  /**
+   * That same room revenue divided by the rooms you can sell that night
+   * (`total`), 2dp. Null when there are none to sell. Older servers omit it.
+   */
+  sellable_revpar?: number | null;
 };
 
 export type CalendarResponse = {
@@ -467,6 +481,8 @@ export type CalendarResponse = {
   today?: string;
   /** The property's currency code ("USD", "EUR"); null when it has none set. Older servers omit it. */
   currency?: string | null;
+  /** What each day shows and how its colours read, as the property chose in Settings. Older servers omit it. */
+  display?: CalendarDisplay;
   days: Record<string, CalendarDay>;
 };
 

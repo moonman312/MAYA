@@ -11,7 +11,9 @@
  * docs/analytics.md has what each event means and the questions it answers.
  */
 
+import { CALENDAR_COLOR_MODES, CALENDAR_METRICS } from "@/lib/calendar-display";
 import registry from "@/lib/deep-links/registry.json";
+import { TEXT_SIZES } from "@/lib/text-size";
 
 type PropSpec = "flag" | "count" | readonly string[];
 
@@ -73,6 +75,12 @@ export const UI_EVENTS = {
   "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion"] },
   /** Cancel: nothing saved, nothing switched on. */
   "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion"], days: "count" },
+  /** Settings opened, from the dashboard header's gear or a link. */
+  "settings.opened": {},
+  /** The property's calendar choices saved: the big number, how many small lines, which colours. */
+  "settings.calendar_saved": { big: CALENDAR_METRICS, small_lines: "count", colors: CALENDAR_COLOR_MODES },
+  /** A person saved their text size on their profile. */
+  "settings.text_size_saved": { size: TEXT_SIZES },
 } as const satisfies Record<string, Record<string, PropSpec>>;
 
 export type UiEventName = keyof typeof UI_EVENTS;

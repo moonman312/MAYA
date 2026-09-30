@@ -1,7 +1,14 @@
 "use client";
 
+import { Settings as SettingsIcon } from "lucide-react";
 import { AskForHelp } from "@/components/onboarding/ask-for-help";
 import { BillingBanner } from "@/components/billing/billing-banner";
+import { CalendarColorKey } from "@/components/calendar-color-key";
+import { CalendarDayCell } from "@/components/calendar-day-cell";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
+import { TextSizeSync } from "@/components/text-size-sync";
+import { DEFAULT_CALENDAR_DISPLAY, priceRoomTypeName, type CalendarDisplay } from "@/lib/calendar-display";
+import type { TextSize } from "@/lib/text-size";
 import { MayaLockup } from "@/components/brand/logo";
 import { PmsReconnect } from "@/components/pms-reconnect";
 import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
@@ -115,7 +122,7 @@ function CalendarMonthSkeleton({
 
   return (
     <div
-      className="grid grid-cols-7 gap-2"
+      className="grid grid-cols-7 gap-1 sm:gap-2"
       aria-busy="true"
       aria-label="Loading calendar"
     >
@@ -127,12 +134,12 @@ function CalendarMonthSkeleton({
         return (
           <div
             key={`sk-${dayNum}`}
-            className="animate-pulse rounded border border-slate-800 bg-slate-800/35 p-2"
+            className="min-w-0 animate-pulse overflow-hidden rounded border border-slate-800 bg-slate-800/35 px-1 py-1.5 sm:p-2"
           >
-            <div className="h-3 w-5 rounded bg-slate-700/70" />
-            <div className="mt-2 h-7 w-11 rounded bg-slate-700/60" />
-            <div className="mt-2 h-3 w-18 rounded bg-slate-600/50" />
-            <div className="mt-1 h-3 w-9 rounded bg-slate-600/50" />
+            <div className="h-3 w-5 max-w-full rounded bg-slate-700/70" />
+            <div className="mt-2 h-7 w-11 max-w-full rounded bg-slate-700/60" />
+            <div className="mt-2 hidden h-3 w-18 max-w-full rounded bg-slate-600/50 sm:block" />
+            <div className="mt-1 hidden h-3 w-9 max-w-full rounded bg-slate-600/50 sm:block" />
             <div className="mt-2 h-1 w-full rounded bg-slate-700/40" />
           </div>
         );
@@ -254,7 +261,7 @@ function PmsHealthBadge({ health }: { health: PmsActivity["health"] }) {
     <div className="flex items-center gap-2">
       <span className={`rounded px-2 py-0.5 text-xs font-medium ${s.cls}`}>{s.label}</span>
       {health.total > 0 && health.successRate != null ? (
-        <span className="text-[11px] tabular-nums text-slate-500">
+        <span className="text-[0.6875rem] tabular-nums text-slate-500">
           {Math.round(health.successRate * 100)}% of {health.total} requests OK
         </span>
       ) : null}
@@ -351,11 +358,14 @@ export function Dashboard({
   isPlatformAdmin = false,
   supportView = null,
   initialSearch = "",
+  textSize = null,
 }: {
   isPlatformAdmin?: boolean;
   supportView?: SupportView;
   /** The query the page was rendered with: the tab and place a link or a refresh asked for. */
   initialSearch?: string;
+  /** The text size saved on the person's profile, brought to this browser if it shows another. */
+  textSize?: TextSize | null;
 }) {
   // The tab and the place inside it live in the address (src/lib/deep-links/dashboard-url.ts),
   // so back and forward work and a link from the docs or an email can open any of them.
@@ -404,6 +414,9 @@ export function Dashboard({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [pmsActivity, setPmsActivity] = useState<PmsActivity | null>(null);
+  // Settings, opened from the gear in the header (or a link to it).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const [accessibleHotels, setAccessibleHotels] = useState<
     { id: string; name: string }[]
@@ -607,6 +620,22 @@ export function Dashboard({
     }
     // On failure, keep showing the last good calendar.
   }, [month, year, fetchMonth]);
+
+  /**
+   * The property's calendar choices just saved in Settings: shown at once on
+   * the month on screen and on every month held in memory, with no reload.
+   */
+  const applyCalendarDisplay = useCallback((display: CalendarDisplay) => {
+    for (const [key, entry] of calendarCacheRef.current) {
+      calendarCacheRef.current.set(key, { ...entry, data: { ...entry.data, display } });
+    }
+    setCalendar((c) => (c ? { ...c, display } : c));
+  }, []);
+
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    settingsButtonRef.current?.focus();
+  }, []);
 
   const reloadChangelog = useCallback(async () => {
     setChangelogError(null);
@@ -1039,6 +1068,11 @@ export function Dashboard({
     if (target) return flashWhenReady(target);
   }, [arrival, roomTypesReady]);
 
+  // A link to Settings opens it. Nothing in it is changed.
+  useEffect(() => {
+    if (arrival?.dest === "settings") setSettingsOpen(true);
+  }, [arrival]);
+
   // A link to one change that has since left the list says so.
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
@@ -1067,6 +1101,12 @@ export function Dashboard({
   // The property's own symbol on the calendar's amounts, built the way the
   // change log's sentences build it.
   const currencySymbol = currencySymbolFor(calendar?.currency);
+  // What each day shows and how its colours read (Settings). A payload from
+  // before Settings existed reads as the calendar always was.
+  const calendarDisplay = calendar?.display ?? DEFAULT_CALENDAR_DISPLAY;
+  const priceName = calendar ? priceRoomTypeName(calendar.days, calendarDisplay.price_room_type_id) : null;
+  // The key says nothing until it knows this property's colours.
+  const keyMode = hotelSwitching || !calendar ? null : calendarDisplay.colors;
 
   // Year options come from the property's actual data range when the API
   // reports one; otherwise a sensible window around the current year.
@@ -1104,6 +1144,17 @@ export function Dashboard({
           }}
         />
       ) : null}
+      {settingsOpen ? (
+        <SettingsDialog
+          onClose={closeSettings}
+          hotelId={activeHotelId}
+          propertyName={accessibleHotels.find((h) => h.id === activeHotelId)?.name ?? null}
+          roomTypes={roomTypeOptions}
+          calendar={calendarDisplay}
+          onCalendarSaved={applyCalendarDisplay}
+        />
+      ) : null}
+      <TextSizeSync saved={textSize} />
       {pendingDelete ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
@@ -1150,7 +1201,7 @@ export function Dashboard({
           </div>
         </div>
       ) : null}
-      <div className="mx-auto max-w-6xl p-6 md:p-10">
+      <div className="mx-auto max-w-6xl p-3 sm:p-6 md:p-10">
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1177,6 +1228,18 @@ export function Dashboard({
                 screen={tab === "rules" && ruleFormOpen ? "rules.builder" : tab}
                 className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
               />
+              <button
+                ref={settingsButtonRef}
+                type="button"
+                aria-label="Settings"
+                title="Settings"
+                aria-haspopup="dialog"
+                onClick={() => setSettingsOpen(true)}
+                className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded border border-slate-700 px-3 py-2 text-sm text-slate-200 hover:bg-slate-800 sm:w-auto sm:self-stretch sm:px-2.5"
+              >
+                <SettingsIcon aria-hidden className="size-4" />
+                <span className="sm:sr-only">Settings</span>
+              </button>
               <a
                 href="/account/billing"
                 className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"
@@ -1276,8 +1339,8 @@ export function Dashboard({
         <ArrivalNote note={arrivalNote} onClose={() => setArrivalNote(null)} />
 
         {tab === "calendar" && (
-          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-5">
-            <div className="flex items-center gap-3">
+          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:p-5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <button
                 className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
                 onClick={() => {
@@ -1348,86 +1411,38 @@ export function Dashboard({
               </span>
             </div>
 
-            {calendarBusy ? (
-              <CalendarMonthSkeleton year={year} month={month} />
-            ) : (
-              calendar && (
-                <>
-                  <div className="grid grid-cols-7 gap-2">
-                    {Array.from({ length: calendar.first_weekday }).map(
-                      (_, idx) => (
-                        <div key={`empty-${idx}`} />
-                      ),
-                    )}
-                    {Array.from({ length: calendar.days_in_month }).map(
-                      (_, idx) => {
-                        const day = idx + 1;
-                        const data = calendar.days[String(day)];
-                        // Colors are property-relative RevPAR terciles from the
-                        // API; fall back to the legacy occupancy cutoffs for
-                        // payloads that predate them.
-                        const color = data.color
-                          ? { green: "bg-emerald-600", orange: "bg-amber-500", red: "bg-rose-600" }[
-                              data.color
-                            ]
-                          : data.occupancy_pct >= calendar.thresholds.high
-                            ? "bg-emerald-600"
-                            : data.occupancy_pct >= calendar.thresholds.low
-                              ? "bg-amber-500"
-                              : "bg-rose-600";
-                        return (
-                          <button
-                            key={day}
-                            type="button"
-                            className={`cursor-pointer rounded border border-slate-700 p-2 text-left hover:border-sky-400 ${
-                              selectedDay === day ? "ring-2 ring-sky-400" : ""
-                            }`}
-                            onClick={() => setSelectedDay(day)}
-                          >
-                            <div className="text-xs text-slate-400">{day}</div>
-                            <div className="text-lg font-semibold">
-                              {data.occupancy_pct}%
-                            </div>
-                            <div className="mt-1 text-[11px] text-slate-400">
-                              {data.booked}/{data.total} rooms
-                            </div>
-                            <div
-                              className="text-[11px] text-slate-400"
-                              title="Room revenue (booked nights)"
-                            >
-                              {currencySymbol}
-                              {data.revenue >= 1000
-                                ? `${(data.revenue / 1000).toFixed(1)}k`
-                                : data.revenue.toFixed(0)}
-                            </div>
-                            <div
-                              className={`mt-2 h-1 w-full rounded ${color}`}
-                            />
-                          </button>
-                        );
-                      },
-                    )}
+            <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
+              <CalendarColorKey mode={keyMode} />
+              <div className="min-w-0 flex-1">
+                {calendarBusy ? (
+                  <CalendarMonthSkeleton year={year} month={month} />
+                ) : calendar ? (
+                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                    {Array.from({ length: calendar.first_weekday }).map((_, idx) => (
+                      <div key={`empty-${idx}`} />
+                    ))}
+                    {Array.from({ length: calendar.days_in_month }).map((_, idx) => {
+                      const day = idx + 1;
+                      return (
+                        <CalendarDayCell
+                          key={day}
+                          day={day}
+                          data={calendar.days[String(day)]}
+                          display={calendarDisplay}
+                          symbol={currencySymbol}
+                          priceRoomTypeName={priceName}
+                          selected={selectedDay === day}
+                          onSelect={() => setSelectedDay(day)}
+                        />
+                      );
+                    })}
                   </div>
+                ) : null}
+              </div>
+            </div>
 
-                  <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-1 w-4 rounded bg-emerald-600" />
-                      strong night
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-1 w-4 rounded bg-amber-500" />
-                      typical night
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block h-1 w-4 rounded bg-rose-600" />
-                      weak night
-                    </span>
-                    <span>
-                      Measured by revenue per room, relative to this
-                      property&apos;s own results (future nights compare
-                      against other upcoming nights)
-                    </span>
-                  </p>
+            {!calendarBusy && calendar ? (
+              <>
 
                   {selectedDay &&
                   calendar.year === year &&
@@ -1468,7 +1483,7 @@ export function Dashboard({
                                 {rt.name}
                                 {rt.manual_price ? (
                                   <span
-                                    className="rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-300"
+                                    className="rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-300"
                                     title={`${rt.manual_price.source === "pms" ? "Seen" : "Set"} ${formatFriendlyDateTime(rt.manual_price.set_at)}`}
                                   >
                                     {manualPriceBadge(
@@ -1545,9 +1560,8 @@ export function Dashboard({
                       </div>
                     </div>
                   ) : null}
-                </>
-              )
-            )}
+              </>
+            ) : null}
           </section>
         )}
 
@@ -1581,7 +1595,7 @@ export function Dashboard({
             <RuleBehaviorAnimations />
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse text-sm">
+              <table className="w-full min-w-[45rem] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-700 text-left text-slate-300">
                     <th className="py-2">Name</th>
@@ -1659,7 +1673,7 @@ export function Dashboard({
                           >
                             <span
                               className={`absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform ${
-                                rule.enabled ? "translate-x-[18px]" : "translate-x-0.5"
+                                rule.enabled ? "translate-x-[1.125rem]" : "translate-x-0.5"
                               }`}
                             />
                           </span>
@@ -1676,7 +1690,7 @@ export function Dashboard({
                           if (!stops || stops.nights.length === 0) return null;
                           return (
                             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[11px] font-medium text-amber-200">
+                              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[0.6875rem] font-medium text-amber-200">
                                 {stoppedChipLabel(stops.nights.length)}
                               </span>
                               <RoomCountHelp {...stoppedNightsHelp(stops.nights, rule.undo_on_cancellation !== false)} docs="stopped-nights" />
@@ -1684,7 +1698,7 @@ export function Dashboard({
                                 type="button"
                                 disabled={lettingRun !== null}
                                 onClick={() => void letRuleRunAgain(stops)}
-                                className="cursor-pointer text-[11px] font-medium text-sky-400 underline hover:text-sky-300 disabled:cursor-default disabled:opacity-60"
+                                className="cursor-pointer text-[0.6875rem] font-medium text-sky-400 underline hover:text-sky-300 disabled:cursor-default disabled:opacity-60"
                               >
                                 Let it run again
                               </button>
@@ -1692,7 +1706,7 @@ export function Dashboard({
                           );
                         })()}
                         {ruleSwitchError?.ruleId === rule.id ? (
-                          <p className="mt-1 max-w-[16rem] text-[11px] text-rose-400">{ruleSwitchError.message}</p>
+                          <p className="mt-1 max-w-[16rem] text-[0.6875rem] text-rose-400">{ruleSwitchError.message}</p>
                         ) : null}
                       </td>
                       <td className="py-2 pr-3">
@@ -1802,7 +1816,7 @@ export function Dashboard({
                           <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_minmax(0,10rem)_minmax(0,10rem)_auto] sm:items-end">
                             <div className="min-w-0">
                               <div className="mb-0.5 flex items-center gap-1.5">
-                                <label className="block text-[11px] text-slate-500">
+                                <label className="block text-[0.6875rem] text-slate-500">
                                   Metric
                                 </label>
                                 {row.prefilled === "far_out_cut" ? (
@@ -1860,7 +1874,7 @@ export function Dashboard({
                             </div>
                             {row.metric === "booking_speed" ? (
                               <div className="sm:col-span-2">
-                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                <label className="mb-0.5 block text-[0.6875rem] text-slate-500">
                                   Speed
                                 </label>
                                 <select
@@ -1890,7 +1904,7 @@ export function Dashboard({
                             ) : (
                               <>
                                 <div>
-                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  <label className="mb-0.5 block text-[0.6875rem] text-slate-500">
                                     Compare
                                   </label>
                                   <select
@@ -1907,7 +1921,7 @@ export function Dashboard({
                                   </select>
                                 </div>
                                 <div>
-                                  <label className="mb-0.5 block text-[11px] text-slate-500">
+                                  <label className="mb-0.5 block text-[0.6875rem] text-slate-500">
                                     Threshold
                                   </label>
                                   <input
@@ -1941,7 +1955,7 @@ export function Dashboard({
                             <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-3">
                               <div>
                                 <div className="mb-0.5 flex items-center gap-1.5">
-                                  <label className="block text-[11px] text-slate-500">
+                                  <label className="block text-[0.6875rem] text-slate-500">
                                     Lookback window
                                   </label>
                                   <RoomCountHelp
@@ -1978,7 +1992,7 @@ export function Dashboard({
                                 }
                               />
                               <div>
-                                <label className="mb-0.5 block text-[11px] text-slate-500">
+                                <label className="mb-0.5 block text-[0.6875rem] text-slate-500">
                                   Pickup measures
                                 </label>
                                 <select
@@ -2006,7 +2020,7 @@ export function Dashboard({
                             <div className="mt-3 grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-2">
                               <div>
                                 <div className="mb-0.5 flex items-center gap-1.5">
-                                  <label className="block text-[11px] text-slate-500">
+                                  <label className="block text-[0.6875rem] text-slate-500">
                                     Measured over
                                   </label>
                                   <RoomCountHelp
@@ -2034,7 +2048,7 @@ export function Dashboard({
                                 <div className="mb-0.5 flex items-center gap-1.5">
                                   <label
                                     htmlFor={`wait-${row.id}`}
-                                    className="block text-[11px] text-slate-500"
+                                    className="block text-[0.6875rem] text-slate-500"
                                   >
                                     Then waits (advanced)
                                   </label>
@@ -2096,7 +2110,7 @@ export function Dashboard({
                   </p>
                   <div className="space-y-3 rounded border border-slate-800 bg-slate-950/80 p-3">
                     <div>
-                      <label className="mb-0.5 block text-[11px] text-slate-500">
+                      <label className="mb-0.5 block text-[0.6875rem] text-slate-500">
                         Direction (required)
                       </label>
                       <select
@@ -2134,7 +2148,7 @@ export function Dashboard({
                         className="min-w-32 flex-1 rounded border border-slate-700 bg-slate-950 p-2 text-sm disabled:cursor-not-allowed"
                       />
                     </div>
-                    <p className="text-[11px] text-slate-500">or</p>
+                    <p className="text-[0.6875rem] text-slate-500">or</p>
                     <div
                       className={`flex flex-wrap items-center gap-3 ${dollarsLocked ? "opacity-40" : ""}`}
                     >
@@ -2295,7 +2309,7 @@ export function Dashboard({
                           ) : null}
                         </time>
                       </p>
-                      <p className="mt-1 text-[13px] leading-relaxed text-slate-300">{cycle.title}</p>
+                      <p className="mt-1 text-[0.8125rem] leading-relaxed text-slate-300">{cycle.title}</p>
                     </div>
                   );
                 }
@@ -2376,7 +2390,7 @@ export function Dashboard({
                           ).map((sentence, si) => (
                             <p
                               key={si}
-                              className="mt-0.5 text-[13px] leading-relaxed text-slate-400"
+                              className="mt-0.5 text-[0.8125rem] leading-relaxed text-slate-400"
                             >
                               {sentence}
                             </p>

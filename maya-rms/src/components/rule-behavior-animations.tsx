@@ -332,12 +332,12 @@ function OccupancyPanel({ value, threshold }: { value: number; threshold: number
   const over = value > threshold;
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between gap-2 text-[11px] text-slate-400">
+      <div className="flex items-center justify-between gap-2 text-[0.6875rem] text-slate-400">
         <span>Sellable occupancy</span>
         <span className={`tabular-nums ${over ? "text-emerald-300" : "text-slate-200"}`}>{value}%</span>
       </div>
       <MeterBar fill={value} marker={threshold} on={over} />
-      <div className="text-right text-[10px] text-amber-300">needs more than {threshold}%</div>
+      <div className="text-right text-[0.625rem] text-amber-300">needs more than {threshold}%</div>
     </div>
   );
 }
@@ -347,10 +347,10 @@ function SpeedPanel({ speed }: { speed: SpeedReading }) {
   const scale = 12;
   return (
     <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[0.6875rem] text-slate-400">
         <span>{speed.over}</span>
         <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+          className={`rounded-full px-2 py-0.5 text-[0.625rem] font-medium ring-1 ${
             fast ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-slate-800 text-slate-300 ring-slate-700"
           }`}
         >
@@ -358,7 +358,7 @@ function SpeedPanel({ speed }: { speed: SpeedReading }) {
         </span>
       </div>
       <MeterBar fill={(speed.booked / scale) * 100} marker={(speed.usual / scale) * 100} on={fast} />
-      <div className="flex items-center justify-between text-[10px] tabular-nums">
+      <div className="flex items-center justify-between text-[0.625rem] tabular-nums">
         <span className="text-slate-200">
           {speed.booked} {speed.booked === 1 ? "booking" : "bookings"}
         </span>
@@ -371,13 +371,13 @@ function SpeedPanel({ speed }: { speed: SpeedReading }) {
 function RuleCountLine({ name, count, pct }: { name: string; count: RuleCount; pct: string }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-800 bg-slate-900 px-2.5 py-1.5">
-      <span className="text-[11px] text-slate-300">
+      <span className="text-[0.6875rem] text-slate-300">
         {name} <span className="text-slate-500">({pct})</span>
       </span>
-      <span className="flex items-center gap-2 text-[11px] tabular-nums">
+      <span className="flex items-center gap-2 text-[0.6875rem] tabular-nums">
         <span className="text-slate-400">counting {count.counting}</span>
         <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
+          className={`rounded-full px-2 py-0.5 text-[0.625rem] font-medium ring-1 ${
             count.raises > 0
               ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
               : "bg-slate-800 text-slate-400 ring-slate-700"
@@ -394,19 +394,19 @@ function PriceTag({ price, base, changes }: { price: number; base: number; chang
   return (
     <div className="space-y-1.5">
       <div className="flex items-baseline gap-2">
-        <span className="text-[11px] uppercase tracking-wide text-slate-500">Price</span>
+        <span className="text-[0.6875rem] uppercase tracking-wide text-slate-500">Price</span>
         <span className={`font-mono text-2xl font-semibold tabular-nums text-slate-100 ${TRANSITION}`}>
           ${Number.isInteger(price) ? price : price.toFixed(2)}
         </span>
       </div>
       <div className="flex min-h-5 flex-wrap items-center gap-1">
         {changes.length === 0 ? (
-          <span className="text-[11px] text-slate-500">base price ${base}</span>
+          <span className="text-[0.6875rem] text-slate-500">base price ${base}</span>
         ) : (
           changes.map((c, i) => (
             <span
               key={i}
-              className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300 ring-1 ring-emerald-500/30"
+              className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-emerald-300 ring-1 ring-emerald-500/30"
             >
               {c}
             </span>
@@ -464,7 +464,7 @@ function StepControls({
       <button
         type="button"
         onClick={onToggle}
-        className="cursor-pointer rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300 hover:border-slate-600 hover:text-slate-100"
+        className="cursor-pointer rounded border border-slate-700 bg-slate-900 px-2 py-0.5 text-[0.6875rem] text-slate-300 hover:border-slate-600 hover:text-slate-100"
         aria-label={playing ? "Pause animation" : "Play animation"}
       >
         {playing ? "Pause" : "Play"}
@@ -510,7 +510,7 @@ export function RuleScene({ scene, undo, intervalMs }: { scene: Scene; undo: boo
           <StepControls playing={playing} onToggle={togglePlay} step={step} steps={steps} onStepClick={setStep} />
         </div>
         {scene.rules.map((r) => (
-          <p key={r} className="mt-0.5 text-[11px] text-slate-400">
+          <p key={r} className="mt-0.5 text-[0.6875rem] text-slate-400">
             {r}
           </p>
         ))}
@@ -526,13 +526,13 @@ export function RuleScene({ scene, undo, intervalMs }: { scene: Scene; undo: boo
           <span className="mr-1.5 text-slate-500">Day {s.day}</span>
           {s.label}
         </span>
-        {events.length > 0 ? <span className="text-[11px] text-slate-400">{events.join(", ")}</span> : null}
+        {events.length > 0 ? <span className="text-[0.6875rem] text-slate-400">{events.join(", ")}</span> : null}
       </div>
 
       <p
         key={`${undo}-${step}`}
         aria-live={playing ? "off" : "polite"}
-        className="min-h-[2.5rem] text-[12px] leading-relaxed text-slate-300"
+        className="min-h-[2.5rem] text-[0.75rem] leading-relaxed text-slate-300"
       >
         {s.caption}
       </p>
@@ -563,7 +563,7 @@ export function RuleBehaviorAnimations() {
       >
         <div>
           <div className="text-sm font-semibold text-slate-100">How rules behave</div>
-          <div className="text-[11px] text-slate-400">When a rule changes a price, and when the change comes off.</div>
+          <div className="text-[0.6875rem] text-slate-400">When a rule changes a price, and when the change comes off.</div>
         </div>
         <span
           className={`text-slate-400 transition-transform duration-300 motion-reduce:transition-none ${open ? "rotate-180" : ""}`}
@@ -592,7 +592,7 @@ export function RuleBehaviorAnimations() {
           <RuleScene scene={SPEED_SCENE} undo={undo} intervalMs={4200} />
           <RuleScene scene={OCCUPANCY_SCENE} undo={undo} intervalMs={3600} />
           <RuleScene scene={STRONGER_SCENE} undo={undo} intervalMs={4200} />
-          <p className="text-[11px] leading-relaxed text-slate-400">
+          <p className="text-[0.6875rem] leading-relaxed text-slate-400">
             The box works the same way on every rule, raise or cut, whatever it checks. Its &quot;?&quot; says what
             else takes a change off. Turning a rule off keeps its changes as they are.
           </p>

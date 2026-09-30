@@ -181,6 +181,9 @@ payment, so `import.started` and often `import.completed` land before
 | `rule.preview_cancelled` | Cancel: nothing saved | browser | `from`, `days` |
 | `simulator.used` | first change to any rate simulator input in a page load | browser | — |
 | `dashboard.tab_opened` | a dashboard tab chosen (this is how the change log and simulator are counted) | browser | `tab` |
+| `settings.opened` | Settings opened, from the gear in the dashboard header or a link | browser | — |
+| `settings.calendar_saved` | the property's calendar choices saved in Settings | browser | `big` (the big number: `occupancy`, `rooms_booked`, `room_revenue`, `adr`, `revpar`, `price`), `small_lines` (0 to 2), `colors` (`standard` or `reversed`) |
+| `settings.text_size_saved` | a person's text size saved on their profile | browser | `size` (`standard`, `large`, `larger`) |
 | `team.invited` | an invite was sent (or re-sent after revoke) | trigger on `pending_memberships` | `role`, `reinvite` |
 | `team.invite_revoked` | invite withdrawn | same | `role` |
 | `team.member_joined` | a membership exists | trigger on `hotel_memberships` insert | `role`, `first_member` (the owner), `via_invite` |

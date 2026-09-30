@@ -154,7 +154,7 @@ export function RoomCountHelp({
         onClick={() => setPinned((p) => !p)}
         onFocus={() => setHovered(true)}
         onBlur={blurOut}
-        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[10px] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
+        className="flex size-4 cursor-pointer items-center justify-center rounded-full border border-slate-600 text-[0.625rem] font-semibold leading-none text-slate-400 transition-colors hover:border-slate-400 hover:text-slate-200 focus-visible:border-sky-400 focus-visible:text-sky-200 focus-visible:outline-none"
       >
         ?
       </button>
@@ -168,7 +168,7 @@ export function RoomCountHelp({
             // A panel holding a link is a labelled group; a tooltip must hold nothing interactive.
             role={docs ? "group" : "tooltip"}
             aria-label={docs ? title : undefined}
-            className="block w-72 rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
+            className="block w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
           >
             <span className="block text-xs font-semibold text-slate-200">{title}</span>
             <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
@@ -441,11 +441,11 @@ function RoomTypeRow({
             {rt.total_rooms} unit{rt.total_rooms === 1 ? "" : "s"}
           </span>
           {unanswered ? (
-            <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+            <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-amber-300">
               needs your answer
             </span>
           ) : !counting ? (
-            <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+            <span className="ml-2 rounded bg-slate-800 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-slate-400">
               not a room
             </span>
           ) : null}
@@ -487,7 +487,7 @@ function RoomTypeRow({
 
           {adding ? (
             <form onSubmit={submit} className="flex flex-wrap items-end gap-2 pt-1">
-              <label className="flex flex-col text-[11px] text-slate-500">
+              <label className="flex flex-col text-[0.6875rem] text-slate-500">
                 From
                 <input
                   type="date"
@@ -497,7 +497,7 @@ function RoomTypeRow({
                   className="rounded border border-slate-700 bg-slate-900 p-1.5 text-xs text-slate-200"
                 />
               </label>
-              <label className="flex flex-col text-[11px] text-slate-500">
+              <label className="flex flex-col text-[0.6875rem] text-slate-500">
                 To
                 <input
                   type="date"
@@ -507,7 +507,7 @@ function RoomTypeRow({
                   className="rounded border border-slate-700 bg-slate-900 p-1.5 text-xs text-slate-200"
                 />
               </label>
-              <label className="flex flex-col text-[11px] text-slate-500">
+              <label className="flex flex-col text-[0.6875rem] text-slate-500">
                 Units
                 <input
                   type="number"
@@ -520,7 +520,7 @@ function RoomTypeRow({
                   className="w-16 rounded border border-slate-700 bg-slate-900 p-1.5 text-xs text-slate-200"
                 />
               </label>
-              <label className="flex min-w-32 flex-1 flex-col text-[11px] text-slate-500">
+              <label className="flex min-w-32 flex-1 flex-col text-[0.6875rem] text-slate-500">
                 Reason (optional)
                 <input
                   type="text"

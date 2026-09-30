@@ -128,7 +128,7 @@ export default async function DocsPageRoute({ params }: { params: Params }) {
         </p>
       </div>
       <aside className="hidden xl:block" data-print-hide>
-        <div className="sticky top-[92px] max-h-[calc(100dvh-110px)] overflow-y-auto pb-8">
+        <div className="sticky top-[5.75rem] max-h-[calc(100dvh-6.875rem)] overflow-y-auto pb-8">
           <Toc headings={page.headings} />
         </div>
       </aside>

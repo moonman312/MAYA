@@ -40,7 +40,7 @@ export function ConnectPms({
         <div className="text-sm font-semibold text-amber-200">
           What happens when you connect
         </div>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-amber-100/80">
+        <p className="mt-1.5 text-[0.8125rem] leading-relaxed text-amber-100/80">
           We&apos;ll read your reservation history and use it to suggest the
           best yield automation strategy for your property. This runs in the
           background, so you can keep going while it works. We never store
@@ -60,7 +60,7 @@ export function ConnectPms({
               <div className="text-sm font-semibold text-slate-100">
                 {pms.displayName}
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[0.6875rem] text-slate-400">
                 Sign in with your {pms.displayName} account
               </div>
             </div>
@@ -79,7 +79,7 @@ export function ConnectPms({
 
         {comingSoon.length > 0 ? (
           <div className="mt-2">
-            <div className="text-[11px] uppercase tracking-wide text-slate-600">
+            <div className="text-[0.6875rem] uppercase tracking-wide text-slate-600">
               Coming soon
             </div>
             <div className="mt-2 grid gap-2">
@@ -89,7 +89,7 @@ export function ConnectPms({
                   className="flex items-center justify-between rounded-lg border border-slate-800/60 bg-slate-900/50 px-5 py-3 opacity-60"
                 >
                   <span className="text-sm text-slate-400">{pms.displayName}</span>
-                  <span className="text-[11px] text-slate-600">Not yet available</span>
+                  <span className="text-[0.6875rem] text-slate-600">Not yet available</span>
                 </div>
               ))}
             </div>

@@ -90,13 +90,13 @@ export function StrategyQuestions() {
   return (
     <div className="flex flex-col gap-6 pt-6">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] uppercase tracking-wide text-slate-400">
+        <div className="text-[0.6875rem] uppercase tracking-wide text-slate-400">
           A few quick questions · {stepIndex} of 5 · all optional
         </div>
         <button
           type="button"
           onClick={() => advance("done")}
-          className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-300"
+          className="cursor-pointer text-[0.6875rem] text-slate-400 hover:text-slate-300"
         >
           Skip the rest →
         </button>

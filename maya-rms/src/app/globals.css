@@ -50,6 +50,16 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* Each person's text size, from Settings (src/lib/text-size.ts). Text and
+   spacing are sized in rem, so the whole page grows with the root. Set on
+   <html> by TextSizeScript before the first paint. */
+html[data-text-size="large"] {
+  font-size: 112.5%;
+}
+html[data-text-size="larger"] {
+  font-size: 125%;
+}
+
 /* A link from the docs or an email lands on a place and highlights it for a
    moment (src/components/deep-links/flash.ts). A ring, so nothing moves. */
 [data-dl-flash] {
