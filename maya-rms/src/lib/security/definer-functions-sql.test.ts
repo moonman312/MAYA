@@ -12,9 +12,9 @@
  *   - if authenticated can execute it, its body must check the caller
  *     (is_hotel_accessible, can_manage_hotel, can_manage_finances,
  *     has_hotel_role, is_platform_admin, my_hotel_rank, auth.uid(),
- *     auth.role(), analytics_assert_reader, god_mode_active or
- *     god_mode_status), or the function must be listed below with the reason
- *     it needs no check of its own.
+ *     auth.role(), analytics_assert_reader, god_mode_active,
+ *     god_mode_status, staff_can_read or staff_role), or the function must be
+ *     listed below with the reason it needs no check of its own.
  *
  * This is how onboarding_daily_room_nights and onboarding_room_type_stats
  * were open to everyone for weeks (audit A3): the migration that made them
@@ -153,6 +153,8 @@ const CALLER_CHECKS = [
   "analytics_assert_reader(",
   "god_mode_active(",
   "god_mode_status(",
+  "staff_can_read(",
+  "staff_role(",
 ];
 
 function checksCaller(fn: DefinerFunction): boolean {

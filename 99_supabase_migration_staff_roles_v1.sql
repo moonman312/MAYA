@@ -168,9 +168,9 @@ $$;
 revoke all on function public.staff_role() from public, anon;
 grant execute on function public.staff_role() to authenticated, service_role;
 
--- The sections the caller may read right now. A platform admin: all of them,
--- as today. A developer or sales login: its role's, only once the token is
--- aal2; before the code, none.
+-- The sections the caller may read right now, in byte order. A platform
+-- admin: all of them, as today. A developer or sales login: its role's, only
+-- once the token is aal2; before the code, none.
 create or replace function public.staff_sections()
 returns text[]
 language sql
@@ -181,7 +181,7 @@ as $$
   select case
     when public.is_platform_admin() then public.staff_role_sections('platform_admin')
     else coalesce((
-      select array_agg(distinct s.section order by s.section)
+      select array_agg(distinct s.section collate "C" order by s.section collate "C")
         from public.app_roles ar
         cross join lateral unnest(public.staff_role_sections(ar.role::text)) as s(section)
        where ar.user_id = auth.uid()
