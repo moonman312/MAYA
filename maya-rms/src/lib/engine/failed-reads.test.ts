@@ -146,6 +146,12 @@ const RULES: FakeRow[] = [
   ),
   // More than half full: +5%, every night.
   rule("Half full", { occupancy_operator: "gt", occupancy_threshold: 0.5 }, { is_pickup_rule: false, action_value: 5 }),
+  // More than 30 room nights in 3 days, on every night: never true here, and measured on all 42 nights at once.
+  rule(
+    "Rush",
+    { pickup_operator: "gt", pickup_threshold: 30, pickup_window_days: 3, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
+    { priority: 50, action_value: 15 },
+  ),
 ];
 
 let resId = 0;
@@ -194,7 +200,9 @@ function story() {
   const fastFive = burst(FAST, 5, at(0, 10));
   const busyFive = burst(BUSY, 5, at(0, 10));
   const typedTwo = burst(TYPED, 2, at(1, 9));
-  const rows = [...history(), ...fastFive, ...busyFive, ...typedTwo];
+  const busyAgain = burst(BUSY, 5, at(2, 9));
+  const busyMore = burst(BUSY, 5, at(3, 9));
+  const rows = [...history(), ...fastFive, ...busyFive, ...typedTwo, ...busyAgain, ...busyMore];
   const nights: string[] = [];
   for (let d = D0; d <= LAST; d = addDays(d, 1)) nights.push(d);
   // Six-hourly snapshots over the four days before the story, for a pickup count to open on.
@@ -249,6 +257,10 @@ function story() {
         t.reservations = t.reservations.filter((r) => !gone.has(r.id));
       },
     },
+    // Five more book BUSY the day after: the pickup count rule is true again over its three days, and raises again.
+    { name: "BUSY picks up again", at: at(2, 10, 5) },
+    // And five more the day after that: it counts from its own raise, which is still on the night.
+    { name: "BUSY picks up once more", at: at(3, 10, 5) },
   ];
   return { seed, rows, steps };
 }
@@ -396,6 +408,25 @@ describe.each(ENGINES)("$name: a read that fails", (engine) => {
     expect(last.after.fires).toEqual([`Fast day|${FAST}|1|bookings_cancelled`, `Pickup count|${BUSY}|1|bookings_cancelled`]);
     // 22 of 40: the rule became true after the price was typed, so it goes on top of it.
     expect(priceOf(last.fake.tables, TYPED)).toBe(315);
+
+    const again = await play(engine, 3);
+    expect(again.error).toBeNull();
+    expect(priceOf(again.fake.tables, BUSY)).toBe(220);
+    const more = await play(engine, 4);
+    expect(more.error).toBeNull();
+    // Two raises, and by now more than half its rooms are booked: 200 x 1.1 x 1.1 x 1.05.
+    expect(priceOf(more.fake.tables, BUSY)).toBe(254.1);
+    expect(more.after.fires.filter((f) => !f.startsWith("Quiet day"))).toEqual([
+      `Fast day|${FAST}|1|bookings_cancelled`,
+      `Pickup count|${BUSY}|1|bookings_cancelled`,
+      `Pickup count|${BUSY}|2|`,
+      `Pickup count|${BUSY}|3|`,
+    ]);
+    // The quiet nights were cut meanwhile.
+    expect(more.after.fires.some((f) => f.startsWith("Quiet day"))).toBe(true);
+    // Both ways of reading many snapshots at once are part of the story.
+    expect(first.calls.some((c) => c.table === "rpc:snapshot_cells_at")).toBe(true);
+    expect(more.calls.some((c) => c.table === "stay_date_snapshot" && c.filters.some((f) => f.kind === "or"))).toBe(true);
   }, 120_000);
 
   it.each(READS)("$name: the run stops and publishes nothing", async (read) => {
@@ -414,7 +445,7 @@ describe.each(ENGINES)("$name: a read that fails", (engine) => {
     }
   }, 300_000);
 
-  it.each([0, 1, 2])("whichever read of run %i fails, it publishes nothing, or exactly what the healthy run does", async (upTo) => {
+  it.each([0, 1, 2, 3, 4])("whichever read of run %i fails, it publishes nothing, or exactly what the healthy run does", async (upTo) => {
     const healthy = await play(engine, upTo);
     expect(healthy.error).toBeNull();
     const reads = healthy.calls.map((c, i) => (isRead(c) ? i : -1)).filter((i) => i >= 0);
