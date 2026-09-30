@@ -16,10 +16,19 @@
  * an error page that is not Cloudbeds' own is an outage whatever its status
  * (readRefusalOf). isAuthRevocation is the plain reading, for callers that
  * only classify a failure.
+ *
+ * An outage that goes on is not left alone either (noteReadFailure, decided
+ * 2026-09-29, audit A12): while reads keep failing for any reason but a
+ * refused login, pricing stays held, the alert channel hears after three
+ * failed reads in a row or thirty minutes without a good one, and after
+ * about an hour the connection reads Error, which starts the outage email
+ * and the banner. The first good read puts the status back (the sync stamps
+ * it), resets the count (release_pms_sync) and posts a recovery line
+ * (noteReadRecovered).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { raiseAlert } from "./alerting.ts";
+import { raiseAlert, raiseRecovery } from "./alerting.ts";
 
 export type PmsTypeName = "cloudbeds" | "mews" | "think";
 
@@ -234,4 +243,210 @@ export async function markConnectionDisconnected(
       }),
     );
   }
+}
+
+/* ── Reads that keep failing (A12) ──────────────────────────────────────── */
+
+/** Failed reads in a row before the alert channel hears. */
+export const READ_FAILURES_BEFORE_ALERT = 3;
+/** Time without a good read before the alert channel hears, whatever the count. */
+export const READ_FAILING_ALERT_AFTER_MS = 30 * 60_000;
+/** Time without a good read before the connection reads Error (the outage email and the banner follow). */
+export const READ_FAILING_ERROR_AFTER_MS = 60 * 60_000;
+
+/** The alert key for a hotel's reads failing, one per PMS. */
+export function readsFailingAlertKey(pmsType: PmsTypeName, hotelId: string): string {
+  return `pms_reads_failing:${pmsType}:${hotelId}`;
+}
+
+export type ReadHealth = {
+  /** Failed reads in a row, this one included. */
+  failures: number;
+  /** Minutes since the last good read; null when there has never been one. */
+  minutesSinceGoodRead: number | null;
+  /** The alert channel was told this tick (or told again, or would have been but for the dedupe). */
+  alert: { sent: boolean; reason?: string } | null;
+  /** This tick moved the connection to Error. */
+  markedError: boolean;
+};
+
+/**
+ * One failed read of a PMS, for any reason but a refused login (those are
+ * noteAuthFailure's and markConnectionDisconnected's). Reads the connection
+ * row as it stands before this run is released, so the count includes this
+ * failure. Never throws.
+ *
+ *   - After READ_FAILURES_BEFORE_ALERT in a row, or READ_FAILING_ALERT_AFTER_MS
+ *     without a good read (last_sync_at), a critical alert, deduped by
+ *     raiseAlert to once per six hours.
+ *   - After READ_FAILING_ERROR_AFTER_MS without a good read, or, when there
+ *     has never been one, twice the failures the alert needs, the status
+ *     goes to Error from Connected or Degraded (never from Pending or
+ *     Disconnected: nothing is being read there). The trigger from
+ *     99_supabase_migration_connection_outage_notice_v1.sql stamps
+ *     down_since, and the outage email follows an hour later; the PMS tab
+ *     shows the banner at once. A good read stamps Connected again.
+ */
+export async function noteReadFailure(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsTypeName,
+  error: string,
+  opts: { nowMs?: number; alert?: typeof raiseAlert } = {},
+): Promise<ReadHealth | null> {
+  const nowMs = opts.nowMs ?? Date.now();
+  const alert = opts.alert ?? raiseAlert;
+  try {
+    const { data, error: readError } = await supabase
+      .from("pms_connections")
+      .select("status, sync_failures, last_sync_at")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (!data) return null;
+    const row = data as { status?: unknown; sync_failures?: unknown; last_sync_at?: unknown };
+    const status = String(row.status ?? "");
+    // release_pms_sync counts this run once the tick is over; the count on
+    // the row is the runs before it.
+    const failures = (Number(row.sync_failures) || 0) + 1;
+    const lastGoodMs = row.last_sync_at != null ? Date.parse(String(row.last_sync_at)) : NaN;
+    const sinceGoodMs = Number.isFinite(lastGoodMs) ? nowMs - lastGoodMs : null;
+    const minutesSinceGoodRead = sinceGoodMs == null ? null : Math.round(sinceGoodMs / 60_000);
+
+    const alertDue = failures >= READ_FAILURES_BEFORE_ALERT || (sinceGoodMs != null && sinceGoodMs >= READ_FAILING_ALERT_AFTER_MS);
+    const errorDue =
+      sinceGoodMs != null ? sinceGoodMs >= READ_FAILING_ERROR_AFTER_MS : failures >= READ_FAILURES_BEFORE_ALERT * 2;
+    const reason = error.slice(0, 300);
+
+    let markedError = false;
+    if (errorDue && (status === "connected" || status === "degraded")) {
+      const { data: moved, error: moveError } = await supabase
+        .from("pms_connections")
+        .update({ status: "error", updated_at: new Date(nowMs).toISOString() })
+        .eq("hotel_id", hotelId)
+        .eq("pms_type", pmsType)
+        .in("status", ["connected", "degraded"])
+        .select("id");
+      if (moveError) throw new Error(moveError.message);
+      markedError = (moved ?? []).length > 0;
+      if (markedError) {
+        await supabase.rpc("platform_log_event", {
+          p_event_type: "pms.reads_failing",
+          p_entity_type: "pms_connection",
+          p_entity_id: hotelId,
+          p_hotel_id: hotelId,
+          p_detail: { pms_type: pmsType, failures, minutes_since_good_read: minutesSinceGoodRead, reason },
+        });
+      }
+    }
+
+    let told: ReadHealth["alert"] = null;
+    if (alertDue) {
+      const since =
+        minutesSinceGoodRead != null
+          ? `No good read for ${minutesSinceGoodRead} minutes`
+          : "No good read yet";
+      told = await alert(supabase, {
+        severity: "critical",
+        key: readsFailingAlertKey(pmsType, hotelId),
+        title: `${pmsType} reads keep failing`,
+        detail:
+          `${since}; ${failures} failed read${failures === 1 ? "" : "s"} in a row. ` +
+          "Pricing is held for this hotel until a read works; it is tried again within 15 minutes. " +
+          `${markedError ? "The connection now reads Error, so the owner is emailed in an hour. " : ""}` +
+          `Error: ${reason}`,
+        hotelId,
+      });
+    }
+
+    console.error(
+      JSON.stringify({
+        fn: "noteReadFailure",
+        hotelId,
+        pmsType,
+        failures,
+        minutesSinceGoodRead,
+        status: markedError ? "error" : status,
+        ...(told ? { alert: told } : {}),
+        ...(markedError ? { event: "marked_error" } : {}),
+        error: reason,
+      }),
+    );
+    return { failures, minutesSinceGoodRead, alert: told, markedError };
+  } catch (e) {
+    console.error(
+      JSON.stringify({ fn: "noteReadFailure", hotelId, pmsType, error: e instanceof Error ? e.message : String(e) }),
+    );
+    return null;
+  }
+}
+
+/**
+ * A good read after failed ones. The sync has stamped the status Connected
+ * and last_sync_at by now; release_pms_sync has not yet reset the count, so
+ * sync_failures still says how many runs failed before this one. When any
+ * did, the alert channel gets a recovery line, if it was told of the
+ * failures (raiseRecovery says nothing otherwise). Never throws.
+ */
+export async function noteReadRecovered(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsTypeName,
+  opts: { recover?: typeof raiseRecovery } = {},
+): Promise<{ failures: number; recovery: { sent: boolean; reason?: string } | null } | null> {
+  const recover = opts.recover ?? raiseRecovery;
+  try {
+    const { data, error } = await supabase
+      .from("pms_connections")
+      .select("sync_failures")
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pmsType)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return null;
+    const failures = Number((data as { sync_failures?: unknown }).sync_failures) || 0;
+    if (failures === 0) return { failures, recovery: null };
+    const recovery = await recover(supabase, {
+      key: readsFailingAlertKey(pmsType, hotelId),
+      title: `${pmsType} reads are working again`,
+      detail: `${failures} failed read${failures === 1 ? "" : "s"} in a row before this one. Pricing resumes with this read.`,
+      hotelId,
+    });
+    console.log(JSON.stringify({ fn: "noteReadRecovered", hotelId, pmsType, failures, recovery }));
+    return { failures, recovery };
+  } catch (e) {
+    console.error(
+      JSON.stringify({ fn: "noteReadRecovered", hotelId, pmsType, error: e instanceof Error ? e.message : String(e) }),
+    );
+    return null;
+  }
+}
+
+/**
+ * What a scheduled sync does about read health after one hotel's read: a
+ * failure that was not a refused login is counted (noteReadFailure); a good
+ * read, whole or cut short, ends a streak (noteReadRecovered). A read the
+ * tick skipped (an import holds the PMS) says nothing. Never throws.
+ */
+export async function readHealthAfterSync(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsTypeName,
+  sync: { ok: boolean; skipped?: unknown; error?: string; refusal?: ReadRefusal },
+  opts: { nowMs?: number; alert?: typeof raiseAlert; recover?: typeof raiseRecovery } = {},
+): Promise<
+  | { outcome: "failed"; health: ReadHealth | null }
+  | { outcome: "refused" }
+  | { outcome: "recovered" | "ok"; failures: number; recovery: { sent: boolean; reason?: string } | null }
+  | { outcome: "skipped" }
+> {
+  if (sync.skipped) return { outcome: "skipped" };
+  if (!sync.ok) {
+    if (sync.refusal) return { outcome: "refused" };
+    return { outcome: "failed", health: await noteReadFailure(supabase, hotelId, pmsType, sync.error ?? "read failed", opts) };
+  }
+  const noted = await noteReadRecovered(supabase, hotelId, pmsType, { recover: opts.recover });
+  if (!noted || noted.failures === 0) return { outcome: "ok", failures: 0, recovery: null };
+  return { outcome: "recovered", failures: noted.failures, recovery: noted.recovery };
 }

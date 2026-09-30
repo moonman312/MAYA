@@ -24,6 +24,7 @@ import {
 import {
   markConnectionDisconnected,
   noteAuthFailure,
+  type ReadRefusal,
   readRefusalOf,
   REFUSED_RUNS_BEFORE_DISCONNECT,
 } from "../pms/connection-health.ts";
@@ -206,6 +207,12 @@ export type CloudbedsSyncFailure = {
   error: string;
   cloudbedsStatus?: number;
   retryAfterMs?: number;
+  /**
+   * The read was refused as a login (readRefusalOf): handled here by
+   * disconnecting or counting the refusal. Absent for every other failure,
+   * which the scheduled sync counts as reads failing (noteReadFailure).
+   */
+  refusal?: Exclude<ReadRefusal, null>;
 };
 
 function readPositiveIntEnv(name: string, fallback: number): number {
@@ -1669,6 +1676,7 @@ export async function runCloudbedsSyncForHotel(
         error: error.message,
         cloudbedsStatus: error.status,
         ...(error.retryAfterMs != null ? { retryAfterMs: error.retryAfterMs } : {}),
+        ...(refusal ? { refusal } : {}),
       };
     }
     const message = error instanceof Error ? error.message : "Cloudbeds sync failed.";
