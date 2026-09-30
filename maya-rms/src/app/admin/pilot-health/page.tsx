@@ -32,7 +32,9 @@ function ModePill({ mode }: { mode: PilotHealthRow["mode"] }) {
 /**
  * Every live or simulating property on one screen, with what looks wrong
  * said plainly: its connection, pricing, sending and rules, from one read of
- * platform_pilot_health(). Read-only. Properties with a problem come first,
+ * platform_pilot_health(). A Live property whose published prices have waited
+ * over an hour to be sent has a problem, whatever else reads well. Read-only.
+ * Properties with a problem come first,
  * the worse first. Nothing polls: the note under the title says when the
  * page was built, and a reload builds it again.
  */
@@ -85,6 +87,10 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
         </p>
       </div>
 
+      {health.missing && (
+        <p className="rounded border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">{health.missing}</p>
+      )}
+
       <div className="overflow-hidden rounded border border-slate-800 bg-slate-900">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-950/50 text-xs uppercase tracking-wide text-slate-500">
@@ -125,6 +131,7 @@ function PropertyRow({
   ago: (iso: string | null) => string;
 }) {
   const queueStuck = assessment.problems.some((p) => p.kind === "queue");
+  const rateReadStuck = assessment.problems.some((p) => p.kind === "rate_read");
   const openTitle = row.open_incident_causes.map((c) => `${humaniseCause(c)}: ${causeFacts(c).adminDescription}`).join("\n");
   return (
     <tr className="align-top hover:bg-slate-800/40">
@@ -156,6 +163,14 @@ function PropertyRow({
         </div>
         {row.open_incidents_admin_only > 0 && (
           <div className="text-xs text-amber-300">{row.open_incidents_admin_only} held by MAYA</div>
+        )}
+        {(row.unsent_count ?? 0) > 0 && (
+          <div className="text-xs text-rose-300">{row.unsent_count} not sent after an hour</div>
+        )}
+        {(row.rate_read_waiting ?? 0) > 0 && (
+          <div className={`text-xs ${rateReadStuck ? "text-rose-300" : "text-amber-300"}`}>
+            {row.rate_read_waiting} waiting on a rate read
+          </div>
         )}
       </td>
       <td className="px-4 py-3 text-slate-300">

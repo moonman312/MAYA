@@ -55,6 +55,10 @@ function healthy(o: Partial<PilotHealthRow> = {}): PilotHealthRow {
     open_incident_causes: [],
     active_rules: 3,
     rule_changes_24h: 1,
+    unsent_count: 0,
+    unsent_since: null,
+    rate_read_waiting: 0,
+    rate_read_waiting_since: null,
     ...o,
   };
 }
@@ -124,6 +128,61 @@ describe("the pilot health page", () => {
     expect(text).toContain("1 changed in 24h");
     expect(text).toContain("1 open sending problem for 1h: rate not found.");
     expect(text).toContain("4 nights waiting to be priced, the oldest for 50m.");
+  });
+
+  it("does not call a Live property fine while its prices wait to be sent", async () => {
+    // What the audit found reading "Looks fine": connected, read 3m ago, pass done, 0 sent in 24h.
+    state.rows = [
+      healthy({ pms_type: "cloudbeds", sent_24h: 0, unsent_count: 792, unsent_since: minutesAgo(180) }),
+      healthy({ hotel_id: "beta", name: "Beta Inn", pms_type: "cloudbeds" }),
+    ];
+
+    const html = await render();
+    const text = asText(html);
+
+    expect(html.indexOf("Alpha Inn")).toBeLessThan(html.indexOf("Beta Inn"));
+    expect(text).toContain("0 sent in 24h");
+    expect(text).toContain("792 not sent after an hour");
+    expect(text).toContain("792 published prices not sent after over an hour, the oldest for 3h.");
+    expect(text).toContain("check MAYA_PUSH_RATES in the function settings");
+    expect(text).toContain("2 properties, 2 live, 0 simulating, 1 with a problem.");
+    expect(text).not.toContain("Run 99_supabase_migration_pilot_health_v2.sql");
+  });
+
+  it("shows nights waiting on a rate read, as a note for the first hour and a problem after it", async () => {
+    const waiting = (minutes: number) =>
+      healthy({
+        pms_type: "cloudbeds",
+        open_incidents: 1,
+        open_incidents_since: minutesAgo(minutes),
+        open_incident_causes: ["awaiting_rate_read"],
+        rate_read_waiting: 40,
+        rate_read_waiting_since: minutesAgo(minutes),
+      });
+
+    state.rows = [waiting(10)];
+    const early = asText(await render());
+    expect(early).toContain("40 waiting on a rate read");
+    expect(early).toContain("Looks fine");
+
+    state.rows = [waiting(75)];
+    const late = asText(await render());
+    expect(late).toContain("40 nights held for 1h until the hotel's own rates can be read.");
+    expect(late).not.toContain("Looks fine");
+  });
+
+  it("says which file to run when the database cannot say whether prices are waiting", async () => {
+    const old = healthy();
+    delete old.unsent_count;
+    delete old.unsent_since;
+    delete old.rate_read_waiting;
+    delete old.rate_read_waiting_since;
+    state.rows = [old];
+
+    const text = asText(await render());
+
+    expect(text).toContain("Run 99_supabase_migration_pilot_health_v2.sql to see prices that were published and not sent.");
+    expect(text).toContain("Alpha Inn");
   });
 
   it("hides test properties unless asked, and says how many it hid", async () => {

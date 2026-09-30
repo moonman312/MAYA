@@ -3,7 +3,8 @@ import { addCalendarDays, evalIsoToHotelDateString, hotelDayStartIso } from "@/l
 
 /**
  * What the Pilot health page says about one property, worked out from the
- * row platform_pilot_health() gives it (99_supabase_migration_pilot_health_v1.sql).
+ * row platform_pilot_health() gives it (99_supabase_migration_pilot_health_v1.sql,
+ * and _v2 for the prices published and not sent).
  *
  * Pure: the clock is an argument, so a test and the page say the same words.
  * No server-only import, so a client component or a test can use it. "Today"
@@ -44,6 +45,18 @@ export type PilotHealthRow = {
   open_incident_causes: string[];
   active_rules: number;
   rule_changes_24h: number;
+  /**
+   * From 99_supabase_migration_pilot_health_v2.sql, so absent on a database
+   * that has not run it: nothing is said about them then.
+   *
+   * Published prices of a Live hotel that have waited over an hour with no
+   * sent record at that price, and since when the oldest has waited.
+   */
+  unsent_count?: number | null;
+  unsent_since?: string | null;
+  /** Nights held until the hotel's own rates have been read, and when the first was held. */
+  rate_read_waiting?: number | null;
+  rate_read_waiting_since?: string | null;
 };
 
 /** A read older than this is a problem: the overview page's own stale sync line. */
@@ -66,9 +79,17 @@ export const PASS_GRACE_MINUTES = 120;
  * takes a few ticks.
  */
 export const RUNNING_PASS_MINUTES = 30;
+/**
+ * Nights waiting this long on a read of the hotel's own rates are a problem:
+ * when the owner is told too (RATE_READ_VISIBLE_AFTER_MS in push-failure.ts).
+ * One failed read is put right by the next, minutes later.
+ */
+export const RATE_READ_WAIT_MINUTES = 60;
+/** The sending problem filed for those nights (push-failure.ts). */
+export const RATE_READ_CAUSE = "awaiting_rate_read";
 
 export type ProblemSeverity = "amber" | "rose";
-export type ProblemKind = "connection" | "read" | "pass" | "sending" | "queue";
+export type ProblemKind = "connection" | "read" | "pass" | "sending" | "unsent" | "rate_read" | "queue";
 export type PropertyProblem = { kind: ProblemKind; severity: ProblemSeverity; text: string };
 
 export type PricedThrough =
@@ -193,11 +214,49 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
     }
   }
 
-  // Sending: the problems an owner may be told about, by cause.
-  if (row.open_incidents > 0) {
-    const since = row.open_incidents_since ? ` for ${ageLabel(row.open_incidents_since, nowIso)}` : "";
-    const causes = row.open_incident_causes.length ? `: ${row.open_incident_causes.map(humaniseCause).join(", ")}` : "";
-    problems.push({ kind: "sending", severity: "rose", text: `${plural(row.open_incidents, "open sending problem")}${since}${causes}.` });
+  // Sending: the problems an owner may be told about, by cause. Nights
+  // waiting on a rate read have a line of their own below, which waits an
+  // hour before it says anything; where the row cannot say how long they
+  // have waited (before the v2 migration) they are listed here like the rest.
+  const rateReadOnItsOwn = row.rate_read_waiting != null;
+  const causes = rateReadOnItsOwn ? row.open_incident_causes.filter((c) => c !== RATE_READ_CAUSE) : row.open_incident_causes;
+  const openIncidents = row.open_incidents - (row.open_incident_causes.length - causes.length);
+  if (openIncidents > 0) {
+    // The oldest on record, which may be the rate read's: said only when it is theirs to say.
+    const since =
+      row.open_incidents_since && causes.length === row.open_incident_causes.length
+        ? ` for ${ageLabel(row.open_incidents_since, nowIso)}`
+        : "";
+    const named = causes.length ? `: ${causes.map(humaniseCause).join(", ")}` : "";
+    problems.push({ kind: "sending", severity: "rose", text: `${plural(openIncidents, "open sending problem")}${since}${named}.` });
+  }
+
+  // Nights held until the hotel's own rates have been read.
+  const held = row.rate_read_waiting ?? 0;
+  if (held > 0 && row.rate_read_waiting_since && olderThan(row.rate_read_waiting_since, RATE_READ_WAIT_MINUTES)) {
+    problems.push({
+      kind: "rate_read",
+      severity: "rose",
+      text: `${plural(held, "night")} held for ${ageLabel(row.rate_read_waiting_since, nowIso)} until the hotel's own rates can be read. Nothing is sent to them meanwhile.`,
+    });
+  }
+
+  // Published and not sent. The function only counts a Live hotel's prices
+  // that have waited over an hour, so any at all is a problem. With nothing
+  // sent in a day and nothing on record as wrong, the send step is not
+  // running for this hotel: the switch, or the step itself.
+  const unsent = row.unsent_count ?? 0;
+  if (row.mode === "live" && unsent > 0) {
+    const waited = row.unsent_since ? `, the oldest for ${ageLabel(row.unsent_since, nowIso)}` : "";
+    const nothingSays = row.sent_24h === 0 && row.open_incidents === 0 && row.open_incidents_admin_only === 0;
+    const why = nothingSays
+      ? " Nothing was sent in 24h and no sending problem is on record: check MAYA_PUSH_RATES in the function settings, then the push in the sync log."
+      : "";
+    problems.push({
+      kind: "unsent",
+      severity: "rose",
+      text: `${plural(unsent, "published price")} not sent after over an hour${waited}.${why}`,
+    });
   }
 
   // The queue: a change should be priced well inside the push's freshness limit.

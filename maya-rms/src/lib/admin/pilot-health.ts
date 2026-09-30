@@ -5,7 +5,7 @@ import { isMissingFunction } from "./product-analytics";
 
 /**
  * The Pilot health page's rows: platform_pilot_health() in
- * 99_supabase_migration_pilot_health_v1.sql, read under the caller's own
+ * 99_supabase_migration_pilot_health_v1.sql (and _v2), read under the caller's own
  * session so the function's platform-admin check is the gate. What each row
  * means, and what looks wrong in it, is worked out in pilot-health-assess.ts.
  *
@@ -17,7 +17,18 @@ import { isMissingFunction } from "./product-analytics";
 
 export type PilotHealth =
   | { available: false; reason: string }
-  | { available: true; rows: PilotHealthRow[]; hiddenTest: number };
+  | {
+      available: true;
+      rows: PilotHealthRow[];
+      hiddenTest: number;
+      /**
+       * Set when the function is the one from before
+       * 99_supabase_migration_pilot_health_v2.sql: its rows cannot say
+       * whether published prices are waiting to be sent, so "Looks fine"
+       * does not cover that, and the page says which file to run.
+       */
+      missing?: string;
+    };
 
 export async function loadPilotHealth(ssr: SupabaseClient, opts: { includeTest: boolean }): Promise<PilotHealth> {
   const { data, error } = await ssr.rpc("platform_pilot_health", { p_include_test: true });
@@ -29,5 +40,13 @@ export async function loadPilotHealth(ssr: SupabaseClient, opts: { includeTest: 
   }
   const all = (data ?? []) as PilotHealthRow[];
   const rows = opts.includeTest ? all : all.filter((r) => !r.is_test);
-  return { available: true, rows, hiddenTest: all.length - rows.length };
+  const beforeV2 = all.some((r) => r.unsent_count === undefined);
+  return {
+    available: true,
+    rows,
+    hiddenTest: all.length - rows.length,
+    ...(beforeV2
+      ? { missing: "Run 99_supabase_migration_pilot_health_v2.sql to see prices that were published and not sent." }
+      : {}),
+  };
 }

@@ -45,6 +45,10 @@ function healthy(o: Partial<PilotHealthRow> = {}): PilotHealthRow {
     open_incident_causes: [],
     active_rules: 3,
     rule_changes_24h: 0,
+    unsent_count: 0,
+    unsent_since: null,
+    rate_read_waiting: 0,
+    rate_read_waiting_since: null,
     ...o,
   };
 }
@@ -262,5 +266,119 @@ describe("ageLabel and humaniseCause", () => {
     expect(ageLabel(minutesAgo(150), NOW)).toBe("3h");
     expect(ageLabel(minutesAgo(3 * 24 * 60), NOW)).toBe("3d");
     expect(humaniseCause("rate_not_found")).toBe("rate not found");
+  });
+});
+
+describe("a Live hotel that is sent nothing", () => {
+  const cloudbeds = (o: Partial<PilotHealthRow> = {}) => healthy({ pms_type: "cloudbeds", ...o });
+
+  it("no longer looks fine: the row the audit drew, with its prices waiting", () => {
+    // Connected, read 3m ago, pass done, 0 sent in 24h, nothing on record as wrong.
+    const row = cloudbeds({ last_sync_at: minutesAgo(3), sent_24h: 0, unsent_count: 792, unsent_since: minutesAgo(26 * 60) });
+
+    const a = assessProperty(row, NOW);
+
+    expect(a.worst).toBe("rose");
+    expect(a.problems).toEqual([
+      {
+        kind: "unsent",
+        severity: "rose",
+        text:
+          "792 published prices not sent after over an hour, the oldest for 26h. Nothing was sent in 24h and no sending problem " +
+          "is on record: check MAYA_PUSH_RATES in the function settings, then the push in the sync log.",
+      },
+    ]);
+  });
+
+  it("says how many are waiting and leaves the switch out of it when something is being sent or a problem is on record", () => {
+    expect(texts(cloudbeds({ sent_24h: 40, unsent_count: 1, unsent_since: minutesAgo(90) }))).toEqual([
+      "1 published price not sent after over an hour, the oldest for 2h.",
+    ]);
+    expect(
+      texts(cloudbeds({ sent_24h: 0, unsent_count: 12, unsent_since: minutesAgo(120), open_incidents_admin_only: 12 })),
+    ).toEqual(["12 published prices not sent after over an hour, the oldest for 2h."]);
+    expect(
+      texts(
+        cloudbeds({
+          sent_24h: 0,
+          unsent_count: 12,
+          unsent_since: minutesAgo(120),
+          open_incidents: 1,
+          open_incidents_since: minutesAgo(115),
+          open_incident_causes: ["value_rejected"],
+        }),
+      ),
+    ).toEqual(["1 open sending problem for 2h: value rejected.", "12 published prices not sent after over an hour, the oldest for 2h."]);
+  });
+
+  it("counts nights MAYA holds back as not sent, which they are", () => {
+    const a = assessProperty(cloudbeds({ unsent_count: 3, unsent_since: minutesAgo(200), open_incidents_admin_only: 3, sent_24h: 50 }), NOW);
+    expect(a.problems.map((p) => p.kind)).toEqual(["unsent"]);
+    expect(a.worst).toBe("rose");
+  });
+
+  it("says nothing about a hotel with nothing waiting, or one that is simulating", () => {
+    expect(texts(cloudbeds({ sent_24h: 0, unsent_count: 0 }))).toEqual([]);
+    expect(texts(cloudbeds({ mode: "simulation", sent_24h: 0, unsent_count: 0 }))).toEqual([]);
+  });
+
+  it("says nothing it cannot know on a database from before the columns", () => {
+    const old: PilotHealthRow = healthy({ pms_type: "cloudbeds", sent_24h: 0 });
+    delete old.unsent_count;
+    delete old.unsent_since;
+    delete old.rate_read_waiting;
+    delete old.rate_read_waiting_since;
+    expect(assessProperty(old, NOW).problems).toEqual([]);
+  });
+});
+
+describe("nights held until the hotel's rates can be read", () => {
+  const waiting = (minutes: number, o: Partial<PilotHealthRow> = {}) =>
+    healthy({
+      pms_type: "cloudbeds",
+      open_incidents: 1,
+      open_incidents_since: minutesAgo(minutes),
+      open_incident_causes: ["awaiting_rate_read"],
+      rate_read_waiting: 792,
+      rate_read_waiting_since: minutesAgo(minutes),
+      ...o,
+    });
+
+  it("are left alone for the first hour: one failed read is put right by the next", () => {
+    expect(texts(waiting(5))).toEqual([]);
+    expect(texts(waiting(59))).toEqual([]);
+    expect(assessProperty(waiting(59), NOW).worst).toBeNull();
+  });
+
+  it("are a problem once they have waited an hour", () => {
+    const a = assessProperty(waiting(61), NOW);
+    expect(a.problems).toEqual([
+      {
+        kind: "rate_read",
+        severity: "rose",
+        text: "792 nights held for 1h until the hotel's own rates can be read. Nothing is sent to them meanwhile.",
+      },
+    ]);
+  });
+
+  it("keep their own line when another sending problem is open beside them", () => {
+    const row = waiting(180, {
+      open_incidents: 2,
+      open_incidents_since: minutesAgo(180),
+      open_incident_causes: ["awaiting_rate_read", "value_rejected"],
+      rate_read_waiting: 1,
+    });
+    expect(texts(row)).toEqual([
+      // Since when is the rate read's to say, so the other problem's line leaves it out.
+      "1 open sending problem: value rejected.",
+      "1 night held for 3h until the hotel's own rates can be read. Nothing is sent to them meanwhile.",
+    ]);
+  });
+
+  it("are listed with the other sending problems where the row cannot say how long they have waited", () => {
+    const old = waiting(5);
+    delete old.rate_read_waiting;
+    delete old.rate_read_waiting_since;
+    expect(texts(old)).toEqual(["1 open sending problem for 5m: awaiting rate read."]);
   });
 });

@@ -75,6 +75,22 @@ describe("loadPilotHealth", () => {
     ]);
   });
 
+  it("says which file to run when the rows are from before prices not sent were counted", async () => {
+    const before = { rpc: async () => ({ data: [row({ hotel_id: "a" })], error: null }) } as unknown as SupabaseClient;
+    expect(await loadPilotHealth(before, { includeTest: false })).toMatchObject({
+      available: true,
+      missing: "Run 99_supabase_migration_pilot_health_v2.sql to see prices that were published and not sent.",
+    });
+
+    const after = {
+      rpc: async () => ({
+        data: [row({ hotel_id: "a", unsent_count: 0, unsent_since: null, rate_read_waiting: 0, rate_read_waiting_since: null })],
+        error: null,
+      }),
+    } as unknown as SupabaseClient;
+    expect(await loadPilotHealth(after, { includeTest: false })).not.toHaveProperty("missing");
+  });
+
   it("reads no rows as an empty list", async () => {
     const ssr = { rpc: async () => ({ data: null, error: null }) } as unknown as SupabaseClient;
     expect(await loadPilotHealth(ssr, { includeTest: false })).toEqual({ available: true, rows: [], hiddenTest: 0 });
