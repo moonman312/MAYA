@@ -12,16 +12,19 @@ import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
  *   - under "Keep the change as your price", the warning that something other
  *     than MAYA seems to be changing rates, with a button to the setting.
  *
- * The log lists the newest MAX_PMS_CHANGES of them in the history it covers;
- * more than that are counted on one line where the oldest listed one sits.
+ * The log lists every warning and the newest MAX_PMS_CHANGES overwrites in
+ * the history it covers; more overwrites than that are counted on one line
+ * where the oldest listed one sits, as the times MAYA sent its price again.
  */
 
 export function isPmsChange(item: ChangelogItem): item is ChangelogPmsChange {
   return "kind" in item && item.kind === "pms_change";
 }
 
-/** Items the log lists at most. */
+/** Overwrites the log lists at most. */
 export const MAX_PMS_CHANGES = 50;
+/** Warnings read at most: one a week at most, so this is never reached. */
+export const MAX_PMS_WARNINGS = 20;
 
 export const PMS_CHANGE_COLUMNS = "id, pms_type, kind, found_at, stay_date, room_type_id, pms_rate, maya_price, rates";
 
@@ -67,21 +70,27 @@ export function otherToolTitle(pms: string, rates: number): string {
   );
 }
 
+/** The line counting the overwrites not listed: each is one time MAYA sent its price again. */
 export function moreTitle(pms: string, n: number): string {
-  return `And ${n} more ${n === 1 ? "night" : "nights"} where MAYA sent its price again over a rate changed in ${pms}.`;
+  return `And ${n} more ${n === 1 ? "time" : "times"} MAYA sent its price again over a rate changed in ${pms}.`;
 }
 
 /**
- * The items, newest first. `total` is how many rows there were in the log's
- * history when the read stopped at its cap; the rest are counted on one line.
+ * The items, newest first: every warning, and the newest MAX_PMS_CHANGES
+ * overwrites. `overwriteTotal` is how many overwrites there were in the
+ * log's history when the read stopped at its cap; the rest are counted on
+ * one line.
  */
 export function buildPmsChanges(
   rows: PmsChangeRow[],
-  opts: { roomTypeNames: Map<string, string>; currencySymbol: string; settingOn: boolean; total?: number },
+  opts: { roomTypeNames: Map<string, string>; currencySymbol: string; settingOn: boolean; overwriteTotal?: number },
 ): ChangelogPmsChange[] {
-  const sorted = [...rows].sort((a, b) => Date.parse(b.found_at) - Date.parse(a.found_at));
+  const newest = (a: PmsChangeRow, b: PmsChangeRow) => Date.parse(b.found_at) - Date.parse(a.found_at);
+  const overwriteRows = rows.filter((r) => r.kind === "overwrite").sort(newest);
+  const listedOverwrites = overwriteRows.slice(0, MAX_PMS_CHANGES);
+  const sorted = [...rows.filter((r) => r.kind !== "overwrite"), ...listedOverwrites].sort(newest);
   const items: ChangelogPmsChange[] = [];
-  for (const r of sorted.slice(0, MAX_PMS_CHANGES)) {
+  for (const r of sorted) {
     const pms = pmsName(r.pms_type);
     if (r.kind === "other_tool") {
       const rates = Math.max(1, Number(r.rates) || 1);
@@ -114,10 +123,9 @@ export function buildPmsChanges(
       maya_price: mayaPrice,
     });
   }
-  const listed = Math.min(sorted.length, MAX_PMS_CHANGES);
-  const more = Math.max(0, (opts.total ?? sorted.length) - listed);
-  if (more > 0 && items.length > 0) {
-    const oldest = items[items.length - 1];
+  const more = Math.max(0, (opts.overwriteTotal ?? overwriteRows.length) - listedOverwrites.length);
+  const oldest = [...items].reverse().find((i) => i.change === "overwrite");
+  if (more > 0 && oldest) {
     items.push({
       kind: "pms_change",
       id: `more-${oldest.id}`,

@@ -116,7 +116,7 @@ function overwriteHowTo(input: OverwriteEmailInput): string {
 
 function overwriteMore(input: OverwriteEmailInput): string | null {
   const more = input.lines.length - MAX_DIGEST_LINES;
-  return more > 0 ? `And ${plural(more, "more night")}. The Change Log in MAYA lists every one.` : null;
+  return more > 0 ? `And ${more} more. The Change Log in MAYA shows the newest ones.` : null;
 }
 
 function overwriteFooter(input: OverwriteEmailInput): string {

@@ -258,7 +258,7 @@ describe("many properties at once", () => {
     expect(w.tables.pms_change_notices.filter((r) => r.emailed_at == null)).toEqual([]);
     const harbour = w.sent.find((e) => e.to === "gm@harbour.test")!;
     // 1,000 nights for King and 1,000 for Suite: 40 lines, then the rest counted.
-    expect(harbour.text).toContain(`And ${2000 - MAX_DIGEST_LINES} more`);
+    expect(harbour.text).toContain(`And ${2000 - MAX_DIGEST_LINES} more. The Change Log in MAYA shows the newest ones.`);
     // Nothing is left for later runs of the day to trip over.
     const later = await sendDuePmsChangeEmails(w.client, "cloudbeds", w.deps({ now: () => NOW + 3_600_000 }));
     expect(later).toEqual([]);
@@ -362,8 +362,9 @@ describe("what the emails say", () => {
   it("lists the first nights and points to the Change Log for the rest", () => {
     const text = overwriteText(overwriteInput(MAX_DIGEST_LINES + 3));
     expect(text.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(MAX_DIGEST_LINES);
-    expect(text).toContain("And 3 more nights. The Change Log in MAYA lists every one.");
-    expect(overwriteText(overwriteInput(2))).not.toContain("more night");
+    expect(text).toContain("And 3 more. The Change Log in MAYA shows the newest ones.");
+    expect(text).not.toMatch(/every one/);
+    expect(overwriteText(overwriteInput(2))).not.toContain("more.");
   });
 
   it("writes dates, amounts and currencies the way the app does", () => {

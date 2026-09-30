@@ -95,11 +95,25 @@ describe("the items", () => {
     expect(buildPmsChanges([warn], { roomTypeNames: names, currencySymbol: "$", settingOn: true })[0].setting_on).toBe(true);
   });
 
-  it("lists the newest ones and counts the rest on one line", () => {
+  it("lists the newest overwrites and counts the rest on one line, as the times MAYA sent its price again", () => {
     const rows = Array.from({ length: MAX_PMS_CHANGES }, (_, i) => row(`r${i}`, { found_at: new Date(Date.parse("2026-10-05T00:00:00Z") + i * 60_000).toISOString() }));
-    const items = buildPmsChanges(rows, { roomTypeNames: names, currencySymbol: "$", settingOn: true, total: MAX_PMS_CHANGES + 7 });
+    const items = buildPmsChanges(rows, { roomTypeNames: names, currencySymbol: "$", settingOn: true, overwriteTotal: MAX_PMS_CHANGES + 7 });
     expect(items).toHaveLength(MAX_PMS_CHANGES + 1);
     expect(items.at(-1)).toMatchObject({ change: "more", count: 7, title: moreTitle("Cloudbeds", 7), timestamp: items.at(-2)!.timestamp });
+    expect(moreTitle("Cloudbeds", 7)).toBe("And 7 more times MAYA sent its price again over a rate changed in Cloudbeds.");
+    expect(moreTitle("Cloudbeds", 1)).toBe("And 1 more time MAYA sent its price again over a rate changed in Cloudbeds.");
+  });
+
+  it("lists a warning whatever the overwrites around it, and never counts it as one", () => {
+    const warn = row("w", { kind: "other_tool", stay_date: null, room_type_id: null, pms_rate: null, maya_price: null, rates: 34, found_at: "2026-10-04T00:00:00Z" });
+    const rows = Array.from({ length: MAX_PMS_CHANGES }, (_, i) => row(`r${i}`, { found_at: new Date(Date.parse("2026-10-05T00:00:00Z") + i * 60_000).toISOString() }));
+    const items = buildPmsChanges([...rows, warn], { roomTypeNames: names, currencySymbol: "$", settingOn: false, overwriteTotal: MAX_PMS_CHANGES + 3 });
+    expect(items.filter((i) => i.change === "other_tool")).toHaveLength(1);
+    expect(items.filter((i) => i.change === "overwrite")).toHaveLength(MAX_PMS_CHANGES);
+    const more = items.find((i) => i.change === "more")!;
+    expect(more).toMatchObject({ count: 3 });
+    // Where the oldest listed overwrite sits, not the older warning.
+    expect(more.timestamp).toBe(rows[0].found_at);
   });
 
   it("never uses an em dash", () => {
@@ -129,6 +143,25 @@ describe("GET /api/changelog with rates changed in the property system", () => {
       title: "Fri, Nov 13, Suite: the rate was removed in Cloudbeds. MAYA sent its price, $240.00, again.",
     });
     expect(body.find((i) => i.id === "n3")).not.toHaveProperty("setting_on");
+  });
+
+  it("lists the warning even under more overwrites than the log lists, and counts only the overwrites left out", async () => {
+    const flood = Array.from({ length: MAX_PMS_CHANGES + 5 }, (_, i) =>
+      notice(`o${i}`, new Date(Date.parse("2026-10-05T08:30:00Z") + i * 1000).toISOString()),
+    );
+    state.client = seed({
+      pms_change_notices: [
+        notice("w1", "2026-10-05T08:10:00Z", { kind: "other_tool", stay_date: null, room_type_id: null, pms_rate: null, maya_price: null, rates: 21 }),
+        ...flood,
+      ],
+    }).client;
+    const res = await GET();
+    const body = (await res.json()) as Record<string, unknown>[];
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    const changes = body.filter((i) => i.kind === "pms_change");
+    expect(changes.filter((i) => i.change === "other_tool").map((i) => i.id)).toEqual(["w1"]);
+    expect(changes.filter((i) => i.change === "overwrite")).toHaveLength(MAX_PMS_CHANGES);
+    expect(changes.find((i) => i.change === "more")).toMatchObject({ count: 5, title: moreTitle("Cloudbeds", 5) });
   });
 
   it("shows none, and still the log, on a database without the table", async () => {

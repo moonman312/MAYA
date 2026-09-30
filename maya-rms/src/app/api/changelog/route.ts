@@ -56,7 +56,7 @@ import {
   oldestShownRun,
 } from "@/lib/changelog-push-problems";
 import { platformAdminIds } from "@/lib/admin/god-mode";
-import { buildPmsChanges, MAX_PMS_CHANGES, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
+import { buildPmsChanges, MAX_PMS_CHANGES, MAX_PMS_WARNINGS, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
 import {
@@ -506,8 +506,8 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
  * Rates changed in the property system on nights MAYA sent to, within the
  * history shown: MAYA's overwrites and the warning that something else seems
  * to be changing rates (changelog-pms-changes.ts). Read under the caller's
- * session: members read their own property's. The newest MAX_PMS_CHANGES are
- * listed and the rest counted. Never fails the change log, and a database
+ * session: members read their own property's. Every warning is listed, and
+ * the newest MAX_PMS_CHANGES overwrites, with the rest counted. Never fails the change log, and a database
  * without the table yet has nothing to show.
  */
 async function loadPmsChanges(
@@ -517,26 +517,37 @@ async function loadPmsChanges(
   since: string | null,
 ): Promise<ChangelogPmsChange[]> {
   try {
-    let query = supabase
-      .from("pms_change_notices")
-      .select(PMS_CHANGE_COLUMNS)
-      .eq("hotel_id", hotelId)
-      .order("found_at", { ascending: false })
-      .limit(MAX_PMS_CHANGES + 1);
-    if (since) query = query.gte("found_at", since);
-    const { data, error } = await query;
+    const read = (kind: "overwrite" | "other_tool", limit: number) => {
+      let query = supabase
+        .from("pms_change_notices")
+        .select(PMS_CHANGE_COLUMNS)
+        .eq("hotel_id", hotelId)
+        .eq("kind", kind)
+        .order("found_at", { ascending: false })
+        .limit(limit);
+      if (since) query = query.gte("found_at", since);
+      return query;
+    };
+    // Warnings apart from the overwrites, so a flood of overwrites never hides one.
+    const [overwrites, warnings] = await Promise.all([read("overwrite", MAX_PMS_CHANGES + 1), read("other_tool", MAX_PMS_WARNINGS)]);
+    const error = overwrites.error ?? warnings.error;
     if (error) {
       if (isMissingRelationError(error)) return [];
       throw error;
     }
-    const rows = (data ?? []) as unknown as PmsChangeRow[];
+    const overwriteRows = (overwrites.data ?? []) as unknown as PmsChangeRow[];
+    const rows = [...overwriteRows.slice(0, MAX_PMS_CHANGES), ...((warnings.data ?? []) as unknown as PmsChangeRow[])];
     if (rows.length === 0) return [];
-    let total = rows.length;
-    if (rows.length > MAX_PMS_CHANGES) {
-      let countQuery = supabase.from("pms_change_notices").select("id", { count: "exact", head: true }).eq("hotel_id", hotelId);
+    let overwriteTotal = overwriteRows.length;
+    if (overwriteRows.length > MAX_PMS_CHANGES) {
+      let countQuery = supabase
+        .from("pms_change_notices")
+        .select("id", { count: "exact", head: true })
+        .eq("hotel_id", hotelId)
+        .eq("kind", "overwrite");
       if (since) countQuery = countQuery.gte("found_at", since);
       const { count } = await countQuery;
-      total = count ?? rows.length;
+      overwriteTotal = count ?? overwriteRows.length;
     }
     // Whether the warning's button has anything to open.
     let settingOn = false;
@@ -544,11 +555,11 @@ async function loadPmsChanges(
       const { data: settings } = await supabase.from("hotel_settings").select("pms_rate_changes").eq("hotel_id", hotelId).maybeSingle();
       settingOn = (settings as { pms_rate_changes?: unknown } | null)?.pms_rate_changes === "maya_wins";
     }
-    return buildPmsChanges(rows.slice(0, MAX_PMS_CHANGES), {
+    return buildPmsChanges(rows, {
       roomTypeNames: lookups.roomTypeNames,
       currencySymbol: lookups.currencySymbol,
       settingOn,
-      total,
+      overwriteTotal,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
