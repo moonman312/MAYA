@@ -24,8 +24,11 @@ function json(body: unknown, status = 200) {
 
 type Part = { affected: string[]; fingerprint?: string; roomTypesChanged?: Record<string, number> };
 
-/** A preview route answering each part with the days in it. */
-function previewRoute(days: string[] | (() => string[]), opts: { fingerprint?: () => string; hold?: Promise<void> } = {}) {
+/** A preview route answering each part with the days in it (`extra`: more of the answer, the same for every part). */
+function previewRoute(
+  days: string[] | (() => string[]),
+  opts: { fingerprint?: () => string; hold?: Promise<void>; extra?: Record<string, unknown> } = {},
+) {
   const calls: Record<string, unknown>[] = [];
   const impl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
     const body = JSON.parse(String(init?.body)) as { from?: string; to?: string };
@@ -44,6 +47,7 @@ function previewRoute(days: string[] | (() => string[]), opts: { fingerprint?: (
       kind: "standard",
       ms: 120,
       nightsChecked: 30,
+      ...(opts.extra ?? {}),
     };
     return json(part);
   });
@@ -321,5 +325,51 @@ describe("the activation popup", () => {
     cleanup();
     renderDialog({ fetchImpl: impl as unknown as typeof fetch, request: { intent: "edit", ruleId: "r1" } });
     expect(screen.getByRole("dialog", { name: "Save changes to “Busy nights”?" })).toBeTruthy();
+  });
+});
+
+/**
+ * A cut on low pickup with no booking window condition (Jake, 2026-09-29,
+ * A4): under the count, two more lines from the same dry run, how many
+ * nights the rule reaches and that the cut repeats every wait. Shown once
+ * every part is in, with 0 prices too, and never for any other rule.
+ */
+describe("a cut on low pickup with no booking window", () => {
+  const facts = { threshold: 1, windowDays: 7, metric: "room_nights", waitDays: 7 };
+  const REACH_LINE =
+    "With no booking window condition, this rule reaches 300 of the 396 nights ahead. A night that gained under 1 room night over the 7 full days before counts as quiet, and a far-out night with no bookings yet always will, once your rules have run for 1 week.";
+  const REPEAT_LINE = "The cut repeats: each time its wait of 1 week is over and the night is still quiet, it cuts again, on top of the cut before.";
+
+  it("says how many nights it reaches, every part added up, and that the cut repeats", async () => {
+    let release!: () => void;
+    // Three parts of 100 nights each.
+    const { impl } = previewRoute(["2026-10-03"], { extra: { horizonDays: 396, reach: 100, farOutCut: facts }, hold: new Promise<void>((r) => (release = r)) });
+    renderDialog({ fetchImpl: impl as unknown as typeof fetch, kind: "event" });
+    // Not before the count: the reach is every part together.
+    expect(screen.queryByTestId("activation-far-out-cut")).toBeNull();
+    release();
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("1 day will be affected by this rule."));
+    const lines = screen.getByTestId("activation-far-out-cut");
+    expect(within(lines).getByText(REACH_LINE)).toBeTruthy();
+    expect(within(lines).getByText(REPEAT_LINE)).toBeTruthy();
+    expect(button("Apply price adjustments").disabled).toBe(false);
+  });
+
+  it("with 0 prices, where the property's rules have not run for the window yet, says what happens once they have", async () => {
+    const { impl } = previewRoute([], { extra: { horizonDays: 396, reach: 100, farOutCut: facts } });
+    renderDialog({ fetchImpl: impl as unknown as typeof fetch, kind: "event" });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("0 prices will be affected by this rule."));
+    const lines = screen.getByTestId("activation-far-out-cut");
+    expect(within(lines).getByText(REACH_LINE)).toBeTruthy();
+    expect(within(lines).getByText(REPEAT_LINE)).toBeTruthy();
+    expect(button("Turn it on").disabled).toBe(false);
+  });
+
+  it("adds nothing for any other rule", async () => {
+    const { impl } = previewRoute(["2026-10-03"], { extra: { horizonDays: 396, reach: 100, farOutCut: null } });
+    renderDialog({ fetchImpl: impl as unknown as typeof fetch, kind: "event" });
+    await waitFor(() => expect(screen.getByTestId("activation-summary").textContent).toBe("1 day will be affected by this rule."));
+    expect(screen.queryByTestId("activation-far-out-cut")).toBeNull();
+    expect(screen.queryByText(/The cut repeats/)).toBeNull();
   });
 });

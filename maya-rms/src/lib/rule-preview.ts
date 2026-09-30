@@ -62,7 +62,8 @@ import { comparePickupRules, versionRanksOf, type RankedRule } from "@/lib/engin
 import { fetchAllRows } from "@/lib/engine/snapshots";
 import { ruleScopeMatches } from "@/lib/engine/scope";
 import { addCalendarDays, evalIsoToHotelDateString } from "@/lib/engine/timezone";
-import type { EngineRule } from "@/types/domain";
+import { farOutCutFacts, type FarOutCutFacts } from "@/lib/rule-form";
+import type { EngineRule, RuleCondition } from "@/types/domain";
 
 /** evaluateHotel, or the edge functions' copy of it (the tests run both). */
 export type EvaluateFn = typeof evaluateHotel;
@@ -135,9 +136,27 @@ export type PreviewResult = {
   touched: string[];
   /** Nights run whole, "after" and "before" together. */
   nightsChecked: number;
+  /**
+   * Nights of this answer the rule as saved can act on at all: in its scope
+   * with any days-before-arrival condition met (nightsInScope). What the
+   * popup calls the nights a cut on low pickup reaches (farOutCut).
+   */
+  reach: number;
+  /**
+   * The facts the popup adds for a cut on low pickup with no
+   * days-before-arrival condition (farOutCutFacts in rule-form.ts), null
+   * for every other rule.
+   */
+  farOutCut: FarOutCutFacts | null;
   kind: "standard" | "event";
   ms: number;
 };
+
+/** farOutCutFacts for a rule in the engine's read shape. */
+export function farOutCutOfRow(row: EngineRuleRow): FarOutCutFacts | null {
+  const rc = one<Record<string, unknown>>(row.rule_condition);
+  return farOutCutFacts(rc as RuleCondition | undefined, row.action_direction as string | null | undefined);
+}
 
 /** YYYY-MM-DD */
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -446,6 +465,8 @@ export async function previewRule(
   const to = input.to && YMD.test(input.to) && input.to < lastNight ? input.to : lastNight;
   const kind = isEventRuleRow(input.after) ? "event" : "standard";
   const after = { ...input.after, is_active: true, skip_at: null };
+  // The nights of this answer the rule as saved can act on (its reach).
+  const afterScope = from > to ? [] : nightsInScope(after, nightsFrom(from, to), today, input.at, timeZone);
   const result = (affected: Map<string, number>, touched: Iterable<string>, nightsChecked: number): PreviewResult => ({
     ruleId,
     at: input.at,
@@ -458,6 +479,8 @@ export async function previewRule(
     roomTypesChanged: Object.fromEntries([...affected.entries()].sort()),
     touched: [...new Set(touched)].sort(),
     nightsChecked,
+    reach: afterScope.length,
+    farOutCut: farOutCutOfRow(after),
     kind,
     ms: Date.now() - started,
   });
@@ -486,7 +509,7 @@ export async function previewRule(
   const window = nightsFrom(from, to);
   const state = await nightsWithState(client, input.hotelId, ruleId, from, to);
   const scoped = new Set([
-    ...nightsInScope(after, window, today, input.at, timeZone),
+    ...afterScope,
     ...(before ? nightsInScope(before, window, today, input.at, timeZone) : []),
     ...state,
   ]);
