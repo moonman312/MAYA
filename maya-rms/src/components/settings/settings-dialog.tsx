@@ -4,14 +4,18 @@ import { useEffect, useRef, useState } from "react";
 import { HelpLink } from "@/components/deep-links/help-links";
 import { useTrackOnce } from "@/lib/analytics/track";
 import type { CalendarDisplay } from "@/lib/calendar-display";
+import type { PmsSettings } from "@/lib/settings/pms-settings";
 import { currentTextSize } from "@/lib/text-size";
 import { CalendarSettings, type RoomTypeChoice } from "./calendar-settings";
 import { DisplaySettings } from "./display-settings";
+import { PmsSettingsSection } from "./pms-settings";
 
 /** What GET /api/settings answers: one key per section. */
 export type SettingsPayload = {
   property: { canEdit: boolean; readOnly: string | null };
   calendar: CalendarDisplay;
+  /** The property system's section; null (or absent) on Mews or with no connection, where it does not show. */
+  pms?: PmsSettings | null;
   textSize: string | null;
 };
 
@@ -19,8 +23,10 @@ export type SettingsPayload = {
  * Settings, opened from the gear in the dashboard header. One section after
  * another, each saying who it is for: the property-wide ones first (only
  * roles that can manage the property may change them; everyone else sees
- * them read-only), then the signed-in person's own. A new section is one
- * more component in the list below, fed from its own key in the payload.
+ * them read-only): Calendar, then the property system's, named for it and
+ * shown only on Cloudbeds and ThinkReservations; then the signed-in person's
+ * own. A new section is one more component in the list below, fed from its
+ * own key in the payload.
  */
 export function SettingsDialog({
   onClose,
@@ -29,6 +35,7 @@ export function SettingsDialog({
   roomTypes,
   calendar,
   onCalendarSaved,
+  focusSection = null,
 }: {
   onClose: () => void;
   hotelId: string | null;
@@ -37,6 +44,8 @@ export function SettingsDialog({
   /** The property's choices as the calendar last loaded them: shown until the fresh read lands. */
   calendar: CalendarDisplay;
   onCalendarSaved: (display: CalendarDisplay) => void;
+  /** A section to bring into view once Settings has loaded (its data-settings-section), from a link or a button elsewhere. */
+  focusSection?: string | null;
 }) {
   const [payload, setPayload] = useState<SettingsPayload | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -76,6 +85,13 @@ export function SettingsDialog({
       alive = false;
     };
   }, [hotelId]);
+
+  // The section a link or a button asked for, once it is there.
+  useEffect(() => {
+    if (!payload || !focusSection) return;
+    const el = document.querySelector<HTMLElement>(`[data-settings-section="${focusSection}"]`);
+    el?.scrollIntoView?.({ block: "nearest" });
+  }, [payload, focusSection]);
 
   return (
     <div
@@ -124,6 +140,15 @@ export function SettingsDialog({
             hotelId={hotelId}
             onSaved={onCalendarSaved}
           />
+          {payload?.pms ? (
+            <PmsSettingsSection
+              initial={payload.pms}
+              canEdit={payload.property.canEdit === true}
+              readOnly={payload.property.readOnly}
+              propertyName={propertyName}
+              hotelId={hotelId}
+            />
+          ) : null}
           <DisplaySettings initial={textSize} hotelId={hotelId} />
         </div>
       </div>

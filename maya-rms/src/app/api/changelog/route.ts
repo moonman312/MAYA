@@ -9,7 +9,10 @@
  * read: each stretch is one line saying how many checks changed nothing
  * (loadRunHistory, countQuietGap). A live hotel's rate push problems that
  * need the owner are merged in, one item each: ongoing ones on top, resolved
- * ones where they ended (changelog-push-problems.ts).
+ * ones where they ended (changelog-push-problems.ts). Rates changed in the
+ * property system on nights MAYA sent to sit where they were found: each
+ * overwrite under "MAYA's price wins", and the warning that something else
+ * seems to be changing rates (changelog-pms-changes.ts).
  * The demo changelog is served only when Supabase is
  * not configured at all; any failure past that point is a real error and
  * must surface as one — this screen is the audit trail of what the system
@@ -53,6 +56,7 @@ import {
   oldestShownRun,
 } from "@/lib/changelog-push-problems";
 import { platformAdminIds } from "@/lib/admin/god-mode";
+import { buildPmsChanges, MAX_PMS_CHANGES, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
 import {
@@ -63,7 +67,7 @@ import {
 } from "@/lib/changelog-support";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import type { ChangelogPushProblem, ChangelogSupportChange, RuleCondition } from "@/types/domain";
+import type { ChangelogPmsChange, ChangelogPushProblem, ChangelogSupportChange, RuleCondition } from "@/types/domain";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -463,12 +467,13 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       auditRows.length >= AUDIT_ROW_LIMIT,
     );
     const since = oldestShownRun(cycles);
-    const [problems, answers, support] = await Promise.all([
+    const [problems, answers, support, pmsChanges] = await Promise.all([
       loadPushProblems(supabase, hotelId, roomTypeNames, since),
       loadAlertChoices(supabase, hotelId, lookups, since),
       loadSupportChanges(supabase, hotelId, since),
+      loadPmsChanges(supabase, hotelId, lookups, since),
     ]);
-    return mergeTimeline(cycles, problems, [...answers, ...support]);
+    return mergeTimeline(cycles, problems, [...answers, ...support, ...pmsChanges]);
   }
 
   // The log covers everything after the newest run it did not read, or the
@@ -477,10 +482,11 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
   // where they happened, and split the quiet stretch they fall in.
   const cycles = buildCyclesFromRuns(history.shown, lookups);
   const since = history.readBackTo ?? history.firstRunAt;
-  const [problems, answers, support] = await Promise.all([
+  const [problems, answers, support, pmsChanges] = await Promise.all([
     loadPushProblems(supabase, hotelId, roomTypeNames, since),
     loadAlertChoices(supabase, hotelId, lookups, since),
     loadSupportChanges(supabase, hotelId, since),
+    loadPmsChanges(supabase, hotelId, lookups, since),
   ]);
   const gaps = planQuietGaps({
     changes: cycles.map((c) => c.timestamp),
@@ -488,11 +494,67 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
       ...problems.filter((p) => p.status !== "ongoing").map((p) => p.resolved_at ?? p.timestamp),
       ...answers.map((a) => a.timestamp),
       ...support.map((s) => s.timestamp),
+      ...pmsChanges.map((c) => c.timestamp),
     ],
     readBackTo: history.readBackTo,
   });
   const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap), history.folded);
-  return mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support], { after: history.readBackTo });
+  return mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support, ...pmsChanges], { after: history.readBackTo });
+}
+
+/**
+ * Rates changed in the property system on nights MAYA sent to, within the
+ * history shown: MAYA's overwrites and the warning that something else seems
+ * to be changing rates (changelog-pms-changes.ts). Read under the caller's
+ * session: members read their own property's. The newest MAX_PMS_CHANGES are
+ * listed and the rest counted. Never fails the change log, and a database
+ * without the table yet has nothing to show.
+ */
+async function loadPmsChanges(
+  supabase: SupabaseClient,
+  hotelId: string,
+  lookups: ChangelogLookups,
+  since: string | null,
+): Promise<ChangelogPmsChange[]> {
+  try {
+    let query = supabase
+      .from("pms_change_notices")
+      .select(PMS_CHANGE_COLUMNS)
+      .eq("hotel_id", hotelId)
+      .order("found_at", { ascending: false })
+      .limit(MAX_PMS_CHANGES + 1);
+    if (since) query = query.gte("found_at", since);
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingRelationError(error)) return [];
+      throw error;
+    }
+    const rows = (data ?? []) as unknown as PmsChangeRow[];
+    if (rows.length === 0) return [];
+    let total = rows.length;
+    if (rows.length > MAX_PMS_CHANGES) {
+      let countQuery = supabase.from("pms_change_notices").select("id", { count: "exact", head: true }).eq("hotel_id", hotelId);
+      if (since) countQuery = countQuery.gte("found_at", since);
+      const { count } = await countQuery;
+      total = count ?? rows.length;
+    }
+    // Whether the warning's button has anything to open.
+    let settingOn = false;
+    if (rows.some((r) => r.kind === "other_tool")) {
+      const { data: settings } = await supabase.from("hotel_settings").select("pms_rate_changes").eq("hotel_id", hotelId).maybeSingle();
+      settingOn = (settings as { pms_rate_changes?: unknown } | null)?.pms_rate_changes === "maya_wins";
+    }
+    return buildPmsChanges(rows.slice(0, MAX_PMS_CHANGES), {
+      roomTypeNames: lookups.roomTypeNames,
+      currencySymbol: lookups.currencySymbol,
+      settingOn,
+      total,
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
+    console.error(JSON.stringify({ fn: "api/changelog", step: "pms_changes", hotelId, error: message.slice(0, 300) }));
+    return [];
+  }
 }
 
 /**

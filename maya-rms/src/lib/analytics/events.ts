@@ -79,6 +79,8 @@ export const UI_EVENTS = {
   "settings.opened": {},
   /** The property's calendar choices saved: the big number, how many small lines, which colours. */
   "settings.calendar_saved": { big: CALENDAR_METRICS, small_lines: "count", colors: CALENDAR_COLOR_MODES },
+  /** The property's setting for rates changed in the property system saved, and how many nights it handed back to MAYA. */
+  "settings.pms_saved": { mode: ["keep", "maya_wins"], replaced: "count" },
   /** A person saved their text size on their profile. */
   "settings.text_size_saved": { size: TEXT_SIZES },
 } as const satisfies Record<string, Record<string, PropSpec>>;

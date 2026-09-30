@@ -1,25 +1,59 @@
 "use client";
 
 /**
- * The line on a day card for a night the property system has no rate for:
- * MAYA does not price such a night or send to it (engine/base-price.ts,
- * audit A6). One short line on the card; the why and the what-to-do sit
+ * The line on a day card for a night MAYA does not price because of the
+ * property system's rates, with its "?": the why and the what-to-do sit
  * behind the same hover-and-click "?" the manual price editor uses.
+ *
+ *   NoRateLine       the system has no rate for the night, and nobody typed
+ *                    a price (engine/base-price.ts, audit A6).
+ *   RemovedRateLine  the system removed the rate after MAYA sent its price,
+ *                    and the property keeps changes made there
+ *                    (pms-edits.ts): MAYA stops pricing the night until the
+ *                    system has a rate again.
  */
 
 import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
+import type { HelpPanel } from "@/lib/deep-links";
 import { useEffect, useId, useRef, useState } from "react";
 
 export function NoRateLine({ pmsName }: { pmsName: string }) {
   return (
     <p className="flex items-center gap-1.5 text-xs text-amber-300" data-testid="no-rate-line">
       <span>No rate in {pmsName} for this night yet</span>
-      <NoRateHelp pmsName={pmsName} />
+      <RateHelp
+        button="Why this night has no price"
+        title="A night with no rate"
+        panel="no-rate"
+        lines={[
+          `${pmsName} has no rate for this night, so your rules have nothing to start from. Nothing is priced or sent for it.`,
+          `Load a rate for it in ${pmsName} and it is priced within the hour, on that rate.`,
+          "Or type a price here. A price you type is sent as it is.",
+        ]}
+      />
     </p>
   );
 }
 
-function NoRateHelp({ pmsName }: { pmsName: string }) {
+export function RemovedRateLine({ pmsName }: { pmsName: string }) {
+  return (
+    <p className="flex items-center gap-1.5 text-xs text-amber-300" data-testid="removed-rate-line">
+      <span>Rate removed in {pmsName}, so MAYA isn&apos;t pricing this night</span>
+      <RateHelp
+        button="Why MAYA isn't pricing this night"
+        title="A rate removed"
+        panel="pms-removed"
+        lines={[
+          `${pmsName} no longer has a rate for this night, after MAYA sent its price. You keep changes made in ${pmsName}, so nothing is priced or sent for it.`,
+          `Load a rate in ${pmsName} and MAYA reads it within the hour. If it isn't MAYA's last price, it is kept as your price.`,
+          "Or type a price here. A price you type is sent as it is.",
+        ]}
+      />
+    </p>
+  );
+}
+
+function RateHelp({ button, title, lines, panel }: { button: string; title: string; lines: string[]; panel: HelpPanel }) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
@@ -54,7 +88,7 @@ function NoRateHelp({ pmsName }: { pmsName: string }) {
     >
       <button
         type="button"
-        aria-label="Why this night has no price"
+        aria-label={button}
         aria-expanded={open}
         aria-describedby={open ? panelId : undefined}
         onClick={() => setPinned((p) => !p)}
@@ -70,21 +104,18 @@ function NoRateHelp({ pmsName }: { pmsName: string }) {
           <span
             id={panelId}
             role="group"
-            aria-label="A night with no rate"
+            aria-label={title}
             className="block w-72 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-700 bg-slate-950 p-3 text-left shadow-xl"
           >
-            <span className="block text-xs font-semibold text-slate-200">A night with no rate</span>
+            <span className="block text-xs font-semibold text-slate-200">{title}</span>
             <span className="mt-2 block space-y-1.5 text-xs leading-snug text-slate-400">
-              <span className="block">
-                {pmsName} has no rate for this night, so your rules have nothing to start from. Nothing is priced or
-                sent for it.
-              </span>
-              <span className="block">
-                Load a rate for it in {pmsName} and it is priced within the hour, on that rate.
-              </span>
-              <span className="block">Or type a price here. A price you type is sent as it is.</span>
+              {lines.map((line) => (
+                <span key={line} className="block">
+                  {line}
+                </span>
+              ))}
             </span>
-            <LearnMore panel="no-rate" onBlurOut={blurOut} />
+            <LearnMore panel={panel} onBlurOut={blurOut} />
           </span>
         </span>
       )}

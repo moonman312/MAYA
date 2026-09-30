@@ -45,6 +45,8 @@ function month(y: number, m: number): CalendarResponse {
         cell({ id: "rt1", name: "Standard", booked: 1, occupancy_pct: 10, rate: 120, revenue: 120 }),
         // The property system has no rate for the Suite yet: unpriced, and the card says why.
         cell({ id: "rt2", name: "Suite", no_rate_in_pms: true }),
+        // The property system removed the Twin's rate after MAYA sent to it, and the property keeps such changes.
+        cell({ id: "rt3", name: "Twin", rate_removed_in_pms: true }),
       ],
     };
   }
@@ -93,7 +95,7 @@ describe("the day card's ADR", () => {
     fireEvent.click(tenth);
 
     expect(await screen.findByText("ADR $120.00")).toBeTruthy();
-    expect(screen.getByText("ADR –")).toBeTruthy();
+    expect(screen.getAllByText("ADR –").length).toBeGreaterThan(0);
   });
 });
 
@@ -113,5 +115,23 @@ describe("the day card for a night with no rate in the property system", () => {
     fireEvent.click(screen.getByRole("button", { name: "Why this night has no price" }));
     expect(screen.getByText(/has no rate for this night, so your rules have nothing to start from/)).toBeTruthy();
     expect(screen.getByText(/A price you type is sent as it is/)).toBeTruthy();
+  });
+});
+
+describe("the day card for a night whose rate was removed in the property system", () => {
+  it("says plainly MAYA isn't pricing it, with the why behind a question mark", async () => {
+    window.history.replaceState(null, "", "/?tab=calendar");
+    render(<Dashboard initialSearch={window.location.search} />);
+
+    const tenth = await screen.findByRole("button", { name: /^10\b/ });
+    fireEvent.click(tenth);
+
+    const lines = await screen.findAllByTestId("removed-rate-line");
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent).toContain("Rate removed in your PMS, so MAYA isn't pricing this night");
+    expect(screen.queryByText(/no longer has a rate for this night, after MAYA sent its price/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Why MAYA isn't pricing this night" }));
+    expect(screen.getByText(/no longer has a rate for this night, after MAYA sent its price/)).toBeTruthy();
+    expect(screen.getByText(/If it isn't MAYA's last price, it is kept as your price/)).toBeTruthy();
   });
 });

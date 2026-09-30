@@ -49,4 +49,6 @@ export type HelpPanel =
   | "rule-activation"
   | "no-rate"
   | "calendar-colors"
-  | "settings-colours";
+  | "settings-colours"
+  | "settings-pms-changes"
+  | "pms-removed";

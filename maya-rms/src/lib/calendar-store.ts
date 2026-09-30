@@ -537,22 +537,56 @@ async function readManualPrices(
 
 /**
  * The month's rows of the hotel's own rates (base_rate_calendar), as
- * `stay_date|room_type_id`. Read as empty when the read fails, like the
- * other month reads: the cell then says nothing about a rate, rather than
- * every night reading as waiting on one.
+ * `stay_date|room_type_id`, and of those the nights whose rate the property
+ * system removed after MAYA sent to them (pms_removed_at, with when). Read as
+ * empty when the read fails, like the other month reads: the cell then says
+ * nothing about a rate, rather than every night reading as waiting on one.
+ * Before 99_supabase_migration_pms_rate_changes_v1.sql no rate is removed.
  */
-async function readOwnRateCells(supabase: SupabaseClient, hotelId: string, startDate: string, endDate: string): Promise<Set<string>> {
-  const rows = await readMonthRows(hotelId, "base_rate_calendar", () =>
+async function readOwnRateCells(
+  supabase: SupabaseClient,
+  hotelId: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ cells: Set<string>; removedAt: Map<string, string> }> {
+  const read = (columns: string) => () =>
     supabase
       .from("base_rate_calendar")
-      .select("stay_date, room_type_id")
+      .select(columns)
       .eq("hotel_id", hotelId)
       .gte("stay_date", startDate)
       .lte("stay_date", endDate)
       .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true }),
-  );
-  return new Set(rows.filter((r) => r.room_type_id).map((r) => `${r.stay_date}|${String(r.room_type_id)}`));
+      .order("room_type_id", { ascending: true });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let rows: any[];
+  try {
+    rows = await fetchAllRows(read("stay_date, room_type_id, pms_removed_at"));
+  } catch (e) {
+    if (isMissingColumnError(e)) {
+      rows = await readMonthRows(hotelId, "base_rate_calendar", read("stay_date, room_type_id"));
+    } else {
+      console.error(
+        JSON.stringify({
+          fn: "calendar-store",
+          step: "base_rate_calendar",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+          degradedToEmpty: true,
+        }),
+      );
+      rows = [];
+    }
+  }
+  const cells = new Set<string>();
+  const removedAt = new Map<string, string>();
+  for (const r of rows) {
+    if (!r.room_type_id) continue;
+    const key = `${r.stay_date}|${String(r.room_type_id)}`;
+    cells.add(key);
+    if (r.pms_removed_at != null) removedAt.set(key, String(r.pms_removed_at));
+  }
+  return { cells, removedAt };
 }
 
 /** The systems MAYA reads a hotel's own rates from. A Mews night never has a rate on record. */
@@ -640,7 +674,7 @@ async function getCalendarFromDb(
     manualPrices,
     history,
     oosRows,
-    ownRateCells,
+    ownRates,
     rateSource,
     display,
   ] = await Promise.all([
@@ -856,8 +890,17 @@ async function getCalendarFromDb(
         rateSource.ratesRead &&
         dateStr >= todayStr &&
         manual == null &&
-        (!ownRateCells.has(cellKey) ||
+        (!ownRates.cells.has(cellKey) ||
           (rateSource.ratesReturnedThrough != null && dateStr > rateSource.ratesReturnedThrough));
+      // The property system removed the rate after MAYA sent to the night,
+      // and the property keeps changes made there: MAYA prices nothing on it
+      // (pms-edits.ts), and a price typed before the removal waits with it.
+      const removedAt = ownRates.removedAt.get(cellKey);
+      const rateRemovedInPms =
+        rateSource != null &&
+        dateStr >= todayStr &&
+        removedAt != null &&
+        (manual == null || !(Date.parse(manual.set_at) > Date.parse(removedAt)));
 
       return {
         id: String(rt.id),
@@ -872,6 +915,7 @@ async function getCalendarFromDb(
         base_price: published?.base ?? null,
         manual_price: manual,
         ...(noRateInPms ? { no_rate_in_pms: true } : {}),
+        ...(rateRemovedInPms ? { rate_removed_in_pms: true } : {}),
       };
     });
 

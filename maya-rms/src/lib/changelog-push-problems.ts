@@ -25,6 +25,7 @@ import { NO_RATE_TARGET_REASON } from "../../supabase/functions/_shared/pms/push
 import type {
   ChangelogCycle,
   ChangelogItem,
+  ChangelogPmsChange,
   ChangelogPushProblem,
   ChangelogQuietChecks,
   ChangelogRuleAlertChoice,
@@ -193,8 +194,9 @@ function startOf(c: ChangelogCycle | ChangelogQuietChecks): string {
 export function mergeTimeline(
   cycles: (ChangelogCycle | ChangelogQuietChecks)[],
   problems: ChangelogPushProblem[],
-  // The owner's answers, and the changes MAYA support made: each sits where it happened.
-  answers: (ChangelogRuleAlertChoice | ChangelogSupportChange)[] = [],
+  // The owner's answers, the changes MAYA support made, and rates changed in
+  // the property system: each sits where it happened.
+  answers: (ChangelogRuleAlertChoice | ChangelogSupportChange | ChangelogPmsChange)[] = [],
   opts: { after?: string | null } = {},
 ): ChangelogItem[] {
   const newestFirst = <T>(list: { item: T; at: number }[]) =>

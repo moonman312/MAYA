@@ -183,6 +183,7 @@ payment, so `import.started` and often `import.completed` land before
 | `dashboard.tab_opened` | a dashboard tab chosen (this is how the change log and simulator are counted) | browser | `tab` |
 | `settings.opened` | Settings opened, from the gear in the dashboard header or a link | browser | — |
 | `settings.calendar_saved` | the property's calendar choices saved in Settings | browser | `big` (the big number: `occupancy`, `rooms_booked`, `room_revenue`, `adr`, `revpar`, `price`), `small_lines` (0 to 2), `colors` (`standard` or `reversed`) |
+| `settings.pms_saved` | the property's setting for a price MAYA sent that is changed in the property system saved in Settings | browser | `mode` (`keep` or `maya_wins`), `replaced` (nights whose rate changed in the PMS were handed back to MAYA when turning `maya_wins` on) |
 | `settings.text_size_saved` | a person's text size saved on their profile | browser | `size` (`standard`, `large`, `larger`) |
 | `team.invited` | an invite was sent (or re-sent after revoke) | trigger on `pending_memberships` | `role`, `reinvite` |
 | `team.invite_revoked` | invite withdrawn | same | `role` |

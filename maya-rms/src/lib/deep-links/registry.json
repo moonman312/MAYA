@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
   "limits": {
     "rawQueryChars": 1024,
@@ -847,6 +847,16 @@
       "docs": "watch/settings",
       "docsLinkable": true
     },
+    "settings.pms": {
+      "label": "Open the property system setting",
+      "opens": "The dashboard with Settings open at the property system's section: what MAYA does when a price it sent is changed there. Nothing is changed.",
+      "target": {
+        "path": "/"
+      },
+      "params": [],
+      "docs": "watch/settings",
+      "docsLinkable": true
+    },
     "team": {
       "label": "Open the Team page",
       "opens": "Team page.",
@@ -1118,7 +1128,9 @@
       "rule-activation": "rules/turning-a-rule-on#what-the-days-mean",
       "no-rate": "wrong/a-price-looks-wrong#why-is-a-night-unpriced",
       "calendar-colors": "watch/the-calendar#what-the-colours-mean",
-      "settings-colours": "watch/settings#colours"
+      "settings-colours": "watch/settings#colours",
+      "settings-pms-changes": "watch/settings#changes-made-in-your-property-system",
+      "pms-removed": "watch/rates-changed-in-your-pms#a-rate-removed-in-your-system"
     }
   }
 }

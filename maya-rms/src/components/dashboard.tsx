@@ -15,7 +15,7 @@ import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-editor";
-import { NoRateLine } from "@/components/no-rate-help";
+import { NoRateLine, RemovedRateLine } from "@/components/no-rate-help";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
@@ -39,6 +39,8 @@ import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
 import { isSupportChange } from "@/lib/changelog-support";
 import { SupportChangeItem } from "@/components/support-change-item";
+import { isPmsChange } from "@/lib/changelog-pms-changes";
+import { PmsChangeItem } from "@/components/pms-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
@@ -416,6 +418,8 @@ export function Dashboard({
   const [pmsActivity, setPmsActivity] = useState<PmsActivity | null>(null);
   // Settings, opened from the gear in the header (or a link to it).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A section of Settings a link or a change log button asked for.
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null);
   const settingsButtonRef = useRef<HTMLButtonElement>(null);
 
   const [accessibleHotels, setAccessibleHotels] = useState<
@@ -634,7 +638,14 @@ export function Dashboard({
 
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
+    setSettingsFocus(null);
     settingsButtonRef.current?.focus();
+  }, []);
+
+  // Settings at the property system's section: the change log's button, or a link to settings.pms.
+  const openPmsSetting = useCallback(() => {
+    setSettingsFocus("settings-pms");
+    setSettingsOpen(true);
   }, []);
 
   const reloadChangelog = useCallback(async () => {
@@ -1071,13 +1082,14 @@ export function Dashboard({
   // A link to Settings opens it. Nothing in it is changed.
   useEffect(() => {
     if (arrival?.dest === "settings") setSettingsOpen(true);
-  }, [arrival]);
+    if (arrival?.dest === "settings.pms") openPmsSetting();
+  }, [arrival, openPmsSetting]);
 
   // A link to one change that has since left the list says so.
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
     const run = arrival.params.run;
-    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
+    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isPmsChange(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
       setArrivalNote("entry-gone");
     }
   }, [arrival, changelog]);
@@ -1092,7 +1104,7 @@ export function Dashboard({
     // A push problem is always shown: it is never a "nothing changed" run.
     () =>
       changesOnly
-        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || isSupportChange(c) || (!isQuietChecks(c) && c.has_changes))
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || isSupportChange(c) || isPmsChange(c) || (!isQuietChecks(c) && c.has_changes))
         : changelog,
     [changesOnly, changelog],
   );
@@ -1152,6 +1164,7 @@ export function Dashboard({
           roomTypes={roomTypeOptions}
           calendar={calendarDisplay}
           onCalendarSaved={applyCalendarDisplay}
+          focusSection={settingsFocus}
         />
       ) : null}
       <TextSizeSync saved={textSize} />
@@ -1510,7 +1523,11 @@ export function Dashboard({
                                   ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
                                   : "–"}
                               </p>
-                              {rt.no_rate_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
+                              {rt.rate_removed_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
+                                <RemovedRateLine
+                                  pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
+                                />
+                              ) : rt.no_rate_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
                                 <NoRateLine
                                   pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
                                 />
@@ -2287,6 +2304,18 @@ export function Dashboard({
                       formatWhen={formatFriendlyDateTime}
                       formatAge={formatRelativeAge}
                       formatExact={formatDisplayTime}
+                    />
+                  );
+                }
+                if (isPmsChange(cycle)) {
+                  return (
+                    <PmsChangeItem
+                      key={`pms-change-${cycle.id}`}
+                      item={cycle}
+                      formatWhen={formatFriendlyDateTime}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                      onOpenSetting={openPmsSetting}
                     />
                   );
                 }

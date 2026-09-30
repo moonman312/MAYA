@@ -28,6 +28,12 @@ const state = vi.hoisted(() => ({
   missing: [] as string[],
   tables: {} as Record<string, Record<string, unknown>[]>,
   writes: [] as { table: string; patch: Record<string, unknown> }[],
+  /** Future nights still keeping a rate changed in the PMS, as set_pms_rate_changes counts them. */
+  pmsNights: 0,
+  /** The error set_pms_rate_changes answers with, if any. */
+  pmsRpcError: null as { code?: string; message: string } | null,
+  rpcCalls: [] as { name: string; args: unknown }[],
+  nudges: [] as string[],
 }));
 
 function builder(table: string) {
@@ -74,18 +80,41 @@ vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => state.co
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: state.userId ? { id: state.userId } : null } }) },
-    rpc: async (name: string) => {
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      state.rpcCalls.push({ name, args });
       if (name === "can_manage_hotel") return { data: state.canManage, error: null };
       if (name === "is_platform_admin") return { data: state.isAdmin, error: null };
+      if (name === "set_pms_rate_changes") {
+        // The database's own check, as the function makes it.
+        if (!state.canManage) return { data: null, error: { code: "42501", message: "not allowed to change this property's settings" } };
+        if (state.pmsRpcError) return { data: null, error: state.pmsRpcError };
+        const row = state.tables.hotel_settings[0];
+        const turningOn = args.p_mode === "maya_wins" && row.pms_rate_changes !== "maya_wins";
+        if (turningOn && state.pmsNights > 0 && args.p_replace !== true) {
+          return { data: { saved: false, reason: "confirm", mode: row.pms_rate_changes, nights: state.pmsNights }, error: null };
+        }
+        const nights = turningOn ? state.pmsNights : 0;
+        row.pms_rate_changes = args.p_mode;
+        state.pmsNights -= nights;
+        return { data: { saved: true, mode: args.p_mode, nights, cleared_prices: nights, handed_back: 0 }, error: null };
+      }
       return { data: null, error: null };
     },
     from: (t: string) => builder(t),
   }),
 }));
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => HOTEL }));
+vi.mock("@/utils/supabase/admin", () => ({ isAdminConfigured: () => true, createAdminClient: () => ({}) }));
+vi.mock("@/lib/pms/sync-nudge", () => ({
+  nudgeHotelSync: async (_admin: unknown, hotelId: string) => {
+    state.nudges.push(hotelId);
+    return "nudged";
+  },
+}));
 
 const { GET } = await import("./route");
 const { PUT: putCalendar } = await import("./calendar/route");
+const { PUT: putPms } = await import("./pms/route");
 const { PUT: putDisplay } = await import("./display/route");
 const { PROPERTY_SETTINGS_FORBIDDEN } = await import("./gate");
 
@@ -100,7 +129,12 @@ function seed() {
         calendar_small_metric_2: "room_revenue",
         calendar_price_room_type_id: null,
         calendar_colors: "standard",
+        pms_rate_changes: "keep",
       },
+    ],
+    pms_connections: [
+      { hotel_id: HOTEL, pms_type: "cloudbeds", status: "connected", updated_at: "2026-09-01T00:00:00Z" },
+      { hotel_id: HOTEL, pms_type: "mews", status: "disconnected", updated_at: "2026-09-20T00:00:00Z" },
     ],
     room_types: [
       { id: KING, hotel_id: HOTEL, name: "King", is_active: true },
@@ -122,6 +156,10 @@ beforeEach(() => {
   state.isAdmin = false;
   state.missing = [];
   state.writes = [];
+  state.pmsNights = 0;
+  state.pmsRpcError = null;
+  state.rpcCalls = [];
+  state.nudges = [];
   seed();
   vi.spyOn(console, "warn").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -139,8 +177,25 @@ describe("GET /api/settings", () => {
     expect(await res.json()).toEqual({
       property: { canEdit: true, readOnly: null },
       calendar: { big: "occupancy", small: ["rooms_booked", "room_revenue"], price_room_type_id: null, colors: "reversed" },
+      pms: { type: "cloudbeds", name: "Cloudbeds", mode: "keep" },
       textSize: "large",
     });
+  });
+
+  it("names the property system the setting is about, and hides it where MAYA reads no changes", async () => {
+    settingsRow().pms_rate_changes = "maya_wins";
+    expect((await (await GET()).json()).pms).toEqual({ type: "cloudbeds", name: "Cloudbeds", mode: "maya_wins" });
+    state.tables.pms_connections = [{ hotel_id: HOTEL, pms_type: "think", status: "connected", updated_at: "2026-09-01T00:00:00Z" }];
+    expect((await (await GET()).json()).pms).toEqual({ type: "think", name: "Think Reservations", mode: "maya_wins" });
+    state.tables.pms_connections = [{ hotel_id: HOTEL, pms_type: "mews", status: "connected", updated_at: "2026-09-01T00:00:00Z" }];
+    expect((await (await GET()).json()).pms).toBeNull();
+    state.tables.pms_connections = [];
+    expect((await (await GET()).json()).pms).toBeNull();
+  });
+
+  it("reads as Keep the change on a database before the setting", async () => {
+    state.missing = ["pms_rate_changes"];
+    expect((await (await GET()).json()).pms).toEqual({ type: "cloudbeds", name: "Cloudbeds", mode: "keep" });
   });
 
   it("shows the property's calendar read-only to everyone else, with the reason", async () => {
@@ -250,6 +305,74 @@ describe("PUT /api/settings/calendar", () => {
   it("needs a database in demo mode", async () => {
     state.configured = false;
     expect((await put(putCalendar, "/api/settings/calendar", choice)).status).toBe(501);
+  });
+});
+
+describe("PUT /api/settings/pms", () => {
+  it("turns MAYA's price wins on and off when nothing kept from the PMS is in the way", async () => {
+    const on = await put(putPms, "/api/settings/pms", { mode: "maya_wins" });
+    expect(on.status).toBe(200);
+    expect(await on.json()).toEqual({ mode: "maya_wins", replaced: 0 });
+    expect(settingsRow().pms_rate_changes).toBe("maya_wins");
+    const off = await put(putPms, "/api/settings/pms", { mode: "keep" });
+    expect(await off.json()).toEqual({ mode: "keep", replaced: 0 });
+    expect(settingsRow().pms_rate_changes).toBe("keep");
+    expect(state.nudges).toEqual([]);
+  });
+
+  it("asks first when nights keep a rate changed in the PMS, then replaces them and sends MAYA's prices now", async () => {
+    state.pmsNights = 3;
+    const asked = await put(putPms, "/api/settings/pms", { mode: "maya_wins" });
+    expect(asked.status).toBe(409);
+    expect(await asked.json()).toEqual({ confirm: { nights: 3 } });
+    expect(settingsRow().pms_rate_changes).toBe("keep");
+
+    const done = await put(putPms, "/api/settings/pms", { mode: "maya_wins", replace: true });
+    expect(done.status).toBe(200);
+    expect(await done.json()).toEqual({ mode: "maya_wins", replaced: 3, sending: "nudged" });
+    expect(settingsRow().pms_rate_changes).toBe("maya_wins");
+    expect(state.nudges).toEqual([HOTEL]);
+    expect(state.rpcCalls.filter((c) => c.name === "set_pms_rate_changes").map((c) => c.args)).toEqual([
+      { p_hotel_id: HOTEL, p_mode: "maya_wins", p_replace: false },
+      { p_hotel_id: HOTEL, p_mode: "maya_wins", p_replace: true },
+    ]);
+  });
+
+  it("refuses someone who cannot manage the property before asking the database", async () => {
+    state.canManage = false;
+    const res = await put(putPms, "/api/settings/pms", { mode: "maya_wins", replace: true });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: PROPERTY_SETTINGS_FORBIDDEN, code: "forbidden" });
+    expect(state.rpcCalls.some((c) => c.name === "set_pms_rate_changes")).toBe(false);
+    expect(settingsRow().pms_rate_changes).toBe("keep");
+  });
+
+  it("refuses MAYA staff outside God Mode, and says how to turn it on", async () => {
+    state.canManage = false;
+    state.isAdmin = true;
+    expect((await (await put(putPms, "/api/settings/pms", { mode: "maya_wins" })).json()).error).toBe(GOD_MODE_OFF);
+  });
+
+  it("takes only the two choices", async () => {
+    for (const body of [{ mode: "overwrite" }, { mode: null }, {}]) {
+      const res = await put(putPms, "/api/settings/pms", body);
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe("Pick one of the two choices.");
+    }
+  });
+
+  it("says it is ours to fix on a database before the setting, and refuses what the database refuses", async () => {
+    state.pmsRpcError = { code: "PGRST202", message: "Could not find the function public.set_pms_rate_changes" };
+    let res = await put(putPms, "/api/settings/pms", { mode: "maya_wins" });
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toBe(NOT_READY_YET);
+    state.pmsRpcError = { code: "42501", message: "not allowed" };
+    res = await put(putPms, "/api/settings/pms", { mode: "maya_wins" });
+    expect(res.status).toBe(403);
+    state.pmsRpcError = { code: "57014", message: "canceling statement due to statement timeout" };
+    res = await put(putPms, "/api/settings/pms", { mode: "maya_wins" });
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("Could not save this setting. Try again in a moment.");
   });
 });
 

@@ -380,6 +380,61 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     }
   });
 
+  it("says which nights MAYA stopped pricing because their rate was removed in the property system", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const removedAt = "2026-10-09T10:00:00Z";
+      const { client } = calendarDb({
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+        pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_returned_through: "2026-10-31", updated_at: "2026-10-01T00:00:00Z" }],
+        base_rate_calendar: [
+          { hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt1", price: 150, pms_removed_at: removedAt },
+          { hotel_id: "h1", stay_date: "2026-10-14", room_type_id: "rt1", price: 150, pms_removed_at: removedAt },
+          { hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt1", price: 150, pms_removed_at: removedAt },
+          { hotel_id: "h1", stay_date: "2026-10-16", room_type_id: "rt1", price: 150, pms_removed_at: removedAt },
+          { hotel_id: "h1", stay_date: "2026-10-17", room_type_id: "rt1", price: 150, pms_removed_at: null },
+        ],
+        manual_price: [
+          // Typed before the rate was removed: it waits with the night.
+          { hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt1", price: 200, set_at: "2026-10-08T10:00:00Z", cleared_at: null },
+          // Typed since: priced and sent as typed.
+          { hotel_id: "h1", stay_date: "2026-10-16", room_type_id: "rt1", price: 210, set_at: "2026-10-09T12:00:00Z", cleared_at: null },
+        ],
+        published_price: [{ hotel_id: "h1", stay_date: "2026-10-16", room_type_id: "rt1", price: 210, base_price: 210 }],
+      });
+      const month = await getCalendar(2026, 10, client);
+      const cell = (day: number) => month.days[String(day)].room_types[0];
+      expect(cell(14).rate_removed_in_pms).toBe(true);
+      expect(cell(14)).not.toHaveProperty("no_rate_in_pms");
+      expect(cell(15).rate_removed_in_pms).toBe(true);
+      expect(cell(15).manual_price?.price).toBe(200);
+      expect(cell(16)).not.toHaveProperty("rate_removed_in_pms");
+      expect(cell(17)).not.toHaveProperty("rate_removed_in_pms");
+      // Past nights say nothing.
+      expect(cell(5)).not.toHaveProperty("rate_removed_in_pms");
+
+      // Before the column: the rates on record read as before, and nothing is removed.
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const old = calendarDb(
+        {
+          hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+          room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+          pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_returned_through: "2026-10-31", updated_at: "2026-10-01T00:00:00Z" }],
+          base_rate_calendar: [{ hotel_id: "h1", stay_date: "2026-10-14", room_type_id: "rt1", price: 150 }],
+        },
+        { fault: (c) => (c.table === "base_rate_calendar" && c.columns.includes("pms_removed_at") ? missingColumn("base_rate_calendar", "pms_removed_at") : null) },
+      );
+      const before = await getCalendar(2026, 10, old.client);
+      expect(before.days["14"].room_types[0]).not.toHaveProperty("rate_removed_in_pms");
+      expect(before.days["14"].room_types[0]).not.toHaveProperty("no_rate_in_pms");
+      expect(before.days["15"].room_types[0].no_rate_in_pms).toBe(true);
+      expect(err).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says nothing about rates on a Mews property, or with no connection, or before the column exists", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
     try {

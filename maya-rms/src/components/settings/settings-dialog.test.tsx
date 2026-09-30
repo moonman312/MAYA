@@ -25,6 +25,7 @@ type Call = { url: string; method: string; body: unknown };
 let calls: Call[] = [];
 let payload: SettingsPayload;
 let calendarAnswer: (body: CalendarDisplay) => Response;
+let pmsAnswer: (body: { mode: string; replace?: boolean }) => Response;
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -34,6 +35,7 @@ beforeEach(() => {
   calls = [];
   payload = { property: { canEdit: true, readOnly: null }, calendar: DEFAULT_CALENDAR_DISPLAY, textSize: "standard" };
   calendarAnswer = (body) => json({ calendar: body });
+  pmsAnswer = (body) => json({ mode: body.mode, replaced: 0 });
   document.cookie = `${TEXT_SIZE_COOKIE}=; Path=/; Max-Age=0`;
   document.documentElement.removeAttribute("data-text-size");
   vi.stubGlobal(
@@ -45,6 +47,7 @@ beforeEach(() => {
       calls.push({ url, method, body });
       if (url === "/api/settings") return json(payload);
       if (url === "/api/settings/calendar" && method === "PUT") return calendarAnswer(body as CalendarDisplay);
+      if (url === "/api/settings/pms" && method === "PUT") return pmsAnswer(body as { mode: string; replace?: boolean });
       if (url === "/api/settings/display" && method === "PUT") return json({ textSize: (body as { textSize: string }).textSize });
       // What the dashboard around it reads when it opens.
       if (url === "/api/rules" || url === "/api/rules/stops" || url === "/api/room-types") return json([]);
@@ -189,6 +192,124 @@ describe("the Calendar section", () => {
   });
 });
 
+describe("the property system's section", () => {
+  const withPms = (over: Partial<NonNullable<SettingsPayload["pms"]>> = {}) => {
+    payload = { ...payload, pms: { type: "cloudbeds", name: "Cloudbeds", mode: "keep", ...over } };
+  };
+  const pmsRegion = () => screen.getByRole("region", { name: "Cloudbeds" });
+  const choice = (name: string) => within(pmsRegion()).getByRole("radio", { name }) as HTMLButtonElement;
+
+  it("is named for the property system, for everyone on the property, and starts on Keep the change", async () => {
+    withPms();
+    open();
+    await loaded();
+    const region = await screen.findByRole("region", { name: "Cloudbeds" });
+    expect(region.textContent).toContain("For everyone on Harbour Inn");
+    expect(region.textContent).toContain("When a price MAYA sent is changed in Cloudbeds");
+    expect(choice("Keep the change as your price").getAttribute("aria-checked")).toBe("true");
+    expect(choice("MAYA's price wins").getAttribute("aria-checked")).toBe("false");
+    // Between the property's calendar and the person's own display.
+    const ids = [...document.querySelectorAll("[data-settings-section]")].map((el) => el.getAttribute("data-settings-section"));
+    expect(ids).toEqual(["settings-calendar", "settings-pms", "settings-display"]);
+    // The why is behind the "?".
+    expect(screen.queryByText(/For properties that also run another pricing tool/)).toBeNull();
+    fireEvent.click(within(region).getByRole("button", { name: "What the two choices do" }));
+    expect(screen.getByText(/For properties that also run another pricing tool/)).toBeTruthy();
+  });
+
+  it("does not show on Mews or without a connection", async () => {
+    payload = { ...payload, pms: null };
+    open();
+    await loaded();
+    await waitFor(() => expect((screen.getByLabelText("Big number") as HTMLSelectElement).disabled).toBe(false));
+    expect(document.querySelector('[data-settings-section="settings-pms"]')).toBeNull();
+  });
+
+  it("saves MAYA's price wins at once when nothing is in the way, and back again", async () => {
+    withPms();
+    open();
+    await loaded();
+    await waitFor(() => expect(choice("MAYA's price wins").disabled).toBe(false));
+    fireEvent.click(choice("MAYA's price wins"));
+    await waitFor(() => expect(saves()).toEqual([{ url: "/api/settings/pms", method: "PUT", body: { mode: "maya_wins" } }]));
+    expect(await within(pmsRegion()).findByText("Saved")).toBeTruthy();
+    expect(choice("MAYA's price wins").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(choice("Keep the change as your price"));
+    await waitFor(() => expect(saves()).toHaveLength(2));
+    expect(saves()[1].body).toEqual({ mode: "keep" });
+  });
+
+  it("asks before replacing nights that keep a rate changed in the PMS, and replaces them only on Replace them", async () => {
+    withPms();
+    pmsAnswer = (body) => (body.replace ? json({ mode: "maya_wins", replaced: 3 }) : json({ confirm: { nights: 3 } }, 409));
+    open();
+    await loaded();
+    await waitFor(() => expect(choice("MAYA's price wins").disabled).toBe(false));
+    fireEvent.click(choice("MAYA's price wins"));
+    const ask = await within(pmsRegion()).findByRole("group", { name: "Replace rates changed in the property system" });
+    expect(ask.textContent).toContain("3 nights keep a rate changed in Cloudbeds. MAYA will replace them with its prices.");
+    // Nothing is saved yet, and the choice has not moved.
+    expect(choice("Keep the change as your price").getAttribute("aria-checked")).toBe("true");
+    expect(choice("MAYA's price wins").disabled).toBe(true);
+
+    // Cancel: nothing changes.
+    fireEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+    expect(within(pmsRegion()).queryByRole("group", { name: "Replace rates changed in the property system" })).toBeNull();
+    expect(saves()).toHaveLength(1);
+
+    fireEvent.click(choice("MAYA's price wins"));
+    fireEvent.click(await within(pmsRegion()).findByRole("button", { name: "Replace them" }));
+    await waitFor(() => expect(saves()).toHaveLength(3));
+    expect(saves()[2].body).toEqual({ mode: "maya_wins", replace: true });
+    await waitFor(() => expect(choice("MAYA's price wins").getAttribute("aria-checked")).toBe("true"));
+    expect(within(pmsRegion()).getByText("Saved")).toBeTruthy();
+  });
+
+  it("says one night in the singular", async () => {
+    withPms();
+    pmsAnswer = () => json({ confirm: { nights: 1 } }, 409);
+    open();
+    await loaded();
+    await waitFor(() => expect(choice("MAYA's price wins").disabled).toBe(false));
+    fireEvent.click(choice("MAYA's price wins"));
+    expect((await within(pmsRegion()).findByRole("group", { name: "Replace rates changed in the property system" })).textContent).toContain(
+      "1 night keeps a rate changed in Cloudbeds.",
+    );
+  });
+
+  it("is read-only, with the reason, for someone who cannot manage the property, and puts a refused choice back", async () => {
+    withPms({ mode: "maya_wins" });
+    payload = { ...payload, property: { canEdit: false, readOnly: "Only a Revenue Manager or above can change these." } };
+    open();
+    await loaded();
+    await waitFor(() => expect(choice("MAYA's price wins").getAttribute("aria-checked")).toBe("true"));
+    expect(choice("Keep the change as your price").disabled).toBe(true);
+    expect(within(pmsRegion()).getByText("Only a Revenue Manager or above can change these.")).toBeTruthy();
+  });
+
+  it("puts the choice back and says why when a save fails", async () => {
+    withPms();
+    pmsAnswer = () => json({ error: "Could not save this setting. Try again in a moment." }, 500);
+    open();
+    await loaded();
+    await waitFor(() => expect(choice("MAYA's price wins").disabled).toBe(false));
+    fireEvent.click(choice("MAYA's price wins"));
+    expect((await within(pmsRegion()).findByRole("alert")).textContent).toBe("Could not save this setting. Try again in a moment.");
+    expect(choice("Keep the change as your price").getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("brings its section into view when opened for it", async () => {
+    withPms();
+    const seen: string[] = [];
+    const scroll = vi.fn(function (this: HTMLElement) {
+      seen.push(this.getAttribute("data-settings-section") ?? "");
+    });
+    Element.prototype.scrollIntoView = scroll as unknown as Element["scrollIntoView"];
+    open({ focusSection: "settings-pms" });
+    await waitFor(() => expect(seen).toEqual(["settings-pms"]));
+  });
+});
+
 describe("the Display section", () => {
   it("is just for the person, and shows a new text size at once, remembers it here and saves it to their profile", async () => {
     open();
@@ -254,5 +375,13 @@ describe("opening and closing", () => {
     expect(await screen.findByRole("dialog", { name: "Settings" })).toBeTruthy();
     // The link is read once: the address keeps only the place.
     expect(window.location.search).toBe("");
+    cleanup();
+
+    // A link to the property system's setting opens Settings too.
+    window.history.replaceState(null, "", "/?dl=settings.pms");
+    await act(async () => {
+      render(<Dashboard initialSearch={window.location.search} />);
+    });
+    expect(await screen.findByRole("dialog", { name: "Settings" })).toBeTruthy();
   });
 });

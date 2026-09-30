@@ -424,6 +424,14 @@ export type CalendarRoomType = {
    * Absent otherwise, and on past nights, on Mews, and in demo mode.
    */
   no_rate_in_pms?: true;
+  /**
+   * True when the property system (Cloudbeds or ThinkReservations) no longer
+   * has a rate for this night, after MAYA sent its price, and the property
+   * keeps changes made there: MAYA does not price the night or send to it
+   * until the system has a rate again, or someone types a price. Absent
+   * otherwise, and on past nights.
+   */
+  rate_removed_in_pms?: true;
 };
 
 export type CalendarDay = {
@@ -616,6 +624,39 @@ export type ChangelogSupportChange = {
 };
 
 /**
+ * A rate changed in the property system on a night MAYA sent to, as the
+ * change log shows it (pms_change_notices, src/lib/changelog-pms-changes.ts):
+ *
+ *   overwrite   the property's setting is "MAYA's price wins", and MAYA sent
+ *               its price again over a rate changed or removed there. One
+ *               item per night and room type.
+ *   other_tool  the setting is "Keep the change as your price", and the
+ *               changes look like another pricing tool at work. It carries a
+ *               button that opens the setting.
+ *   more        the overwrites past the ones the log lists, counted.
+ */
+export type ChangelogPmsChange = {
+  kind: "pms_change";
+  id: string;
+  /** When the change was found. */
+  timestamp: string;
+  change: "overwrite" | "other_tool" | "more";
+  /** The property system's name, e.g. "Cloudbeds". */
+  pms: string;
+  /** What the log says, in one or a few sentences. */
+  title: string;
+  stay_date?: string;
+  room_type?: string;
+  /** The rate the PMS had; null when it was removed. */
+  pms_rate?: number | null;
+  maya_price?: number;
+  /** other_tool: rates changed in the last 7 days. more: overwrites not listed. */
+  count?: number;
+  /** other_tool: "MAYA's price wins" is on now, so there is nothing to open. */
+  setting_on?: boolean;
+};
+
+/**
  * Pricing runs in a row that changed nothing, as one change log line: how
  * many, and when the first and last of them ran. Anything else the log shows
  * in that time (a change, a push problem ending, an owner's answer) splits
@@ -648,4 +689,5 @@ export type ChangelogItem =
   | ChangelogQuietChecks
   | ChangelogPushProblem
   | ChangelogRuleAlertChoice
-  | ChangelogSupportChange;
+  | ChangelogSupportChange
+  | ChangelogPmsChange;
