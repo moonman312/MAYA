@@ -381,11 +381,13 @@ five minutes of the clock (`lib/admin/analytics-cache.ts`: 14:00 to 14:05 UTC,
 then 14:05 to 14:10, and so on), the same for every platform admin, keyed by
 the window and the test toggle; "right now" is keyed by the toggle only, so a
 date change never recomputes it. The first load in each five minutes works
-the numbers out while it waits, so nothing on screen is ever more than five
-minutes old. "as of" beside Refresh is when the oldest number on screen was
-worked out, with the date in front when that was not today. Refresh writes
-today's snapshot row and throws every kept section away. The last 7, 30 and
-90 days are fetched ahead as soon as the picker shows.
+the numbers out while it waits, so the server never sends numbers more than
+five minutes old. "as of" beside Refresh is when the oldest number on screen
+was worked out, with the date in front when that was not today. Refresh
+writes today's snapshot row and throws every kept section away. The last 7,
+30 and 90 days are fetched ahead as soon as the picker shows, and the browser
+keeps what it fetched ahead for up to five minutes (Next's default), so a
+window clicked then can be that much older; its "as of" says so.
 
 Today's point on the chart, today's new, won back and churned, and "MRR at
 last count" come from today's snapshot row. The nightly cron writes how each

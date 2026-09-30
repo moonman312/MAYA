@@ -12,11 +12,11 @@ import { loadPushProblemAnalytics, type PushProblemAnalytics } from "./push-prob
  *
  * Kept per five-minute slot of the clock (00:00 to 00:05 UTC, 00:05 to
  * 00:10, ...): the slot is part of every key, so a new slot is a new key and
- * its first load works the numbers out while it waits. Nothing is ever shown
- * from an earlier slot, so the numbers on screen are at most five minutes old.
- * (A plain revalidate time would not do that: once an entry is older than it,
- * Next hands back the old entry, however old, and works out a new one in the
- * background for the load after.)
+ * its first load works the numbers out while it waits. Nothing from an earlier
+ * slot is ever handed out, so the numbers are at most five minutes old when
+ * the page is sent. (A plain revalidate time would not do that: once an entry
+ * is older than it, Next hands back the old entry, however old, and works out
+ * a new one in the background for the load after.)
  *
  * What is kept is the same for every platform admin: it is read with the
  * service role, keyed only by the slot, the window and the test toggle, and
