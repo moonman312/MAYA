@@ -86,8 +86,8 @@ const KING = "55555555-5555-4555-8555-555555555551";
 const SUITE = "55555555-5555-4555-8555-555555555552";
 
 describe("the migration file", () => {
-  it("is last on the list the SQL tests build production's schema from", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is on the list the SQL tests build production's schema from", () => {
+    expect(MIGRATION_ORDER).toContain(MIGRATION);
   });
 
   it("is one transaction, and makes no table, function, policy or grant", () => {

@@ -89,11 +89,18 @@
  *                                  that covered fewer nights (a manual price
  *                                  save) vouches for those nights only.
  *
- * One older skip reason is not a guardrail and keeps its original text:
+ * Two skip reasons are not guardrails:
  *
  *   "no rate target for room type" (NO_RATE_TARGET_REASON)  The PMS has no
  *                                  base rate for the room type, so there is
- *                                  nothing to send to.
+ *                                  nothing to send to. Predates the codes.
+ *   "rate removed in the PMS" (PMS_RATE_REMOVED_REASON)  Not a hold at all:
+ *                                  a read found the PMS no longer has a rate
+ *                                  for a night MAYA sent to, on a property
+ *                                  whose setting is "MAYA's price wins"
+ *                                  (pms-edits.ts). MAYA's price is not there
+ *                                  any more, so the row is no send at any
+ *                                  price and the next push sends it again.
  *
  * Rows with status 'failed' carry the vendor's own error text, cut to 300
  * characters, never a code.
@@ -139,6 +146,14 @@ export const GUARDRAIL_ORDER: readonly GuardrailCode[] = [
 
 /** The skip reason for a room type the PMS has no base rate for. Predates the codes; kept as written. */
 export const NO_RATE_TARGET_REASON = "no rate target for room type";
+
+/**
+ * A night MAYA sent to whose rate the PMS no longer has, on a property where
+ * MAYA's price wins: the push sends MAYA's price again. Not a hold, and never
+ * filed as a problem. The Settings save writes the same text
+ * (set_pms_rate_changes, 99_supabase_migration_pms_rate_changes_v1.sql).
+ */
+export const PMS_RATE_REMOVED_REASON = "rate removed in the PMS";
 
 const DEFAULT_MAX_PRICE_AGE_MINUTES = 30;
 
