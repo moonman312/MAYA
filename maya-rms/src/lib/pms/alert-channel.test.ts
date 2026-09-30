@@ -11,7 +11,6 @@
  * back. Plus the one log line an alert with nowhere to go now leaves.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ALERT_CHANNEL_EVENT,
   ALERT_CHANNEL_REPORT_EVERY_MS,
@@ -184,7 +183,7 @@ describe("the test alert, asked of a scheduled sync function", () => {
     CLOUDBEDS_CRON_SECRET: "s3cret",
     // The app's own copy of the address: set, and beside the point.
     MAYA_ALERT_WEBHOOK: "https://hooks.example.com/apps-copy",
-  } as NodeJS.ProcessEnv;
+  } as unknown as NodeJS.ProcessEnv;
 
   it("passes only when the FUNCTION has the address, and the message goes through the function's post", async () => {
     const { sendTestAlert, testAlertProblem } = await import("@/lib/admin/test-alert");
@@ -271,7 +270,7 @@ describe("the test alert, asked of a scheduled sync function", () => {
 
   it("says what the app is missing when it cannot ask any function", async () => {
     const { sendTestAlert, testAlertProblem, testAlertRoute } = await import("@/lib/admin/test-alert");
-    const bare = { NEXT_PUBLIC_SUPABASE_URL: "https://proj.supabase.co", MAYA_ALERT_WEBHOOK: "https://hooks.example.com/apps-copy" } as NodeJS.ProcessEnv;
+    const bare = { NEXT_PUBLIC_SUPABASE_URL: "https://proj.supabase.co", MAYA_ALERT_WEBHOOK: "https://hooks.example.com/apps-copy" } as unknown as NodeJS.ProcessEnv;
     expect(testAlertRoute(bare)).toBeNull();
     expect(testAlertProblem(bare)).toContain("CLOUDBEDS_CRON_SECRET");
     const fetchStub = vi.fn();

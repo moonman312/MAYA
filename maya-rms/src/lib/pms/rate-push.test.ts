@@ -876,12 +876,11 @@ describe("pushRatesForHotel and room types unticked as rooms", () => {
 
   it("before the counts_as_room migration the types are read again without the column, and every one is a room", async () => {
     // The column is not there, so no row carries it and the first read fails naming it.
-    const { counts_as_room: _flag, ...king } = KING;
     const db = hotel({
       parking: PARKING,
       fault: (c) => (c.table === "room_types" && callTouchesColumn(c, "counts_as_room") ? missingColumn("room_types", "counts_as_room") : null),
     });
-    db.tables.room_types = [king, { ...PARKING }];
+    db.tables.room_types = [Object.fromEntries(Object.entries(KING).filter(([k]) => k !== "counts_as_room")), { ...PARKING }];
     const { adapter, attempts } = makeAdapter(TARGETS);
     const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
     expect(res).toMatchObject({ sent: 2 });

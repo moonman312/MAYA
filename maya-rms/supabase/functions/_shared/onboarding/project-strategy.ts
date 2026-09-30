@@ -90,7 +90,7 @@ export async function projectStrategyOntoRoomTypes(
       continue;
     }
 
-    const { data: written, error } = await supabase.from("room_types").update(patch).eq("id", String(rt.id)).select("id");
+    const { data: written, error } = await supabase.from("room_types").update(patch).eq("id", rt.id).select("id");
     if (error || !written?.length) {
       const fields: GuardrailNotSaved["fields"] = [];
       if (patch.floor_price !== undefined) fields.push("floor");
@@ -139,9 +139,9 @@ export function describeGuardrailNotSaved(n: GuardrailNotSaved, money: (amount: 
 }
 
 type ActiveRoomType = {
-  id: unknown;
-  name: unknown;
-  display_name: unknown;
+  id: string;
+  name: string | null;
+  display_name: string | null;
   floor_price: unknown;
   ceiling_price: unknown;
   counts_as_room: boolean | null;
@@ -188,9 +188,9 @@ async function loadActiveRoomTypes(supabase: SupabaseClient, hotelId: string): P
 
 function withFlag(r: Record<string, unknown>): ActiveRoomType {
   return {
-    id: r.id,
-    name: r.name,
-    display_name: r.display_name,
+    id: String(r.id),
+    name: r.name == null ? null : String(r.name),
+    display_name: r.display_name == null ? null : String(r.display_name),
     floor_price: r.floor_price,
     ceiling_price: r.ceiling_price,
     counts_as_room: typeof r.counts_as_room === "boolean" ? r.counts_as_room : null,
