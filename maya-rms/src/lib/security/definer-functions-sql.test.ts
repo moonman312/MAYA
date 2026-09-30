@@ -168,8 +168,10 @@ const AUTHENTICATED_WITHOUT_CHECK: Record<string, string> = {
 };
 
 describe("the migration file", () => {
-  it("is on the list the SQL tests build production's schema from, last", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is on the list the SQL tests build production's schema from, right after the non-room types migration", () => {
+    const at = MIGRATION_ORDER.indexOf(MIGRATION);
+    expect(at).toBeGreaterThan(0);
+    expect(MIGRATION_ORDER[at - 1]).toBe("99_supabase_migration_non_room_types_v1.sql");
   });
 
   it("is one transaction and creates no table, function or policy", () => {
