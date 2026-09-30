@@ -22,11 +22,18 @@
 --                                                 stopped at the first 100)
 --
 -- The numbers are the ones the app worked out before, proven equal on a seeded
--- database in lib/admin/command-center-speed-migration-sql.test.ts. Two
--- deliberate differences, both one second wide: a window is [p_from, p_to + 1)
--- in UTC like every other analytics_* function (the app dropped the last
--- second of the last day for accounts, checkouts and PMS connects, and the
--- first second of the first day for the first engine run).
+-- database in lib/admin/command-center-speed-migration-sql.test.ts, with two
+-- deliberate differences:
+--
+--   * An account counts once its email address is confirmed, on the day it
+--     was confirmed (auth.users.email_confirmed_at), the way account.created
+--     does since 99_supabase_migration_confirmed_signups_v1.sql. The app
+--     counted profiles created in the window, which with "Confirm email" on
+--     includes addresses typed in and never confirmed.
+--   * A window is [p_from, p_to + 1) in UTC like every other analytics_*
+--     function (the app dropped the last second of the last day for accounts,
+--     checkouts and PMS connects, and the first second of the first day for
+--     the first engine run).
 --
 -- Money. analytics_now returns each subscription's facts (plan, status,
 -- interval, rooms, the code's discount), never a price: the price brackets are
@@ -167,7 +174,10 @@ grant execute on function public.analytics_now(boolean) to authenticated, servic
 --             of who already existed, not a day everyone signed up, so nobody
 --             is new or won back on it.
 --
--- accounts    logins created in the window ("+" addresses left out)
+-- accounts    logins whose email address was confirmed in the window ("+"
+--             addresses left out). Read from auth.users alone, so a login
+--             counts on the day it was confirmed, profile row or not, and an
+--             address never confirmed never counts.
 -- paid        subscriptions created in the window
 -- connected   PMS connected in the window (onboarding_states.connected_at)
 -- finished    onboarding questions finished in the window
@@ -324,10 +334,9 @@ begin
         from events e where e.kind = 'churned'), '[]'::jsonb),
     'accounts', (
       select count(*)
-        from public.profiles p
-        left join auth.users u on u.id = p.id
-       where p.created_at >= v_from
-         and p.created_at < v_to
+        from auth.users u
+       where u.email_confirmed_at >= v_from
+         and u.email_confirmed_at < v_to
          and (p_include_test or strpos(coalesce(u.email::text, ''), '+') = 0)),
     'paid', (
       select count(*)

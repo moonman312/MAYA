@@ -6,7 +6,9 @@
  * window), analytics_now and analytics_range give the analytics page exactly
  * what the TypeScript that used to read the tables one request at a time gave
  * it. That TypeScript is kept below, as it was on main, and run against the
- * same database through a small stand-in for PostgREST.
+ * same database through a small stand-in for PostgREST. The one stage held to
+ * a new rule instead is accounts: a login counts once its email address is
+ * confirmed, on the day it was confirmed.
  *
  * Only runs with MAYA_PGLITE_DIR set (see pricing-cadence-sql.test.ts).
  */
@@ -181,13 +183,14 @@ function postgrest(db: Db): SupabaseClient {
   };
   const auth = {
     admin: {
-      // GoTrue's listUsers: newest first.
+      // GoTrue's listUsers: newest first, timestamps as JSON strings.
       listUsers: async ({ page, perPage }: { page: number; perPage: number }) => {
-        const { rows } = await db.query(`select id::text as id, email from auth.users order by created_at desc, id limit $1 offset $2`, [
-          perPage,
-          (page - 1) * perPage,
-        ]);
-        return { data: { users: rows as { id: string; email: string | null }[] }, error: null };
+        const { rows } = await db.query(
+          `select coalesce(json_agg(t), '[]'::json) as users from (
+             select id::text as id, email, email_confirmed_at from auth.users order by created_at desc, id limit $1 offset $2) t`,
+          [perPage, (page - 1) * perPage],
+        );
+        return { data: { users: rows[0].users as { id: string; email: string | null; email_confirmed_at: string | null }[] }, error: null };
       },
     },
   };
@@ -197,7 +200,8 @@ function postgrest(db: Db): SupabaseClient {
 // ── The TypeScript this replaces, as it was on main ─────────────────────────
 //
 // Copied, not imported: the point is to hold the new SQL to what the page used
-// to compute. Only the names changed (legacy*).
+// to compute. Only the names changed (legacy*), and the accounts count, which
+// models the new rule (see there).
 
 function legacyIsPayingRow(row: { entitled: boolean; status: string }): boolean {
   return row.entitled && row.status !== "trialing";
@@ -462,28 +466,27 @@ async function legacyLoadAnalyticsRange(
     );
     return rows.filter((r) => nameById.has(String(r.hotel_id))).length;
   };
+  // Not main's count. Main counted profiles created in the window, confirmed
+  // or not; an account now counts once its email address is confirmed, on the
+  // UTC day it was confirmed, over whole days [from, to + 1), "+" addresses
+  // left out unless test is included. Worked out from every login, profile
+  // row or not.
   let accounts = 0;
   {
-    const profiles = await legacyPageAll<{ id: string }>(
-      (f, t) =>
-        admin.from("profiles").select("id, created_at").gte("created_at", fromTs).lte("created_at", toTs).range(f, t),
-      "profiles",
-    );
-    const ids = new Set(profiles.map((p) => String(p.id)));
-    if (ids.size === 0 || scope.includeTest) {
-      accounts = ids.size;
-    } else {
-      const testIds = new Set<string>();
-      for (let page = 1; page <= 20; page += 1) {
-        const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-        if (error) throw new Error(`auth.listUsers: ${error.message}`);
-        const users = data?.users ?? [];
-        for (const u of users) {
-          if (String(u.email ?? "").includes("+")) testIds.add(u.id);
-        }
-        if (users.length < 200) break;
+    const start = Date.parse(`${fromDay}T00:00:00Z`);
+    const end = Date.parse(`${toDay}T00:00:00Z`) + 86_400_000;
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+      if (error) throw new Error(`auth.listUsers: ${error.message}`);
+      const users = data?.users ?? [];
+      for (const u of users) {
+        if (!u.email_confirmed_at) continue;
+        const confirmed = Date.parse(u.email_confirmed_at);
+        if (confirmed < start || confirmed >= end) continue;
+        if (!scope.includeTest && String(u.email ?? "").includes("+")) continue;
+        accounts += 1;
       }
-      accounts = [...ids].filter((id) => !testIds.has(id)).length;
+      if (users.length < 200) break;
     }
   }
   let paid = 0;
@@ -601,14 +604,21 @@ const CODE_TRIAL = id(23);
 const ADMIN = id(31);
 const NOBODY = id(32);
 
-const USERS: [string, string | null, number][] = [
-  [id(41), "owner@alder.example.com", -70],
-  [id(42), "jake+walkthrough@example.com", -5],
-  [id(43), "birch@example.com", -10],
-  [id(44), "dogwood@example.com", -6],
-  [id(45), null, -3],
-  [id(46), "demo+one@example.com", -1],
-  [id(47), "early@example.com", -40],
+/** Logins: id, address, the day they signed up (at noon), and when the address was confirmed. */
+const USERS: [string, string | null, number, string | null][] = [
+  [id(41), "owner@alder.example.com", -70, at(-70, "12:05:00")],
+  [id(42), "jake+walkthrough@example.com", -5, at(-5, "12:01:00")],
+  [id(43), "birch@example.com", -10, at(-10, "12:30:00")],
+  // Signed up on day -6, confirmed on day -4.
+  [id(44), "dogwood@example.com", -6, at(-4, "09:00:00")],
+  // No address, so nothing to confirm.
+  [id(45), null, -3, null],
+  [id(46), "demo+one@example.com", -1, at(-1, "12:10:00")],
+  [id(47), "early@example.com", -40, at(-40, "12:00:00")],
+  // Typed in, never confirmed.
+  [id(48), "never@example.com", -2, null],
+  // Signed up before the 30-day window, confirmed inside it.
+  [id(49), "late-confirm@example.com", -31, at(-28, "08:00:00")],
 ];
 
 /** One snapshot row per day from `from` to `to` (inclusive, relative days). */
@@ -689,10 +699,14 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
 
     await db.exec(`
       select set_config('request.jwt.claim.role', 'service_role', false);
-      insert into auth.users (id, email, created_at) values
-        ('${ADMIN}', 'admin@example.com', '${at(-100, "09:00:00")}'),
-        ('${NOBODY}', 'someone@example.com', '${at(-100, "09:00:00")}'),
-        ${USERS.map(([u, email, n]) => `('${u}', ${email == null ? "null" : `'${email}'`}, '${at(n, "12:00:00")}')`).join(",\n        ")};
+      insert into auth.users (id, email, created_at, email_confirmed_at) values
+        ('${ADMIN}', 'admin@example.com', '${at(-100, "09:00:00")}', '${at(-100, "09:05:00")}'),
+        ('${NOBODY}', 'someone@example.com', '${at(-100, "09:00:00")}', '${at(-100, "09:05:00")}'),
+        ${USERS.map(
+          ([u, email, n, confirmed]) =>
+            `('${u}', ${email == null ? "null" : `'${email}'`}, '${at(n, "12:00:00")}', ${confirmed == null ? "null" : `'${confirmed}'`})`,
+        ).join(",\n        ")};
+      -- Profiles dated the sign-up, as main counted them; the count reads auth.
       insert into public.profiles (id, created_at) values
         ${USERS.map(([u, , n]) => `('${u}', '${at(n, "12:00:00")}')`).join(",\n        ")}
         on conflict (id) do update set created_at = excluded.created_at;
@@ -847,7 +861,9 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
       const wide = await loadAnalyticsRange(api, d(-60), d(0), { includeTest: false });
       expect(wide.newPaying.map((e) => e.hotelId)).not.toContain(ALDER);
       expect(wide.churned.map((e) => e.name)).toEqual(["Fir Court", "Cedar House"]);
-      // Accounts: Birch, Dogwood and the one with no email; the "+" ones are test.
+      // Accounts: Birch, Dogwood and the one who signed up before the window
+      // and confirmed inside it. The "+" ones are test; the one with no
+      // address and the one who never confirmed don't count.
       expect(r.funnel).toEqual([
         { stage: "Accounts created", count: 3 },
         { stage: "Paid (checkout done)", count: 4 },
@@ -866,18 +882,76 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
   });
 
   it("counts the first and last second of the window, where the old reads dropped one of them", async () => {
-    await db.exec(`
-      insert into auth.users (id, email, created_at) values ('${id(50)}', 'late@example.com', '${d(-1)}T23:59:59.500Z');
-      insert into public.profiles (id, created_at) values ('${id(50)}', '${d(-1)}T23:59:59.500Z')
-        on conflict (id) do update set created_at = excluded.created_at;
-    `);
+    // Gum's checkout moved into the last half second of day -1 for the test.
+    await db.exec(`update public.hotel_subscriptions set created_at = '${d(-1)}T23:59:59.500Z' where hotel_id = '${GUM}'`);
     try {
       const before = await legacyLoadAnalyticsRange(api, d(-1), d(-1), { includeTest: false });
       const after = await loadAnalyticsRange(api, d(-1), d(-1), { includeTest: false });
-      expect(after.funnel[0].count).toBe(before.funnel[0].count + 1);
+      expect(after.funnel[1]).toEqual({ stage: "Paid (checkout done)", count: before.funnel[1].count + 1 });
     } finally {
-      await db.exec(`delete from public.profiles where id = '${id(50)}'; delete from auth.users where id = '${id(50)}';`);
+      await db.exec(`update public.hotel_subscriptions set created_at = '${at(-2, "10:00:00")}' where hotel_id = '${GUM}'`);
     }
+  });
+
+  describe("an account counts once its email address is confirmed", () => {
+    const accounts = async (from: number, to: number, includeTest = false) =>
+      (await loadAnalyticsRange(api, d(from), d(to), { includeTest })).funnel[0];
+
+    it("not while it is only typed in, and on the day it is confirmed", async () => {
+      // never@ signed up on day -2 and has had a profile row since.
+      expect(await accounts(-2, -2, true)).toEqual({ stage: "Accounts created", count: 0 });
+      await db.exec(`update auth.users set email_confirmed_at = '${at(0, "00:30:00")}' where id = '${id(48)}'`);
+      try {
+        expect((await accounts(-2, -2, true)).count).toBe(0);
+        expect((await accounts(0, 0)).count).toBe(1);
+      } finally {
+        await db.exec(`update auth.users set email_confirmed_at = null where id = '${id(48)}'`);
+      }
+    });
+
+    it("on the day it was confirmed, not the day it signed up", async () => {
+      // Dogwood's owner signed up on day -6 and confirmed on day -4.
+      expect((await accounts(-6, -6)).count).toBe(0);
+      expect((await accounts(-4, -4)).count).toBe(1);
+      // Signed up on day -31, confirmed on day -28.
+      expect((await accounts(-31, -29)).count).toBe(0);
+      expect((await accounts(-28, -28)).count).toBe(1);
+    });
+
+    it("inside the window's edges to the microsecond, profile row or not", async () => {
+      const edge: [string, string, string][] = [
+        [id(51), "edge-before@example.com", `${d(-8)}T23:59:59.999999Z`],
+        [id(52), "edge-first@example.com", `${d(-7)}T00:00:00Z`],
+        [id(53), "edge-last@example.com", `${d(-7)}T23:59:59.999999Z`],
+        [id(54), "edge-after@example.com", `${d(-6)}T00:00:00Z`],
+      ];
+      const ids = edge.map(([u]) => `'${u}'`).join(", ");
+      await db.exec(`
+        insert into auth.users (id, email, created_at, email_confirmed_at) values
+          ${edge.map(([u, email, confirmed]) => `('${u}', '${email}', '${at(-9, "12:00:00")}', '${confirmed}')`).join(",\n          ")};
+        -- Signing up made each a profile row; the count must not need one.
+        delete from public.profiles where id in (${ids});
+      `);
+      try {
+        expect((await accounts(-7, -7)).count).toBe(2);
+        expect((await accounts(-8, -8)).count).toBe(1);
+        expect((await accounts(-6, -6)).count).toBe(1);
+        expect((await accounts(-8, -6)).count).toBe(4);
+      } finally {
+        await db.exec(`delete from auth.users where id in (${ids})`);
+      }
+    });
+
+    it("leaves out a \"+\" address unless test is included", async () => {
+      // jake+walkthrough confirmed on day -5, demo+one on day -1.
+      expect((await accounts(-5, -5)).count).toBe(0);
+      expect((await accounts(-5, -5, true)).count).toBe(1);
+      expect((await accounts(-1, -1)).count).toBe(0);
+      expect((await accounts(-1, -1, true)).count).toBe(1);
+      // The 30-day window: Birch, Dogwood and the late confirmer, then both "+" ones too.
+      expect((await accounts(-29, 0)).count).toBe(3);
+      expect((await accounts(-29, 0, true)).count).toBe(5);
+    });
   });
 
   describe("who may call", () => {
