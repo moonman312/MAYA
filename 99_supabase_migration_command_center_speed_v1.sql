@@ -12,6 +12,11 @@
 --
 --   analytics_now(p_include_test)                 what is true right now
 --   analytics_range(p_from, p_to, p_include_test) how it changed in a window
+--   analytics_owner_emails(p_user_ids)            the follow-up list's owner
+--                                                 emails, read fresh on every
+--                                                 load (the app keeps the
+--                                                 list's other numbers a few
+--                                                 minutes, never the emails)
 --   platform_count_users(p_search)                how many logins there are
 --                                                 (the Users tile and page
 --                                                 stopped at the first 100)
@@ -34,8 +39,8 @@
 -- live tables, the flag copied onto each snapshot row for the history, and
 -- the "+" email convention for accounts, which have no hotel.
 --
--- Who may call: analytics_now and analytics_range check the caller the way
--- every analytics_* function does (analytics_assert_reader: a platform admin
+-- Who may call: analytics_now, analytics_range and analytics_owner_emails
+-- check the caller the way every analytics_* function does (analytics_assert_reader: a platform admin
 -- through the app, the service role, or a direct database session);
 -- platform_count_users the way platform_list_users does. None of them can be
 -- executed by anon.
@@ -54,6 +59,7 @@ create index if not exists idx_hotel_metrics_daily_hotel_day
 -- every grant is restated below each function.
 drop function if exists public.analytics_now(boolean);
 drop function if exists public.analytics_range(date, date, boolean);
+drop function if exists public.analytics_owner_emails(uuid[]);
 drop function if exists public.platform_count_users(text);
 
 -- ── Right now ───────────────────────────────────────────────────────────────
@@ -341,12 +347,7 @@ begin
         join scoped h on h.id = o.hotel_id
        where o.questions_completed_at >= v_from
          and o.questions_completed_at < v_to),
-    'median_hours_to_live', v_median,
-    'last_snapshot_day', (
-      select max(d.day)
-        from public.hotel_metrics_daily d
-       where d.day <= p_to
-         and (p_include_test or not d.is_test))
+    'median_hours_to_live', v_median
   ) into v_out;
 
   return v_out;
@@ -355,6 +356,36 @@ $$;
 
 revoke all on function public.analytics_range(date, date, boolean) from public, anon;
 grant execute on function public.analytics_range(date, date, boolean) to authenticated, service_role;
+
+-- ── The follow-up list's emails ─────────────────────────────────────────────
+--
+-- The walked-away list names each property's owner by email. The app keeps
+-- that list for a few minutes in Next's data cache, which every server shares
+-- and which forgets on its own schedule, so it keeps it without the emails and
+-- asks here for them on each load: one primary key lookup in auth.users per
+-- owner on screen. An id with no login left answers nothing.
+
+create function public.analytics_owner_emails(
+  p_user_ids uuid[]
+) returns table (user_id uuid, email text)
+language plpgsql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform public.analytics_assert_reader();
+
+  return query
+    select u.id, u.email::text
+      from auth.users u
+     where u.id = any (p_user_ids)
+       and u.email is not null;
+end;
+$$;
+
+revoke all on function public.analytics_owner_emails(uuid[]) from public, anon;
+grant execute on function public.analytics_owner_emails(uuid[]) to authenticated, service_role;
 
 -- ── How many logins ─────────────────────────────────────────────────────────
 --
@@ -394,4 +425,5 @@ commit;
 --
 --   select analytics_now(false);
 --   select analytics_range(current_date - 29, current_date, false);
+--   select * from analytics_owner_emails(array[]::uuid[]);
 --   select platform_count_users();  -- needs a platform admin's session

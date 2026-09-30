@@ -57,7 +57,6 @@ const RANGE: AnalyticsRange = {
   churned: [{ hotelId: "c", name: "Cedar House", day: "2026-09-10" }],
   funnel: [{ stage: "Accounts created", count: 3 }],
   medianHoursToLive: 10.2,
-  lastSnapshotDay: "2026-09-30",
 };
 const WINDOW = { from: "2026-09-01", to: "2026-09-30", includeTest: false, words: "last 30 days" };
 const stamp = (value: unknown, computedAt = "2026-09-30T14:05:00.000Z") => ({ value, computedAt });
@@ -116,8 +115,14 @@ describe("the analytics sections", () => {
 
   it("says as of the oldest kept number", async () => {
     kept.push = stamp({ available: true, causes: [], open: [] }, "2026-09-30T14:01:00.000Z");
-    const t = text(await html(S.AsOf(WINDOW)));
+    const t = text(await html(S.AsOf({ ...WINDOW, today: "2026-09-30" })));
     expect(t).toBe("as of 14:01 UTC");
+  });
+
+  it("dates the as of when it was not today, so an old page never reads as fresh", async () => {
+    kept.now = stamp(NOW, "2026-09-29T23:58:00.000Z");
+    const t = text(await html(S.AsOf({ ...WINDOW, today: "2026-09-30" })));
+    expect(t).toBe("as of Sep 29, 23:58 UTC");
   });
 
   it("passes the product half's own reason through", async () => {

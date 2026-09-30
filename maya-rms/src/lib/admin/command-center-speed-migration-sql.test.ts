@@ -419,7 +419,7 @@ async function legacyLoadAnalyticsRange(
   fromDay: string,
   toDay: string,
   scope: AnalyticsScope,
-): Promise<Omit<AnalyticsRange, "lastSnapshotDay">> {
+): Promise<AnalyticsRange> {
   const nameById = await legacyLoadScopedHotels(admin, scope);
   const snapRows = await legacyPageAll<Record<string, unknown>>((from, to) => {
     let q = admin
@@ -565,7 +565,7 @@ function canonicalNow(n: AnalyticsNow): AnalyticsNow {
   };
 }
 
-function canonicalRange(r: AnalyticsRange | Omit<AnalyticsRange, "lastSnapshotDay">): Omit<AnalyticsRange, "lastSnapshotDay"> {
+function canonicalRange(r: AnalyticsRange): AnalyticsRange {
   return {
     series: r.series,
     newPaying: [...r.newPaying].sort(byRef),
@@ -635,7 +635,7 @@ describe("the migration file", () => {
     expect(sql.match(/\bcommit;/g)).toHaveLength(1);
     expect(sql).not.toMatch(/create table|alter table|create policy|drop policy/i);
     const made = [...sql.matchAll(/create (?:or replace )?function public\.(\w+)\s*\(/gi)].map((m) => m[1]);
-    expect(made.sort()).toEqual(["analytics_now", "analytics_range", "platform_count_users"]);
+    expect(made.sort()).toEqual(["analytics_now", "analytics_owner_emails", "analytics_range", "platform_count_users"]);
     for (const fn of made) {
       expect(sql).toMatch(new RegExp(`revoke all on function public\\.${fn}\\([^)]*\\) from public, anon`));
       expect(sql).toMatch(new RegExp(`function public\\.${fn}\\([\\s\\S]*?security definer`));
@@ -856,7 +856,12 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
       ]);
       // Birch 3.5h, Hazel 10h07m, Dogwood 12h: the middle one.
       expect(r.medianHoursToLive).toBeCloseTo(10 + 7 / 60, 10);
-      expect(r.lastSnapshotDay).toBe(d(0));
+      // Nothing on the page showed the newest snapshot day, so the call no
+      // longer works it out.
+      const [raw] = await q(`select public.analytics_range('${d(-29)}', '${d(0)}', false) as r`);
+      expect(Object.keys(raw.r as object).sort()).toEqual(
+        ["accounts", "churned", "connected", "finished", "median_hours_to_live", "new_paying", "paid", "series", "won_back"],
+      );
     });
   });
 
@@ -906,10 +911,11 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
       `);
     });
 
-    it("anon cannot execute any of the three", async () => {
+    it("anon cannot execute any of the four", async () => {
       for (const sql of [
         "select public.analytics_now(false)",
         `select public.analytics_range('${d(-7)}', '${d(0)}', false)`,
+        `select * from public.analytics_owner_emails(array['${id(43)}']::uuid[])`,
         "select public.platform_count_users(null)",
       ]) {
         await expect(asRole("anon", null, () => q(sql))).rejects.toThrow(/permission denied/);
@@ -920,6 +926,7 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
       for (const sql of [
         "select public.analytics_now(false)",
         `select public.analytics_range('${d(-7)}', '${d(0)}', false)`,
+        `select * from public.analytics_owner_emails(array['${id(43)}']::uuid[])`,
         "select public.platform_count_users(null)",
       ]) {
         await expect(asRole("authenticated", NOBODY, () => q(sql))).rejects.toThrow(/Not authorized/);
@@ -932,6 +939,18 @@ describe.skipIf(!PGLITE_DIR)("command center speed in PGlite", () => {
       expect((admin.now as { subs: unknown[] }).subs.length).toBeGreaterThan(0);
       const [service] = await asRole("service_role", null, () => q(`select public.analytics_range('${d(-7)}', '${d(0)}', false) as r`));
       expect((service.r as { series: unknown[] }).series.length).toBe(8);
+    });
+
+    it("hands a platform admin or the service role the owners' emails, and nothing for an id with none", async () => {
+      const ids = `array['${id(43)}', '${id(44)}', '${id(45)}', '${id(99)}']::uuid[]`;
+      const sql = `select user_id, email from public.analytics_owner_emails(${ids}) order by email`;
+      const expected = [
+        { user_id: id(43), email: "birch@example.com" },
+        { user_id: id(44), email: "dogwood@example.com" },
+      ];
+      expect(await asRole("authenticated", ADMIN, () => q(sql))).toEqual(expected);
+      expect(await asRole("service_role", null, () => q(sql))).toEqual(expected);
+      expect(await asRole("service_role", null, () => q("select * from public.analytics_owner_emails(array[]::uuid[])"))).toEqual([]);
     });
 
     it("counts logins the way the list finds them", async () => {

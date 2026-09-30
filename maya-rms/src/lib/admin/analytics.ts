@@ -45,8 +45,6 @@ export type AnalyticsRange = {
   /** Median hours from PMS connect to the first engine run, for hotels whose
    *  first run landed in the range. Null until someone completes the journey. */
   medianHoursToLive: number | null;
-  /** The newest snapshot day up to the range's end, or null before the first. */
-  lastSnapshotDay: string | null;
 };
 
 /** Off by default everywhere: the panel answers business questions, and a
@@ -194,7 +192,6 @@ export type AnalyticsRangeRow = {
   connected: number;
   finished: number;
   median_hours_to_live: number | null;
-  last_snapshot_day: string | null;
 };
 
 /** analytics_range's answer, in the page's shape. */
@@ -218,7 +215,6 @@ export function shapeRange(row: AnalyticsRangeRow): AnalyticsRange {
       { stage: "Onboarding finished", count: Number(row.finished ?? 0) },
     ],
     medianHoursToLive: row.median_hours_to_live == null ? null : Number(row.median_hours_to_live),
-    lastSnapshotDay: row.last_snapshot_day == null ? null : String(row.last_snapshot_day),
   };
 }
 

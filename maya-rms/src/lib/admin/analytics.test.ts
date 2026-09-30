@@ -100,7 +100,6 @@ describe("shapeRange", () => {
       connected: 2,
       finished: 1,
       median_hours_to_live: 7.5,
-      last_snapshot_day: "2026-09-29",
     });
     expect(r).toEqual({
       series: [{ day: "2026-09-01", listMrrCents: 100, netMrrCents: 80, paying: 2, trialing: 1 }],
@@ -114,7 +113,6 @@ describe("shapeRange", () => {
         { stage: "Onboarding finished", count: 1 },
       ],
       medianHoursToLive: 7.5,
-      lastSnapshotDay: "2026-09-29",
     });
   });
 });
@@ -129,7 +127,7 @@ describe("one call each", () => {
   }
 
   it("asks analytics_range for the window and whether to count test properties", async () => {
-    const spy = rpcSpy({ data: { series: [], new_paying: [], won_back: [], churned: [], accounts: 0, paid: 0, connected: 0, finished: 0, median_hours_to_live: null, last_snapshot_day: null }, error: null });
+    const spy = rpcSpy({ data: { series: [], new_paying: [], won_back: [], churned: [], accounts: 0, paid: 0, connected: 0, finished: 0, median_hours_to_live: null }, error: null });
     await loadAnalyticsRange(spy.client, "2026-08-01", "2026-08-05", { includeTest: false });
     await loadAnalyticsRange(spy.client, "2026-08-01", "2026-08-05", { includeTest: true });
     expect(spy.calls).toEqual([

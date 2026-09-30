@@ -232,6 +232,41 @@ export async function loadProductAnalytics(
   };
 }
 
+/**
+ * The product numbers without anyone's email: what analytics-cache.ts keeps.
+ * The kept copy sits in Next's data cache, which every server shares and
+ * which forgets on its own schedule, so the follow-up list's owner emails are
+ * left out of it and read fresh on every load (withOwnerEmails).
+ */
+export function withoutOwnerEmails(product: ProductAnalytics): ProductAnalytics {
+  if (!product.available) return product;
+  return { ...product, walkedAway: product.walkedAway.map((r) => ({ ...r, owner_email: null })) };
+}
+
+/**
+ * The follow-up list's owner emails put back, one call to
+ * analytics_owner_emails for every owner on the list (a primary key lookup
+ * each). Throws when the call fails, so the panel says it could not load
+ * rather than calling an owner "no account".
+ */
+export async function withOwnerEmails(client: SupabaseClient, product: ProductAnalytics): Promise<ProductAnalytics> {
+  if (!product.available) return product;
+  const ids = [...new Set(product.walkedAway.flatMap((r) => (r.owner_user_id ? [r.owner_user_id] : [])))];
+  if (ids.length === 0) return product;
+  const { data, error } = await client.rpc("analytics_owner_emails", { p_user_ids: ids });
+  if (error) {
+    if (isMissingFunction(error)) {
+      return { available: false, reason: "Run 99_supabase_migration_command_center_speed_v1.sql to see these." };
+    }
+    throw new Error(`analytics_owner_emails: ${error.message}`);
+  }
+  const emailById = new Map(((data ?? []) as { user_id: string; email: string }[]).map((r) => [String(r.user_id), String(r.email)]));
+  return {
+    ...product,
+    walkedAway: product.walkedAway.map((r) => ({ ...r, owner_email: r.owner_user_id ? emailById.get(r.owner_user_id) ?? null : null })),
+  };
+}
+
 /** "3.5h", "2.1d": hours read badly past two days, days read badly under one. */
 export function formatDuration(value: number | string | null | undefined): string {
   // Postgres numerics can arrive as strings depending on the client.
