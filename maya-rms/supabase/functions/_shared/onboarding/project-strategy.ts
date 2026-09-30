@@ -1,5 +1,4 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isMissingColumnError } from "../engine/snapshots.ts";
 import { treatAsRoom } from "./room-type-names.ts";
 
 /**
@@ -166,7 +165,7 @@ async function loadActiveRoomTypes(supabase: SupabaseClient, hotelId: string): P
     supabase.from("room_types").select(columns).eq("hotel_id", hotelId).eq("is_active", true);
   const first = await read("id, name, display_name, floor_price, ceiling_price, counts_as_room");
   if (!first.error) return ((first.data ?? []) as unknown as Record<string, unknown>[]).map(withFlag);
-  if (!isMissingColumnError(first.error)) return [];
+  if (!isMissingColumn(first.error)) return [];
   if (!loggedCountsAsRoomMissing) {
     loggedCountsAsRoomMissing = true;
     console.warn(
@@ -202,6 +201,21 @@ let loggedMaxRatesMissing = false;
 /** Test hook: forget that the pre-migration line was already logged. */
 export function resetMaxRatesLogOnce(): void {
   loggedMaxRatesMissing = false;
+}
+
+/**
+ * `column x does not exist`: 42703 from a select or filter, PGRST204 from a
+ * write payload. Kept local (the engine has the same test in snapshots.ts)
+ * so the import worker's bundle does not carry the engine for one check.
+ */
+function isMissingColumn(error: { code?: string; message?: string }): boolean {
+  const message = error.message ?? "";
+  return (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    /column .* does not exist/i.test(message) ||
+    /could not find the .* column/i.test(message)
+  );
 }
 
 function isMissingFunction(error: { code?: string; message?: string }): boolean {
