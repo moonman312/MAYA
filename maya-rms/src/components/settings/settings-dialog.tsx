@@ -10,10 +10,14 @@ import { CalendarSettings, type RoomTypeChoice } from "./calendar-settings";
 import { DisplaySettings } from "./display-settings";
 import { PmsSettingsSection } from "./pms-settings";
 
+/** Beside the calendar section when its saved choices couldn't be read. */
+export const CALENDAR_NOT_LOADED = "Couldn't load these settings. Close this and try again in a moment.";
+
 /** What GET /api/settings answers: one key per section. */
 export type SettingsPayload = {
   property: { canEdit: boolean; readOnly: string | null };
-  calendar: CalendarDisplay;
+  /** Null when the property's choices couldn't be read just now: the section then stays read-only and says so. */
+  calendar: CalendarDisplay | null;
   /** The property system's section; null (or absent) on Mews or with no connection, where it does not show. */
   pms?: PmsSettings | null;
   textSize: string | null;
@@ -133,8 +137,9 @@ export function SettingsDialog({
             // Filled again once the fresh read lands, so its first save starts from what is saved.
             key={payload ? "loaded" : "loading"}
             initial={payload?.calendar ?? calendar}
-            canEdit={payload?.property.canEdit === true}
-            readOnly={payload ? payload.property.readOnly : null}
+            // Never editable from anything but the property's saved choices.
+            canEdit={payload?.property.canEdit === true && payload.calendar !== null}
+            readOnly={payload ? (payload.calendar === null ? CALENDAR_NOT_LOADED : payload.property.readOnly) : null}
             propertyName={propertyName}
             roomTypes={roomTypes}
             hotelId={hotelId}

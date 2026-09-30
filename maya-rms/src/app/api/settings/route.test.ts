@@ -26,6 +26,8 @@ const state = vi.hoisted(() => ({
   isAdmin: false,
   /** Columns the database does not have yet (42703). */
   missing: [] as string[],
+  /** Tables whose reads fail just now (a timeout, say). */
+  failReads: [] as string[],
   tables: {} as Record<string, Record<string, unknown>[]>,
   writes: [] as { table: string; patch: Record<string, unknown> }[],
   /** Future nights still keeping a rate changed in the PMS, as set_pms_rate_changes counts them. */
@@ -44,6 +46,9 @@ function builder(table: string) {
     const touched = `${columns} ${Object.keys(patch ?? {}).join(" ")}`;
     const gone = state.missing.find((c) => touched.includes(c));
     if (gone) return { data: null, error: { code: "42703", message: `column "${gone}" does not exist` } };
+    if (!patch && state.failReads.includes(table)) {
+      return { data: null, error: { code: "57014", message: "canceling statement due to statement timeout" } };
+    }
     let rows = (state.tables[table] ?? []).filter((r) => filters.every(([c, v]) => r[c] === v));
     if (patch) {
       // Row level security: an update the person may not make reaches no rows.
@@ -155,6 +160,7 @@ beforeEach(() => {
   state.canManage = true;
   state.isAdmin = false;
   state.missing = [];
+  state.failReads = [];
   state.writes = [];
   state.pmsNights = 0;
   state.pmsRpcError = null;
@@ -221,6 +227,17 @@ describe("GET /api/settings", () => {
   it("needs a signed-in person", async () => {
     state.userId = null;
     expect((await GET()).status).toBe(401);
+  });
+
+  it("says the calendar choices couldn't be read, rather than offering the defaults to save over them", async () => {
+    settingsRow().calendar_big_metric = "adr";
+    settingsRow().calendar_colors = "reversed";
+    state.failReads = ["hotel_settings"];
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.calendar).toBeNull();
+    expect(body.textSize).toBe("large");
   });
 });
 
@@ -305,6 +322,42 @@ describe("PUT /api/settings/calendar", () => {
   it("needs a database in demo mode", async () => {
     state.configured = false;
     expect((await put(putCalendar, "/api/settings/calendar", choice)).status).toBe(501);
+  });
+
+  it("saves only what changed, so it never puts back a choice someone else saved since", async () => {
+    // Someone else picked ADR and a price after this person opened Settings.
+    Object.assign(settingsRow(), { calendar_big_metric: "adr", calendar_small_metric_1: "price", calendar_small_metric_2: null, calendar_price_room_type_id: KING });
+    const res = await put(putCalendar, "/api/settings/calendar", { colors: "reversed" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ calendar: { big: "adr", small: ["price"], price_room_type_id: KING, colors: "reversed" } });
+    expect(state.writes.map((w) => Object.keys(w.patch).sort())).toEqual([["calendar_colors", "updated_at"]]);
+
+    state.writes = [];
+    await put(putCalendar, "/api/settings/calendar", { big: "occupancy", small: ["price"] });
+    expect(settingsRow()).toMatchObject({ calendar_big_metric: "occupancy", calendar_small_metric_1: "price", calendar_colors: "reversed", calendar_price_room_type_id: KING });
+    expect(Object.keys(state.writes[0].patch).sort()).toEqual([
+      "calendar_big_metric",
+      "calendar_small_metric_1",
+      "calendar_small_metric_2",
+      "updated_at",
+    ]);
+  });
+
+  it("saves the colours even when the price's room type has since gone", async () => {
+    // Deleting a room type sets the stored one to null.
+    Object.assign(settingsRow(), { calendar_big_metric: "price", calendar_small_metric_1: null, calendar_small_metric_2: null, calendar_price_room_type_id: null });
+    expect((await put(putCalendar, "/api/settings/calendar", { colors: "reversed" })).status).toBe(200);
+    expect(settingsRow().calendar_colors).toBe("reversed");
+    const res = await put(putCalendar, "/api/settings/calendar", { big: "price", small: ["adr"] });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Pick the room type whose price to show.");
+  });
+
+  it("changes nothing when what is saved can't be read", async () => {
+    state.failReads = ["hotel_settings"];
+    const res = await put(putCalendar, "/api/settings/calendar", { colors: "reversed" });
+    expect(res.status).toBe(500);
+    expect(state.writes).toEqual([]);
   });
 });
 

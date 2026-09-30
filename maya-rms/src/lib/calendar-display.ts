@@ -104,29 +104,59 @@ export function displayToRow(d: CalendarDisplay): Required<CalendarDisplayRow> {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A save request's display, checked; the error is a sentence for the owner. */
-export function parseDisplay(body: unknown): { ok: true; display: CalendarDisplay } | { ok: false; error: string } {
-  const b = (body ?? {}) as Record<string, unknown>;
-  if (!isCalendarMetric(b.big)) return { ok: false, error: "Pick a big number from the list." };
-  const rawSmall = b.small ?? [];
-  if (!Array.isArray(rawSmall) || rawSmall.length > MAX_SMALL_LINES || !rawSmall.every(isCalendarMetric)) {
-    return { ok: false, error: `Pick up to ${MAX_SMALL_LINES} small lines from the list.` };
+/**
+ * One save from Settings: only what the owner just changed, so two people
+ * saving different choices at once never undo each other. The day's numbers
+ * (big and small) travel together, since picking one can swap two; the
+ * room type the price comes from and the colours each travel alone. The
+ * server lays it over what is saved (applyDisplayPatch).
+ */
+export type CalendarDisplayPatch = {
+  big?: CalendarMetric;
+  small?: CalendarMetric[];
+  price_room_type_id?: string | null;
+  colors?: CalendarColors;
+};
+
+/** A save request, checked; the error is a sentence for the owner. */
+export function parseDisplayPatch(body: unknown): { ok: true; patch: CalendarDisplayPatch } | { ok: false; error: string } {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "Pick a choice from the list." };
+  const b = body as Record<string, unknown>;
+  const patch: CalendarDisplayPatch = {};
+  if ("big" in b || "small" in b) {
+    if (!isCalendarMetric(b.big)) return { ok: false, error: "Pick a big number from the list." };
+    const rawSmall = b.small ?? [];
+    if (!Array.isArray(rawSmall) || rawSmall.length > MAX_SMALL_LINES || !rawSmall.every(isCalendarMetric)) {
+      return { ok: false, error: `Pick up to ${MAX_SMALL_LINES} small lines from the list.` };
+    }
+    const small = rawSmall as CalendarMetric[];
+    if (small.includes(b.big) || new Set(small).size !== small.length) {
+      return { ok: false, error: "Each number can show once on a day." };
+    }
+    patch.big = b.big;
+    patch.small = [...small];
   }
-  const small = rawSmall as CalendarMetric[];
-  if (small.includes(b.big) || new Set(small).size !== small.length) {
-    return { ok: false, error: "Each number can show once on a day." };
+  if ("colors" in b) {
+    if (!isCalendarColors(b.colors)) return { ok: false, error: "Pick Standard or Reversed colours." };
+    patch.colors = b.colors;
   }
-  if (!isCalendarColors(b.colors)) return { ok: false, error: "Pick Standard or Reversed colours." };
-  const rt = b.price_room_type_id ?? null;
-  if (rt !== null && (typeof rt !== "string" || !UUID.test(rt))) return { ok: false, error: "Pick a room type from the list." };
-  const display: CalendarDisplay = {
-    big: b.big,
-    small,
-    price_room_type_id: rt === null ? null : rt.toLowerCase(),
-    colors: b.colors,
+  if ("price_room_type_id" in b) {
+    const rt = b.price_room_type_id ?? null;
+    if (rt !== null && (typeof rt !== "string" || !UUID.test(rt))) return { ok: false, error: "Pick a room type from the list." };
+    patch.price_room_type_id = rt === null ? null : rt.toLowerCase();
+  }
+  if (Object.keys(patch).length === 0) return { ok: false, error: "Pick a choice from the list." };
+  return { ok: true, patch };
+}
+
+/** The display once a save's changes are laid over it. */
+export function applyDisplayPatch(d: CalendarDisplay, patch: CalendarDisplayPatch): CalendarDisplay {
+  return {
+    big: patch.big ?? d.big,
+    small: patch.big !== undefined ? [...(patch.small ?? [])] : [...d.small],
+    price_room_type_id: patch.price_room_type_id !== undefined ? patch.price_room_type_id : d.price_room_type_id,
+    colors: patch.colors ?? d.colors,
   };
-  if (usesPrice(display) && !display.price_room_type_id) return { ok: false, error: "Pick the room type whose price to show." };
-  return { ok: true, display };
 }
 
 /**

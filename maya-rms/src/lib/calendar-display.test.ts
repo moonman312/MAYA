@@ -19,7 +19,8 @@ import {
   displayToRow,
   metricLine,
   nightColor,
-  parseDisplay,
+  parseDisplayPatch,
+  applyDisplayPatch,
   priceRoomTypeName,
   shortMoney,
   withSlot,
@@ -165,29 +166,38 @@ describe("choosing the numbers", () => {
     expect(withSlot(reversed, "big", "adr")).toMatchObject({ colors: "reversed", price_room_type_id: SUITE });
   });
 
-  it("accepts a save within the rules, and says what is wrong with one that is not", () => {
-    expect(parseDisplay({ big: "adr", small: ["occupancy"], colors: "reversed", price_room_type_id: null })).toEqual({
+  it("accepts a save of only what changed, and says what is wrong with one that is not", () => {
+    expect(parseDisplayPatch({ big: "adr", small: ["occupancy"], colors: "reversed", price_room_type_id: null })).toEqual({
       ok: true,
-      display: { big: "adr", small: ["occupancy"], price_room_type_id: null, colors: "reversed" },
+      patch: { big: "adr", small: ["occupancy"], price_room_type_id: null, colors: "reversed" },
     });
-    expect(parseDisplay({ big: "price", small: [], colors: "standard", price_room_type_id: SUITE.toUpperCase() })).toMatchObject({
-      ok: true,
-      display: { price_room_type_id: SUITE },
-    });
-    expect(parseDisplay({ big: "profit", small: [], colors: "standard" })).toEqual({ ok: false, error: "Pick a big number from the list." });
-    expect(parseDisplay({ big: "adr", small: ["adr"], colors: "standard" })).toEqual({ ok: false, error: "Each number can show once on a day." });
-    expect(parseDisplay({ big: "adr", small: ["revpar", "revpar"], colors: "standard" })).toMatchObject({ ok: false });
-    expect(parseDisplay({ big: "adr", small: ["revpar", "occupancy", "rooms_booked"], colors: "standard" })).toEqual({
+    // Each choice alone: nothing else comes along to be saved over.
+    expect(parseDisplayPatch({ colors: "reversed" })).toEqual({ ok: true, patch: { colors: "reversed" } });
+    expect(parseDisplayPatch({ price_room_type_id: SUITE.toUpperCase() })).toEqual({ ok: true, patch: { price_room_type_id: SUITE } });
+    expect(parseDisplayPatch({ big: "revpar", small: [] })).toEqual({ ok: true, patch: { big: "revpar", small: [] } });
+    // The day's numbers travel together.
+    expect(parseDisplayPatch({ small: ["adr"] })).toEqual({ ok: false, error: "Pick a big number from the list." });
+    expect(parseDisplayPatch({ big: "profit", small: [] })).toEqual({ ok: false, error: "Pick a big number from the list." });
+    expect(parseDisplayPatch({ big: "adr", small: ["adr"] })).toEqual({ ok: false, error: "Each number can show once on a day." });
+    expect(parseDisplayPatch({ big: "adr", small: ["revpar", "revpar"] })).toMatchObject({ ok: false });
+    expect(parseDisplayPatch({ big: "adr", small: ["revpar", "occupancy", "rooms_booked"] })).toEqual({
       ok: false,
       error: "Pick up to 2 small lines from the list.",
     });
-    expect(parseDisplay({ big: "adr", small: [], colors: "inverted" })).toEqual({ ok: false, error: "Pick Standard or Reversed colours." });
-    expect(parseDisplay({ big: "price", small: [], colors: "standard", price_room_type_id: null })).toEqual({
-      ok: false,
-      error: "Pick the room type whose price to show.",
-    });
-    expect(parseDisplay({ big: "adr", small: [], colors: "standard", price_room_type_id: "not-a-uuid" })).toMatchObject({ ok: false });
-    expect(parseDisplay(null)).toMatchObject({ ok: false });
+    expect(parseDisplayPatch({ colors: "inverted" })).toEqual({ ok: false, error: "Pick Standard or Reversed colours." });
+    expect(parseDisplayPatch({ price_room_type_id: "not-a-uuid" })).toMatchObject({ ok: false });
+    expect(parseDisplayPatch({})).toMatchObject({ ok: false });
+    expect(parseDisplayPatch({ unrelated: 1 })).toMatchObject({ ok: false });
+    expect(parseDisplayPatch(null)).toMatchObject({ ok: false });
+    expect(parseDisplayPatch([])).toMatchObject({ ok: false });
+  });
+
+  it("lays a save over what is saved, leaving everything it does not name", () => {
+    const saved: CalendarDisplay = { big: "adr", small: ["revpar"], price_room_type_id: SUITE, colors: "reversed" };
+    expect(applyDisplayPatch(saved, { colors: "standard" })).toEqual({ ...saved, colors: "standard" });
+    expect(applyDisplayPatch(saved, { big: "occupancy", small: [] })).toEqual({ ...saved, big: "occupancy", small: [] });
+    expect(applyDisplayPatch(saved, { price_room_type_id: null })).toEqual({ ...saved, price_room_type_id: null });
+    expect(applyDisplayPatch(saved, {})).toEqual(saved);
   });
 
   it("reads a stored row, and the default for anything a row does not hold", () => {

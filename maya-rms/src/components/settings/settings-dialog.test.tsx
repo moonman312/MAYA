@@ -7,7 +7,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_CALENDAR_DISPLAY, type CalendarDisplay } from "@/lib/calendar-display";
+import { DEFAULT_CALENDAR_DISPLAY, applyDisplayPatch, type CalendarDisplay, type CalendarDisplayPatch } from "@/lib/calendar-display";
 import { TEXT_SIZE_COOKIE } from "@/lib/text-size";
 import { Dashboard } from "../dashboard";
 import { SettingsDialog, type SettingsPayload } from "./settings-dialog";
@@ -24,7 +24,9 @@ type Call = { url: string; method: string; body: unknown };
 
 let calls: Call[] = [];
 let payload: SettingsPayload;
-let calendarAnswer: (body: CalendarDisplay) => Response;
+/** What the server holds: each save is laid over it, as the route does. */
+let serverCalendar: CalendarDisplay;
+let calendarAnswer: (body: CalendarDisplayPatch) => Response | Promise<Response>;
 let pmsAnswer: (body: { mode: string; replace?: boolean }) => Response;
 
 function json(body: unknown, status = 200) {
@@ -34,7 +36,11 @@ function json(body: unknown, status = 200) {
 beforeEach(() => {
   calls = [];
   payload = { property: { canEdit: true, readOnly: null }, calendar: DEFAULT_CALENDAR_DISPLAY, textSize: "standard" };
-  calendarAnswer = (body) => json({ calendar: body });
+  serverCalendar = DEFAULT_CALENDAR_DISPLAY;
+  calendarAnswer = (body) => {
+    serverCalendar = applyDisplayPatch(serverCalendar, body);
+    return json({ calendar: serverCalendar });
+  };
   pmsAnswer = (body) => json({ mode: body.mode, replaced: 0 });
   document.cookie = `${TEXT_SIZE_COOKIE}=; Path=/; Max-Age=0`;
   document.documentElement.removeAttribute("data-text-size");
@@ -46,7 +52,7 @@ beforeEach(() => {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
       calls.push({ url, method, body });
       if (url === "/api/settings") return json(payload);
-      if (url === "/api/settings/calendar" && method === "PUT") return calendarAnswer(body as CalendarDisplay);
+      if (url === "/api/settings/calendar" && method === "PUT") return calendarAnswer(body as CalendarDisplayPatch);
       if (url === "/api/settings/pms" && method === "PUT") return pmsAnswer(body as { mode: string; replace?: boolean });
       if (url === "/api/settings/display" && method === "PUT") return json({ textSize: (body as { textSize: string }).textSize });
       // What the dashboard around it reads when it opens.
@@ -126,11 +132,12 @@ describe("the Calendar section", () => {
     await waitFor(() => expect((screen.getByLabelText("Big number") as HTMLSelectElement).disabled).toBe(false));
     fireEvent.change(screen.getByLabelText("Big number"), { target: { value: "rooms_booked" } });
     await waitFor(() => expect(onCalendarSaved).toHaveBeenCalled());
+    // Only the day's numbers go: nothing else is saved over.
     expect(saves()).toEqual([
       {
         url: "/api/settings/calendar",
         method: "PUT",
-        body: { big: "rooms_booked", small: ["occupancy", "room_revenue"], price_room_type_id: null, colors: "standard" },
+        body: { big: "rooms_booked", small: ["occupancy", "room_revenue"] },
       },
     ]);
     expect(onCalendarSaved).toHaveBeenCalledWith({ big: "rooms_booked", small: ["occupancy", "room_revenue"], price_room_type_id: null, colors: "standard" });
@@ -148,7 +155,7 @@ describe("the Calendar section", () => {
     expect(picker.value).toBe(STANDARD);
     fireEvent.change(picker, { target: { value: COURT } });
     await waitFor(() => expect(saves()).toHaveLength(2));
-    expect(saves()[1].body).toMatchObject({ price_room_type_id: COURT });
+    expect(saves()[1].body).toEqual({ price_room_type_id: COURT });
   });
 
   it("clears a small line with None, and the second moves up", async () => {
@@ -168,7 +175,7 @@ describe("the Calendar section", () => {
     expect(within(section).getByRole("radio", { name: "Standard" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(within(section).getByRole("radio", { name: "Reversed" }));
     await waitFor(() => expect(onCalendarSaved).toHaveBeenCalled());
-    expect(saves()[0].body).toMatchObject({ colors: "reversed" });
+    expect(saves()[0].body).toEqual({ colors: "reversed" });
     expect(within(section).getByRole("radio", { name: "Reversed" }).getAttribute("aria-checked")).toBe("true");
   });
 
@@ -182,6 +189,51 @@ describe("the Calendar section", () => {
     expect(screen.getByRole("alert").textContent).toBe("Only a Revenue Manager or above can change these.");
     expect((screen.getByLabelText("Big number") as HTMLSelectElement).value).toBe("occupancy");
     expect(onCalendarSaved).not.toHaveBeenCalled();
+  });
+
+  it("is read-only and says so when the property's choices couldn't be loaded, so nothing is saved over them", async () => {
+    payload = { ...payload, calendar: null };
+    open();
+    expect(await screen.findByText("Couldn't load these settings. Close this and try again in a moment.")).toBeTruthy();
+    const section = screen.getByRole("region", { name: "Calendar" });
+    for (const label of ["Big number", "First small line", "Second small line"]) {
+      expect((screen.getByLabelText(label) as HTMLSelectElement).disabled).toBe(true);
+    }
+    expect((within(section).getByRole("radio", { name: "Reversed" }) as HTMLButtonElement).disabled).toBe(true);
+    // Their own text size is still theirs to change.
+    const display = screen.getByRole("region", { name: "Display" });
+    expect((within(display).getByRole("radio", { name: "Larger" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("goes back to what the database holds when the newest save fails after an earlier one succeeded", async () => {
+    // The first save (colours) answers only after the second (big number) was sent; the second fails.
+    let answerFirst: (() => void) | null = null;
+    calendarAnswer = (body) => {
+      if ("colors" in body) {
+        return new Promise<Response>((resolve) => {
+          answerFirst = () => {
+            serverCalendar = applyDisplayPatch(serverCalendar, body);
+            resolve(json({ calendar: serverCalendar }));
+          };
+        });
+      }
+      return json({ error: "Could not save your calendar settings. Try again in a moment." }, 500);
+    };
+    const { onCalendarSaved } = open();
+    await loaded();
+    const section = screen.getByRole("region", { name: "Calendar" });
+    await waitFor(() => expect((within(section).getByRole("radio", { name: "Reversed" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(within(section).getByRole("radio", { name: "Reversed" }));
+    await waitFor(() => expect(saves()).toHaveLength(1));
+    fireEvent.change(screen.getByLabelText("Big number"), { target: { value: "adr" } });
+    await waitFor(() => expect(saves()).toHaveLength(2));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    await act(async () => answerFirst?.());
+
+    // The colours were saved; the big number was not.
+    await waitFor(() => expect(within(section).getByRole("radio", { name: "Reversed" }).getAttribute("aria-checked")).toBe("true"));
+    expect((screen.getByLabelText("Big number") as HTMLSelectElement).value).toBe("occupancy");
+    expect(onCalendarSaved).toHaveBeenLastCalledWith({ ...DEFAULT_CALENDAR_DISPLAY, colors: "reversed" });
   });
 
   it("starts from what is saved when that differs from what the calendar last loaded", async () => {

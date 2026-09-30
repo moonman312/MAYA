@@ -4,7 +4,9 @@
  *
  *   property  whether this person may change the property-wide sections
  *             (canEdit), and if not, the sentence that says why (readOnly)
- *   calendar  the property's calendar choices (hotel_settings.calendar_*)
+ *   calendar  the property's calendar choices (hotel_settings.calendar_*);
+ *             null when they can't be read just now, so Settings says so
+ *             rather than offering defaults to save over the saved ones
  *   pms       what MAYA does when a price it sent is changed in the property
  *             system (hotel_settings.pms_rate_changes), with that system's
  *             type and name; null on Mews or with no connection, where the
@@ -16,7 +18,7 @@
  */
 
 import { DEFAULT_CALENDAR_DISPLAY } from "@/lib/calendar-display";
-import { readCalendarDisplay } from "@/lib/settings/calendar-settings";
+import { loadCalendarDisplay } from "@/lib/settings/calendar-settings";
 import { readPmsSettings } from "@/lib/settings/pms-settings";
 import { readTextSize } from "@/lib/settings/profile-settings";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -37,7 +39,7 @@ export async function GET() {
 
   const [refusal, calendar, pms, textSize] = await Promise.all([
     propertyEditRefusal(ctx),
-    readCalendarDisplay(ctx.supabase, ctx.hotelId),
+    loadCalendarDisplay(ctx.supabase, ctx.hotelId),
     readPmsSettings(ctx.supabase, ctx.hotelId),
     readTextSize(ctx.supabase, ctx.userId),
   ]);

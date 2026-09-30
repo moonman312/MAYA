@@ -6,10 +6,12 @@ import { track } from "@/lib/analytics/track";
 import {
   CALENDAR_METRICS,
   METRIC_LABELS,
+  applyDisplayPatch,
   usesPrice,
   withSlot,
   type CalendarColors,
   type CalendarDisplay,
+  type CalendarDisplayPatch,
   type CalendarMetric,
 } from "@/lib/calendar-display";
 import { Choice, SELECT_CLASS, SettingRow, SettingsSection, type SaveState } from "./settings-section";
@@ -50,45 +52,60 @@ export function CalendarSettings({
 }) {
   const [draft, setDraft] = useState<CalendarDisplay>(initial);
   const [state, setState] = useState<SaveState>({ kind: "idle" });
+  // What the database holds, as the newest save that succeeded answered it.
   const saved = useRef<CalendarDisplay>(initial);
+  const savedSeq = useRef(0);
   const seq = useRef(0);
+  const inFlight = useRef(0);
 
-  async function save(next: CalendarDisplay) {
+  /**
+   * Sends only what changed; the server lays it over what is saved and
+   * answers the whole display. The screen shows the change at once, then
+   * what the database holds once no save is still on its way.
+   */
+  async function save(patch: CalendarDisplayPatch) {
+    let next = applyDisplayPatch(draft, patch);
     // A price line needs a room type: the first one that counts as a room, until the owner picks.
     if (usesPrice(next) && !roomTypes.some((r) => r.id === next.price_room_type_id)) {
       const first = roomTypes.find((r) => r.counts_as_room !== false) ?? roomTypes[0];
+      patch = { ...patch, price_room_type_id: first?.id ?? null };
       next = { ...next, price_room_type_id: first?.id ?? null };
     }
     setDraft(next);
     setState({ kind: "saving" });
     const mine = ++seq.current;
+    inFlight.current += 1;
+    let answer: CalendarDisplay | null = null;
+    let failure: string | null = null;
     try {
       const res = await fetch("/api/settings/calendar", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(next),
+        body: JSON.stringify(patch),
       });
       const body = (await res.json().catch(() => ({}))) as { calendar?: CalendarDisplay; error?: string };
-      if (mine !== seq.current) return;
-      if (!res.ok || !body.calendar) {
-        setDraft(saved.current);
-        setState({ kind: "error", message: body.error ?? "Could not save. Try again in a moment." });
-        return;
-      }
-      saved.current = body.calendar;
-      setDraft(body.calendar);
-      setState({ kind: "saved" });
-      onSaved(body.calendar);
-      track(
-        "settings.calendar_saved",
-        { big: body.calendar.big, small_lines: body.calendar.small.length, colors: body.calendar.colors },
-        hotelId,
-      );
+      if (res.ok && body.calendar) answer = body.calendar;
+      else failure = body.error ?? "Could not save. Try again in a moment.";
     } catch {
-      if (mine !== seq.current) return;
-      setDraft(saved.current);
-      setState({ kind: "error", message: "Could not save. Check your connection and try again." });
+      failure = "Could not save. Check your connection and try again.";
     }
+    inFlight.current -= 1;
+    // A save that succeeded is what the database held when it answered, even
+    // when a later one has been sent since; only a newer answer replaces it.
+    if (answer && mine > savedSeq.current) {
+      savedSeq.current = mine;
+      saved.current = answer;
+      onSaved(answer);
+    }
+    const newest = mine === seq.current;
+    if (newest || inFlight.current === 0) setDraft(saved.current);
+    if (!newest) return;
+    if (failure) {
+      setState({ kind: "error", message: failure });
+      return;
+    }
+    setState({ kind: "saved" });
+    track("settings.calendar_saved", { big: saved.current.big, small_lines: saved.current.small.length, colors: saved.current.colors }, hotelId);
   }
 
   const disabled = !canEdit;
@@ -102,7 +119,8 @@ export function CalendarSettings({
 
   const onSlot = (slot: "big" | 0 | 1) => (e: React.ChangeEvent<HTMLSelectElement>) => {
     const v = e.target.value;
-    void save(withSlot(draft, slot, v === "" ? null : (v as CalendarMetric)));
+    const { big, small } = withSlot(draft, slot, v === "" ? null : (v as CalendarMetric));
+    void save({ big, small });
   };
 
   return (
@@ -142,7 +160,7 @@ export function CalendarSettings({
             value={roomTypes.some((r) => r.id === draft.price_room_type_id) ? (draft.price_room_type_id ?? "") : ""}
             disabled={disabled}
             onChange={(e) => {
-              if (e.target.value) void save({ ...draft, price_room_type_id: e.target.value });
+              if (e.target.value) void save({ price_room_type_id: e.target.value });
             }}
           >
             {roomTypes.some((r) => r.id === draft.price_room_type_id) ? null : <option value="">Pick a room type</option>}
@@ -170,7 +188,7 @@ export function CalendarSettings({
           ]}
           value={draft.colors}
           disabled={disabled}
-          onChange={(colors) => void save({ ...draft, colors })}
+          onChange={(colors) => void save({ colors })}
         />
       </SettingRow>
     </SettingsSection>
