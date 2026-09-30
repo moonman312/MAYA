@@ -25,6 +25,7 @@ import { evaluateHotel } from "../_shared/engine/index.ts";
 import type { PmsRatePushAdapter } from "../_shared/pms/rate-push.ts";
 import { type PricingTickResult, readOutcome, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
+import { pushRatesEnabled as readPushSwitchOnce } from "../_shared/pms/push-switch.ts";
 import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
@@ -82,8 +83,10 @@ Deno.serve(async (req) => {
   const horizonDays = pricingHorizonDays();
   const passBudget = { remaining: cadenceConfigFromEnv().tickPassNights };
   // Outbound rate push is OFF unless explicitly enabled, and even then only
-  // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
-  const pushRatesEnabled = (getEnv("MAYA_PUSH_RATES") ?? "false").toLowerCase() === "true";
+  // fires for hotels in LIVE mode (gated inside pushRatesForHotel). A value
+  // that is neither true nor false, or none at all, is off and says so in
+  // the log (push-switch.ts).
+  const pushRatesEnabled = readPushSwitchOnce(Deno.env.get("MAYA_PUSH_RATES"), "think-scheduled-sync");
 
   // Optional single-hotel dispatch: body { hotel_id }.
   let bodyHotelId: string | null = null;

@@ -15,6 +15,12 @@
 --    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
 --    CLOUDBEDS_CRON_SECRET      (same value as vault `cloudbeds_cron_secret`)
 --    CLOUDBEDS_CLIENT_ID / CLOUDBEDS_CLIENT_SECRET   (for token refresh)
+--    MAYA_PUSH_RATES            (true to send prices to Live hotels. Unset, or
+--                               any value other than true, sends nothing to
+--                               anyone and says so in this function's log on
+--                               every run. The Think sync reads the same one.)
+--    MAYA_ALERT_WEBHOOK         (https:// webhook the alerts go to; without it
+--                               nothing leaves MAYA when pricing or sending stops)
 --    Optional: CLOUDBEDS_API_BASE_URL, CLOUDBEDS_TOKEN_URL, CLOUDBEDS_FETCH_RATE_DETAIL,
 --              CLOUDBEDS_PAGE_SIZE, MAYA_SYNC_DAYS_BACK, MAYA_SYNC_DAYS_FORWARD,
 --              MAYA_RUN_EVALUATE (default true)
