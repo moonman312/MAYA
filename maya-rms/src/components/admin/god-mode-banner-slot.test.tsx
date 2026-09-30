@@ -98,7 +98,8 @@ describe("where the banner is mounted", () => {
 
   it("in every signed-in area, passing the role where the page already read it", () => {
     expect(read("src/app/page.tsx")).toMatch(/<GodModeBannerSlot isPlatformAdmin=\{isPlatformAdmin\} \/>/);
-    expect(read("src/app/admin/layout.tsx")).toMatch(/<GodModeBannerSlot isPlatformAdmin \/>/);
+    // The Command Center also has developer and sales logins, who never get the banner.
+    expect(read("src/app/admin/layout.tsx")).toMatch(/<GodModeBannerSlot isPlatformAdmin=\{session\.isPlatformAdmin\} \/>/);
     expect(read("src/app/onboarding/layout.tsx")).toMatch(/<GodModeBannerSlot \/>/);
     expect(read("src/app/account/layout.tsx")).toMatch(/<GodModeBannerSlot \/>/);
   });
