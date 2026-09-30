@@ -18,7 +18,7 @@ import {
   watchPmsChanges,
 } from "../../../supabase/functions/_shared/pms/pms-change-watch";
 import { adoptPmsEdits, type PushedNightRead } from "../../../supabase/functions/_shared/pms/pms-edits";
-import { fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
+import { fakeSupabase } from "../engine/fake-supabase.test";
 
 const DAY = 86_400_000;
 const T0 = Date.parse("2026-10-06T12:00:00Z");
@@ -170,8 +170,8 @@ describe("adoptPmsEdits and the watch", () => {
   it("counts the changes it keeps, and the rates removed, toward the warning", async () => {
     const d = db("keep");
     const missing = Array.from({ length: 5 }, (_, n) => {
-      const { pmsRate: _unused, ...night } = read(20 + n, 0);
-      return night;
+      const r = read(20 + n, 0);
+      return { stayDate: r.stayDate, roomTypeId: r.roomTypeId, externalRoomTypeId: r.externalRoomTypeId, ledger: r.ledger };
     });
     const reads = Array.from({ length: 15 }, (_, n) => read(n, 170 + n));
     const res = await adoptPmsEdits(d.client, "h1", "cloudbeds", reads, TARGETS, WINDOW, iso(T0), { missing, today: "2026-10-06" });
