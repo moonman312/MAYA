@@ -1,4 +1,6 @@
-import { PlatformAdminToggle } from "@/components/admin/platform-admin-toggle";
+import { StaffRolePicker } from "@/components/admin/staff-role-picker";
+import { requireStaffPage } from "@/lib/admin/staff-page";
+import { STAFF_ROLE_LABELS, staffRoleOf } from "@/lib/admin/staff-sections";
 import { countPlatformUsers, listPlatformUsers } from "@/lib/admin/users";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
@@ -18,7 +20,15 @@ function formatDate(iso: string | null): string {
   });
 }
 
+/**
+ * Every login, for a platform admin and a developer. The Staff role column
+ * is a picker for a platform admin (None, Developer, Sales, Platform admin;
+ * God Mode needed, and the last platform admin can't be removed) and words
+ * for anyone else: a developer changes nothing here.
+ */
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<{ page?: string }> }) {
+  const session = await requireStaffPage("users");
+  const canSetRoles = session.isPlatformAdmin;
   const params = await searchParams;
   const page = Math.max(1, Math.floor(Number(params.page)) || 1);
   const ssr = createClient(await cookies());
@@ -73,12 +83,12 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
               <th className="px-4 py-3">Hotels</th>
               <th className="px-4 py-3">Roles</th>
               <th className="px-4 py-3">Last sign in</th>
-              <th className="px-4 py-3">Platform admin</th>
+              <th className="px-4 py-3">Staff role</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {users.map((u) => {
-              const isPlatformAdmin = (u.platform_roles ?? []).includes("platform_admin");
+              const staffRole = staffRoleOf(u.platform_roles);
               return (
                 <tr key={u.id} className="hover:bg-slate-800/40">
                   <td className="px-4 py-3 font-medium text-slate-100">{u.email}</td>
@@ -89,7 +99,11 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
                   </td>
                   <td className="px-4 py-3 text-slate-400">{formatDate(u.last_sign_in_at)}</td>
                   <td className="px-4 py-3">
-                    <PlatformAdminToggle userId={u.id} isAdmin={isPlatformAdmin} />
+                    {canSetRoles ? (
+                      <StaffRolePicker userId={u.id} role={staffRole} email={u.email} />
+                    ) : (
+                      <span className="text-xs text-slate-300">{STAFF_ROLE_LABELS[staffRole]}</span>
+                    )}
                   </td>
                 </tr>
               );
