@@ -3,7 +3,7 @@ title: What MAYA does
 summary: You write pricing rules in plain words. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).
 section: start
 order: 10
-readingTime: 15
+readingTime: 16
 keywords: [what is MAYA, what does MAYA do, overnight, nobody signed in, computer off, internet down, runs without me, night audit, what is a rule, who sets my prices, AI, artificial intelligence, machine learning, learns, algorithm, competitor rates, rate shopper, channel manager, revenue management software, how it works, simulation, automatic pricing, price my rooms, already booked, existing bookings, existing reservations, guests pay more, guests pay less, raise the price after booking, change my bookings, black box, learn from my data, forecast, forecasting, predict, occupancy forecast, demand forecast, prices go crazy, runaway prices, out of control, too high, too low, safety]
 questions:
   - What does MAYA actually do? {#in-plain-words}
@@ -19,7 +19,7 @@ questions:
   - Is there a forecast of occupancy or demand? {#no-forecasts}
   - What keeps my prices from going too high or too low? {#what-keeps-prices-in-check}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -126,7 +126,8 @@ Only prices that changed go out. A night whose price has not changed since MAYA 
 From your own rates, your own rules and your own past bookings. Nothing from outside your property.
 
 - With Cloudbeds and ThinkReservations, the starting price for a night is your own rate, read from your system.
-- With Mews, no rates are read. The starting price is the rate of the most recent booking for that night and room type, or failing that the starting price the night had last time. A Mews night that has never had a booking has no price until you type one. [Mews](/docs/connect/mews#where-a-nights-starting-price-comes-from) has the detail.
+- With Mews, no rates are read, so a Mews night has no starting price until you type one. What a guest paid is never a starting price, on any system. [Mews](/docs/connect/mews#where-a-nights-starting-price-comes-from) has the detail.
+- A night your system has no rate for is not priced and not sent until it has one. The day card says "No rate in Cloudbeds for this night yet" (or your system's name). Load a rate there, or type a price in MAYA.
 - A rule raises or cuts the starting price by a percentage or a fixed amount, and the result stays between that room type's floor and ceiling. [Floors and ceilings](/docs/review/floors-and-ceilings) says where they come from.
 - Booking speed compares a night with your own similar past nights: the same weekday, the same time of year, the same position around a holiday, from the last three years. It is a comparison with your own past nights, and it says nothing about your future.
 - MAYA does not read competitor rates, rate shoppers, weather, events or market data. There is no feed to switch on.

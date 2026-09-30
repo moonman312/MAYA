@@ -3,7 +3,7 @@ title: A price looks wrong
 summary: 'Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.'
 section: wrong
 order: 20
-readingTime: 15
+readingTime: 16
 keywords: [jumped, jump, 50%, doubled, too high, too low, $1, 1.00, 99999, 99,999.99, floor, ceiling, stuck, stuck at the floor, empty night raised, raised an empty night, cut a full night, nearly full, no rule named, the rate moved from, back to the base rate, went back, reverted, unpriced, current price dash, no price, three times, keeps going, stop did not go back, same rule twice, another 15%, typed price disappeared, manual price gone, pricing rule, sold out, full night, no rooms left, still changing, yen, capped at 99,999.99, hidden room type, room type switched off, inactive room type, deactivated room type, removed room type, deleted room type, room type removed in cloudbeds, mews starting price, new booking changed the price, re-add a starter rule, rebuild a starter rule, slow-date trim, lost money, losing money, lost me money, cost me money, lost bookings, lost revenue, losing revenue]
 questions:
   - Why did the price jump 50%? {#why-did-the-price-jump-50/two-rules-acted}
@@ -21,7 +21,7 @@ questions:
   - Why does the same rule appear twice on one night? {#why-does-the-same-rule-appear-twice-on-one-night}
   - Why did my typed price disappear? {#why-did-my-typed-price-disappear/someone-pressed-clear}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -115,7 +115,7 @@ Three shapes of entry have no rule name.
 
 **"The rate moved from $200.00 to $210.00."** MAYA had nothing else to say: no rule fired, no rule came off, no limit stepped in. Nearly always your own rate changed in your property system. MAYA reads your rates about once an hour, and again when your property's date changes, and prices from that base. On a night MAYA has never sent to, a rate you change in Cloudbeds or ThinkReservations becomes the new starting point. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
 
-Mews: MAYA reads no rates from Mews, so a night's starting price is the rate of its newest booking (or the last one saved). On a Mews property this line usually means a new booking came in at a different rate.
+Mews: MAYA reads no rates from Mews, so a Mews night's starting price is always one someone typed, and this line does not appear there.
 
 **"Sam set the base rate to $180.00."** A person typed a price on the <Ui>Calendar</Ui> tab. The entry is labelled "Manual price". "A manager" appears when the name is not on file.
 
@@ -140,11 +140,12 @@ The room type card shows "Current price" followed by a dash when no price has be
 
 1. **Beyond 396 nights.** Your rules price tonight and the next 395 nights, so a night further out gets no price. A price you typed further out is kept, and the night is priced and sent once it enters the window.
 2. **Closed in your system.** A night whose rate is 0 in Cloudbeds or ThinkReservations, with no price typed in MAYA, is left unpriced. MAYA does not open a closed night at the floor. Type a price if you want the night priced.
-3. **Not run yet.** A property that connected minutes ago has no runs until its first cycle. Give it about five minutes.
-4. **A past night.** Past nights are never priced or changed.
-5. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 396-night window after you removed it have no rate to start from and show a dash. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+3. **No rate in your system for the night.** A night Cloudbeds or ThinkReservations has no rate for, for example one further ahead than you have loaded rates, is not priced and nothing is sent for it, whatever its bookings paid. The card reads "No rate in Cloudbeds for this night yet" (or your system's name) under the dash. Load a rate for it in your system and the next hourly read picks it up, or type a price in MAYA, which is sent as typed. MAYA reads your rates as far ahead as your system returns them; a night past that is treated the same way until a read returns it.
+4. **Not run yet.** A property that connected minutes ago has no runs until its first cycle. Give it about five minutes.
+5. **A past night.** Past nights are never priced or changed.
+6. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 396-night window after you removed it have no rate to start from and show a dash. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
-Mews: a Mews property has no rate read, so a night's starting price comes from its bookings or from the last saved starting price, and a night with neither stays unpriced.
+Mews: a Mews property has no rate read, so a night stays unpriced until you type a price for it.
 
 <Callout kind="not-yet">
 The base price a rule started from is not shown on the day card, only the price after rules and limits. The change log shows the starting price in each sentence: "raised this night 10%, from $200.00 to $220.00."

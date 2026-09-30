@@ -25,7 +25,7 @@ questions:
   - 'I mistyped a rate in my system. What does MAYA do with it?' {#a-rate-you-mistyped/on-a-night-maya-has-sent}
   - 'I typed $15 instead of $150 in Cloudbeds. Will the floor catch it?' {#a-rate-you-mistyped/on-a-night-maya-has-sent}
   - 'How long should I wait after MAYA sends before I change a rate in my system?' {#when-a-change-counts-as-yours/change-prices-in}
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -172,7 +172,7 @@ A rate the front desk gives one guest lives on that guest's booking, not on your
 
 The booking counts like any other. It adds to the night's occupancy, booking speed and pickup count. Its rate counts in that night's room revenue and in the ADR (the average rate per room booked) on the calendar, at the rate MAYA read with the booking. Occupancy, booking window and booking speed rules, and pickup rules that count room nights, do not look at what a guest paid. A pickup rule set to measure revenue adds up the rates on the night's bookings, special rates included, so a special rate does move that rule's number.
 
-A booking's rate reaches a price only as a starting point, and only when MAYA has no rate of yours for that night and room type. On Cloudbeds and ThinkReservations, MAYA reads your base rate for every night in the window, so a booking's rate is used only on a night where no rate could be read. On Mews, MAYA does not read rates, so a night starts from the rate on the newest booking MAYA has read for that room type. With no booking yet, it starts from the starting point saved on the last run. A special rate on that newest booking becomes the night's starting point in MAYA until a newer booking arrives. Changing the rate on a booking MAYA has already read does not move the starting point.
+A booking's rate never reaches a price. A night's starting point is your own rate for it, read from Cloudbeds or ThinkReservations, or a price someone typed; a night with neither is not priced at all, whatever its bookings paid. So a special rate on a booking moves nothing but that night's revenue and ADR, and a booking taken at one of MAYA's own prices never becomes the next starting point. On Mews, where no rates are read, a night is priced only once you type a price for it.
 
 <Callout kind="not-yet">
 MAYA does not tell you when it has kept a change from your system. The badge on the calendar and the sentence in the change log are the only signs. There is no list of changes it has kept, and no setting to turn this off.

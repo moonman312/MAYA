@@ -34,7 +34,7 @@ questions:
   - 'Why does tonight already say "revenue" instead of "revenue on the books"?' {#time-zones}
   - 'Why does a booking add nothing to a night''s revenue?' {#one-day-line-by-line/a-booking-with}
   - 'Why does the ADR show a dash on a room type with nothing booked?' {#click-a-day-the-day-detail/line-what-it}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -179,7 +179,7 @@ The badge and the manual price help name your system from your connection, which
 A dash after "Current price" means MAYA has not published a price for that room type on that night. There are four ordinary reasons:
 
 - **The night is beyond the window.** Your rules run on tonight and the next 395 nights (396 nights, about 13 months). A night further out has no price until it enters the window. A manual price you saved further ahead shows with its badge, and is priced once its night enters the window.
-- **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. Load a rate there and the next hourly read picks it up. On Mews, MAYA does not read rates. It starts from the newest booking's rate for that room type on that night, or from the starting point it used there before. With neither, the night stays unpriced until you type a price.
+- **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. So is a night your system has no rate for at all, for example one further ahead than you have loaded rates: the card reads "No rate in Cloudbeds for this night yet" under the dash, and the "?" beside it says what to do. Load a rate there and the next hourly read picks it up, or type a price in MAYA. A booking's rate is never a starting point. On Mews, MAYA does not read rates, so a night is priced only once you type a price for it.
 - **The night has passed and had no price.** A night that has passed is not priced again. The card keeps the last price the night had before it passed, or a dash if it had none.
 - **No run has happened yet.** A newly connected property shows dashes until its first pricing run.
 

@@ -16,7 +16,7 @@ questions:
   - Why did my rule not save? {#a-viewers-rule-did-not-save}
   - Why does a rule I turned off still affect another rule? {#a-rule-i-turned-off-still-affects-what-another-rule-counts}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -46,7 +46,7 @@ Work down this list. Most are visible on screen.
 7. **The price is already at the limit.** A raise does not fire on a night already at its ceiling. A cut does not fire on a night at its floor. Neither counts as a fire.
 8. **Not enough history.** A booking speed rule needs similar past nights, or failing those enough nearby nights to read momentum from. Momentum is how nearby nights are booking now compared with the same nights a year earlier. With neither it stays quiet. The change log's <Ui>Show the numbers</Ui> says "Booking speed wasn't rated for this night, so rules that watch booking speed left it alone."
 9. **No pickup reading from the window's start.** A pickup count rule compares booked rooms now with booked rooms when its lookback window opened (1, 3 or 7 days ago). MAYA needs a reading from that moment for every room type the rule measures. A property that connected two days ago has no reading from 3 days ago, so a 3-day pickup rule stays quiet until it does, and a room type ticked as a room today has none either. A reading more than 12 hours older than the window's start does not count.
-10. **The night has no starting price.** A night your system has at 0, with no price typed in MAYA, is not priced, so nothing can fire on it. Neither is a night with no rate at all and no booking or earlier price to start from.
+10. **The night has no starting price.** A night your system has at 0, or has no rate for at all, with no price typed in MAYA, is not priced, so nothing can fire on it. A booking's rate is never a starting price.
 11. **A standard rule is already holding.** A rule with only occupancy or booking window conditions fires once when its condition starts to hold, then holds. It does not fire again while the condition stays true, and the <Ui>Fired</Ui> count does not climb.
 12. **The night is outside the window.** Your rules price tonight and the next 395 nights. Past nights are never touched.
 

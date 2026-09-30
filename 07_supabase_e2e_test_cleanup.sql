@@ -27,6 +27,7 @@ begin
     -- Engine tables WITHOUT a hotels FK (would otherwise be orphaned):
     delete from public.stay_date_snapshot       where hotel_id = v_hotel_id;
     delete from public.published_price          where hotel_id = v_hotel_id;
+    delete from public.base_rate_calendar       where hotel_id = v_hotel_id;
     delete from public.evaluation_audit         where hotel_id = v_hotel_id;
     delete from public.ladder_transition_event  where hotel_id = v_hotel_id;
     delete from public.pickup_event             where hotel_id = v_hotel_id;

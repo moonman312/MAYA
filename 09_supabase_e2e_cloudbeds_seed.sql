@@ -142,6 +142,26 @@ begin
 
   get diagnostics v_res_count = row_count;
 
+  -- ── 5b. The hotel's own rates (base_rate_calendar) ────────────────────────
+  --     The engine prices a night only on a rate on record from the property
+  --     system, or a typed price; never on a booking's rate (audit A6). The
+  --     seed writes the same flat rate the bookings carry, for every night
+  --     ahead, so the verify script's price expectations still hold.
+  delete from public.base_rate_calendar where hotel_id = v_hotel_id;
+
+  insert into public.base_rate_calendar (hotel_id, stay_date, room_type_id, price, source)
+  select v_hotel_id, gs::date, rt.id, rt.rate, 'pms'
+  from generate_series(current_date, current_date + 400, interval '1 day') gs
+  cross join (
+    select id,
+           case external_room_type_id
+             when 'cb-540211' then 145.00
+             when 'cb-540212' then 135.00
+             when 'cb-540213' then 185.00
+             else 420.00 end as rate
+    from public.room_types where hotel_id = v_hotel_id
+  ) rt;
+
   -- ── 6. Pickup baselines (d 0..29, −4 room-nights per type, 73h old) ──────
   delete from public.stay_date_snapshot where hotel_id = v_hotel_id;
 

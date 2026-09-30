@@ -8,9 +8,9 @@
   "order": 10,
   "title": "What MAYA does",
   "summary": "You write pricing rules in plain words. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
-  "readingTime": 15,
+  "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -115,7 +115,7 @@
   "summary": "Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1246,7 +1246,7 @@
   "summary": "Mews is read-only for now. We connect it for you, MAYA reads your bookings and shows what your rules would do, and nothing is sent to Mews. It costs the same as any other property.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "mews"
   ],
@@ -1334,6 +1334,7 @@
    "Why is the nightly rate higher than my room rate on Mews?",
    "Does a no-show on Mews still count?",
    "How do I set the prices MAYA shows in Mews?",
+   "Why does every Mews night show a dash for its price?",
    "How do I stop using MAYA with Mews?"
   ],
   "faq": []
@@ -3160,9 +3161,9 @@
   "order": 90,
   "title": "How rules run",
   "summary": "The five-minute cycle and the daily pass, the 396-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.",
-  "readingTime": 20,
+  "readingTime": 21,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -3704,7 +3705,7 @@
   "summary": "What each day on the Calendar tab shows, what the colours mean, what you see when you click a day, and how fresh the numbers are.",
   "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3809,7 +3810,7 @@
   "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.",
   "readingTime": 20,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4110,7 +4111,7 @@
   "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, what it says once MAYA has tried to send it and how to send it again, and how to hand the night back to your rules.",
   "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4219,7 +4220,7 @@
   "summary": "What happens when you change a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your change is kept as your price. On any other night it becomes the starting point your rules work from.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4683,9 +4684,9 @@
   "order": 30,
   "title": "How prices reach your property system",
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
-  "readingTime": 23,
+  "readingTime": 24,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4746,6 +4747,11 @@
     "depth": 2,
     "text": "When the read of your bookings fails",
     "id": "when-the-read-of-your-bookings-fails"
+   },
+   {
+    "depth": 2,
+    "text": "Nights your system has no rate for",
+    "id": "nights-your-system-has-no-rate-for"
    },
    {
     "depth": 2,
@@ -5703,7 +5709,7 @@
   "summary": "Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open \"Show the numbers\" when a booking speed rule acted.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -5897,7 +5903,7 @@
   "summary": "Click Clear on the room type card to remove a typed price (or a rate you changed in your system) so your rules price the night again, and what Clear does to the rules that were paused.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -7027,9 +7033,9 @@
   "order": 20,
   "title": "A price looks wrong",
   "summary": "Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.",
-  "readingTime": 15,
+  "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7189,7 +7195,7 @@
   "summary": "The checklist for a rule that looks true but did nothing, a rule that fired on one room type and not another, the 396-night window, room types that are not rooms, the Rate Simulator's reasons, and what a Viewer can and cannot do.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7540,9 +7546,9 @@
   "order": 60,
   "title": "Prices are not reaching your property system",
   "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Prices not reaching\" sentence asks you to do.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7578,6 +7584,11 @@
     "depth": 2,
     "text": "Why was a night I set to 0 not sent?",
     "id": "why-was-a-night-i-set-to-0-not-sent"
+   },
+   {
+    "depth": 2,
+    "text": "Why was a night I have no rate loaded for not sent?",
+    "id": "why-was-a-night-i-have-no-rate-loaded-for-not-sent"
    },
    {
     "depth": 2,
@@ -7621,6 +7632,10 @@
     "a": "MAYA does not send a price of 0 to any property system. A manual price of 0 is a comp night: no rule raises it, and the save confirmation says \"Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself.\" The change log carries an item that says the same until your system has the night at 0. Set it there yourself. Read Make a night free."
    },
    {
+    "q": "Why was a night I have no rate loaded for not sent?",
+    "a": "A night your system has no rate for, and nobody has typed a price for in MAYA, is not priced and not sent, whatever its bookings paid. The day card reads \"No rate in Cloudbeds for this night yet\". Load a rate for it in your system and it is priced and sent within the hour, or type a price in MAYA, which is sent as typed. Read Nights your system has no rate for."
+   },
+   {
     "q": "Why was a night 70 days out not sent?",
     "a": "MAYA prices and sends tonight and the next 395 nights, on your property's own calendar. A night 70 days out is not priced, refreshed or sent until it enters the window. A manual price you type further out is saved now and sent when the night enters the window, and the confirmation says so: \"Saved. It will be sent when the date enters the 396-day push window.\""
    }
@@ -7635,9 +7650,9 @@
   "order": 70,
   "title": "Connection lost",
   "summary": "What the \"MAYA has lost its connection\" banner means, who can reconnect and how, what happens to prices while the connection is down, what Connected, Pending, Degraded, Error and Disconnected mean, what to do when Mews needs its keys re-entered, how to tell when Mews reads have stopped with no banner, and the email that follows when the connection stays down.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
