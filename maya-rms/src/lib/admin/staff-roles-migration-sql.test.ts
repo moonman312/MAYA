@@ -137,7 +137,29 @@ const RESTATED = [
   "platform_pilot_health",
   "platform_list_stalled_signups",
   "analytics_range",
+  "analytics_now",
+  "analytics_walked_away",
+  "analytics_walked_away_summary",
+  "analytics_funnel",
+  "analytics_time_to_value",
+  "analytics_trial_conversion",
+  "analytics_retention",
+  "analytics_cancellations",
+  "analytics_acquisition",
+  "analytics_event_counts",
+  "analytics_pms_health",
+  "analytics_groups",
+  "analytics_book",
 ] as const;
+
+/** The line every analytics_* function gains after its reader check: test properties for a full reader only. */
+const TEST_ONLY_FOR_FULL_READER =
+  "  -- staff_roles_v1: test properties only for whoever reads as a platform admin does.\n" +
+  "  p_include_test := p_include_test and public.analytics_full_reader();\n";
+/** The declare line analytics_acquisition and analytics_event_counts gain: which code, for a full reader only. */
+const CODES_FOR_FULL_READER =
+  "  -- staff_roles_v1: which code, only for whoever reads as a platform admin does.\n" +
+  "  v_codes boolean := public.analytics_full_reader();\n";
 
 describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
@@ -236,6 +258,13 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
       pilot: await q(`select * from public.platform_pilot_health(true) order by hotel_id`),
       stalled: await q(`select * from public.platform_list_stalled_signups(0, true) order by hotel_id`),
       range: await q(`select public.analytics_range($1::date, $2::date, true) as r`, [night(-30), night(0)]),
+      acquisition: await q(`select * from public.analytics_acquisition($1::date, $2::date, true)`, [night(-30), night(0)]),
+      // Only the families nothing in between adds to (the second run records a screen view).
+      codes: await q(
+        `select * from public.analytics_event_counts($1::date, $2::date, true)
+          where event like 'signup_code.%' or event like 'subscription.%'`,
+        [night(-30), night(0)],
+      ),
       hotels: await q(
         `select id, name, timezone, currency, is_active, setup_pending_at, is_test, total_rooms_per_type, external_enterprise_id,
                 created_at, updated_at, pms_type, pms_status, pms_last_sync_at, membership_count
@@ -322,6 +351,15 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
         ('screen.viewed', null, '${STRANGER}', 'app', false, 'seed:stranger-alone'),
         ('screen.viewed', null, '${DEV}', 'app', false, 'seed:dev-alone'),
         ('screen.viewed', '${HT}', '${DEV}', 'app', false, 'seed:dev-sandbox');
+      -- The code Dune Lodge signed up with, as the redemption trigger records
+      -- it (its subscription.created came from the row above), and a
+      -- subscription on the test property: what the acquisition table and the
+      -- event counts show.
+      insert into public.product_events (event, hotel_id, user_id, source, is_test, dedupe_key, occurred_at, properties) values
+        ('signup_code.redeemed', '${HS}', '${OWNER2}', 'trigger', false, 'seed:dune-code', now() - interval '3 days',
+         '{"code_id": "${CODE}", "code": "DRIFTWOOD", "kind": "trial"}'),
+        ('subscription.created', '${HT}', null, 'trigger', true, 'seed:sandbox-subscribed', now() - interval '1 day',
+         '{"billed_rooms": 3, "plan_kind": "stripe", "status": "trialing"}');
       select set_config('request.jwt.claim.role', '', false);
     `);
 
@@ -427,10 +465,45 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
             .replace("public.staff_can_read('stalled_signups')", "public.is_platform_admin()")
             .replace("case when v_show_code then sc.code end", "sc.code"),
         analytics_range: (d) =>
-          d.replace(
-            /and \(p_include_test\n\s+or \(strpos\(coalesce\(u\.email::text, ''\), '\+'\) = 0\n[\s\S]*?\('platform_admin', 'developer', 'sales'\)\)\)\)\),/,
-            "and (p_include_test or strpos(coalesce(u.email::text, ''), '+') = 0)),",
-          ),
+          d
+            .replace(TEST_ONLY_FOR_FULL_READER, "")
+            .replace(
+              /and \(p_include_test\n\s+or \(strpos\(coalesce\(u\.email::text, ''\), '\+'\) = 0\n[\s\S]*?\('platform_admin', 'developer', 'sales'\)\)\)\)\),/,
+              "and (p_include_test or strpos(coalesce(u.email::text, ''), '+') = 0)),",
+            ),
+        analytics_now: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_walked_away: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_walked_away_summary: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_funnel: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_time_to_value: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_trial_conversion: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_retention: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_cancellations: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_acquisition: (d) =>
+          d
+            .replace(TEST_ONLY_FOR_FULL_READER, "")
+            .replace(CODES_FOR_FULL_READER, "")
+            .replace(
+              "    -- staff_roles_v1: anyone else is told only that a code was used ('code'),\n" +
+                "    -- never which one: a code lets its holder past the waitlist.\n" +
+                "    from (select jd.channel, jd.status_now, jd.rooms,\n" +
+                "                 case when v_codes or jd.code = '(no code)' then jd.code else 'code' end as code\n" +
+                "            from judged jd) j\n",
+              "    from judged j\n",
+            ),
+        analytics_event_counts: (d) =>
+          d
+            .replace(TEST_ONLY_FOR_FULL_READER, "")
+            .replace(CODES_FOR_FULL_READER, "")
+            .replace(
+              "               -- staff_roles_v1: anyone else is told only that a code was used.\n" +
+                "               when e.event = 'signup_code.redeemed' then\n" +
+                "                 case when v_codes or e.properties->>'code' is null then e.properties->>'code' else 'code' end\n",
+              "               when e.event = 'signup_code.redeemed' then e.properties->>'code'\n",
+            ),
+        analytics_pms_health: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_groups: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
+        analytics_book: (d) => d.replace(TEST_ONLY_FOR_FULL_READER, ""),
       };
       for (const name of RESTATED) {
         const after = await fnDef(name);
@@ -609,6 +682,81 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
         as(user, "aal2", async () => (await q(`select signup_code, stage from public.platform_list_stalled_signups(0, true) where hotel_id = $1`, [HS]))[0]);
       expect(await code(ADMIN)).toEqual({ signup_code: "DRIFTWOOD", stage: "payment_incomplete" });
       expect(await code(SALES)).toEqual({ signup_code: null, stage: "payment_incomplete" });
+    });
+
+    it("tells only a platform admin which signup code was used, in the analytics too", async () => {
+      const read = async () => ({
+        acquisition: await q(
+          `select channel, code, subscriptions from public.analytics_acquisition(current_date - 30, current_date, false)`,
+        ),
+        redeemed: (
+          await q(`select detail from public.analytics_event_counts(current_date - 30, current_date, false) where event = 'signup_code.redeemed'`)
+        )
+          .map((r) => r.detail)
+          .sort(),
+      });
+      const admin = { acquisition: [{ channel: "direct", code: "DRIFTWOOD", subscriptions: 1 }], redeemed: ["(all)", "DRIFTWOOD"] };
+      expect(await as(ADMIN, "aal1", read)).toEqual(admin);
+      // The page's kept numbers are read with the service role, and the SQL editor is a direct session.
+      expect(await asService(read)).toEqual(admin);
+      expect(await read()).toEqual(admin);
+      // A Sales login is told a code was used, never which one.
+      const sales = await as(SALES, "aal2", read);
+      expect(sales).toEqual({ acquisition: [{ channel: "direct", code: "code", subscriptions: 1 }], redeemed: ["(all)", "code"] });
+      const everything = await as(SALES, "aal2", async () =>
+        JSON.stringify([
+          await q(`select * from public.analytics_acquisition(current_date - 90, current_date, true)`),
+          await q(`select * from public.analytics_event_counts(current_date - 90, current_date, true)`),
+        ]),
+      );
+      expect(everything).not.toContain("DRIFTWOOD");
+    });
+
+    it("counts test properties for a platform admin only, whatever a Sales login asks", async () => {
+      const fns = await q(
+        `select p.proname as name, pg_get_function_identity_arguments(p.oid) as args
+           from pg_proc p
+          where p.pronamespace = 'public'::regnamespace and p.proname like 'analytics\\_%' and 'p_include_test' = any (p.proargnames)
+          order by 1`,
+      );
+      expect(fns.map((f) => f.name)).toEqual([
+        "analytics_acquisition",
+        "analytics_book",
+        "analytics_cancellations",
+        "analytics_event_counts",
+        "analytics_funnel",
+        "analytics_groups",
+        "analytics_now",
+        "analytics_pms_health",
+        "analytics_range",
+        "analytics_retention",
+        "analytics_time_to_value",
+        "analytics_trial_conversion",
+        "analytics_walked_away",
+        "analytics_walked_away_summary",
+      ]);
+      /** Each function's answer with and without test properties, read in one statement so now() is one instant. */
+      const both = (name: string, args: string) => {
+        const call = (t: boolean) =>
+          args === "p_include_test boolean"
+            ? `public.${name}(${t})`
+            : args === "p_from date, p_to date, p_include_test boolean"
+              ? `public.${name}(current_date - 30, current_date, ${t})`
+              : null;
+        if (!call(true)) throw new Error(`${name}(${args}): no call for these arguments`);
+        return q(
+          `select (select coalesce(jsonb_agg(to_jsonb(r)), '[]')::text from ${call(true)} r) as with_test,
+                  (select coalesce(jsonb_agg(to_jsonb(r)), '[]')::text from ${call(false)} r) as without`,
+        ).then((rows) => rows[0]);
+      };
+      for (const f of fns) {
+        const sales = await as(SALES, "aal2", () => both(String(f.name), String(f.args)));
+        expect(sales.with_test, String(f.name)).toBe(sales.without);
+      }
+      // The sandbox's subscription is there to be counted: a platform admin who asks gets it.
+      const admin = await as(ADMIN, "aal1", () => both("analytics_acquisition", "p_from date, p_to date, p_include_test boolean"));
+      expect(admin.with_test).not.toBe(admin.without);
+      expect(await asService(() => both("analytics_acquisition", "p_from date, p_to date, p_include_test boolean"))).toEqual(admin);
     });
 
     it("shows only the alert channel lines of the audit log to staff", async () => {
