@@ -4,7 +4,8 @@ import { godModeStatus } from "@/lib/admin/god-mode";
 import { memberRole } from "@/lib/deep-links/member-role";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { readTextSize } from "@/lib/settings/profile-settings";
-import type { TextSize } from "@/lib/text-size";
+import { TextSizeFix } from "@/components/text-size-sync";
+import { TEXT_SIZE_COOKIE, textSizeFromCookieValue, type TextSize } from "@/lib/text-size";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { cookies } from "next/headers";
@@ -18,9 +19,11 @@ export default async function Home({
   let isPlatformAdmin = false;
   let supportView: SupportView = null;
   let textSize: TextSize | null = null;
+  let fixTextSize: TextSize | null = null;
 
   if (isSupabaseConfigured()) {
-    const supabase = createClient(await cookies());
+    const cookieStore = await cookies();
+    const supabase = createClient(cookieStore);
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -32,13 +35,20 @@ export default async function Home({
     // admin had to know the URL. Surface it only to those who can use it.
     // Resolved before the redirect below, which needs to know.
     // The text size saved on their profile rides along, so a browser that
-    // shows another one (a new device, someone else's cookie) is put right.
+    // shows another one (a size chosen on another device, someone else's
+    // cookie) is put right before the dashboard is drawn.
     const [{ data: admin }, savedTextSize] = await Promise.all([
       supabase.rpc("is_platform_admin", { p_user_id: user.id }),
       readTextSize(supabase, user.id),
     ]);
     isPlatformAdmin = Boolean(admin);
     textSize = savedTextSize;
+    // The <head> script drew this page at the cookie's size. When that is not
+    // the size on their profile, TextSizeFix sets the right one before any of
+    // the dashboard is drawn.
+    if (savedTextSize && savedTextSize !== textSizeFromCookieValue(cookieStore.get(TEXT_SIZE_COOKIE)?.value)) {
+      fixTextSize = savedTextSize;
+    }
 
     // Now that the PMS is connected before anyone picks a path, no property
     // means onboarding is genuinely unfinished — there is no way to legitimately
@@ -73,6 +83,7 @@ export default async function Home({
 
   return (
     <>
+      {fixTextSize ? <TextSizeFix size={fixTextSize} /> : null}
       <Dashboard isPlatformAdmin={isPlatformAdmin} supportView={supportView} initialSearch={initialSearch} textSize={textSize} />
       <GodModeBannerSlot isPlatformAdmin={isPlatformAdmin} />
     </>

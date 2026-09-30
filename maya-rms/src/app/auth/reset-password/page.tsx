@@ -2,6 +2,7 @@
 
 import { MayaLockup } from "@/components/brand/logo";
 import { linkProblem, linkRefusedInUrl, type LinkProblem } from "@/lib/auth-links";
+import { syncTextSizeFromProfile } from "@/lib/text-size";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { isAuthError } from "@supabase/supabase-js";
@@ -82,6 +83,8 @@ export default function ResetPasswordPage() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return refuse("expired");
+      // Their text size, on this browser before the app opens.
+      await syncTextSizeFromProfile(supabase, user.id);
       setAccount(user.email ?? null);
       setStage("ready");
     }

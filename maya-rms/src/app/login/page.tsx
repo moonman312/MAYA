@@ -114,7 +114,8 @@ export default function LoginPage() {
     async (code: string, claimToken: string | null, going: string | null) => {
       setLoading(true);
       try {
-        const { error: exErr } = await createClient().auth.exchangeCodeForSession(code);
+        const supabase = createClient();
+        const { data: session, error: exErr } = await supabase.auth.exchangeCodeForSession(code);
         // The address is confirmed by the time Supabase sends anyone here, so
         // a code this browser can't redeem (opened on another device, say)
         // still only needs a password.
@@ -122,6 +123,8 @@ export default function LoginPage() {
           setNotice(CONFIRMED);
           return;
         }
+        // Their text size, on this browser before the first page.
+        await syncTextSizeFromProfile(supabase, session?.user?.id ?? null);
         if (!(await finishClaim(claimToken))) return;
         afterSignIn(claimToken, going);
       } catch {

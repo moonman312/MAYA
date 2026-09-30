@@ -15,14 +15,23 @@ const auth = vi.hoisted(() => ({
   getUser: vi.fn(),
   signOut: vi.fn(),
 }));
-const nav = vi.hoisted(() => ({ search: "" }));
+const nav = vi.hoisted(() => ({ search: "", textSize: null as string | null }));
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }),
   useSearchParams: () => new URLSearchParams(nav.search),
 }));
 vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }));
-vi.mock("@/utils/supabase/client", () => ({ createClient: () => ({ auth }) }));
+vi.mock("@/utils/supabase/client", () => ({
+  createClient: () => ({
+    auth,
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: nav.textSize ? { text_size: nav.textSize } : null, error: null }) }),
+      }),
+    }),
+  }),
+}));
 
 const { default: AcceptInvitePage } = await import("./page");
 
@@ -37,12 +46,27 @@ function open(search: string) {
 
 beforeEach(() => {
   for (const fn of Object.values(auth)) fn.mockReset();
+  nav.textSize = null;
+  document.documentElement.removeAttribute("data-text-size");
+  document.cookie = "maya-text-size=; Path=/; Max-Age=0";
   auth.getSession.mockResolvedValue({ data: { session: null } });
   auth.getUser.mockResolvedValue({ data: { user: { id: "u-1", email: "night@inn.example" } } });
   auth.verifyOtp.mockResolvedValue({ data: {}, error: null });
 });
 afterEach(() => {
   cleanup();
+});
+
+describe("the person's text size", () => {
+  it("is brought from their profile to this browser once the link is redeemed, clearing someone else's", async () => {
+    document.documentElement.setAttribute("data-text-size", "larger");
+    document.cookie = "maya-text-size=larger; Path=/";
+    nav.textSize = "standard";
+    open("?token_hash=abc&type=invite");
+    await screen.findByLabelText("Password");
+    expect(document.documentElement.hasAttribute("data-text-size")).toBe(false);
+    expect(document.cookie).not.toContain("maya-text-size=larger");
+  });
 });
 
 describe("an invitation link that no longer works", () => {

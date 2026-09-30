@@ -27,7 +27,7 @@ const auth = vi.hoisted(() => ({
   resend: vi.fn(),
   getSession: vi.fn(),
 }));
-const client = vi.hoisted(() => ({ createdAt: [] as string[] }));
+const client = vi.hoisted(() => ({ createdAt: [] as string[], textSize: null as string | null }));
 const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -37,7 +37,14 @@ vi.mock("@/utils/supabase/client", () => ({
     // Where the address stood when the client was made: the browser client
     // redeems any code it finds there on its own.
     client.createdAt.push(window.location.href);
-    return { auth };
+    return {
+      auth,
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: client.textSize ? { text_size: client.textSize } : null, error: null }) }),
+        }),
+      }),
+    };
   },
 }));
 
@@ -68,6 +75,9 @@ function memoryStorage(): Storage {
 beforeEach(() => {
   for (const fn of [...Object.values(auth), router.replace, router.refresh, fetchMock]) fn.mockReset();
   client.createdAt = [];
+  client.textSize = null;
+  document.documentElement.removeAttribute("data-text-size");
+  document.cookie = "maya-text-size=; Path=/; Max-Age=0";
   auth.getSession.mockResolvedValue({ data: { session: null } });
   auth.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
   auth.resend.mockResolvedValue({ data: {}, error: null });
@@ -299,6 +309,16 @@ describe("back from the confirmation link", () => {
     open("/login?confirmed=1&code=pkce-123");
     await settle();
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(router.replace).toHaveBeenCalledWith("/");
+  });
+
+  it("brings their text size from the profile to this browser before going on", async () => {
+    auth.exchangeCodeForSession.mockResolvedValue({ data: { user: { id: "u-1" } }, error: null });
+    client.textSize = "large";
+    open("/login?confirmed=1&code=pkce-123");
+    await settle();
+    expect(document.documentElement.getAttribute("data-text-size")).toBe("large");
+    expect(document.cookie).toContain("maya-text-size=large");
     expect(router.replace).toHaveBeenCalledWith("/");
   });
 

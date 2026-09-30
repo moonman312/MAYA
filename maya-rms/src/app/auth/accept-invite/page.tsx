@@ -5,6 +5,7 @@ import { TermsConsent } from "@/components/legal/terms-consent";
 import { linkProblem, linkRefusedInUrl } from "@/lib/auth-links";
 import { SUPPORT_EMAIL } from "@/lib/docs/home";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
+import { syncTextSizeFromProfile } from "@/lib/text-size";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import type { EmailOtpType } from "@supabase/supabase-js";
@@ -101,6 +102,9 @@ function AcceptInviteContent() {
       refuse("expired");
       return;
     }
+    // Their text size, on this browser before the app opens (someone else's
+    // may be left in the cookie).
+    await syncTextSizeFromProfile(supabase, user.id);
     setStage("ready");
   }, [configured, searchParams, refuse]);
 

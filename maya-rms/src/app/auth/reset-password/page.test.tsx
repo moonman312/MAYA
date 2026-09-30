@@ -19,7 +19,7 @@ const auth = vi.hoisted(() => ({
   signOut: vi.fn(),
   updateUser: vi.fn(),
 }));
-const client = vi.hoisted(() => ({ createdAt: [] as string[] }));
+const client = vi.hoisted(() => ({ createdAt: [] as string[], textSize: null as string | null }));
 const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -29,7 +29,14 @@ vi.mock("@/utils/supabase/client", () => ({
     // Where the address stood when the client was made: the browser client
     // redeems any code it finds there on its own.
     client.createdAt.push(window.location.href);
-    return { auth };
+    return {
+      auth,
+      from: () => ({
+        select: () => ({
+          eq: () => ({ maybeSingle: async () => ({ data: client.textSize ? { text_size: client.textSize } : null, error: null }) }),
+        }),
+      }),
+    };
   },
 }));
 
@@ -43,6 +50,9 @@ function open(search: string) {
 beforeEach(() => {
   for (const fn of [...Object.values(auth), router.replace, router.refresh]) fn.mockReset();
   client.createdAt = [];
+  client.textSize = null;
+  document.documentElement.removeAttribute("data-text-size");
+  document.cookie = "maya-text-size=; Path=/; Max-Age=0";
   auth.getSession.mockResolvedValue({ data: { session: null } });
   auth.getUser.mockResolvedValue({ data: { user: { id: "u-1", email: "sam@harbour.example" } } });
   auth.verifyOtp.mockResolvedValue({ data: {}, error: null });
@@ -79,6 +89,19 @@ describe("redeeming the link", () => {
     expect(client.createdAt.every((href) => !href.includes("code="))).toBe(true);
     // Signing out first would throw away the verifier the code needs.
     expect(auth.signOut).not.toHaveBeenCalled();
+  });
+});
+
+describe("the person's text size", () => {
+  it("is brought from their profile to this browser once the link is redeemed, before the app opens", async () => {
+    // Someone else's size is left in this browser's cookie.
+    document.documentElement.setAttribute("data-text-size", "large");
+    document.cookie = "maya-text-size=large; Path=/";
+    client.textSize = "larger";
+    open("?token_hash=abc&type=recovery");
+    await screen.findByLabelText("New password");
+    expect(document.documentElement.getAttribute("data-text-size")).toBe("larger");
+    expect(document.cookie).toContain("maya-text-size=larger");
   });
 });
 

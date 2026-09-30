@@ -8,8 +8,12 @@
  * size: TEXT_SIZE_SCRIPT runs in the root layout's <head>, before the first
  * paint, on every page (the dashboard, the docs, the account and admin
  * pages), so nothing is ever drawn at the wrong size first. The pages built
- * ahead of time (the docs) keep being built ahead of time: the server never
- * reads the cookie.
+ * ahead of time (the docs) keep being built ahead of time: the root layout
+ * never reads the cookie. When the cookie is out of step with the profile
+ * (a size chosen on another device, someone else's cookie), the dashboard
+ * page, which reads both on the server, sends textSizeFixScript ahead of the
+ * dashboard, and each sign-in path copies the profile's size to the cookie
+ * before the first page (syncTextSizeFromProfile).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -46,6 +50,26 @@ export function isTextSize(v: unknown): v is TextSize {
  * the page everyone gets. Keep it tiny and dependency-free.
  */
 export const TEXT_SIZE_SCRIPT = `try{var m=document.cookie.match(/(?:^|;\\s*)${TEXT_SIZE_COOKIE}=(large|larger)(?:;|$)/);if(m)document.documentElement.setAttribute("${TEXT_SIZE_ATTRIBUTE}",m[1]);else document.documentElement.removeAttribute("${TEXT_SIZE_ATTRIBUTE}")}catch(e){}`;
+
+/**
+ * The dashboard's fix for a browser whose cookie holds another size than the
+ * profile (a size chosen on another device, someone else's left behind). The
+ * dashboard page reads both on the server and, when they differ, puts this
+ * ahead of everything it draws: it sets the saved size on <html> and in the
+ * cookie while the page is still loading, so nothing is drawn at the old
+ * size. Keep it tiny and dependency-free, like TEXT_SIZE_SCRIPT.
+ */
+export function textSizeFixScript(size: TextSize): string {
+  const s = JSON.stringify(isTextSize(size) ? size : "standard");
+  const a = JSON.stringify(TEXT_SIZE_ATTRIBUTE);
+  const c = JSON.stringify(TEXT_SIZE_COOKIE);
+  return `try{var s=${s},d=document.documentElement,x=location.protocol==="https:"?"; Secure":"";if(s==="standard")d.removeAttribute(${a});else d.setAttribute(${a},s);document.cookie=s==="standard"?${c}+"=; Path=/; Max-Age=0; SameSite=Lax"+x:${c}+"="+s+"; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax"+x}catch(e){}`;
+}
+
+/** The size a cookie's value names; standard for none or one it does not know. */
+export function textSizeFromCookieValue(value: string | undefined | null): TextSize {
+  return isTextSize(value) ? value : "standard";
+}
 
 /** The size a cookie string holds; standard when it holds none. */
 export function textSizeFromCookie(cookie: string): TextSize {
