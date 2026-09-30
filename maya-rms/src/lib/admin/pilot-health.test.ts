@@ -84,7 +84,7 @@ describe("loadPilotHealth", () => {
 
     const after = {
       rpc: async () => ({
-        data: [row({ hotel_id: "a", unsent_count: 0, unsent_since: null, rate_read_waiting: 0, rate_read_waiting_since: null })],
+        data: [row({ hotel_id: "a", unsent_count: 0, unsent_since: null, rate_read_waiting: 0, rate_read_waiting_since: null, no_rate_count: 0, rates_read_through: null })],
         error: null,
       }),
     } as unknown as SupabaseClient;

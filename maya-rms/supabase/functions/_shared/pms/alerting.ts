@@ -214,6 +214,68 @@ export async function postTestMessage(
 }
 
 /**
+ * The line that says an alerted condition has cleared, for the key an alert
+ * was raised under. Posted only when an alert for the key went out after
+ * the last recovery line for it (platform_audit_events: alert.raised newer
+ * than alert.recovered), so a condition that never reached the channel, or
+ * cleared once already, says nothing. No severity floor: a recovery line
+ * follows an alert that passed it. Never throws.
+ */
+export async function raiseRecovery(
+  supabase: SupabaseClient,
+  alert: Pick<Alert, "key" | "title" | "detail" | "hotelId">,
+): Promise<{ sent: boolean; reason?: string }> {
+  const url = webhookUrl();
+  if (!url) return { sent: false, reason: "no_webhook_configured" };
+  try {
+    const newest = async (eventType: string) => {
+      const { data, error } = await supabase
+        .from("platform_audit_events")
+        .select("created_at")
+        .eq("event_type", eventType)
+        .eq("entity_id", alert.key)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message);
+      const row = (data ?? [])[0] as { created_at?: unknown } | undefined;
+      return row?.created_at != null ? Date.parse(String(row.created_at)) : NaN;
+    };
+    const raisedAt = await newest("alert.raised");
+    if (!Number.isFinite(raisedAt)) return { sent: false, reason: "nothing_to_recover" };
+    const recoveredAt = await newest("alert.recovered");
+    if (Number.isFinite(recoveredAt) && recoveredAt >= raisedAt) return { sent: false, reason: "already_recovered" };
+
+    const text = [
+      `🟢 *MAYA recovered* — ${alert.title}`,
+      alert.detail ? `> ${alert.detail}` : null,
+      alert.hotelId ? `> hotel \`${alert.hotelId}\`` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const res = await postToWebhook(url, { text, severity: "recovered", key: alert.key, hotelId: alert.hotelId ?? null }, 8000);
+    if (!res.ok) return { sent: false, reason: `webhook_${res.status}` };
+
+    await supabase.rpc("platform_log_event", {
+      p_event_type: "alert.recovered",
+      p_entity_type: "alert",
+      p_entity_id: alert.key,
+      ...(alert.hotelId ? { p_hotel_id: alert.hotelId } : {}),
+      p_detail: { title: alert.title },
+    });
+    return { sent: true };
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "raiseRecovery",
+        key: alert.key,
+        error: e instanceof Error ? e.message : String(e),
+      }),
+    );
+    return { sent: false, reason: "send_failed" };
+  }
+}
+
+/**
  * Only critical alerts leave the building by default.
  *
  * An alert channel is worth exactly as much as the reader's willingness to look

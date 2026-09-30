@@ -38,7 +38,7 @@ questions:
   - 'What does "Paused 2 rules on this night for this room" mean?' {#what-your-price-does-to-the-night/changes-already-on}
   - 'Does my typed price go to my system at exactly that number?' {#what-your-price-does-to-the-night/your-price-is}
   - 'We write prices as 180,50. Do I type a comma or a point in the price box?' {#type-the-price}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -186,9 +186,7 @@ A typed price of 0 stops every rule on that night for that room type, and nothin
 
 Clear reaches tonight onwards only, because your rules never price a night that has passed. A past night has no <Ui>Clear</Ui> button, and its typed price stays on it as the record of what it sold at. A run of nights that starts before tonight is cleared from tonight.
 
-After a clear, your rules run on the night again straight away. The starting point is the rate MAYA read from Cloudbeds or ThinkReservations for that night, otherwise the rate of the newest booking on it, otherwise the starting point saved on the last run. Mews properties start from the booking or that saved starting point, since MAYA does not read Mews rates.
-
-While your price was open, it was the night's starting point, so that is the one saved. A night with no rate read and no booking on it starts again from the price you typed (when it was above 0). On Cloudbeds and ThinkReservations that is usually a night more than 395 nights ahead, because MAYA reads rates for tonight and the next 395 nights. Once the night enters that window, MAYA reads its rate and starts from that instead.
+After a clear, your rules run on the night again straight away. The starting point is the rate MAYA read from Cloudbeds or ThinkReservations for that night. A night your system has no rate for is left unpriced after the clear, and the day card says so, until your system has a rate for it. Mews properties have no rate read, so a cleared Mews night stays unpriced until you type a price again.
 
 A standard rule that was holding quietly moves the price again. A booking speed or pickup change that your price took off stays off. The rule can fire again later, on its own terms.
 

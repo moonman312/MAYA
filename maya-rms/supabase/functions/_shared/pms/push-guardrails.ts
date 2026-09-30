@@ -46,6 +46,20 @@
  *                                  for a night already sent at its price:
  *                                  MAYA's last rate is still in the PMS, and
  *                                  the engine keeps that row so it shows.
+ *   guardrail:no_rate_on_record    The PMS has no rate on record for the
+ *                                  night: base_rate_calendar has no row for
+ *                                  it, or the night is past the last night
+ *                                  the PMS returned a rate for on its last
+ *                                  read (pms_connections.base_rates_returned_through),
+ *                                  and nobody typed a manual price for it.
+ *                                  The engine leaves such a night unpriced
+ *                                  (base-price.ts); this catches a row left
+ *                                  over from before it did, or priced before
+ *                                  the read that dropped the night. A night
+ *                                  MAYA never sent to gets a ledger row with
+ *                                  attempts 0 and no incident: the PMS has
+ *                                  nothing there to be wrong. Decided
+ *                                  2026-09-29 (audit A6).
  *   guardrail:invalid_bounds       The room type's floor or ceiling is not a
  *                                  usable number (missing, not above 0, or a
  *                                  ceiling under the floor), so the price
@@ -98,6 +112,7 @@ export const GUARDRAIL = {
   notARoom: "guardrail:not_a_room",
   invalidPrice: "guardrail:invalid_price",
   zeroBase: "guardrail:zero_base",
+  noRateOnRecord: "guardrail:no_rate_on_record",
   invalidBounds: "guardrail:invalid_bounds",
   belowFloor: "guardrail:below_floor",
   aboveCeiling: "guardrail:above_ceiling",
@@ -114,6 +129,7 @@ export const GUARDRAIL_ORDER: readonly GuardrailCode[] = [
   GUARDRAIL.notARoom,
   GUARDRAIL.invalidPrice,
   GUARDRAIL.zeroBase,
+  GUARDRAIL.noRateOnRecord,
   GUARDRAIL.invalidBounds,
   GUARDRAIL.belowFloor,
   GUARDRAIL.aboveCeiling,
@@ -160,6 +176,11 @@ export type GuardrailInput = {
   lastDate: string;
   /** base_rate_calendar holds 0 for the night and no manual price is open. */
   zeroBase: boolean;
+  /**
+   * The PMS has no rate on record for the night (no calendar row, or past
+   * what its last read returned) and no manual price is open. Absent is no.
+   */
+  noRateOnRecord?: boolean;
   /** The night's open manual price, typed in MAYA or changed in the PMS; null or absent when there is none. */
   manualPrice?: number | null;
   /** The PMS takes a rate of 0 (PmsRatePushAdapter acceptsZeroRate). Absent is no. */
@@ -193,6 +214,7 @@ export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
   // The engine publishes 0 only for a manual price of 0.
   if (cents(c.price) === 0 && !(manual != null && cents(manual) === 0)) return GUARDRAIL.invalidPrice;
   if (c.zeroBase) return GUARDRAIL.zeroBase;
+  if (c.noRateOnRecord === true) return GUARDRAIL.noRateOnRecord;
   const floor = c.roomType.floorPrice == null ? NaN : Number(c.roomType.floorPrice);
   const ceiling = c.roomType.ceilingPrice == null ? NaN : Number(c.roomType.ceilingPrice);
   if (!Number.isFinite(floor) || !Number.isFinite(ceiling) || cents(floor) <= 0 || cents(ceiling) < cents(floor)) {

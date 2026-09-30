@@ -117,8 +117,26 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_pilot_health_v2.sql",
   "99_supabase_migration_non_room_types_v1.sql",
   "99_supabase_migration_definer_lockdown_v1.sql",
+  "99_supabase_migration_confirmed_signups_v1.sql",
+  "99_supabase_migration_no_rate_on_record_v1.sql",
+  "99_supabase_migration_read_failures_v1.sql",
+  "99_supabase_migration_pricing_watchdog_v1.sql",
   "99_supabase_migration_command_center_speed_v1.sql",
 ];
+
+/**
+ * The first migration on the list that needs the cadence file's tables when
+ * it runs (it alters hotel_pricing_state and restates pricing_run_done). The
+ * SQL tests that build the whole schema run the cadence file just before it,
+ * as production did; the files before it never needed it at that point.
+ */
+export const CADENCE_RUNS_BEFORE = "99_supabase_migration_pricing_watchdog_v1.sql";
+
+/** The list with the cadence file in the place production ran it. */
+export function withCadenceFile(order: readonly string[], cadence = MIGRATION): string[] {
+  const at = order.indexOf(CADENCE_RUNS_BEFORE);
+  return at < 0 ? [...order, cadence] : [...order.slice(0, at), cadence, ...order.slice(at)];
+}
 
 type Db = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
@@ -218,16 +236,20 @@ describe.skipIf(!PGLITE_DIR)("the pricing cadence migration in PGlite", () => {
     const { citext } = await import(/* @vite-ignore */ pathToFileURL(`${dist}/contrib/citext.js`).href);
     db = new mod.PGlite({ extensions: { pgcrypto, citext } }) as Db;
     await db.exec(PLATFORM);
-    for (const name of ["01_supabase_base_schema.sql", "02_supabase_schema.sql", ...MIGRATION_ORDER]) {
+    const run = async (name: string) => {
       try {
         await db.exec(fileSql(name));
       } catch (e) {
         throw new Error(`${name}: ${e instanceof Error ? e.message : String(e)}`);
       }
-    }
+    };
+    const cadenceAt = MIGRATION_ORDER.indexOf(CADENCE_RUNS_BEFORE);
+    for (const name of ["01_supabase_base_schema.sql", "02_supabase_schema.sql", ...MIGRATION_ORDER.slice(0, cadenceAt)]) await run(name);
     // The file under test, twice: it is safe to run again.
     await db.exec(fileSql(MIGRATION));
     await db.exec(fileSql(MIGRATION));
+    // The migrations written after it, which build on it.
+    for (const name of MIGRATION_ORDER.slice(cadenceAt)) await run(name);
     // Seeded as the service role, as the app's admin paths write these.
     await db.exec(`
       select set_config('request.jwt.claim.role', 'service_role', false);

@@ -45,3 +45,25 @@ export function linkRefusedInUrl(href: string): boolean {
   const fragment = new URLSearchParams(url.hash.replace(/^#/, ""));
   return [url.searchParams, fragment].some((p) => p.has("error_code") || p.has("error"));
 }
+
+/**
+ * How long "Send the link again" rests after a confirmation email goes out,
+ * the one sign-up sends included. Supabase refuses a second email to the same
+ * address sooner than this, so the button would only earn a refusal.
+ */
+export const RESEND_COOLDOWN_MS = 60_000;
+
+/** Supabase saying "too many, too soon", for an email or for requests. */
+export function isRateLimited(error: unknown): boolean {
+  if (!isAuthError(error)) return false;
+  return (
+    error.status === 429 ||
+    error.code === "over_email_send_rate_limit" ||
+    error.code === "over_request_rate_limit"
+  );
+}
+
+/** A sign-in refused only because the address has not been confirmed yet. */
+export function isEmailNotConfirmed(error: unknown): boolean {
+  return isAuthError(error) && error.code === "email_not_confirmed";
+}

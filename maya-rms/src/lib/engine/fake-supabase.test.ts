@@ -258,6 +258,11 @@ export function fakeSupabase(
             return v != null && compare(v, value) < 0;
           case "not.is":
             return value === null ? v != null : v !== value;
+          case "not.in": {
+            // PostgREST's "(a,b)" list; SQL: a NULL is never NOT IN anything.
+            const list = String(value).replace(/^\(|\)$/g, "").split(",");
+            return v != null && !list.includes(String(v));
+          }
           default:
             return true;
         }

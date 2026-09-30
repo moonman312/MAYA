@@ -4,6 +4,7 @@ import { DocsSiteFooter, DocsSiteHeader } from "@/components/docs/site-chrome";
 import { sectionsWithPages } from "@/lib/docs/content";
 import { HOME_STARTERS } from "@/lib/docs/home";
 import { APP_ORIGIN } from "@/lib/docs/site";
+import { SHARE_IMAGE } from "@/lib/docs/share";
 
 const description =
   "Everything about MAYA, in plain words: rules, your property system, going live, billing and what to do when something looks wrong.";
@@ -13,8 +14,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(APP_ORIGIN),
   title: { default: "MAYA docs", template: "%s · MAYA docs" },
   description,
-  openGraph: { type: "website", title: "MAYA docs", description, siteName: "MAYA" },
-  twitter: { card: "summary", title: "MAYA docs", description },
+  openGraph: { type: "website", title: "MAYA docs", description, siteName: "MAYA", images: [SHARE_IMAGE] },
+  twitter: { card: "summary_large_image", title: "MAYA docs", description, images: [SHARE_IMAGE.url] },
+  robots: { index: true, follow: true },
 };
 
 // A kill switch for the docs helper; read when the pages are built.

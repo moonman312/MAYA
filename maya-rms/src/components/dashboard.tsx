@@ -8,6 +8,7 @@ import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-editor";
+import { NoRateLine } from "@/components/no-rate-help";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
@@ -37,11 +38,14 @@ import { formatDisplayTime } from "@/lib/display-time";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
+  FAR_OUT_CUT_GUARD_HELP,
   RULE_FIRES_HELP,
   eventRuleWaitDays,
+  farOutCutGuardRow,
   pickupCountsLow,
   pickupOwnWait,
   pickupSetsWait,
+  rowsAreFarOutCut,
   waitDaysLabel,
   builderDraft,
   draftBehaviourKey,
@@ -439,11 +443,24 @@ export function Dashboard({
   const [activation, setActivation] = useState<ActivationRequest | null>(null);
   // A switch that could not be changed, and why, under that rule.
   const [ruleSwitchError, setRuleSwitchError] = useState<{ ruleId: string; message: string } | null>(null);
+  // Whether this rule (new, or the one being edited) has had the booking
+  // window row the builder fills in for a cut on low pickup with none. Once
+  // per rule: the owner may remove the row, and it never comes back on its
+  // own, and saving never adds it (Jake, 2026-09-29, A4).
+  const farOutGuardOffered = useRef(false);
 
   useEffect(() => {
     void reloadRules();
     void reloadRoomTypes();
   }, []);
+
+  // The moment the form becomes a cut on low pickup with no booking window
+  // row, one is filled in: within 60 days of arrival, with a "?" saying why.
+  useEffect(() => {
+    if (farOutGuardOffered.current || !rowsAreFarOutCut(condRows, adjDirection)) return;
+    farOutGuardOffered.current = true;
+    setCondRows((prev) => (rowsAreFarOutCut(prev, adjDirection) ? [...prev, farOutCutGuardRow()] : prev));
+  }, [condRows, adjDirection]);
 
   useEffect(() => {
     void (async () => {
@@ -788,6 +805,7 @@ export function Dashboard({
   /** The builder back to an empty new rule. */
   function resetBuilder() {
     setRuleName("");
+    farOutGuardOffered.current = false;
     setCondRows([newConditionRow("occupancy")]);
     setAdjPercent("");
     setAdjDollars("");
@@ -825,6 +843,9 @@ export function Dashboard({
     }
     const form = ruleToBuilderForm(rule, isCountingRoomTypeId);
     setRuleName(form.name);
+    // The rule as saved is the baseline below; a row the builder fills in
+    // on top of it is a change the owner sees, and can remove.
+    farOutGuardOffered.current = false;
     setCondRows(form.rows);
     setAdjDirection(form.direction);
     setAdjPercent(form.percent);
@@ -1474,6 +1495,11 @@ export function Dashboard({
                                   ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
                                   : "–"}
                               </p>
+                              {rt.no_rate_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
+                                <NoRateLine
+                                  pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
+                                />
+                              ) : null}
                               <p className="text-sm text-slate-300">
                                 Revenue {currencySymbol}{rt.revenue.toFixed(2)}
                               </p>
@@ -1775,9 +1801,14 @@ export function Dashboard({
                         >
                           <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_minmax(0,10rem)_minmax(0,10rem)_auto] sm:items-end">
                             <div className="min-w-0">
-                              <label className="mb-0.5 block text-[11px] text-slate-500">
-                                Metric
-                              </label>
+                              <div className="mb-0.5 flex items-center gap-1.5">
+                                <label className="block text-[11px] text-slate-500">
+                                  Metric
+                                </label>
+                                {row.prefilled === "far_out_cut" ? (
+                                  <RoomCountHelp {...FAR_OUT_CUT_GUARD_HELP} />
+                                ) : null}
+                              </div>
                               <select
                                 value={row.metric}
                                 className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm"
@@ -1796,6 +1827,8 @@ export function Dashboard({
                                     booking_speed_level: "faster",
                                     booking_speed_window_days: 7,
                                     booking_speed_operator: undefined,
+                                    // Another metric: the owner's row now.
+                                    prefilled: undefined,
                                   });
                                 }}
                               >

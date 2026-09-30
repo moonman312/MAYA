@@ -122,6 +122,7 @@ import {
   readErrorText,
   bookedBeforeKey,
   loadBookedBefore,
+  loadRatesReturnedThrough,
   loadReservationCells,
   loadRunGaps,
   purgeOldSnapshots,
@@ -680,51 +681,22 @@ export async function evaluateHotel(
   // answered from memory, older ones are read once per (cell, timestamp).
   const snapshots = createSnapshotLookup(supabase, hotelId, now, writtenSnapshots, runGaps);
 
-  // Base prices — batched: one reservations read + one published_price read for
-  // the whole horizon, resolved in memory. (Previously this was ~2 queries per
-  // (stay_date, room_type) cell — thousands of sequential round-trips.)
+  // Base prices, batched: one published_price read and one base_rate_calendar
+  // read for the run's nights, resolved in memory.
   //
   // Order (see resolveBase): a manual price someone typed for the cell, else
-  // the property's own base_rate_calendar rate, else the most recent
-  // reservation's base_rate, else the base price we remembered the last time
-  // this cell was priced. NEVER published_price.price — that is this engine's
-  // own output, already carrying every active effect, and feeding it back in
-  // compounds those effects once per run.
+  // the property's own base_rate_calendar rate, else nothing: the cell is not
+  // priced. NEVER a booking's rate (what the guest paid, which after MAYA's
+  // first send is MAYA's own price coming back), NEVER the base remembered
+  // from an earlier run (that same number kept), and NEVER
+  // published_price.price, this engine's own output. Decided 2026-09-29
+  // (audit A6).
   const firstDate = stayDates[0];
   const lastDate = stayDates[stayDates.length - 1];
 
   // A ladder-only dry run decides the watched rule's ladder part and stops:
   // it prices nothing, so it reads nothing prices are made from.
   const prices = !dry?.ladderOnly;
-  let latestResByCell: ReadonlyMap<string, { base_rate: number | null; created_at: string }>;
-  if (reservationCells || !prices) {
-    latestResByCell = reservationCells?.latestBase ?? new Map();
-  } else {
-    const resRows = await fetchAllRows(() =>
-      supabase
-        .from("reservations")
-        .select("stay_date, room_type_id, base_rate, created_at")
-        .eq("hotel_id", hotelId)
-        .gte("stay_date", firstDate)
-        .lte("stay_date", lastDate)
-        .order("id", { ascending: true }),
-    );
-
-    const fromRows = new Map<string, { base_rate: number | null; created_at: string }>();
-    for (const r of resRows ?? []) {
-      if (!r.room_type_id) continue;
-      const key = `${r.stay_date}|${r.room_type_id}`;
-      const createdAt = String(r.created_at ?? "");
-      const prev = fromRows.get(key);
-      if (!prev || createdAt > prev.created_at) {
-        fromRows.set(key, {
-          base_rate: r.base_rate != null ? Number(r.base_rate) : null,
-          created_at: createdAt,
-        });
-      }
-    }
-    latestResByCell = fromRows;
-  }
 
   const ppRows = !prices
     ? []
@@ -739,24 +711,21 @@ export async function evaluateHotel(
           .order("room_type_id", { ascending: true }),
       );
 
-  const rememberedBaseByCell = new Map<string, number>();
   const publishedCells = new Set<string>();
   for (const p of ppRows) {
     if (!p.room_type_id) continue;
     publishedCells.add(`${p.stay_date}|${p.room_type_id}`);
-    if (p.base_price == null) continue;
-    rememberedBaseByCell.set(`${p.stay_date}|${p.room_type_id}`, Number(p.base_price));
   }
 
   // The property's own rate, read from the PMS and never written by us.
   //
   // Empty instead of throwing only when the table is not there yet: it
   // arrives in a migration, and an engine that dies on every hotel because
-  // the deploy landed before the SQL is a far worse failure than pricing the
-  // way we did last week. A missing calendar simply falls through to the
-  // older base sources. Any other failure stops the run: read as empty, every
-  // booked night was priced on what its latest guest paid, which can be one
-  // of MAYA's own prices, and that went out as a good run.
+  // the deploy landed before the SQL is a far worse failure than pricing
+  // nothing. A missing calendar prices only the nights someone typed a price
+  // for. Any other failure stops the run: read as empty, every night would
+  // go unpriced and every never-sent published row would be removed as if
+  // the hotel had no rates, in a run that counted as good.
   const calendarBaseByCell = new Map<string, number>();
   if (prices) try {
     const calRows = await fetchAllRows(() =>
@@ -783,15 +752,22 @@ export async function evaluateHotel(
         error: e instanceof Error ? e.message : String(e),
         degradedToEmpty: true,
         schema: "pre-migration",
-        message: `base_rate_calendar does not exist yet; nights are priced on the older base sources this run. Run ${MIGRATIONS.baseRateCalendar}.`,
+        message: `base_rate_calendar does not exist yet; only nights with a typed price are priced this run. Run ${MIGRATIONS.baseRateCalendar}.`,
         migration: MIGRATIONS.baseRateCalendar,
       }),
     );
   }
 
+  // The last night the PMS returned a rate for on its last read
+  // (base-rate-calendar.ts). A calendar row past it is a rate the PMS no
+  // longer quotes, and the night is not priced on it. Null when no read has
+  // recorded one yet, or the column's migration has not run: then every row
+  // counts, as it did before.
+  const ratesReturnedThrough = prices ? await loadRatesReturnedThrough(supabase, hotelId) : null;
+
   // A number a human typed for the cell, or changed in the PMS on a night
   // MAYA had sent (source 'pms'). Open rows only — clearing an override
-  // stamps cleared_at and the cell falls back to the tiers above.
+  // stamps cleared_at and the cell falls back to the calendar.
   // Same stance as the calendar: this table also arrives in a migration, and
   // before it no price was ever typed. Any other failure stops the run: read
   // as empty, a night the owner typed a price for was priced from the rate
@@ -852,27 +828,41 @@ export async function evaluateHotel(
   const baseSourceByCell = new Map<string, BaseSource>();
   // Cells with a published row this run will not price: see clearUnpricedCells.
   const unpricedPublished: string[] = [];
+  // Nights with no rate on record (no calendar row the last read still
+  // stands behind) and no typed price: not priced, and reported.
+  let cellsWithoutRate = 0;
   for (const sd of stayDates) {
     for (const rt of roomTypes) {
       const key = `${sd}|${rt.id}`;
-      // See resolveBase: a typed price wins outright; below it the property's
-      // own rate outranks anything derived from a booking, because a booking
-      // can be one of our own prices.
+      // See resolveBase: a typed price wins outright; below it only the
+      // property's own rate, and only as far as the PMS last returned it.
+      const calendar = ratesReturnedThrough != null && sd > ratesReturnedThrough ? undefined : calendarBaseByCell.get(key);
       const base = resolveBase({
         manual: manualByCell.get(key)?.price,
-        calendar: calendarBaseByCell.get(key),
-        reservation: latestResByCell.get(key)?.base_rate,
-        remembered: rememberedBaseByCell.get(key),
+        calendar,
       });
       // A night the hotel has at 0 is left alone unless someone typed a
       // price for it (pricesOnBase).
       if (base !== undefined && pricesOnBase(base)) {
         basePrices.set(key, base.price);
         baseSourceByCell.set(key, base.source);
-      } else if (publishedCells.has(key)) {
-        unpricedPublished.push(key);
+      } else {
+        if (base === undefined) cellsWithoutRate++;
+        if (publishedCells.has(key)) unpricedPublished.push(key);
       }
     }
+  }
+  if (cellsWithoutRate > 0) {
+    console.log(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "no_rate_on_record",
+        hotelId,
+        cells: cellsWithoutRate,
+        ratesReturnedThrough,
+        message: "room-nights with no rate on record from the PMS and no typed price: not priced, not sent",
+      }),
+    );
   }
 
   const ladderRules = rules.filter((r) => !r.is_pickup_rule);
@@ -1884,7 +1874,7 @@ export async function evaluateHotel(
       if (!rt || base === undefined) {
         currentByCell.set(key, null);
       } else {
-        const source = baseSourceByCell.get(key) ?? "remembered";
+        const source = baseSourceByCell.get(key) ?? "calendar";
         const assembled = assemblePriceFrom(
           stayDate,
           rt,
@@ -2044,7 +2034,7 @@ export async function evaluateHotel(
         rt,
         basePrice,
         // Every priced cell has a source: the two maps are filled together.
-        baseSourceByCell.get(key) ?? "remembered",
+        baseSourceByCell.get(key) ?? "calendar",
         ladderEffectsByCell.get(key) ?? [],
         pickupEffectsByCell.get(key) ?? [],
       );

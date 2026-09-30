@@ -345,7 +345,12 @@ export type EvaluationAuditDetails = {
    * distinct window length consulted.
    */
   booking_speed_observations?: Record<string, unknown>[];
-  /** Which precedence slot supplied the base. Rows written before manual prices existed lack it. */
+  /**
+   * Which slot supplied the base: a typed price or the hotel's own rate. Rows
+   * written before manual prices existed lack it; rows from before audit A6
+   * (2026-09-29) may say "reservation" or "remembered", bases the engine no
+   * longer prices on.
+   */
   base_source?: "manual" | "calendar" | "reservation" | "remembered";
   /**
    * Present only when base_source is "manual": who typed the price and when.
@@ -410,6 +415,13 @@ export type CalendarRoomType = {
    * night MAYA had sent, and MAYA kept it; clearing works the same.
    */
   manual_price: { price: number; set_at: string; source?: "maya" | "pms"; pms_type?: string | null } | null;
+  /**
+   * True when the property system (Cloudbeds or ThinkReservations) has no
+   * rate on record for this night and nobody has typed a price: MAYA does
+   * not price the night or send to it until the system has a rate for it.
+   * Absent otherwise, and on past nights, on Mews, and in demo mode.
+   */
+  no_rate_in_pms?: true;
 };
 
 export type CalendarDay = {

@@ -90,7 +90,7 @@ service role may insert (that is `/api/events`). The functions check
 
 | event | meaning | emitted by | properties |
 |---|---|---|---|
-| `account.created` | a MAYA login exists | trigger on `profiles` insert | — |
+| `account.created` | a MAYA login exists and its email address is confirmed; once per user, dated the confirmation (an invitation counts when it is accepted) | trigger on `auth.users.email_confirmed_at` (`99_supabase_migration_confirmed_signups_v1.sql`), or on `profiles` insert for a user created already confirmed | — |
 | `account.terms_accepted` | someone agreed to a Terms and Privacy Policy version; one per acceptance row | trigger on `terms_acceptances` insert (`99_supabase_migration_terms_acceptance_events_v1.sql`) | `terms_version`, `privacy_version`, `context` (`signup`, `claim`, `invite`, `reaccept`), `acceptance_source` |
 | `marketplace.connected` | Connect App on Cloudbeds landed and parked a property with a claim ticket; one per click | trigger on `pms_marketplace_claims` insert | `expires_at`, `group_key`, `group_size`, `repeat` (an earlier click for the same property exists) |
 | `marketplace.claim_redeemed` | someone signed in and attached the parked property to their account | trigger on `pms_marketplace_claims.claimed_at` | `hours_since_connect`, `group_key`, `group_size` |

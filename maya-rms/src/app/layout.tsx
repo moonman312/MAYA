@@ -4,6 +4,7 @@ import { TermsGate } from "@/components/legal/terms-gate";
 import { ThemeGuard } from "@/components/docs/theme-guard";
 import { ThemeScript } from "@/components/docs/theme-script";
 import { WheelGuard } from "@/components/wheel-guard";
+import { APP_ORIGIN } from "@/lib/docs/site";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -17,10 +18,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_ORIGIN),
   title: "MAYA",
   description: "Machine Assisted Yield Automation: revenue management for hotels",
   applicationName: "MAYA",
   appleWebApp: { title: "MAYA" },
+  // The app's own screens (sign-in, onboarding, account) stay out of search.
+  // The docs layout and the support page opt back in.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

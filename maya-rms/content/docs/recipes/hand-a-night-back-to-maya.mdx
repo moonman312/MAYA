@@ -14,7 +14,7 @@ questions:
   - Can I clear a whole range of nights at once? {#clear-the-night}
   - How do I undo a rate I changed in Cloudbeds? {#what-clear-does-to-the-rules-that-were-paused/good-to-know}
   - I use Mews, does clearing a price change anything in Mews? {#clear-the-night}
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -46,7 +46,7 @@ When you typed the price, rules already on the night were paused for that room t
 - An occupancy or booking window rule that was holding a change keeps its place and moves the price again straight away, if its condition still holds.
 - A booking speed or pickup rule's earlier change stays off. While your price was on, the rule waited from the day you typed it. Clear ends that wait, and the changes your price took off never shorten what the rule counts. So the rule can act again as soon as its condition holds, on the price MAYA now works out. A booking speed or pickup change made after you typed stays on, and the rules wait and count from it as usual.
 
-MAYA's own starting point for the night comes back: the rate it read from Cloudbeds or ThinkReservations (on a night MAYA has already sent to, the rate it read there before its first send). MAYA does not read rates from Mews. On Mews it starts from the rate of the newest booking for that room type on that night, otherwise from the starting point saved on the last run.
+MAYA's own starting point for the night comes back: the rate it read from Cloudbeds or ThinkReservations (on a night MAYA has already sent to, the rate it read there before its first send). A night your system has no rate for is left unpriced after the clear, until it has one. MAYA does not read rates from Mews, so a cleared Mews night stays unpriced until you type a price again.
 
 <Callout kind="good-to-know">
 Clearing a "Changed in Cloudbeds" price hands the night back too. MAYA's next price then writes over the rate in Cloudbeds. If you change it again in Cloudbeds an hour or more after that send, MAYA keeps your new rate again.

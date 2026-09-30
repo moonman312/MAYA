@@ -43,6 +43,18 @@ const MIGRATION_ORDER: string[] = (() => {
   return [...list.matchAll(/"(99_supabase_migration_[^"]+\.sql)"/g)].map((m) => m[1]);
 })();
 
+const CADENCE_FILE = "99_supabase_migration_pricing_cadence_v1.sql";
+
+/**
+ * The list with the cadence file where production ran it: just before the
+ * first migration that needs its tables (the cadence test's CADENCE_RUNS_BEFORE).
+ */
+const WITH_CADENCE: string[] = (() => {
+  const m = CADENCE_TEST.match(/CADENCE_RUNS_BEFORE = "([^"]+)"/);
+  const at = m ? MIGRATION_ORDER.indexOf(m[1]) : -1;
+  return at < 0 ? [...MIGRATION_ORDER, CADENCE_FILE] : [...MIGRATION_ORDER.slice(0, at), CADENCE_FILE, ...MIGRATION_ORDER.slice(at)];
+})();
+
 /** What Supabase provides and the files assume, read off the cadence test so there is one copy. */
 const PLATFORM: string = (() => {
   const start = CADENCE_TEST.indexOf("export const PLATFORM = `") + "export const PLATFORM = `".length;
@@ -200,7 +212,7 @@ describe.skipIf(!PGLITE_DIR)("every SECURITY DEFINER function in public, on prod
   let fns: DefinerFunction[];
 
   beforeAll(async () => {
-    db = await buildSchema([...MIGRATION_ORDER, "99_supabase_migration_pricing_cadence_v1.sql"]);
+    db = await buildSchema(WITH_CADENCE);
     fns = await definerFunctions(db);
   }, 180_000);
 

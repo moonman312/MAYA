@@ -26,7 +26,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
 import { dryRunCapture } from "@/lib/engine/evaluate";
+import type { FarOutCutFacts } from "@/lib/rule-form";
 import {
+  farOutCutOfRow,
+  nightsInScope,
   previewRule,
   readOnlyClient,
   skipPlanForRule,
@@ -49,6 +52,7 @@ import {
   SUITE,
   T10,
   TODAY,
+  TZ,
   clone,
   fake,
   nightsDiffering,
@@ -94,6 +98,8 @@ type Case = {
   setup?: (t: Tables) => void;
   /** At least one night changes. */
   changes?: boolean;
+  /** A cut on low pickup with no days-before-arrival condition: what the popup adds (A4). */
+  farOutCut?: FarOutCutFacts;
 };
 
 const created = { created_at: T10, updated_at: T10 };
@@ -122,6 +128,19 @@ const CASES: Case[] = [
   {
     name: "a new pickup count rule",
     after: () => ruleRow(NEW, { ...created, priority: 119, action_value: 5, cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 1, pickup_metric: "room_nights" } }),
+  },
+  {
+    name: "a new cut on low pickup with no days-before-arrival condition",
+    after: () =>
+      ruleRow(NEW, {
+        ...created,
+        priority: 121,
+        action_direction: "decrease",
+        action_value: 4,
+        cond: { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 7, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
+      }),
+    // Its wait: low pickup holds the day chosen to the week of its window.
+    farOutCut: { threshold: 1, windowDays: 7, metric: "room_nights", waitDays: 7 },
   },
   {
     name: "a new raise a stronger raise covers",
@@ -389,6 +408,13 @@ for (const engine of ENGINES) {
       expect(whole.affected).toEqual(truth);
       expect(chunks.flatMap((x) => x.affected)).toEqual(truth);
       expect(whole.lastNight).toBe(addDays(TODAY, HORIZON - 1));
+      // The nights the rule reaches: its scope, whole or added up over the chunks.
+      expect(whole.reach).toBe(nightsInScope(after as EngineRuleRow, WINDOW, TODAY, T10, TZ).length);
+      expect(chunks.reduce((n, x) => n + x.reach, 0)).toBe(whole.reach);
+      // What the popup adds for a cut on low pickup with nothing to keep it near, and for nothing else.
+      expect(whole.farOutCut).toEqual(c.farOutCut ?? null);
+      expect(farOutCutOfRow(after as EngineRuleRow)).toEqual(c.farOutCut ?? null);
+      if (c.farOutCut) expect(whole.reach).toBe(HORIZON);
       if (c.changes) expect(truth.length).toBeGreaterThan(0);
       for (const night of whole.affected) expect(whole.roomTypesChanged[night]).toBeGreaterThan(0);
 

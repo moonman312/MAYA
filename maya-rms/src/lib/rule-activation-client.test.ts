@@ -12,6 +12,7 @@ import {
   dateRanges,
   dayTitle,
   draftKind,
+  farOutCutLines,
   fetchRulePreview,
   monthBlocks,
   previewParts,
@@ -77,6 +78,56 @@ describe("how a preview is asked", () => {
     expect(draftKind({ condition: { occupancy_operator: "gt" } })).toBe("standard");
     expect(draftKind({ condition: { booking_speed_operator: "at_least" } })).toBe("event");
     expect(draftKind(undefined, { pickup_rate: ">2" })).toBe("event");
+  });
+});
+
+describe("a cut on low pickup with no booking window (A4)", () => {
+  const facts = { threshold: 1, windowDays: 7, metric: "room_nights" as const, waitDays: 7 };
+
+  it("says how far the rule reaches and that the cut repeats, in plain words", () => {
+    const lines = farOutCutLines({ farOutCut: facts, reach: 396, horizonDays: 396 });
+    expect(lines).toEqual([
+      "With no booking window condition, this rule reaches 396 of the 396 nights ahead. A night that gained under 1 room night over the 7 full days before counts as quiet, and a far-out night with no bookings yet always will, once your rules have run for 1 week.",
+      "The cut repeats: each time its wait of 1 week is over and the night is still quiet, it cuts again, on top of the cut before.",
+    ]);
+    // A revenue rule over a day, waiting two weeks, on a rule with a date window.
+    const revenue = farOutCutLines({ farOutCut: { threshold: 500, windowDays: 1, metric: "revenue", waitDays: 14 }, reach: 120, horizonDays: 396 });
+    expect(revenue[0]).toContain("reaches 120 of the 396 nights ahead");
+    expect(revenue[0]).toContain("under 500 in revenue over the day before");
+    expect(revenue[0]).toContain("once your rules have run for 1 day");
+    expect(revenue[1]).toContain("its wait of 2 weeks is over");
+    expect(farOutCutLines({ farOutCut: { ...facts, threshold: 3, windowDays: 3, waitDays: 3 }, reach: 1, horizonDays: 396 })[0]).toContain(
+      "under 3 room nights over the 3 full days before",
+    );
+    for (const s of [...lines, ...revenue]) expect(s).not.toMatch(/—/);
+  });
+
+  it("nothing for any other rule", () => {
+    expect(farOutCutLines({ farOutCut: null, reach: 10, horizonDays: 396 })).toEqual([]);
+  });
+
+  it("adds up the reach of every part and takes the facts from the answer", async () => {
+    const impl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { from?: string; to?: string };
+      const reach = !body.from ? 60 : body.to ? 120 : 216;
+      const part = {
+        needsActivation: true,
+        today: "2026-10-01",
+        lastNight: "2027-10-31",
+        affected: [],
+        touched: [],
+        fingerprint: "fp",
+        kind: "event",
+        horizonDays: 396,
+        reach,
+        farOutCut: facts,
+      };
+      return new Response(JSON.stringify(part), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const outcome = await fetchRulePreview({ intent: "enable", ruleId: "r1" }, "event", () => {}, impl as unknown as typeof fetch, "2026-10-01");
+    expect(outcome.status).toBe("ready");
+    if (outcome.status !== "ready") return;
+    expect(outcome.preview).toMatchObject({ reach: 396, horizonDays: 396, farOutCut: facts, parts: 3, done: 3 });
   });
 });
 

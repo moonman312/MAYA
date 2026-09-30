@@ -1103,7 +1103,8 @@
       "reconnect": "connect/reconnect-and-disconnect",
       "go-live": "live/going-live",
       "room-count": "billing/your-room-count",
-      "rule-activation": "rules/turning-a-rule-on#what-the-days-mean"
+      "rule-activation": "rules/turning-a-rule-on#what-the-days-mean",
+      "no-rate": "wrong/a-price-looks-wrong#why-is-a-night-unpriced"
     }
   }
 }

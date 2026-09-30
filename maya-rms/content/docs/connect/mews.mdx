@@ -27,9 +27,10 @@ questions:
   - Why is the nightly rate higher than my room rate on Mews? {#what-maya-reads-from-mews/room-categories}
   - Does a no-show on Mews still count? {#which-bookings-count}
   - How do I set the prices MAYA shows in Mews? {#where-a-nights-starting-price-comes-from}
+  - Why does every Mews night show a dash for its price? {#where-a-nights-starting-price-comes-from}
   - How do I stop using MAYA with Mews? {#leaving}
 pms: [mews]
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -124,10 +125,10 @@ No date is promised for sending prices to Mews. To hear when that changes, join 
 
 ## Where a night's starting price comes from
 
-MAYA does not read your rate plans from Mews, so it has no "your own rate" for a night. A night's starting price is a price you typed for it, else the nightly rate of the newest booking on that night for that room category, else the starting price that night had last time. A future night with no bookings yet and no earlier starting price is not priced at all until one arrives. Read [how rules run](/docs/rules/how-rules-run).
+MAYA does not read your rate plans from Mews, so it has no "your own rate" for a night. A night's starting price is a price you typed for it, and nothing else: a night nobody has typed a price for is not priced at all, whatever its bookings paid. What a guest paid is never a starting price, on any system. Read [how rules run](/docs/rules/how-rules-run).
 
 <Example title="The Harbour Inn on Mews">
-The Harbour Inn's newest Standard booking for Fri, Nov 13 2026 was taken at $150 a night. "Busy nights" fires and the night goes to $165. The calendar shows $165 and the change log names the rule. Mews still shows whatever rate The Harbour Inn has set there. Sam types $175 for that night in MAYA. The calendar shows "Manual · $175.00", and Mews is still unchanged. To sell at $175, Sam sets it in Mews.
+Sam types $150 for Standard on Fri, Nov 13 2026 in MAYA. The calendar shows "Manual · $150.00". "Busy nights" fires on top of it and the night goes to $165; the change log names the rule. Mews still shows whatever rate The Harbour Inn has set there. To sell at $165, Sam sets it in Mews. A Standard night Sam has not typed a price for shows a dash.
 </Example>
 
 ## No history import yet

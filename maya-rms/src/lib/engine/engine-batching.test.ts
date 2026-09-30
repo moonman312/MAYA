@@ -321,7 +321,7 @@ describe("snapshot lookup", () => {
 });
 
 describe("reservation cells for the horizon", () => {
-  it("snapshot and base rates match the row reads past the 1,000-row cap, without reading rows", async () => {
+  it("the snapshot matches the row reads past the 1,000-row cap, without reading rows", async () => {
     const r = rng(77);
     const rows: FakeRow[] = [];
     for (let i = 0; i < 4000; i++) {
@@ -347,20 +347,7 @@ describe("reservation cells for the horizon", () => {
     const snapFromCells = await snapshotCurrentState(mig.client, "h1", "2026-06-10T00:00:00.000Z", days, types, cells!.booked);
     expect(snapFromCells).toEqual(snapRows);
     expect(mig.calls.filter((c) => c.table === "reservations")).toHaveLength(0);
-
-    // Base rates: the engine's newest-row rule over the same rows.
-    const expected = new Map<string, number | null>();
-    const byId = [...rows].sort((a, b) => (String(a.id) < String(b.id) ? -1 : 1));
-    const seen = new Map<string, string>();
-    for (const row of byId) {
-      if (!row.room_type_id) continue;
-      const key = `${row.stay_date}|${row.room_type_id}`;
-      const prev = seen.get(key);
-      if (prev === undefined || String(row.created_at) > prev) {
-        seen.set(key, String(row.created_at));
-        expected.set(key, row.base_rate != null ? Number(row.base_rate) : null);
-      }
-    }
-    expect(new Map([...cells!.latestBase].map(([k, v]) => [k, v.base_rate]))).toEqual(expected);
+    // A booking's rate is never a base (base-price.ts), so the cells carry no base rate.
+    expect(Object.keys(cells!)).toEqual(["booked"]);
   });
 });

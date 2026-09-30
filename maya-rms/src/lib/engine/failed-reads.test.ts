@@ -485,14 +485,24 @@ describe.each(ENGINES)("$name: a table or function no migration has created yet"
   const logged = () =>
     vi.mocked(console.error).mock.calls.map((c) => JSON.parse(String(c[0])) as Record<string, unknown>);
 
-  it("no base_rate_calendar: nights are priced on what their latest guest paid, and the log names the migration", async () => {
+  it("no base_rate_calendar: no night is priced (never on what its guest paid), the typed price still is, and the log names the migration", async () => {
     const run = await play(engine, 0, (c) => (c.table === "base_rate_calendar" ? missingRelation("base_rate_calendar") : null));
     expect(run.error).toBeNull();
-    // The latest booking's rate (100), with the raise on it.
-    expect(priceOf(run.fake.tables, FAST)).toBe(110);
+    // No rate on record for any night: nothing published, whatever the guests paid.
+    expect(Number.isNaN(priceOf(run.fake.tables, FAST))).toBe(true);
+    expect(run.fake.tables.published_price ?? []).toEqual([]);
     const lines = logged().filter((l) => l.step === "base_rate_calendar");
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatchObject({ degradedToEmpty: true, schema: "pre-migration", migration: "99_supabase_migration_base_rate_calendar_v1.sql" });
+
+    // With a typed price on the table, that night is priced on the typed
+    // price. The prices the healthy first run published stay as they were:
+    // no night is priced again on what its guest paid.
+    const typed = await play(engine, 1, (c) => (c.table === "base_rate_calendar" ? missingRelation("base_rate_calendar") : null));
+    expect(typed.error).toBeNull();
+    expect(priceOf(typed.fake.tables, TYPED)).toBe(300);
+    expect(priceOf(typed.fake.tables, FAST)).toBe(220);
+    expect(typed.after.published.filter((row) => !row.startsWith(TYPED))).toEqual(typed.before.published.filter((row) => !row.startsWith(TYPED)));
   }, 120_000);
 
   it.each([

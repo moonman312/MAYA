@@ -208,6 +208,11 @@ function PropertyRow({
             {row.rate_read_waiting} waiting on a rate read
           </div>
         )}
+        {(row.no_rate_count ?? 0) > 0 && (
+          <div className="text-xs text-amber-300" title={row.rates_read_through ? `Rates read through ${row.rates_read_through}` : undefined}>
+            {row.no_rate_count} with no rate in the PMS
+          </div>
+        )}
       </td>
       <td className="px-4 py-3 text-slate-300">
         <div>{row.active_rules} active</div>

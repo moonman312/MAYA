@@ -84,6 +84,12 @@ export type PricingState = {
   pass_reprice_seq: number | null;
   full_reprice_seq: number | null;
   last_ok_run_at: string | null;
+  /**
+   * Failed runs in a row before this tick (pricing_run_failed); a run that
+   * prices nights sets it back to 0 when recorded. Null before
+   * 99_supabase_migration_pricing_watchdog_v1.sql gave the state the column.
+   */
+  failed_runs: number | null;
   momentum_nights: string[];
 };
 
@@ -352,6 +358,7 @@ export async function loadPricingWork(
           pass_reprice_seq: num(s.pass_reprice_seq),
           full_reprice_seq: num(s.full_reprice_seq),
           last_ok_run_at: s.last_ok_run_at != null ? String(s.last_ok_run_at) : null,
+          failed_runs: num(s.failed_runs),
           momentum_nights: Array.isArray(s.momentum_nights) ? s.momentum_nights.map((d) => String(d).slice(0, 10)) : [],
         }
       : null,
@@ -425,6 +432,29 @@ export async function recordPricingRun(
     kept: Number(body.kept ?? 0),
     passMoved: body.pass_moved == null ? null : Boolean(body.pass_moved),
   };
+}
+
+/**
+ * One more failed run of the hotel, counted in the database
+ * (pricing_run_failed, 99_supabase_migration_pricing_watchdog_v1.sql): the
+ * number failed in a row, this one included. A run that prices nights sets
+ * it back to 0 when it is recorded; an idle tick leaves it. Null when the
+ * database cannot count (before that migration, or the call failed), which
+ * is logged and leaves the alert to its clock. Never throws.
+ */
+export async function noteFailedRun(supabase: SupabaseClient, hotelId: string, error: string): Promise<number | null> {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("pricing_run_failed", { p_hotel_id: hotelId, p_error: error.slice(0, 300) });
+    if (rpcError) {
+      if (isMissingFunction(rpcError)) return null;
+      throw new Error(rpcError.message);
+    }
+    const n = Number(data);
+    return Number.isFinite(n) ? n : null;
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "noteFailedRun", hotelId, error: e instanceof Error ? e.message : String(e) }));
+    return null;
+  }
 }
 
 /**

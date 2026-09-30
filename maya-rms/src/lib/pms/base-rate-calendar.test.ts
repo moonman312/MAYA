@@ -236,19 +236,73 @@ describe("seedBaseRateCalendar", () => {
     expect(upserts(d)).toHaveLength(0);
   });
 
-  it("leaves a stored base alone when the PMS has no rate for the night, and keeps an explicit zero", async () => {
+  it("removes a never-sent stored base the read did not return, keeps an explicit zero, and keeps a sent-to night's row", async () => {
     const d = db({
+      room_types: [...ROOM_TYPES, { id: "local-3", hotel_id: HOTEL, external_room_type_id: "EXT-3", is_active: true }],
       base_rate_calendar: [
+        // Never sent to; the PMS no longer quotes the night: gone.
         { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 200, source: "pms" },
+        // The PMS quotes 0 (closed, or rates not loaded): kept as 0.
         { hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-1", price: 200, source: "pms" },
+        // Sent to; the PMS no longer quotes it: MAYA's own price is there, the row stays.
+        { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-2", price: 240, source: "pms" },
+        // A held night (never sent) the PMS still quotes: read as before.
+        { hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-2", price: 240, source: "pms" },
+        // A room type the read did not target: not asked about, left alone.
+        { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-3", price: 300, source: "pms" },
+      ],
+      rate_updates: [
+        { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-2", price: 250, status: "sent", attempts: 1, pushed_at: "2026-09-30T00:00:00Z" },
+        { hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-2", price: 250, status: "skipped", attempts: 0, error: "guardrail:zero_base" },
       ],
     });
     // The adapters drop a null rate, so a missing night simply has no entry.
-    const { adapter } = makeAdapter([{ stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 0 }]);
+    const { adapter } = makeAdapter([
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 0 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-2", price: 240 },
+    ]);
 
-    await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, today: "2026-10-01" });
+    const res = await seedBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, today: "2026-10-01" });
 
-    expect(calendar(d)).toEqual(["2026-10-01|local-1|200", "2026-10-02|local-1|0"]);
+    expect(res).toMatchObject({ ok: true, captured: 1, unchanged: 1, dropped: 1, skippedAlreadyPushed: 0 });
+    expect(calendar(d)).toEqual(["2026-10-01|local-2|240", "2026-10-01|local-3|300", "2026-10-02|local-1|0", "2026-10-02|local-2|240"]);
+    const deletes = d.calls.filter((c) => c.table === "base_rate_calendar" && c.op === "delete");
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ col: "hotel_id", value: HOTEL }),
+        expect.objectContaining({ col: "room_type_id", value: "local-1" }),
+        expect.objectContaining({ col: "stay_date", kind: "in" }),
+      ]),
+    );
+  });
+
+  it("removes nothing on a span read, and fails the run rather than leave the removal half done", async () => {
+    const stored = [
+      { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "local-1", price: 200, source: "pms" },
+      { hotel_id: HOTEL, stay_date: "2026-10-02", room_type_id: "local-1", price: 200, source: "pms" },
+      { hotel_id: HOTEL, stay_date: "2026-10-03", room_type_id: "local-1", price: 200, source: "pms" },
+    ];
+    // A span read before a re-send returns nothing for the night: the row stays.
+    const span = db({
+      base_rate_calendar: structuredClone(stored),
+      pms_connections: [{ id: "conn-1", hotel_id: HOTEL, pms_type: "think", base_rates_refreshed_at: "2026-10-01T11:00:00.000Z" }],
+    });
+    const { adapter: none } = makeAdapter([]);
+    const res = await ensureBaseRateCalendar(span.client, HOTEL, none, {
+      horizonDays: 3,
+      clock: clock("2026-10-01T12:00:00.000Z"),
+      span: { first: "2026-10-02", last: "2026-10-02" },
+    });
+    expect(res).toMatchObject({ ok: true, dropped: 0 });
+    expect(calendar(span)).toHaveLength(3);
+
+    // The removal fails: the run fails (not stamped, tried again next tick).
+    const broken = db({ base_rate_calendar: structuredClone(stored) }, { fault: (c) => (c.op === "delete" ? { message: "statement timeout" } : null) });
+    await expect(seedBaseRateCalendar(broken.client, HOTEL, none, { horizonDays: 3, today: "2026-10-01" })).rejects.toThrow(
+      /Failed to remove base rates the PMS no longer has from 2026-10-01: statement timeout/,
+    );
+    expect(calendar(broken)).toHaveLength(3);
   });
 });
 
@@ -415,8 +469,66 @@ describe("ensureBaseRateCalendar refresh", () => {
         base_rates_refreshed_at: "2026-10-01T12:00:00.000Z",
         push_rate_targets: { "EXT-1": "rate-a", "EXT-2": "rate-a" },
         base_rates_through: "2026-10-02",
+        // The PMS returned no nightly rate at all: through the day before the window.
+        base_rates_returned_through: "2026-09-30",
       },
-      { base_rates_refreshed_at: "2026-10-01T14:00:00.000Z", base_rates_through: "2026-10-02" },
+      { base_rates_refreshed_at: "2026-10-01T14:00:00.000Z", base_rates_through: "2026-10-02", base_rates_returned_through: "2026-09-30" },
+    ]);
+  });
+
+  it("records the last night the PMS returned a rate for, apart from the last night it asked for", async () => {
+    // A 5-night window. The PMS has rates loaded for the first three nights
+    // of one room type and the first two of the other: rates read through
+    // the third night, asked through the fifth.
+    const partial = db();
+    const { adapter: some } = makeAdapter([
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-03", externalRoomTypeId: "EXT-1", price: 200 },
+      { stayDate: "2026-10-01", externalRoomTypeId: "EXT-2", price: 240 },
+      { stayDate: "2026-10-02", externalRoomTypeId: "EXT-2", price: 240 },
+    ]);
+    const res = await ensureBaseRateCalendar(partial.client, HOTEL, some, { horizonDays: 5, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(res).toMatchObject({ ok: true, captured: 5, returnedThrough: "2026-10-03" });
+    expect(partial.tables.pms_connections[0]).toMatchObject({ base_rates_through: "2026-10-05", base_rates_returned_through: "2026-10-03" });
+
+    // Every night of the window: read through its last night.
+    const full = db();
+    const { adapter: all } = makeAdapter(
+      ["2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05"].flatMap((stayDate) => [
+        { stayDate, externalRoomTypeId: "EXT-1", price: 200 },
+        { stayDate, externalRoomTypeId: "EXT-2", price: 240 },
+      ]),
+    );
+    await ensureBaseRateCalendar(full.client, HOTEL, all, { horizonDays: 5, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(full.tables.pms_connections[0]).toMatchObject({ base_rates_through: "2026-10-05", base_rates_returned_through: "2026-10-05" });
+
+    // A read that only checks a span before a re-send stamps nothing.
+    const before = structuredClone(full.tables.pms_connections[0]);
+    await ensureBaseRateCalendar(full.client, HOTEL, all, {
+      horizonDays: 5,
+      clock: clock("2026-10-01T12:30:00.000Z"),
+      span: { first: "2026-10-02", last: "2026-10-03" },
+    });
+    expect(full.tables.pms_connections[0]).toEqual(before);
+  });
+
+  it("stamps the refresh without the returned night on a database that does not have the column yet, and says so once", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({}, {
+      fault: (c) =>
+        c.table === "pms_connections" && c.op === "update" && "base_rates_returned_through" in (c.payload ?? {})
+          ? missingColumn("pms_connections", "base_rates_returned_through")
+          : null,
+    });
+    const { adapter } = makeAdapter([{ stayDate: "2026-10-01", externalRoomTypeId: "EXT-1", price: 200 }]);
+    const res = await ensureBaseRateCalendar(d.client, HOTEL, adapter, { horizonDays: 2, clock: clock("2026-10-01T12:00:00.000Z") });
+    expect(res).toMatchObject({ ok: true, captured: 1 });
+    expect(d.tables.pms_connections[0]).toMatchObject({ base_rates_refreshed_at: "2026-10-01T12:00:00.000Z", base_rates_through: "2026-10-02" });
+    expect(d.tables.pms_connections[0]).not.toHaveProperty("base_rates_returned_through");
+    const lines = err.mock.calls.map((c) => JSON.parse(String(c[0])));
+    expect(lines.filter((l) => l.step === "mark_refreshed")).toEqual([
+      expect.objectContaining({ schema: "pre-migration", migration: "99_supabase_migration_no_rate_on_record_v1.sql" }),
     ]);
   });
 

@@ -510,6 +510,84 @@ async function readManualPrices(
   }
 }
 
+/**
+ * The month's rows of the hotel's own rates (base_rate_calendar), as
+ * `stay_date|room_type_id`. Read as empty when the read fails, like the
+ * other month reads: the cell then says nothing about a rate, rather than
+ * every night reading as waiting on one.
+ */
+async function readOwnRateCells(supabase: SupabaseClient, hotelId: string, startDate: string, endDate: string): Promise<Set<string>> {
+  const rows = await readMonthRows(hotelId, "base_rate_calendar", () =>
+    supabase
+      .from("base_rate_calendar")
+      .select("stay_date, room_type_id")
+      .eq("hotel_id", hotelId)
+      .gte("stay_date", startDate)
+      .lte("stay_date", endDate)
+      .order("stay_date", { ascending: true })
+      .order("room_type_id", { ascending: true }),
+  );
+  return new Set(rows.filter((r) => r.room_type_id).map((r) => `${r.stay_date}|${String(r.room_type_id)}`));
+}
+
+/** The systems MAYA reads a hotel's own rates from. A Mews night never has a rate on record. */
+const READS_RATES = new Set(["cloudbeds", "think"]);
+
+type RateSourceConnection = {
+  /** The connection in service: connected first, else the newest. */
+  pmsType: string;
+  /**
+   * A read of the hotel's rates has happened (base_rates_refreshed_at, or a
+   * returned night on record). Until one has, an empty calendar says nothing
+   * about the property system: it is MAYA that has not read yet.
+   */
+  ratesRead: boolean;
+  /** The last night the property system returned a rate for on its last read, YYYY-MM-DD; null until a read recorded one. */
+  ratesReturnedThrough: string | null;
+};
+
+/**
+ * The property system MAYA reads rates from, whether a read has happened
+ * yet (pms_connections.base_rates_refreshed_at) and how far the last one
+ * got (base_rates_returned_through), both stamped by the scheduled sync's
+ * rate refresh. Null when the hotel has no such connection, or the read
+ * fails. Before the returned night's migration it is read without it:
+ * every rate on record then counts, as the engine reads it.
+ */
+async function readRateSource(supabase: SupabaseClient, hotelId: string): Promise<RateSourceConnection | null> {
+  const read = (columns: string) =>
+    supabase.from("pms_connections").select(columns).eq("hotel_id", hotelId).order("updated_at", { ascending: false });
+  try {
+    let { data, error } = await read("pms_type, status, base_rates_refreshed_at, base_rates_returned_through");
+    if (error && isMissingColumnError(error)) ({ data, error } = await read("pms_type, status, base_rates_refreshed_at"));
+    if (error && isMissingColumnError(error)) ({ data, error } = await read("pms_type, status"));
+    if (error) throw new Error(error.message);
+    const rows = (
+      (data ?? []) as unknown as { pms_type?: unknown; status?: unknown; base_rates_refreshed_at?: unknown; base_rates_returned_through?: unknown }[]
+    ).filter((r) => READS_RATES.has(String(r.pms_type)));
+    const row = rows.find((r) => r.status === "connected") ?? rows[0];
+    if (!row) return null;
+    const through = row.base_rates_returned_through;
+    const ratesReturnedThrough = through != null && String(through).length >= 10 ? String(through).slice(0, 10) : null;
+    return {
+      pmsType: String(row.pms_type),
+      ratesRead: row.base_rates_refreshed_at != null || ratesReturnedThrough != null,
+      ratesReturnedThrough,
+    };
+  } catch (e) {
+    console.error(
+      JSON.stringify({
+        fn: "calendar-store",
+        step: "pms_connections",
+        hotelId,
+        error: e instanceof Error ? e.message : String(e),
+        degradedToEmpty: true,
+      }),
+    );
+    return null;
+  }
+}
+
 /* ── Supabase-backed calendar ─────────────────────────────────── */
 
 async function getCalendarFromDb(
@@ -537,6 +615,8 @@ async function getCalendarFromDb(
     manualPrices,
     history,
     oosRows,
+    ownRateCells,
+    rateSource,
   ] = await Promise.all([
     supabase
       .from("hotels")
@@ -587,6 +667,11 @@ async function getCalendarFromDb(
     // that will not render is worse than a denominator that is a few rooms
     // high for one page load.
     loadOutOfServiceForCalendar(supabase, hotelId, startDate, endDate),
+    // The hotel's own rates on record, and how far the property system's
+    // last read of them got: a night ahead with neither a rate on record nor
+    // a typed price is not priced or sent, and the day card says so.
+    readOwnRateCells(supabase, hotelId, startDate, endDate),
+    readRateSource(supabase, hotelId),
   ]);
 
   const hotelFallbackRooms = hotelRow?.total_rooms_per_type ?? 100;
@@ -729,6 +814,20 @@ async function getCalendarFromDb(
       const occPct = sellable > 0 ? Math.round((booked / sellable) * 100) : 0;
       const cellKey = `${dateStr}|${String(rt.id)}`;
       const published = publishedByKey.get(cellKey) ?? null;
+      const manual = manualByKey.get(cellKey) ?? null;
+      // No rate on record from the property system for a night ahead, and
+      // nothing typed: MAYA leaves it unpriced (engine/base-price.ts). A row
+      // past the last night the system returned is not a rate on record.
+      // Said only once a read of the rates has happened: before that (a
+      // pending connection, the minutes before the first tick) the empty
+      // calendar is MAYA's doing, not the system's.
+      const noRateInPms =
+        rateSource != null &&
+        rateSource.ratesRead &&
+        dateStr >= todayStr &&
+        manual == null &&
+        (!ownRateCells.has(cellKey) ||
+          (rateSource.ratesReturnedThrough != null && dateStr > rateSource.ratesReturnedThrough));
 
       return {
         id: String(rt.id),
@@ -741,7 +840,8 @@ async function getCalendarFromDb(
         current_price: published?.price ?? null,
         current_rate: published?.price ?? null,
         base_price: published?.base ?? null,
-        manual_price: manualByKey.get(cellKey) ?? null,
+        manual_price: manual,
+        ...(noRateInPms ? { no_rate_in_pms: true } : {}),
       };
     });
 

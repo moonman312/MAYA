@@ -3,7 +3,10 @@
  *
  * For every hotel with a `pms_type = 'cloudbeds'` connection (or a single hotel
  * when `{ hotel_id }` is posted):
- *   1. Pull fresh reservations/room-types from Cloudbeds (runCloudbedsSyncForHotel)
+ *   1. Pull fresh reservations/room-types from Cloudbeds (runCloudbedsSyncForHotel),
+ *      and count a read that failed for any reason but a refused login
+ *      (readHealthAfterSync: alert after three in a row or thirty minutes,
+ *      Error after an hour, a recovery line on the first good read)
  *   2. Refresh the property's own base rates             (ensureBaseRateCalendar)
  *   3. Run the pricing rules engine                      (evaluateHotel)
  *   4. Push changed prices, Live hotels only             (pushRatesForHotel)
@@ -38,6 +41,7 @@ import { CLOUDBEDS_SYNC_BUDGET_MS } from "../_shared/cloudbeds/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
 import { recordAlertChannel } from "../_shared/pms/alerting.ts";
+import { readHealthAfterSync } from "../_shared/pms/connection-health.ts";
 import { handleTestAlertRequest, parseScheduledSyncBody } from "../_shared/pms/alert-test-request.ts";
 
 /**
@@ -266,6 +270,10 @@ Deno.serve(async (req) => {
         ? sync.creds
         : await resolveCloudbedsCredentials(supabase, hotelId);
     const tSync = Date.now();
+    // Reads that keep failing for any reason but a refused login: counted,
+    // alerted after three in a row or thirty minutes, Error after an hour;
+    // a good read after any failure posts the recovery line.
+    const readHealth = await readHealthAfterSync(supabase, hotelId, "cloudbeds", sync);
 
     // The property's own rate is re-read BEFORE the engine runs, so a brand new
     // hotel has a base on day one and a rate the hotel changed in Cloudbeds is
@@ -303,6 +311,7 @@ Deno.serve(async (req) => {
         syncOk: sync.ok,
         syncTruncated: "windowFullyCovered" in sync ? !sync.windowFullyCovered : undefined,
         syncError: sync.ok ? undefined : sync.error,
+        readHealth,
         today: tick.today,
         calendar,
         pmsEditsAdopted: tick.pmsEditsAdopted,

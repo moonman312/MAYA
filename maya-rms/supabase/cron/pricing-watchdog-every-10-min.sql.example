@@ -1,0 +1,58 @@
+-- Example: schedule the pricing watchdog.
+--
+-- Pure SQL, no edge function in the way: the function lives in the database
+-- (99_supabase_migration_pricing_watchdog_v1.sql) and cron calls it
+-- directly, so it still speaks when a function fails to start, a cron secret
+-- is wrong, or every 5-minute call is refused. Every 10 minutes it looks at
+-- each live or simulating hotel that is entitled, not a test hotel, and
+-- connected to a property system, and posts to the Slack alert webhook when
+--   - no pricing run has finished for the hotel in 30 minutes (behind), or
+--   - it is 2 hours or more into the hotel's own day and today's daily pass
+--     has not finished (pass_late).
+-- A live hotel is critical, a simulating one is warn (not sent unless the
+-- second argument is 'warn'). One line per hotel while it is stuck (no
+-- repeat within 6 hours), one recovery line when it is fine again, and
+-- nothing while the sync's own alert for the hotel (reads failing, pricing
+-- failing, disconnected) is out.
+--
+-- Prereqs: extensions pg_cron and pg_net; the webhook in Vault.
+--
+-- 0) Ensure the extensions exist:
+--    create extension if not exists pg_cron;
+--    create extension if not exists pg_net;
+--
+-- 1) Store the alert webhook in Vault, under this exact name. It is the same
+--    address as the MAYA_ALERT_WEBHOOK function secret (stored twice on
+--    purpose: SQL cannot read the function secrets). Without it the watchdog
+--    finds nothing to post to, says so on Pilot health ("Alerts: missing.
+--    pricing-watchdog said ..."), and records no alert.
+--    select vault.create_secret('https://hooks.slack.com/services/...', 'maya_alert_webhook');
+--    -- To change it later:
+--    -- select vault.update_secret((select id from vault.secrets where name = 'maya_alert_webhook'), 'https://...');
+--
+-- 2) Schedule (every 10 minutes, at :04, :14, ... so it lands after a tick):
+--    select cron.schedule(
+--      'pricing-watchdog-every-10-min',
+--      '4-59/10 * * * *',
+--      $$ select public.pricing_watchdog(true, 'critical'); $$
+--    );
+--    -- To hear about simulating hotels too (as warnings):
+--    -- $$ select public.pricing_watchdog(true, 'warn'); $$
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('pricing-watchdog-every-10-min');
+--
+-- What it would say right now, without posting or recording anything:
+--   select name, mode, behind, pass_late, minutes_since_run, pass_date, hours_into_day,
+--          failed_runs, reads_failing, action, detail
+--     from public.pricing_watchdog(false);
+--
+-- What it has posted (the same rows raiseAlert writes, key pricing-watchdog:<hotel id>):
+--   select event_type, entity_id, detail, created_at
+--     from public.platform_audit_events
+--    where entity_id like 'pricing-watchdog:%'
+--    order by created_at desc limit 20;
+--
+-- Whether pg_net delivered the last posts (responses are kept about 6 hours):
+--   select id, status_code, error_msg, created from net._http_response order by id desc limit 10;

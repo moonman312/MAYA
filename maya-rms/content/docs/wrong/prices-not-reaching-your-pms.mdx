@@ -3,7 +3,7 @@ title: Prices are not reaching your property system
 summary: What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each "Prices not reaching" sentence asks you to do.
 section: wrong
 order: 60
-readingTime: 12
+readingTime: 13
 keywords: [not reaching, rates not reaching cloudbeds, prices not reaching cloudbeds, rates not reaching think reservations, prices not reaching think reservations, nothing sent, nothing is sent, went live, old price, still has the old price, price in cloudbeds does not match, mismatch, overwrote, wrote over, written over, overwritten, changed in cloudbeds, my rate, closed night, priced a night I closed, zero, price of 0, comp night, 70 days, beyond 60 days, already begun, time zone, tonight's price not reaching, after midnight, refused, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived rate, derived plan, non-refundable, nonrefundable, non refundable, member rate, other rate plans, did not move, didn't move, can't find a base rate, base rate, slow down, throttled, isn't responding, down, outage, never confirmed, renamed rate plan, rebuilt, resolved, ended, mews, am I live, no starter rules, no go-live button, no turn them on for real, connection card, no banner, lost its connection, disconnected]
 questions:
   - I went live and nothing is being sent {#i-went-live-and-nothing-is-being-sent/wait-two-cycles}
@@ -22,7 +22,7 @@ questions:
   - I renamed my rate plans and now prices are not going through {#every-prices-not-reaching-sentence-and-what-to-do/the-items-second}
   - Does MAYA send prices to Mews? {#i-went-live-and-nothing-is-being-sent/mews-nothing-is}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -111,6 +111,10 @@ The timing matters. MAYA reads your rates about once an hour and when your prope
 ## Why was a night I set to 0 not sent?
 
 MAYA does not send a price of 0 to any property system. A manual price of 0 is a comp night: no rule raises it, and the save confirmation says "Saved. MAYA doesn't send a price of 0 to Cloudbeds, so set the night to 0 there yourself." The change log carries an item that says the same until your system has the night at 0. Set it there yourself. Read [Make a night free](/docs/recipes/make-a-night-free).
+
+## Why was a night I have no rate loaded for not sent?
+
+A night your system has no rate for, and nobody has typed a price for in MAYA, is not priced and not sent, whatever its bookings paid. The day card reads "No rate in Cloudbeds for this night yet". Load a rate for it in your system and it is priced and sent within the hour, or type a price in MAYA, which is sent as typed. Read [Nights your system has no rate for](/docs/live/how-prices-reach-your-pms#nights-your-system-has-no-rate-for).
 
 ## Why was a night 70 days out not sent?
 

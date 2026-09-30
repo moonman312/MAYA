@@ -4,7 +4,7 @@
  * run, and price the way it did before that migration. Anything that is not
  * a schema gap is still an outage and still throws.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { EngineRule } from "@/types/domain";
 import { evaluateHotel } from "./evaluate";
 import { evaluateHotel as edgeEvaluateHotel } from "../../../supabase/functions/_shared/engine/evaluate";
@@ -21,6 +21,15 @@ import type { RuleMetrics } from "./types";
 
 const EVAL_TS = "2026-09-16T12:00:00Z";
 const D0 = "2026-09-16";
+
+// The engine purges snapshots older than its retention window by the real
+// clock, so without this the stories below stop finding their own snapshots
+// once D0 falls out of the window. Only Date is faked; timers stay real.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(EVAL_TS));
+});
+afterAll(() => vi.useRealTimers());
 const MANUAL_PRICE_MIGRATION = "99_supabase_migration_manual_price_v1.sql";
 
 function seed(extra: Record<string, FakeRow[]> = {}): Record<string, FakeRow[]> {
@@ -33,6 +42,8 @@ function seed(extra: Record<string, FakeRow[]> = {}): Record<string, FakeRow[]> 
       id: `b${i}`, hotel_id: "h1", stay_date: D0, room_type_id: "rt1",
       base_rate: 100, current_rate: 100, created_at: "2026-09-01T00:00:00Z",
     })),
+    // The hotel's own rate: a booking's rate is never a base (base-price.ts).
+    base_rate_calendar: [{ hotel_id: "h1", stay_date: D0, room_type_id: "rt1", price: 100 }],
     pricing_rules: [
       {
         id: "r1", hotel_id: "h1", name: "Busy", is_active: true, version: 1, priority: 100,

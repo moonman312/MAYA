@@ -32,6 +32,7 @@ import {
   browserToday,
   dateRanges,
   dayTitle,
+  farOutCutLines,
   fetchRulePreview,
   monthBlocks,
   type CalendarPreview,
@@ -328,6 +329,17 @@ export function RuleActivationDialog({
         </div>
         {ready && preview.affected.length > 0 ? (
           <p className="sr-only">Days affected: {dateRanges(preview.affected)}</p>
+        ) : null}
+        {ready && preview.farOutCut ? (
+          // A cut on low pickup with no days-before-arrival condition: how
+          // far it reaches and that it repeats, from the same dry run.
+          <p className="mt-2 space-y-1 text-sm text-amber-300" data-testid="activation-far-out-cut">
+            {farOutCutLines(preview).map((line) => (
+              <span key={line} className="block">
+                {line}
+              </span>
+            ))}
+          </p>
         ) : null}
         {error && errorDetail ? <p className="mt-2 text-sm text-amber-300">{errorDetail}</p> : null}
         {refreshed && ready ? <p className="mt-2 text-sm text-amber-300">{DAYS_CHANGED_LINE}</p> : null}

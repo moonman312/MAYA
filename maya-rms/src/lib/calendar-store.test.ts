@@ -336,6 +336,103 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     }
   });
 
+  it("says which nights ahead have no rate in the property system, and which are past what its last read returned", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const cal = (stay_date: string, room_type_id: string) => ({ hotel_id: "h1", stay_date, room_type_id, price: 200 });
+      const { client } = calendarDb({
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [
+          { id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true },
+          { id: "rt2", hotel_id: "h1", name: "Queen", is_active: true, total_rooms: 10, counts_as_room: true },
+        ],
+        pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_returned_through: "2026-10-20", updated_at: "2026-10-01T00:00:00Z" }],
+        // King has rates on record through the 25th (the 21st on is from an earlier read); Queen through the 12th only.
+        base_rate_calendar: [
+          ...Array.from({ length: 25 }, (_, i) => cal(`2026-10-${String(i + 1).padStart(2, "0")}`, "rt1")),
+          ...Array.from({ length: 12 }, (_, i) => cal(`2026-10-${String(i + 1).padStart(2, "0")}`, "rt2")),
+        ],
+        // A typed price on a Queen night without a rate: priced on it, so not waiting.
+        manual_price: [{ hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt2", price: 180, set_at: "2026-10-09T10:00:00Z", cleared_at: null }],
+        published_price: [{ hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt2", price: 180, base_price: 180 }],
+      });
+      const month = await getCalendar(2026, 10, client);
+      const cell = (day: number, rt: string) => month.days[String(day)].room_types.find((r) => r.id === rt)!;
+      // A rate on record, inside what the last read returned: nothing to say.
+      expect(cell(12, "rt1")).not.toHaveProperty("no_rate_in_pms");
+      expect(cell(12, "rt2")).not.toHaveProperty("no_rate_in_pms");
+      // No rate on record.
+      expect(cell(13, "rt2").no_rate_in_pms).toBe(true);
+      expect(cell(30, "rt1").no_rate_in_pms).toBe(true);
+      // A row from an earlier read past the last night the PMS returned.
+      expect(cell(21, "rt1").no_rate_in_pms).toBe(true);
+      expect(cell(20, "rt1")).not.toHaveProperty("no_rate_in_pms");
+      // A typed price is a starting price of its own.
+      expect(cell(15, "rt2")).not.toHaveProperty("no_rate_in_pms");
+      expect(cell(15, "rt2").manual_price?.price).toBe(180);
+      // Past nights are never waiting.
+      expect(cell(5, "rt2")).not.toHaveProperty("no_rate_in_pms");
+      // Tonight counts.
+      expect(cell(10, "rt2")).not.toHaveProperty("no_rate_in_pms");
+      expect(cell(13, "rt1")).not.toHaveProperty("no_rate_in_pms");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing about rates on a Mews property, or with no connection, or before the column exists", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const seed = {
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+      };
+      const mews = calendarDb({ ...seed, pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "mews", status: "connected" }] });
+      expect((await getCalendar(2026, 10, mews.client)).days["15"].room_types[0]).not.toHaveProperty("no_rate_in_pms");
+      const none = calendarDb({ ...seed, pms_connections: [] });
+      expect((await getCalendar(2026, 10, none.client)).days["15"].room_types[0]).not.toHaveProperty("no_rate_in_pms");
+      // Before the column: every rate on record counts, and a night without one still waits.
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const old = calendarDb(
+        {
+          ...seed,
+          pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_refreshed_at: "2026-10-10T11:00:00Z" }],
+          base_rate_calendar: [{ hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt1", price: 200 }],
+        },
+        { fault: (c) => (c.table === "pms_connections" && c.columns.includes("base_rates_returned_through") ? missingColumn("pms_connections", "base_rates_returned_through") : null) },
+      );
+      const cal = await getCalendar(2026, 10, old.client);
+      expect(cal.days["15"].room_types[0]).not.toHaveProperty("no_rate_in_pms");
+      expect(cal.days["16"].room_types[0].no_rate_in_pms).toBe(true);
+      expect(err).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing about rates before MAYA's first read of them: an empty calendar then is MAYA's doing, not the system's", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const seed = {
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+        base_rate_calendar: [],
+      };
+      const flag = async (connection: Record<string, unknown>) => {
+        const { client } = calendarDb({ ...seed, pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", ...connection }] });
+        return (await getCalendar(2026, 10, client)).days["15"].room_types[0].no_rate_in_pms ?? false;
+      };
+      // A pending connection, or a connected one in the minutes before the first tick: no read has happened.
+      expect(await flag({ status: "pending" })).toBe(false);
+      expect(await flag({ status: "connected", base_rates_refreshed_at: null, base_rates_returned_through: null })).toBe(false);
+      // Once a read has recorded a refresh (or a returned night), an empty calendar is the system's answer.
+      expect(await flag({ status: "connected", base_rates_refreshed_at: "2026-10-10T11:00:00Z" })).toBe(true);
+      expect(await flag({ status: "connected", base_rates_returned_through: "2026-10-12" })).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders on the physical count, once loudly, before the out-of-service table exists", async () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { client } = calendarDb(

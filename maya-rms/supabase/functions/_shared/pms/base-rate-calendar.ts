@@ -12,9 +12,17 @@
  * the sandbox: $200 -> $230 published -> booked at $230 -> $264.50, and a
  * revert that landed on $230 while never-sold rooms correctly returned to $200.
  *
- * It also removes the quiet first day: a brand-new property has no reservations
- * on future dates and therefore no base for them, so the engine skipped those
- * cells entirely and priced nothing until bookings arrived.
+ * It is the only base the engine has, besides a price someone typed: a night
+ * this table has no row for, or one past the last night the PMS returned on
+ * its last read (base_rates_returned_through), is not priced and not sent.
+ * A night inside that range which a full read did not return (Cloudbeds
+ * quotes no rate for it any more: rates unloaded for the date, a rate plan
+ * interval that ends) is not a rate on record either: its row is removed
+ * here, when MAYA has never sent to it, so the engine unprices it and the
+ * push holds it rather than send the rate an earlier read stored. The next
+ * read that returns the night captures it again. A night MAYA has sent to
+ * keeps its row whatever the PMS quotes: what is there is MAYA's own price
+ * (the refresh rule below), and pms-edits.ts is what judges those nights.
  *
  * THE REFRESH RULE, and it is the whole safety story: a cell may be captured
  * only while MAYA has never pushed a rate to it. After we push, the PMS is
@@ -61,7 +69,7 @@ import { ledgerRowNeverSent } from "./push-guardrails.ts";
 import { adoptPmsEdits, type PushedNightRead } from "./pms-edits.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { isMissingColumnError } from "../engine/snapshots.ts";
-import { evalIsoToHotelDateString } from "../engine/timezone.ts";
+import { addCalendarDays, evalIsoToHotelDateString } from "../engine/timezone.ts";
 import {
   type HotelClock,
   lastNightOf,
@@ -87,6 +95,12 @@ export type SeedCalendarResult =
       pmsEditsAdopted: number;
       /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
       loadedAfterZeroBase: number;
+      /**
+       * Rows a full read did not return, on nights MAYA has never sent to,
+       * for the room types it targeted: removed, so they are no longer a
+       * rate on record. Always 0 for a span read.
+       */
+      dropped: number;
       days: number;
       /**
        * `stay_date|room_type_id` of every night whose rate in the PMS this
@@ -104,6 +118,13 @@ export type SeedCalendarResult =
       holdCells: string[];
       /** Taking the hotel's changes failed; the next refresh tries again. */
       pmsEditsFailed?: true;
+      /**
+       * The last night the PMS returned a rate for, over every targeted room
+       * type, YYYY-MM-DD: what a full read records as
+       * pms_connections.base_rates_returned_through. The day before the
+       * window when it returned no nightly rate at all.
+       */
+      returnedThrough: string;
     };
 
 /**
@@ -119,6 +140,8 @@ export type EnsureCalendarResult =
 
 const CHUNK = 500;
 const PAGE = 1000;
+/** Adds pms_connections.base_rates_returned_through. */
+export const MIGRATION_NO_RATE_ON_RECORD = "99_supabase_migration_no_rate_on_record_v1.sql";
 /**
  * Two rates within half a cent are the same rate. The column is numeric(10,2),
  * so a PMS rate with a third decimal never compares exactly equal to what was
@@ -239,6 +262,12 @@ async function seedWithTargets(
   const capturedAt = new Date().toISOString();
   const rows: { hotel_id: string; stay_date: string; room_type_id: string; price: number; source: string; captured_at: string }[] = [];
   const seen = new Set<string>();
+  // How far the PMS's rates go: the last night any targeted room type came
+  // back with a rate. Nights past it have no rate on record, whatever an
+  // earlier read stored for them, so the engine leaves them unpriced and the
+  // push holds them (base-price.ts, push-guardrails.ts). Nothing returned at
+  // all is "through the day before the window".
+  let returnedThrough = addCalendarDays(firstDate, -1);
   let unchanged = 0;
   let skippedAlreadyPushed = 0;
   let loadedAfterZeroBase = 0;
@@ -249,6 +278,7 @@ async function seedWithTargets(
     const roomTypeId = localByExternal.get(e.externalRoomTypeId);
     if (!roomTypeId) continue;
     const key = `${e.stayDate}|${roomTypeId}`;
+    if (e.stayDate > returnedThrough && e.stayDate <= lastDate) returnedThrough = e.stayDate;
     // One row per cell. Two in one upsert make Postgres reject the whole
     // statement ("cannot affect row a second time").
     if (seen.has(key)) continue;
@@ -303,6 +333,50 @@ async function seedWithTargets(
     }
   }
 
+  // A full read is the PMS's whole answer for the window: a stored row it
+  // did not return, for a room type it targeted, on a night MAYA has never
+  // sent to, is a rate the PMS no longer quotes (see the header). Removed,
+  // so the engine unprices the night and the push holds it. A span read
+  // (before a re-send, only ever over sent-to nights) says nothing here.
+  // A room type the read did not target was not asked about, so its rows
+  // stay. Nearest night first, as the writes go.
+  const dropped = new Map<string, string[]>();
+  if (!opts.span) {
+    const targeted = new Set<string>();
+    for (const ext of Object.keys(read.targets)) {
+      const local = localByExternal.get(ext);
+      if (local) targeted.add(local);
+    }
+    for (const s of stored) {
+      const roomTypeId = String(s.room_type_id);
+      const key = `${s.stay_date}|${roomTypeId}`;
+      if (seen.has(key) || pushedCells.has(key) || !targeted.has(roomTypeId)) continue;
+      const dates = dropped.get(roomTypeId) ?? [];
+      dates.push(String(s.stay_date));
+      dropped.set(roomTypeId, dates);
+    }
+  }
+  let droppedCount = 0;
+  for (const [roomTypeId, dates] of dropped) {
+    dates.sort();
+    for (let i = 0; i < dates.length; i += CHUNK) {
+      const chunk = dates.slice(i, i + CHUNK);
+      const { error } = await supabase
+        .from("base_rate_calendar")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", chunk);
+      if (error) {
+        throw new Error(`Failed to remove base rates the PMS no longer has from ${chunk[0]}: ${error.message}`);
+      }
+      droppedCount += chunk.length;
+    }
+  }
+  if (droppedCount > 0) {
+    console.log(JSON.stringify({ fn: "seedBaseRateCalendar", hotelId, step: "no_longer_in_pms", dropped: droppedCount }));
+  }
+
   // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
   const pmsEdits =
     settleKnown && pushedReads.length > 0
@@ -319,10 +393,12 @@ async function seedWithTargets(
       skippedAlreadyPushed,
       pmsEditsAdopted: pmsEdits?.adopted ?? 0,
       loadedAfterZeroBase,
+      dropped: droppedCount,
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
       holdCells: pmsEdits?.holdCells ?? [],
       ...(pmsEdits?.failed ? { pmsEditsFailed: true as const } : {}),
+      returnedThrough,
     },
     targets: read.targets,
   };
@@ -433,11 +509,13 @@ async function readAll(
  * they differ from it, so the push sends to the rate this read priced on
  * rather than one a stale cache still names.
  *
- * Failures are swallowed: a hotel with no calendar prices exactly as it did
- * before this table existed, so a PMS hiccup here must never take down a tick.
- * Only a read that worked is marked as a refresh. A failed one, or one that
- * found nothing to target (no_rate_targets, no_room_types), is not, so the
- * next tick tries again and the push keeps holding nights it never sent to.
+ * Failures are swallowed: the tick still prices on the calendar as it stands
+ * (and nothing else: a night with no rate on record is not priced,
+ * base-price.ts), so a PMS hiccup here must never take down a tick. Only a
+ * read that worked is marked as a refresh, with the last night the PMS
+ * returned a rate for (markRefreshed). A failed one, or one that found
+ * nothing to target (no_rate_targets, no_room_types), is not, so the next
+ * tick tries again and the push keeps holding nights it never sent to.
  */
 export async function ensureBaseRateCalendar(
   supabase: SupabaseClient,
@@ -525,7 +603,7 @@ export async function ensureBaseRateCalendar(
     if (connection !== "unknown" && result.ok) {
       const cached = connection.pushRateTargets;
       const newTargets = targets && Object.keys(targets).length > 0 && !sameTargets(targets, cached) ? targets : null;
-      await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets, windowLast);
+      await markRefreshed(supabase, hotelId, adapter.pmsType, clock.at, newTargets, windowLast, result.returnedThrough);
     }
     return result;
   } catch (e) {
@@ -612,6 +690,16 @@ async function lastRefreshedAt(
  * that starts at 23:59 and ends after midnight covered the earlier day's
  * window, and the next tick has to see that. `targets`, when given, replaces
  * the push's cached map in the same write.
+ *
+ * Two "through" dates, and they mean different things. `through` is the last
+ * night the refresh ASKED for (base_rates_through): a window the horizon has
+ * since outgrown is read again at once. `returnedThrough` is the last night
+ * the PMS actually RETURNED a rate for (base_rates_returned_through): the
+ * engine prices no calendar row past it, and the push sends to no night past
+ * it. Recording the asked night alone, as this used to, let a night the PMS
+ * has no rate for be priced on a row from an earlier read. Either column can
+ * be missing on a database its migration has not reached; the write then
+ * goes without it.
  */
 async function markRefreshed(
   supabase: SupabaseClient,
@@ -621,19 +709,36 @@ async function markRefreshed(
   targets: RateTargetMap | null = null,
   /** The last night the refresh read (base_rates_through). */
   through: string | null = null,
+  /** The last night the PMS returned a rate for (base_rates_returned_through). */
+  returnedThrough: string | null = null,
 ): Promise<void> {
-  const write = (withThrough: boolean) =>
+  const write = (withThrough: boolean, withReturned: boolean) =>
     supabase
       .from("pms_connections")
       .update({
         base_rates_refreshed_at: at,
         ...(targets ? { push_rate_targets: targets } : {}),
         ...(withThrough && through ? { base_rates_through: through } : {}),
+        ...(withReturned && returnedThrough ? { base_rates_returned_through: returnedThrough } : {}),
       })
       .eq("hotel_id", hotelId)
       .eq("pms_type", pmsType);
-  let { error } = await write(true);
-  if (error && through && isMissingColumnError(error)) ({ error } = await write(false));
+  let { error } = await write(true, true);
+  if (error && returnedThrough && isMissingColumnError(error) && /base_rates_returned_through/.test(error.message)) {
+    console.error(
+      JSON.stringify({
+        fn: "ensureBaseRateCalendar",
+        hotelId,
+        step: "mark_refreshed",
+        schema: "pre-migration",
+        migration: MIGRATION_NO_RATE_ON_RECORD,
+        message:
+          "base_rates_returned_through is not there yet, so nights past what the PMS returned are priced on what an earlier read stored.",
+      }),
+    );
+    ({ error } = await write(true, false));
+  }
+  if (error && through && isMissingColumnError(error)) ({ error } = await write(false, false));
   if (error) {
     // The calendar itself is written; the cost is one extra read next tick.
     console.error(JSON.stringify({ fn: "ensureBaseRateCalendar", hotelId, step: "mark_refreshed", error: error.message }));

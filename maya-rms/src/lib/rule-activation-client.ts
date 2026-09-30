@@ -4,6 +4,8 @@
  * paint first), and the calendar the popup draws from the answer.
  */
 
+import { waitDaysLabel, type FarOutCutFacts } from "@/lib/rule-form";
+
 export type RuleIntent = "create" | "edit" | "enable";
 
 export type PreviewRequest = {
@@ -25,6 +27,11 @@ export type CalendarPreview = {
   /** Longest part, ms, and nights run, for the analytics event. */
   ms: number;
   nightsChecked: number;
+  /** The pricing window, in nights, and how many of them the rule can act on at all (every part together). */
+  horizonDays: number;
+  reach: number;
+  /** Set for a cut on low pickup with no days-before-arrival condition: the popup adds farOutCutLines. */
+  farOutCut: FarOutCutFacts | null;
   /** The parts answered so far and in all. */
   done: number;
   parts: number;
@@ -119,6 +126,9 @@ type PartAnswer = {
   kind?: "standard" | "event";
   ms?: number;
   nightsChecked?: number;
+  horizonDays?: number;
+  reach?: number;
+  farOutCut?: FarOutCutFacts | null;
   error?: string;
 };
 
@@ -206,6 +216,9 @@ function merge(answers: PartAnswer[], parts: number): CalendarPreview {
     kind: first.kind ?? "standard",
     ms: Math.max(...answers.map((a) => a.ms ?? 0)),
     nightsChecked: answers.reduce((n, a) => n + (a.nightsChecked ?? 0), 0),
+    horizonDays: first.horizonDays ?? 396,
+    reach: answers.reduce((n, a) => n + (a.reach ?? 0), 0),
+    farOutCut: first.farOutCut ?? null,
     done: answers.length,
     parts,
   };
@@ -219,6 +232,27 @@ function merge(answers: PartAnswer[], parts: number): CalendarPreview {
 export function affectedSentence(days: number): string {
   if (days === 0) return "0 prices will be affected by this rule.";
   return `${days} ${days === 1 ? "day" : "days"} will be affected by this rule.`;
+}
+
+/**
+ * The two lines the popup adds under the count for a cut on low pickup with
+ * no days-before-arrival condition (Jake, 2026-09-29, A4): how many nights
+ * the rule reaches, which of them count as quiet once the records exist,
+ * and that the cut repeats every wait. `reach` and the facts come from the
+ * dry run's answer (previewRule), never an estimate; the count of days
+ * above can be 0 on a property whose rules have not run for the window
+ * yet, and these lines say what happens once they have.
+ */
+export function farOutCutLines(preview: Pick<CalendarPreview, "farOutCut" | "reach" | "horizonDays">): string[] {
+  const f = preview.farOutCut;
+  if (!f) return [];
+  const amount = f.metric === "revenue" ? `${f.threshold} in revenue` : `${f.threshold} room ${f.threshold === 1 ? "night" : "nights"}`;
+  const over = f.windowDays === 1 ? "over the day before" : `over the ${f.windowDays} full days before`;
+  const nights = `${preview.reach} of the ${preview.horizonDays} nights ahead`;
+  return [
+    `With no booking window condition, this rule reaches ${nights}. A night that gained under ${amount} ${over} counts as quiet, and a far-out night with no bookings yet always will, once your rules have run for ${waitDaysLabel(f.windowDays)}.`,
+    `The cut repeats: each time its wait of ${waitDaysLabel(f.waitDays)} is over and the night is still quiet, it cuts again, on top of the cut before.`,
+  ];
 }
 
 export type MonthBlock = {

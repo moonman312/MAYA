@@ -36,8 +36,8 @@
  *   • Window — [hotel today, hotel today + horizon - 1], the same nights the
  *     tick evaluated (pricing-window.ts).
  *   • Guardrails — every cell about to be sent is checked against its room
- *     type as it is now (active, floor, ceiling), the night's PMS base, the
- *     window and the price's age. A cell that fails is recorded as skipped
+ *     type as it is now (active, floor, ceiling), the night's PMS base (0,
+ *     or none on record at all), the window and the price's age. A cell that fails is recorded as skipped
  *     with a reason code and never sent. Codes: push-guardrails.ts. A price
  *     only counts as vouched for by an evaluation that priced its night.
  *     A manual price is sent as the engine published it, under the floor or
@@ -641,12 +641,21 @@ export async function pushRatesForHotel(
     candidates.length > 0 || unchanged.length > 0
       ? await loadOpenManualPrices(supabase, hotelId, firstDate, lastDate)
       : new Map<string, OpenManualPrice>();
-  // Nights the PMS has at 0, and of those the ones nobody typed a price for.
-  const pmsZero =
+  // The hotel's own rates on record for the window: which nights have one
+  // at all, and which the PMS has at 0. Of those, the ones nobody typed a
+  // price for are held (guardrail:zero_base, guardrail:no_rate_on_record).
+  const onRecord =
     candidates.length > 0 || unchanged.length > 0
-      ? await loadZeroBaseNights(supabase, hotelId, firstDate, lastDate)
-      : new Set<string>();
+      ? await loadCalendarNights(supabase, hotelId, firstDate, lastDate)
+      : { present: new Set<string>(), zero: new Set<string>() };
+  const pmsZero = onRecord.zero;
   const zeroBase = new Set([...pmsZero].filter((key) => !manualPrices.has(key)));
+  // The last night the PMS returned a rate for on its last read; a calendar
+  // row past it is not a rate on record (base-rate-calendar.ts). Null when
+  // no read has recorded one: every row counts.
+  const returnedThrough = conn?.base_rates_returned_through != null ? String(conn.base_rates_returned_through).slice(0, 10) : null;
+  const noRateOnRecord = (key: string, stayDate: string): boolean =>
+    !manualPrices.has(key) && (!onRecord.present.has(key) || (returnedThrough != null && stayDate > returnedThrough));
   const freshAfterMs = Date.now() - pushMaxPriceAgeMs();
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
   // Evaluations on record that may vouch for a price, read once and only when needed.
@@ -694,6 +703,7 @@ export async function pushRatesForHotel(
       firstDate,
       lastDate,
       zeroBase: zeroBase.has(key),
+      noRateOnRecord: noRateOnRecord(key, c.stayDate),
       manualPrice: manualPrices.get(key)?.price ?? null,
       acceptsZeroRate: adapter.acceptsZeroRate === true,
       computedAtMs: c.computedAtMs,
@@ -719,7 +729,11 @@ export async function pushRatesForHotel(
     // exists. Once a rule named it, or a typed price opened the night, and
     // MAYA's price went out, it is filed like any other guardrail hold,
     // because that price is still in the PMS.
-    if (code === GUARDRAIL.notARoom && ledgerRowNeverSent(priorRow.get(key))) {
+    // The same for a night the PMS has no rate on record for that MAYA has
+    // never sent to: nothing is in the PMS to be wrong, and the engine no
+    // longer prices such a night, so the row is a leftover on its way out.
+    // Once MAYA's price went to the night, it is filed like any other hold.
+    if ((code === GUARDRAIL.notARoom || code === GUARDRAIL.noRateOnRecord) && ledgerRowNeverSent(priorRow.get(key))) {
       const row = skippedLedgerRow(hotelId, adapter.pmsType, cellOf(c), code, priorRow.get(key), nowIso);
       if (row) rows.push(row);
       return true;
@@ -1189,18 +1203,28 @@ function cellOf(c: RateCell): RateCell {
   return { stayDate: c.stayDate, roomTypeId: c.roomTypeId, externalRoomTypeId: c.externalRoomTypeId, price: c.price };
 }
 
-/** The hotel's connection row for this PMS: cached targets and the last re-authorization, when the column exists. */
-async function readConnection(
-  supabase: SupabaseClient,
-  hotelId: string,
-  pmsType: string,
-): Promise<{ id?: unknown; push_rate_targets?: unknown; reauthorized_at?: unknown } | null> {
+type ConnectionRow = {
+  id?: unknown;
+  push_rate_targets?: unknown;
+  reauthorized_at?: unknown;
+  /** The last night the PMS returned a rate for on its last read (base-rate-calendar.ts). */
+  base_rates_returned_through?: unknown;
+};
+
+/**
+ * The hotel's connection row for this PMS: cached targets, the last
+ * re-authorization and how far the PMS's rates were read, each left out on a
+ * database its migration has not reached.
+ */
+async function readConnection(supabase: SupabaseClient, hotelId: string, pmsType: string): Promise<ConnectionRow | null> {
   const read = (columns: string) =>
     supabase.from("pms_connections").select(columns).eq("hotel_id", hotelId).eq("pms_type", pmsType).maybeSingle();
-  let { data, error } = await read("id, push_rate_targets, reauthorized_at");
+  let { data, error } = await read("id, push_rate_targets, reauthorized_at, base_rates_returned_through");
+  // Before the no-rate-on-record migration: every calendar row counts as a rate on record.
+  if (error && isMissingColumnError(error)) ({ data, error } = await read("id, push_rate_targets, reauthorized_at"));
   // Before the push guardrails migration: no reconnect to end a hold early.
   if (error && isMissingColumnError(error)) ({ data, error } = await read("id, push_rate_targets"));
-  return (data as { id?: unknown; push_rate_targets?: unknown; reauthorized_at?: unknown } | null) ?? null;
+  return (data as ConnectionRow | null) ?? null;
 }
 
 /** A failed row's cause. A real job reference means the vendor's job queue refused it. */
@@ -1438,32 +1462,47 @@ function finiteOr(ms: number): number {
 }
 
 /**
- * Nights whose PMS base rate is 0: closed, rates not loaded that far, or a
- * comp night the owner has set to 0 in the PMS themselves. Throws on a failed
- * read: without it there is no telling a closed night from an open one.
+ * The window's base_rate_calendar rows, by `stay_date|room_type_id`: every
+ * night the PMS has a rate on record for (`present`), and of those the ones
+ * it has at 0 (`zero`: closed, rates not loaded that far, or a comp night
+ * the owner has set to 0 in the PMS themselves). Throws on a failed read:
+ * without it there is no telling a closed night from an open one, or a night
+ * with a rate from one without. A database without the table has no rate on
+ * record for any night.
  */
-async function loadZeroBaseNights(
+async function loadCalendarNights(
   supabase: SupabaseClient,
   hotelId: string,
   firstDate: string,
   lastDate: string,
-): Promise<Set<string>> {
+): Promise<{ present: Set<string>; zero: Set<string> }> {
+  const present = new Set<string>();
   const zero = new Set<string>();
-  const calRows = await fetchAll(() =>
-    supabase
-      .from("base_rate_calendar")
-      .select("stay_date, room_type_id, price")
-      .eq("hotel_id", hotelId)
-      .eq("price", 0)
-      .gte("stay_date", firstDate)
-      .lte("stay_date", lastDate)
-      .order("stay_date", { ascending: true })
-      .order("room_type_id", { ascending: true }),
-  );
-  for (const r of calRows) {
-    if (r.room_type_id && r.price != null && Number(r.price) === 0) zero.add(`${r.stay_date}|${r.room_type_id}`);
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let calRows: any[];
+  try {
+    calRows = await fetchAll(() =>
+      supabase
+        .from("base_rate_calendar")
+        .select("stay_date, room_type_id, price")
+        .eq("hotel_id", hotelId)
+        .gte("stay_date", firstDate)
+        .lte("stay_date", lastDate)
+        .order("stay_date", { ascending: true })
+        .order("room_type_id", { ascending: true }),
+    );
+  } catch (e) {
+    if (isMissingRelationError(e)) return { present, zero };
+    throw e;
   }
-  return zero;
+  for (const r of calRows) {
+    if (!r.room_type_id || r.price == null) continue;
+    const key = `${r.stay_date}|${r.room_type_id}`;
+    present.add(key);
+    if (Number(r.price) === 0) zero.add(key);
+  }
+  return { present, zero };
 }
 
 /** A logged evaluation that may vouch for prices: when it ran and the nights it priced. */

@@ -537,7 +537,7 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
     expect((data as unknown[]).length).toBeGreaterThan(1);
   }, 120_000);
 
-  it("engine_reservation_cells gives the snapshot counts and base rates the engine computes from rows", async () => {
+  it("engine_reservation_cells gives the snapshot counts the engine computes from rows", async () => {
     const r = rng(53);
     const types = ["k", "q", "s"].map(uuidFor);
     const rows: FakeRow[] = [];
@@ -582,8 +582,9 @@ describe.skipIf(!PGLITE_DIR)("large property SQL in PGlite", () => {
       expect(got.units).toBe(e.units);
       // The snapshot stores Math.round(revenue * 100) / 100.
       expect(Math.round(got.revenue * 100) / 100).toBe(Math.round(e.revenue * 100) / 100);
-      expect(fromSql!.latestBase.get(key)!.base_rate).toBe(latest.get(key)!.base_rate);
     }
+    // The function still returns each cell's newest base_rate; the engine no longer reads it (base-price.ts).
+    expect(latest.size).toBe(booked.size);
   }, 120_000);
 
   it("calendar_daily_revenue_v2 pages, concatenated, equal calendar_daily_revenue", async () => {

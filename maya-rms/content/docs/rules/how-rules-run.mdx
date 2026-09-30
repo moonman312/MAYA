@@ -3,7 +3,7 @@ title: How rules run
 summary: The five-minute cycle and the daily pass, the 396-night window, standard rules against booking speed and pickup rules, what price a rule starts from, the wait, what a rule counts after a change, which rule is stronger, and how changes stack.
 section: rules
 order: 90
-readingTime: 20
+readingTime: 21
 keywords: [skip price adjustments, after a skip, held days, bookings before the rule, edited rule, how often, every five minutes, cycle, midnight, pricing run, 396 nights, 13 months, a year ahead, window, tonight, past nights, standard rule, booking speed rule, pickup rule, then waits, wait, stack, compound, two rules, which rule wins, priority, tie, rounding, round to whole numbers, whole dollars, end in 9, ends in 9, .99, price ending, charm pricing, cents, per room type, base price, base rate 0, closed night, fired on a closed night, rate of 0, no rate, blank rate, rate not loaded, raise did not come off, cancelled but price stayed up, wait is over but did not act, how rules behave animations, fired 395 days out not 397, far-out night, whole days, deluxe but not standard, change a price in the past, mews, nothing sent to mews, holds the night, ranks higher, stronger rule, weaker rule, bigger change, counts from, bookings since, count restarts, full days, up to yesterday, whole window, tiers, five and ten]
 questions:
   - How often do rules run? {#the-cycle}
@@ -29,7 +29,7 @@ questions:
   - How often will my prices change? {#how-often-a-price-changes/your-rules-check}
   - After I skipped the price adjustments, which bookings does a rule count? {#counting-after-a-change/after-you-skip}
   - Does a new booking speed or pickup rule count bookings made before I added it? {#counting-after-a-change/after-you-skip}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -85,12 +85,10 @@ Every night and room type has a base price, and rules are applied on top of it. 
 
 1. a price a person set for that night: typed in MAYA, or changed in your property system on a night MAYA had already sent to
 2. your own rate for the night, read from your property system
-3. the rate of the newest booking for that night and room type
-4. the base saved for the night on the last run
 
-On Mews, your own rates are not read and a rate changed in Mews is never read back, so the base is a price you typed in MAYA, else the newest booking's rate, else the base saved on the last run. Read [Where a night's starting price comes from](/docs/connect/mews#where-a-nights-starting-price-comes-from).
+Nothing else. A night with neither is not priced: not the rate a guest paid for it, and not a base saved on an earlier run. A booking taken at one of MAYA's own prices would otherwise come back as the next starting point and climb with every booking. On Mews, your own rates are not read and a rate changed in Mews is never read back, so the base is a price you typed in MAYA, and a Mews night without one is unpriced. Read [Where a night's starting price comes from](/docs/connect/mews#where-a-nights-starting-price-comes-from).
 
-If your system shows the night's rate as 0 (a closed night, for example) and you have not typed a price, MAYA leaves the night unpriced. No booking speed or pickup rule fires on it, nothing is sent and the calendar shows a dash for its price. This applies on Cloudbeds and ThinkReservations, where MAYA reads your rates.
+If your system shows the night's rate as 0 (a closed night, for example), or has no rate for the night at all, and you have not typed a price, MAYA leaves the night unpriced. No booking speed or pickup rule fires on it, nothing is sent and the calendar shows a dash for its price, with "No rate in Cloudbeds for this night yet" (or your system's name) when the rate is missing. MAYA reads your rates as far ahead as your system returns them and keeps that night on record; a night past it counts as having no rate until a read returns it. This applies on Cloudbeds and ThinkReservations, where MAYA reads your rates.
 
 Standard rules still switch on and off on that night as their condition starts and stops holding, and each switch-on counts in <Ui>Fired</Ui>. So once the night has a rate, any standard rule already on there applies straight away, and the change log shows it from then.
 
