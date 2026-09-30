@@ -251,6 +251,7 @@ Deno.serve(async (req) => {
         today: tick.today,
         evaluate,
         cadence: tick.cadence,
+        pricingAlert: tick.pricingAlert,
         syncMs: tSync - t0,
         evalMs: tick.evalMs,
         horizonDays,

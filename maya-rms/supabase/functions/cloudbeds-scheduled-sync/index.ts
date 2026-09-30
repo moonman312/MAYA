@@ -298,6 +298,7 @@ Deno.serve(async (req) => {
         pmsEditsAdopted: tick.pmsEditsAdopted,
         evaluate,
         cadence: tick.cadence,
+        pricingAlert: tick.pricingAlert,
         push,
         syncMs: tSync - t0,
         calendarMs: tick.calendarMs,

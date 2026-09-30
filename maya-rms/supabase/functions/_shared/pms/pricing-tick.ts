@@ -623,8 +623,9 @@ type PricingFailure = { step: "evaluate" | "record"; error: string };
  * stay marked and the pass does not move). Not a work list that could not be
  * read: the whole window was priced instead.
  */
-function pricingFailure(evaluate: PricingTickResult<unknown>["evaluate"], recordError: string | undefined): PricingFailure | null {
-  if ("error" in evaluate) return { step: "evaluate", error: evaluate.error };
+function pricingFailure(evaluate: unknown, recordError: string | undefined): PricingFailure | null {
+  const failed = typeof evaluate === "object" && evaluate !== null && "error" in evaluate ? evaluate.error : undefined;
+  if (typeof failed === "string") return { step: "evaluate", error: failed };
   return recordError ? { step: "record", error: recordError } : null;
 }
 
@@ -663,11 +664,7 @@ export async function alertPricingFailing(
     const what =
       failure.step === "evaluate"
         ? "The latest run stopped before it published anything, so no new price is published or sent until a run finishes."
-        : "The latest run priced its nights but could not be recorded, so the same nights are priced again and the daily pass does not move on.";
-    console.error(
-      JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_failing", failed: failure.step, lastOkRunAt: lastOk ?? null, error: failure.error }),
-    );
-    if (!opts.mayStart) return { sent: false, reason: "out_of_time" };
+        : "The latest run could not be recorded, so the nights it priced are priced again and the daily pass does not move on.";
     const alert: Alert = {
       severity: "critical",
       key: `pricing-failing:${hotelId}`,
@@ -675,7 +672,20 @@ export async function alertPricingFailing(
       detail: `${since} ${what} Error: ${failure.error}`,
       hotelId,
     };
-    return await opts.alert(supabase, alert);
+    // Not sent when its timeout would run past the tick: the next tick tries.
+    const told = opts.mayStart ? await opts.alert(supabase, alert) : { sent: false, reason: "out_of_time" };
+    console.error(
+      JSON.stringify({
+        fn: "runPricingTick",
+        hotelId,
+        step: "pricing_failing",
+        failed: failure.step,
+        lastOkRunAt: lastOk ?? null,
+        error: failure.error,
+        alert: told,
+      }),
+    );
+    return told;
   } catch (e) {
     console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_failing_alert", error: errorText(e, "alert failed") }));
     return { sent: false, reason: "send_failed" };
