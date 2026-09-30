@@ -156,15 +156,14 @@ export async function loadPushProblemAnalytics(
   includeTest: boolean,
 ): Promise<PushProblemAnalytics> {
   try {
-    const hotels = await pageAll<{ id: string; name: string; is_test: boolean | null }>((a, z) => {
-      let q = admin.from("hotels").select("id, name, is_test");
-      if (!includeTest) q = q.eq("is_test", false);
-      return q.order("id", { ascending: true }).range(a, z);
-    });
-    const nameById = new Map(hotels.map((h) => [String(h.id), String(h.name)]));
-
-    const inRange = (
-      await pageAll<PushIncidentRow>((a, z) =>
+    // The three reads don't need each other: they go together.
+    const [hotels, openedInRange, openRows] = await Promise.all([
+      pageAll<{ id: string; name: string; is_test: boolean | null }>((a, z) => {
+        let q = admin.from("hotels").select("id, name, is_test");
+        if (!includeTest) q = q.eq("is_test", false);
+        return q.order("id", { ascending: true }).range(a, z);
+      }),
+      pageAll<PushIncidentRow>((a, z) =>
         admin
           .from("rate_push_incidents")
           .select(INCIDENT_COLUMNS)
@@ -173,11 +172,8 @@ export async function loadPushProblemAnalytics(
           .order("opened_at", { ascending: true })
           .order("id", { ascending: true })
           .range(a, z),
-      )
-    ).filter((i) => nameById.has(String(i.hotel_id)));
-
-    const openNow = (
-      await pageAll<PushIncidentRow>((a, z) =>
+      ),
+      pageAll<PushIncidentRow>((a, z) =>
         admin
           .from("rate_push_incidents")
           .select(INCIDENT_COLUMNS)
@@ -185,8 +181,11 @@ export async function loadPushProblemAnalytics(
           .order("opened_at", { ascending: true })
           .order("id", { ascending: true })
           .range(a, z),
-      )
-    ).filter((i) => nameById.has(String(i.hotel_id)));
+      ),
+    ]);
+    const nameById = new Map(hotels.map((h) => [String(h.id), String(h.name)]));
+    const inRange = openedInRange.filter((i) => nameById.has(String(i.hotel_id)));
+    const openNow = openRows.filter((i) => nameById.has(String(i.hotel_id)));
 
     const messages = new Map<string, string[]>();
     // The newest: new vendor wording is what the classifier needs to learn.

@@ -263,14 +263,14 @@ export function BookTiles({ book }: { book: BookRow | null }) {
     {
       label: "Rooms under management",
       value: book.billed_rooms_paying.toLocaleString("en-US"),
-      hint: `billed, paying · ${book.measured_rooms_active.toLocaleString("en-US")} measured across active`,
+      hint: `billed and paying · ${book.measured_rooms_active.toLocaleString("en-US")} in the PMS`,
     },
     {
-      label: "MRR (snapshot)",
+      label: "MRR at last count",
       value: book.net_mrr_cents == null ? "—" : formatUsd(book.net_mrr_cents),
       hint: book.mrr_snapshot_day
-        ? `net · ${formatUsd(book.list_mrr_cents ?? 0)} list · ${day(book.mrr_snapshot_day)}`
-        : "no snapshot yet",
+        ? `net · ${formatUsd(book.list_mrr_cents ?? 0)} before discounts · counted ${day(book.mrr_snapshot_day)}`
+        : "not counted yet",
     },
     {
       label: "Waiting on an owner",
@@ -308,7 +308,7 @@ export function TrialsPanel({ rows }: { rows: TrialRow[] }) {
     <Panel title="Trial conversion" hint="trials that ended in range">
       <Table
         empty="No trials ended in this range."
-        head={["", "Ended", "Paid", "Lost", "Open", "Rate"]}
+        head={["", "Ended", "Paid", "Lost", "Undecided", "Rate"]}
         rows={rows.map((r) => [r.segment, r.trials_ended, r.converted, r.lost, r.undecided, pct(r.conversion_pct)])}
       />
     </Panel>
@@ -327,7 +327,7 @@ export function RetentionPanel({ row }: { row: RetentionRow | null }) {
           ["New paying", row.new_paying],
           ["Won back", row.won_back],
           ["Churned", `${row.churned} · ${row.rooms_churned} rooms`],
-          ["Churn of starting base", pct(row.churn_pct)],
+          ["Lost, of those paying at the start", pct(row.churn_pct)],
           ["Paying at end", row.paying_at_end],
           ["Cancellation scheduled / withdrawn", `${row.cancel_scheduled} / ${row.cancel_withdrawn}`],
           ["Disconnected / reconnected / still out", `${row.disconnected} / ${row.reconnected} / ${row.still_disconnected}`],
@@ -492,11 +492,11 @@ export function PushProblemsPanel({ data }: { data: PushProblemAnalytics }) {
   }
   const samples = data.causes.filter((c) => c.sampleMessages.length > 0);
   return (
-    <Panel title="Rate push problems" hint="incidents opened in range; open list is right now">
+    <Panel title="Rate push problems" hint="problems that started in this range; the open list is as of now">
       <Table
         empty="No rate push problems in this range."
         textColumns={2}
-        head={["Cause", "Root cause", "Incidents", "Tries", "Hotels", "By retry", "Shown", "Open", "Median to land"]}
+        head={["Cause", "Root cause", "Incidents", "Tries", "Hotels", "Fixed by retry", "Owner saw it", "Open", "Median to land"]}
         rows={data.causes.map((c) => [
           <span key="cause" title={c.description}>
             {causeLabel(c.cause)}

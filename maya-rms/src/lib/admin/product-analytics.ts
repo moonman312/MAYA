@@ -5,8 +5,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * The product panel's numbers: every one is a SECURITY DEFINER function in
  * 99_supabase_migration_product_analytics_v1.sql over product_events, and the
  * definitions live in docs/analytics.md. This file only fetches and names
- * them, under the caller's own session, so each function's own platform-admin
- * check is the gate.
+ * them. The page reads them with the service role, kept for a few minutes
+ * (analytics-cache.ts), after checking the caller is a platform admin; each
+ * function's own check lets the service role and platform admins through.
  *
  * A deployment can run ahead of its migration. Then the functions are missing,
  * and the panel says so in one line rather than failing the whole page, which
@@ -179,25 +180,25 @@ export function isMissingFunction(error: { code?: string; message?: string } | n
 }
 
 export async function loadProductAnalytics(
-  ssr: SupabaseClient,
+  client: SupabaseClient,
   from: string,
   to: string,
   includeTest: boolean,
 ): Promise<ProductAnalytics> {
   const range = { p_from: from, p_to: to, p_include_test: includeTest };
   const calls = {
-    walkedAwaySummary: ssr.rpc("analytics_walked_away_summary", range),
-    walkedAway: ssr.rpc("analytics_walked_away", range),
-    funnel: ssr.rpc("analytics_funnel", range),
-    timeToValue: ssr.rpc("analytics_time_to_value", range),
-    trials: ssr.rpc("analytics_trial_conversion", range),
-    retention: ssr.rpc("analytics_retention", range),
-    cancellations: ssr.rpc("analytics_cancellations", range),
-    acquisition: ssr.rpc("analytics_acquisition", range),
-    events: ssr.rpc("analytics_event_counts", range),
-    health: ssr.rpc("analytics_pms_health", range),
-    groups: ssr.rpc("analytics_groups", range),
-    book: ssr.rpc("analytics_book", { p_include_test: includeTest }),
+    walkedAwaySummary: client.rpc("analytics_walked_away_summary", range),
+    walkedAway: client.rpc("analytics_walked_away", range),
+    funnel: client.rpc("analytics_funnel", range),
+    timeToValue: client.rpc("analytics_time_to_value", range),
+    trials: client.rpc("analytics_trial_conversion", range),
+    retention: client.rpc("analytics_retention", range),
+    cancellations: client.rpc("analytics_cancellations", range),
+    acquisition: client.rpc("analytics_acquisition", range),
+    events: client.rpc("analytics_event_counts", range),
+    health: client.rpc("analytics_pms_health", range),
+    groups: client.rpc("analytics_groups", range),
+    book: client.rpc("analytics_book", { p_include_test: includeTest }),
   };
   const keys = Object.keys(calls) as (keyof typeof calls)[];
   const results = await Promise.all(keys.map((k) => calls[k]));

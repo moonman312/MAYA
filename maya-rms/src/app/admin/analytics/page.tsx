@@ -1,33 +1,28 @@
 import Link from "next/link";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { AnalyticsCharts, FunnelBars } from "@/components/admin/analytics-charts";
+import { Suspense } from "react";
 import { AnalyticsRangePicker } from "@/components/admin/analytics-range-picker";
+import { AnalyticsRefresh } from "@/components/admin/analytics-refresh";
+import { getAdminSession } from "@/lib/admin/admin-session";
+import { refreshTodaySnapshotLater } from "@/lib/admin/analytics-cache";
+import { analyticsHref, analyticsWindow, rangeInWords } from "@/lib/admin/analytics-window";
 import {
-  AcquisitionPanel,
-  BookTiles,
-  CancellationsPanel,
-  EngagementPanel,
-  GroupsPanel,
-  HealthPanel,
-  ProductFunnels,
-  PushProblemsPanel,
-  RetentionPanel,
-  TimeToValuePanel,
-  TrialsPanel,
-  WalkedAwayCard,
-} from "@/components/admin/product-analytics-panels";
-import {
-  loadAnalyticsNow,
-  loadAnalyticsRange,
-  snapshotHotelMetrics,
-  type HotelRef,
-  type SubscriptionEvent,
-} from "@/lib/admin/analytics";
-import { loadProductAnalytics, type ProductAnalytics } from "@/lib/admin/product-analytics";
-import { loadPushProblemAnalytics, type PushProblemAnalytics } from "@/lib/admin/push-problems";
-import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
-import { formatUsd } from "@/lib/billing/tiers";
+  AsOf,
+  Charts,
+  ChartsSkeleton,
+  EventTables,
+  EventTablesSkeleton,
+  GainedLostTile,
+  NeedsAttention,
+  NowTiles,
+  PanelSkeleton,
+  Product,
+  ProductSkeleton,
+  PushProblems,
+  RevenueBySize,
+  Signups,
+  TileSkeleton,
+} from "./sections";
 
 export const dynamic = "force-dynamic";
 
@@ -37,228 +32,100 @@ export const dynamic = "force-dynamic";
  * names at the bottom — every aggregate up top has a drill-down table below
  * it, because "churn is 3" is a chart and "churn is these three hotels" is a
  * to-do list.
+ *
+ * The heading and the date picker show at once; every section below sits in
+ * its own Suspense boundary and fills in when its numbers are ready, from the
+ * five-minute cache when they are there (lib/admin/analytics-cache.ts). The
+ * sections that depend on the window are keyed by it, so a new window shows
+ * their placeholders straight away; "right now" is keyed by the test toggle
+ * only and stays put while the dates change.
  */
 export default async function AnalyticsPage({
   searchParams,
 }: {
   searchParams: Promise<{ from?: string; to?: string; test?: string }>;
 }) {
-  const ctx = await requirePlatformAdmin(await cookies());
-  if (!ctx.ok) redirect("/login");
+  // Before anything is read: the kept numbers are the same for every admin.
+  const session = await getAdminSession();
+  if (!session.ok) redirect("/login");
 
   const today = new Date().toISOString().slice(0, 10);
-  const params = await searchParams;
-  const DAY_RX = /^\d{4}-\d{2}-\d{2}$/;
-  // Shape alone accepts 2026-02-30, which Postgres then rejects mid-query and
-  // 500s the page — round-tripping through Date is what makes a hand-edited
-  // URL fall back instead of crash.
-  const validDay = (v: string | undefined, fallback: string) =>
-    v && DAY_RX.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v ? v : fallback;
-  const to = validDay(params.to, today);
-  const defaultFrom = new Date(new Date(`${today}T00:00:00Z`).getTime() - 29 * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
-  const from = validDay(params.from, defaultFrom);
   // Sandbox properties, e2e fixtures and walkthrough signups are flagged
   // is_test and excluded — a Stripe test-mode checkout is a real subscription
   // row and would otherwise read as a customer. The toggle is for verifying
   // the panel itself on a deployment whose only data is test data.
-  const scope = { includeTest: params.test === "1" };
+  const { from, to, includeTest } = analyticsWindow(await searchParams, today);
+  const words = rangeInWords(from, to, today);
+  const shown = { from, to, includeTest, words };
+  const rangeKey = `${from}:${to}:${includeTest ? 1 : 0}`;
+  const nowKey = includeTest ? "with-test" : "without-test";
 
-  // Lazily write today's snapshot so history accumulates even without the
-  // cron. Idempotent upsert; a failure only costs today's point on the chart.
-  try {
-    await snapshotHotelMetrics(ctx.admin, today);
-  } catch (e) {
-    console.error(JSON.stringify({ fn: "analyticsLazySnapshot", error: e instanceof Error ? e.message : String(e) }));
-  }
-
-  // The product panels read product_events. A failure there is reported in
-  // place and never takes the revenue half of the page down with it.
-  const productPromise: Promise<ProductAnalytics> = loadProductAnalytics(ctx.ssr, from, to, scope.includeTest).catch(
-    (e: unknown) => {
-      console.error(JSON.stringify({ fn: "analyticsProductPanels", error: e instanceof Error ? e.message : String(e) }));
-      return { available: false, reason: "Could not load the product numbers. The server log has the error." };
-    },
-  );
-  // Same deal for rate push problems: reported in place, never fatal.
-  const pushPromise: Promise<PushProblemAnalytics> = loadPushProblemAnalytics(ctx.admin, from, to, scope.includeTest).catch(
-    (e: unknown) => {
-      console.error(JSON.stringify({ fn: "analyticsPushProblems", error: e instanceof Error ? e.message : String(e) }));
-      return { available: false, reason: "Could not load rate push problems. The server log has the error." };
-    },
-  );
-  const [now, range, product, pushProblems] = await Promise.all([
-    loadAnalyticsNow(ctx.admin, scope),
-    loadAnalyticsRange(ctx.admin, from, to, scope),
-    productPromise,
-    pushPromise,
-  ]);
-
-  const attentionCount =
-    now.attention.cardTrouble.length +
-    now.attention.roomShortfall.length +
-    now.attention.syncBroken.length +
-    now.attention.engineSilent.length;
+  // Today's point on the chart: written after this response has gone.
+  if (to >= today) refreshTodaySnapshotLater(today);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-semibold text-slate-100">Analytics</h1>
-          <Link
-            href={`/admin/analytics?from=${from}&to=${to}${scope.includeTest ? "" : "&test=1"}`}
-            className="text-xs text-slate-500 hover:text-slate-300"
-          >
-            {scope.includeTest ? "excluding test properties" : "including test properties"}
+          <Link href={analyticsHref(from, to, !includeTest)} className="text-xs text-slate-500 hover:text-slate-300">
+            {includeTest ? "Hide test properties" : "Show test properties"}
           </Link>
         </div>
-        <AnalyticsRangePicker from={from} to={to} includeTest={scope.includeTest} />
+        <div className="flex flex-col items-end gap-2">
+          <AnalyticsRangePicker from={from} to={to} includeTest={includeTest} today={today} />
+          <div className="flex items-center gap-3">
+            <Suspense key={`as-of:${rangeKey}`} fallback={null}>
+              <AsOf from={from} to={to} includeTest={includeTest} />
+            </Suspense>
+            <AnalyticsRefresh />
+          </div>
+        </div>
       </div>
 
-      {scope.includeTest && (
+      {includeTest && (
         <p className="rounded border border-amber-500/40 bg-amber-500/5 px-4 py-2 text-xs text-amber-200">
           Counting test properties and walkthrough signups. These are not customers.
         </p>
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Tile label="Net MRR" value={formatUsd(now.netMrrCents)} hint={`${formatUsd(now.listMrrCents)} list`} />
-        <Tile label="Paying properties" value={String(now.payingCount)} hint={`${now.liveCount} live · ${now.simulationCount} simulating`} />
-        <Tile
-          label="Trials in flight"
-          value={String(now.trialingCount)}
-          hint={`${formatUsd(now.trialPotentialCents)}/mo if they convert`}
-        />
-        <Tile
-          label="Range: +/− properties"
-          value={`+${range.newPaying.length + range.wonBack.length} / −${range.churned.length}`}
-          hint={
-            range.medianHoursToLive != null
-              ? `${Math.round(range.medianHoursToLive)}h median to first price`
-              : "no first-prices in range"
-          }
-        />
+        <Suspense key={`now-tiles:${nowKey}`} fallback={<TileSkeleton count={3} />}>
+          <NowTiles includeTest={includeTest} />
+        </Suspense>
+        <Suspense key={`gained-lost:${rangeKey}`} fallback={<TileSkeleton />}>
+          <GainedLostTile {...shown} />
+        </Suspense>
       </section>
 
-      <AnalyticsCharts series={range.series} />
+      <Suspense key={`charts:${rangeKey}`} fallback={<ChartsSkeleton />}>
+        <Charts {...shown} />
+      </Suspense>
 
-      {product.available ? (
-        <>
-          <WalkedAwayCard summary={product.walkedAwaySummary} rows={product.walkedAway} from={from} to={to} />
-          <BookTiles book={product.book} />
-          <ProductFunnels funnel={product.funnel} />
-          <div className="grid gap-4 lg:grid-cols-2">
-            <TimeToValuePanel rows={product.timeToValue} />
-            <RetentionPanel row={product.retention} />
-            <TrialsPanel rows={product.trials} />
-            <CancellationsPanel rows={product.cancellations} />
-            <AcquisitionPanel rows={product.acquisition} />
-            <HealthPanel rows={product.health} />
-            <EngagementPanel events={product.events} />
-            <GroupsPanel rows={product.groups} />
-          </div>
-        </>
-      ) : (
-        <p className="rounded border border-slate-800 bg-slate-900 px-4 py-3 text-xs text-slate-400">{product.reason}</p>
-      )}
+      <Suspense key={`product:${rangeKey}`} fallback={<ProductSkeleton />}>
+        <Product {...shown} />
+      </Suspense>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <FunnelBars funnel={range.funnel} />
-        <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h3 className="mb-3 text-sm font-semibold text-slate-200">Revenue by property size</h3>
-          <div className="space-y-2">
-            {now.byBracket.map((b) => (
-              <div key={b.label} className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">{b.label} rooms</span>
-                <span className="text-slate-300">
-                  {b.count} propert{b.count === 1 ? "y" : "ies"} ·{" "}
-                  <span className="font-semibold text-slate-100">{formatUsd(b.netMrrCents)}/mo</span>
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <Suspense key={`signups:${rangeKey}`} fallback={<PanelSkeleton />}>
+          <Signups {...shown} />
+        </Suspense>
+        <Suspense key={`by-size:${nowKey}`} fallback={<PanelSkeleton />}>
+          <RevenueBySize includeTest={includeTest} />
+        </Suspense>
       </div>
 
-      <PushProblemsPanel data={pushProblems} />
+      <Suspense key={`push:${rangeKey}`} fallback={<PanelSkeleton className="h-40" />}>
+        <PushProblems {...shown} />
+      </Suspense>
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900">
-        <h2 className="border-b border-slate-800 px-4 py-3 text-sm font-semibold text-slate-200">
-          Needs attention {attentionCount > 0 ? `(${attentionCount})` : ""}
-        </h2>
-        {attentionCount === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-500">Nothing. A good day.</p>
-        ) : (
-          <div className="divide-y divide-slate-800">
-            <AttentionRows label="Card failing re-verification" refs={now.attention.cardTrouble} />
-            <AttentionRows label="Billing fewer rooms than they run" refs={now.attention.roomShortfall} />
-            <AttentionRows
-              label="PMS connection broken"
-              refs={now.attention.syncBroken.map((r) => ({ ...r, name: `${r.name} — ${r.pmsType} ${r.status}` }))}
-            />
-            <AttentionRows label="No engine run in 24h (paying)" refs={now.attention.engineSilent} />
-          </div>
-        )}
-      </section>
+      <Suspense key={`attention:${nowKey}`} fallback={<PanelSkeleton className="h-32" />}>
+        <NeedsAttention includeTest={includeTest} />
+      </Suspense>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <EventTable title={`New paying (${range.newPaying.length})`} events={range.newPaying} />
-        <EventTable title={`Won back (${range.wonBack.length})`} events={range.wonBack} />
-        <EventTable title={`Churned (${range.churned.length})`} events={range.churned} />
-      </div>
+      <Suspense key={`events:${rangeKey}`} fallback={<EventTablesSkeleton />}>
+        <EventTables {...shown} />
+      </Suspense>
     </div>
-  );
-}
-
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <div className="text-xs text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-semibold text-slate-100">{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-slate-500">{hint}</div>}
-    </div>
-  );
-}
-
-function AttentionRows({ label, refs }: { label: string; refs: HotelRef[] }) {
-  if (refs.length === 0) return null;
-  return (
-    <div className="px-4 py-3">
-      <div className="mb-1.5 text-xs font-medium text-amber-300">{label}</div>
-      <div className="flex flex-wrap gap-2">
-        {refs.map((r) => (
-          <Link
-            key={r.hotelId + r.name}
-            href={`/admin/hotels/${r.hotelId}`}
-            className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-slate-500"
-          >
-            {r.name}
-          </Link>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function EventTable({ title, events }: { title: string; events: SubscriptionEvent[] }) {
-  return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <h3 className="mb-2 text-sm font-semibold text-slate-200">{title}</h3>
-      {events.length === 0 ? (
-        <p className="text-xs text-slate-500">None in this range.</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {events.map((e) => (
-            <li key={e.hotelId + e.day} className="flex items-center justify-between text-xs">
-              <Link href={`/admin/hotels/${e.hotelId}`} className="text-slate-200 hover:text-sky-300">
-                {e.name}
-              </Link>
-              <span className="text-slate-500">{e.day}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }

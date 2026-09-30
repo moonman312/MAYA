@@ -78,7 +78,7 @@ function LineChart({ title, days, series }: { title: string; days: string[]; ser
       </div>
       {days.length < 2 ? (
         <p className="py-8 text-center text-xs text-slate-500">
-          Not enough history yet — the nightly snapshot has {days.length} day{days.length === 1 ? "" : "s"} so far.
+          Not enough history yet. The nightly count has {days.length} day{days.length === 1 ? "" : "s"} so far.
         </p>
       ) : (
         <div className="relative">
@@ -159,11 +159,11 @@ export function AnalyticsCharts({ series }: { series: DayPoint[] }) {
 }
 
 /** Horizontal funnel — single hue, magnitude is the job. */
-export function FunnelBars({ funnel }: { funnel: { stage: string; count: number }[] }) {
+export function FunnelBars({ funnel, title = "Signups" }: { funnel: { stage: string; count: number }[]; title?: string }) {
   const max = Math.max(1, ...funnel.map((f) => f.count));
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <h3 className="mb-3 text-sm font-semibold text-slate-200">Signup funnel (range)</h3>
+      <h3 className="mb-3 text-sm font-semibold text-slate-200">{title}</h3>
       <div className="space-y-2">
         {funnel.map((f) => (
           <div key={f.stage} className="flex items-center gap-3 text-xs">
