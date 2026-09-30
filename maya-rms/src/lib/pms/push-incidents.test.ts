@@ -16,7 +16,11 @@ import {
   type RunFailure,
 } from "../../../supabase/functions/_shared/pms/push-incidents";
 import { GUARDRAIL, NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
-import { SHARED_RATIO_REASON } from "../../../supabase/functions/_shared/pms/push-failure";
+import {
+  AWAITING_RATE_READ_REASON,
+  RATE_READ_VISIBLE_AFTER_MS,
+  SHARED_RATIO_REASON,
+} from "../../../supabase/functions/_shared/pms/push-failure";
 import { type FakeFault, fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
 
 const HOTEL = "hotel-1";
@@ -408,5 +412,64 @@ describe("recordPushIncidents", () => {
     expect(errors.mock.calls.some((c) => String(c[0]).includes("rate_push_incident_write_failed"))).toBe(true);
     expect(fake.tables.rate_push_attempts ?? []).toHaveLength(0);
     errors.mockRestore();
+  });
+});
+
+describe("nights held until the hotel's rates have been read", () => {
+  const WAITING: PushFailureInput = { pms: "cloudbeds", phase: "guardrail", message: AWAITING_RATE_READ_REASON };
+  const held = (stayDate: string, minutes: number): RunFailure => ({ ...failure(stayDate, "rt-1", minutes, WAITING), ongoing: true });
+
+  it("reach the owner by the clock alone: one try on record, an hour open", async () => {
+    const fake = db();
+    await recordPushIncidents(fake.client, tick(0, [held("2026-09-20", 0), held("2026-09-21", 0)]), deps);
+    expect(fake.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "awaiting_rate_read", admin_only: false, severity: "transient", customer_visible_at: null, attempt_count: 2 }),
+    ]);
+
+    // Fifty-five minutes of ticks: no new tries, nothing written, nobody told.
+    for (let m = 5; m < 60; m += 5) {
+      const before = fake.calls.filter((c) => c.op !== "select").length;
+      const res = await recordPushIncidents(fake.client, tick(m, [held("2026-09-20", m), held("2026-09-21", m)]), deps);
+      expect(res).toMatchObject({ opened: 0, escalated: 0, attemptsStored: 0 });
+      expect(fake.calls.filter((c) => c.op !== "select").length).toBe(before);
+    }
+    expect(alerts).toEqual([]);
+
+    const minutes = RATE_READ_VISIBLE_AFTER_MS / 60_000;
+    const res = await recordPushIncidents(fake.client, tick(minutes, [held("2026-09-20", minutes), held("2026-09-21", minutes)]), deps);
+
+    expect(res).toMatchObject({ escalated: 1 });
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ customer_visible_at: at(minutes), alerted_at: at(minutes), attempt_count: 2 });
+    expect(alerts).toEqual([
+      expect.objectContaining({
+        severity: "critical",
+        key: `rate_push:awaiting_rate_read:${HOTEL}`,
+        title: "Prices not reaching Cloudbeds: awaiting rate read",
+        detail: expect.stringContaining("2 nights, 1 room type"),
+      }),
+    ]);
+  });
+
+  it("leave the two-hours-and-five-tries rule for every other cause as it was", async () => {
+    const fake = db();
+    // An outage an hour old with one try is still nobody's business.
+    await recordPushIncidents(fake.client, tick(0, [failure("2026-09-20", "rt-1", 0)]), deps);
+    await recordPushIncidents(fake.client, tick(61, [], [failing(failure("2026-09-20", "rt-1", 0))]), deps);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "pms_unavailable", customer_visible_at: null });
+    expect(ESCALATE_AFTER_MS).toBe(2 * 60 * 60_000);
+  });
+
+  it("close as landed when the push sends them, and as stopped when they leave the window", async () => {
+    const fake = db();
+    await recordPushIncidents(fake.client, tick(0, [held("2026-09-20", 0), held("2026-09-21", 0)]), deps);
+
+    const res = await recordPushIncidents(fake.client, tick(10, [], [landed("2026-09-20", "rt-1", 10)], false), deps);
+
+    expect(res).toMatchObject({ resolved: 1 });
+    expect(fake.tables.rate_push_incident_cells.map((c) => [c.stay_date, c.state]).sort()).toEqual([
+      ["2026-09-20", "landed"],
+      ["2026-09-21", "stopped"],
+    ]);
+    expect(alerts).toEqual([]);
   });
 });

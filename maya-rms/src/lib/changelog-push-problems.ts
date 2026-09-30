@@ -15,6 +15,7 @@
  */
 
 import {
+  AWAITING_RATE_READ_REASON,
   describePushCause,
   isIncidentSkipReason,
   parseVendorError,
@@ -86,6 +87,8 @@ function outcomeLabel(outcome: PushProblemRetries["outcome"], pms: string, messa
       if (message === NO_RATE_TARGET_REASON) {
         return cause === "pms_unavailable" ? `Couldn't read the rates in ${name}` : `Nothing to send to in ${name}`;
       }
+      // Never sent: the hotel's own rates have to be read first.
+      if (message === AWAITING_RATE_READ_REASON) return `Waiting to read your rates in ${name}`;
       return "MAYA held them back";
     case "landed":
       return "Went through";

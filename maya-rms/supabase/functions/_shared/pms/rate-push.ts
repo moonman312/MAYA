@@ -25,7 +25,8 @@
  *     type the catalog lists without a base rate is filed like any other
  *     failure, even when no room type has one; only a catalog read that
  *     taught nothing (failed, or empty) stops the run quietly, and it leaves
- *     a room type an earlier read already filed as it was.
+ *     a room type an earlier read already filed as it was. Nights held until
+ *     the hotel's own rates have been read (holdNeverPushed) are filed too.
  *   • Target freshness — the cached room-type→rate map is re-resolved whenever a
  *     cell it doesn't cover shows up, or a sent cell went to a rate it doesn't
  *     name, and dropped after a push rejection, so a new room type or a
@@ -74,6 +75,7 @@ import {
   pushMaxPriceAgeMs,
 } from "./push-guardrails.ts";
 import {
+  AWAITING_RATE_READ_REASON,
   classifyPushFailure,
   isIncidentSkipReason,
   JOB_UNCONFIRMED_MESSAGE,
@@ -254,7 +256,10 @@ export type RatePushOptions = {
    * rate read worked, or one within the refresh interval did: the first send
    * to a night writes over whatever the hotel has there, and that has to be
    * the rate the engine just priced on, not one read before the hotel changed
-   * it. Held cells are not recorded; the next tick sends them.
+   * it. Held cells are not written to the rate ledger, so they stay nights
+   * MAYA never sent to, and the next tick whose read works sends them. They
+   * are filed as a sending problem of their own (awaiting_rate_read), which
+   * the owner sees once a night has waited an hour.
    */
   holdNeverPushed?: boolean;
   /**
@@ -711,7 +716,15 @@ export async function pushRatesForHotel(
     }
     if (opts.holdNeverPushed && ledgerRowNeverSent(priorRow.get(key))) {
       awaitingBaseRead += 1;
-      run.cells.set(key, { ...cellRef(cell), state: "waiting" });
+      // Held, and on record as held: filed under its own cause, once per
+      // night (`ongoing`, so every tick after the first counts no new try
+      // and writes nothing). The ledger is left alone, so the night stays
+      // one MAYA never sent to. Without the record, a hotel whose rate read
+      // keeps failing from the day it goes live is sent nothing and nobody
+      // is ever told.
+      const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: AWAITING_RATE_READ_REASON });
+      run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
+      run.failures.push(skipFailure(cell, AWAITING_RATE_READ_REASON, failure, nowIso, true));
       continue;
     }
     changed.push(cell);

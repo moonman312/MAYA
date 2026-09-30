@@ -57,6 +57,13 @@ describe("condenseRetries", () => {
     expect(line).toMatchObject({ label: "MAYA held them back", detail: null });
   });
 
+  it("says nights waiting on a read of the hotel's rates are waiting on that, without MAYA's own reason text", () => {
+    const skip = { ...refused(0, "2026-09-20"), phase: "guardrail", outcome: "skipped", http_status: null, message: "awaiting rate read" };
+    expect(condenseRetries([skip, { ...skip, stay_date: "2026-09-21" }], "cloudbeds", "awaiting_rate_read")).toEqual([
+      expect.objectContaining({ label: "Waiting to read your rates in Cloudbeds", detail: null, count: 2, nights: 2 }),
+    ]);
+  });
+
   it("says a night with no rate to send to had nothing to send to, not that MAYA held it back", () => {
     const skip = { ...refused(0, "2026-09-20"), phase: "guardrail", outcome: "skipped", http_status: null, message: "no rate target for room type" };
     expect(condenseRetries([skip], "cloudbeds", "rate_plan_not_updatable")[0]).toMatchObject({ label: "Nothing to send to in Cloudbeds", detail: null });

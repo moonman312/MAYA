@@ -8,6 +8,7 @@ import {
   type RateTargetMap,
 } from "../../../supabase/functions/_shared/pms/rate-push";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Alert } from "../../../supabase/functions/_shared/pms/alerting";
 import { callTouchesColumn, fakeSupabase, missingColumn, missingRelation } from "../engine/fake-supabase.test";
 
 type Row = Record<string, unknown>;
@@ -1271,6 +1272,179 @@ describe("pushRatesForHotel files failures as incidents", () => {
     expect(res).toMatchObject({ pushed: true, failed: 1, incidents: { error: expect.stringContaining("rate_push_incidents") } });
     expect(db.tables.rate_updates).toEqual([expect.objectContaining({ status: "failed" })]);
     errors.mockRestore();
+  });
+});
+
+describe("pushRatesForHotel and nights that wait on a read of the hotel's rates", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const T0 = new Date("2026-08-01T10:00:00Z");
+  const NIGHTS = ["2026-08-01", "2026-08-02", "2026-08-03"];
+
+  /** A hotel that has just gone live: three nights published, nothing ever sent. */
+  function justLive() {
+    return fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: [{ id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", name: "King", ...OPEN_BOUNDS }],
+      published_price: NIGHTS.map((stay_date) => ({
+        hotel_id: "hotel-1",
+        stay_date,
+        room_type_id: "rt-king",
+        price: 210,
+        computed_at: T0.toISOString(),
+      })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: { "CB-KING": "rate-100" } }],
+      rate_updates: [],
+    });
+  }
+  const alerts: Alert[] = [];
+  /** One tick, `minutes` after the hotel went live, with or without a rate read to go on. */
+  async function tick(db: ReturnType<typeof justLive>, minutes: number, rateReadWorked: boolean) {
+    vi.setSystemTime(new Date(T0.getTime() + minutes * 60_000));
+    const { adapter, attempts } = makeAdapter({ "CB-KING": "rate-100" });
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, {
+      ...WIDE,
+      evaluatedAt: new Date().toISOString(),
+      holdNeverPushed: !rateReadWorked,
+    });
+    return { res, attempts };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    alerts.length = 0;
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.test/maya";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        alerts.push(JSON.parse(init.body));
+        return new Response("ok", { status: 200 });
+      }),
+    );
+  });
+  afterEach(() => {
+    delete process.env.MAYA_ALERT_WEBHOOK;
+    vi.unstubAllGlobals();
+  });
+
+  it("files the held nights once, tells nobody for the first hour, then tells the owner and the alert channel", async () => {
+    const db = justLive();
+
+    const first = await tick(db, 0, false);
+
+    expect(first.attempts).toEqual([]);
+    expect(first.res).toMatchObject({ pushed: true, sent: 0, awaitingBaseRead: 3, incidents: { opened: 1, escalated: 0 } });
+    expect(db.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "awaiting_rate_read", admin_only: false, customer_visible_at: null, alerted_at: null, resolved_at: null }),
+    ]);
+    expect(db.tables.rate_push_incident_cells.map((c) => [c.stay_date, c.state])).toEqual(NIGHTS.map((n) => [n, "open"]));
+    expect(db.tables.rate_push_attempts).toHaveLength(3);
+    expect(db.tables.rate_push_attempts[0]).toMatchObject({ phase: "guardrail", outcome: "skipped", message: "awaiting rate read" });
+    // The ledger holds nothing for them: they are still nights MAYA never sent to.
+    expect(db.tables.rate_updates).toEqual([]);
+
+    // Every five minutes for the rest of the hour: still held, nothing more written.
+    for (let minutes = 5; minutes < 60; minutes += 5) {
+      const writesBefore = db.calls.filter((c) => c.op !== "select").length;
+      const again = await tick(db, minutes, false);
+      expect(again.res).toMatchObject({ sent: 0, awaitingBaseRead: 3 });
+      expect(db.calls.filter((c) => c.op !== "select").length).toBe(writesBefore);
+    }
+    expect(db.tables.rate_push_attempts).toHaveLength(3);
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).toBeNull();
+    expect(alerts).toEqual([]);
+
+    // An hour on.
+    const later = await tick(db, 60, false);
+
+    expect(later.res).toMatchObject({ sent: 0, awaitingBaseRead: 3, incidents: { escalated: 1 } });
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ cause: "awaiting_rate_read", resolved_at: null });
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).not.toBeNull();
+    expect(db.tables.rate_push_incidents[0].alerted_at).not.toBeNull();
+    expect(alerts).toEqual([
+      expect.objectContaining({ severity: "critical", key: "rate_push:awaiting_rate_read:hotel-1", hotelId: "hotel-1" }),
+    ]);
+
+    // And it is said once, not every five minutes after.
+    await tick(db, 65, false);
+    await tick(db, 70, false);
+    expect(alerts).toHaveLength(1);
+    expect(db.tables.rate_updates).toEqual([]);
+  });
+
+  it("sends the nights and closes the problem on the first tick whose rate read works", async () => {
+    const db = justLive();
+    await tick(db, 0, false);
+    await tick(db, 60, false);
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).not.toBeNull();
+
+    const sent = await tick(db, 65, true);
+
+    expect(sent.attempts).toHaveLength(3);
+    expect(sent.res).toMatchObject({ sent: 3, incidents: { resolved: 1 } });
+    expect(sent.res).not.toHaveProperty("awaitingBaseRead");
+    expect(db.tables.rate_push_incidents[0]).toMatchObject({ resolution: "landed" });
+    expect(db.tables.rate_push_incidents[0].resolved_at).not.toBeNull();
+    expect(db.tables.rate_push_incident_cells.every((c) => c.state === "landed")).toBe(true);
+    expect(db.tables.rate_updates.map((r) => [r.stay_date, r.status, r.price])).toEqual(NIGHTS.map((n) => [n, "sent", 210]));
+  });
+
+  it("says nothing to the owner about a read that failed once and worked five minutes later", async () => {
+    const db = justLive();
+
+    await tick(db, 0, false);
+    const sent = await tick(db, 5, true);
+
+    expect(sent.res).toMatchObject({ sent: 3, incidents: { resolved: 1 } });
+    expect(db.tables.rate_push_incidents).toEqual([
+      expect.objectContaining({ cause: "awaiting_rate_read", customer_visible_at: null, alerted_at: null, resolution: "landed" }),
+    ]);
+    expect(alerts).toEqual([]);
+  });
+
+  it("counts the hour from when a night was first held, so a night that joins later does not reset it", async () => {
+    const db = justLive();
+    await tick(db, 0, false);
+    // A day's new night enters the window half an hour in.
+    db.tables.published_price.push({
+      hotel_id: "hotel-1",
+      stay_date: "2026-08-04",
+      room_type_id: "rt-king",
+      price: 215,
+      computed_at: new Date(T0.getTime() + 30 * 60_000).toISOString(),
+    });
+    await tick(db, 30, false);
+    expect(db.tables.rate_push_incident_cells).toHaveLength(4);
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).toBeNull();
+
+    await tick(db, 60, false);
+
+    expect(db.tables.rate_push_incidents[0].customer_visible_at).not.toBeNull();
+  });
+
+  it("keeps sending the nights it has sent to before, and files only the ones it holds", async () => {
+    const db = justLive();
+    db.tables.rate_updates.push({
+      hotel_id: "hotel-1",
+      pms_type: "cloudbeds",
+      stay_date: "2026-08-01",
+      room_type_id: "rt-king",
+      external_room_type_id: "CB-KING",
+      external_rate_id: "rate-100",
+      price: 200,
+      status: "sent",
+      attempts: 1,
+      pushed_at: new Date(T0.getTime() - 3_600_000).toISOString(),
+    });
+
+    const res = await tick(db, 0, false);
+
+    expect(res.attempts).toHaveLength(1);
+    expect(res.res).toMatchObject({ sent: 1, awaitingBaseRead: 2 });
+    expect(db.tables.rate_push_incident_cells.map((c) => c.stay_date)).toEqual(["2026-08-02", "2026-08-03"]);
   });
 });
 

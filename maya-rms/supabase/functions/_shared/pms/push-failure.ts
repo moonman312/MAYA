@@ -62,6 +62,7 @@ export const PUSH_CAUSES = [
   "unknown",
   "zero_rate_unsupported",
   "pms_rates_shared_ratio",
+  "awaiting_rate_read",
 ] as const;
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
@@ -94,6 +95,22 @@ export const SEND_IN_PROGRESS_MESSAGE = "send in progress";
  * price (pms-edits.ts). A contract like the ones above.
  */
 export const SHARED_RATIO_REASON = "pms edits: shared ratio";
+
+/**
+ * The attempt message for nights MAYA has never sent to that the push held
+ * because the hotel's own rates could not be read first (rate-push.ts
+ * holdNeverPushed). Nothing is written to the rate ledger for them: the night
+ * stays one MAYA never sent to. A contract like the ones above.
+ */
+export const AWAITING_RATE_READ_REASON = "awaiting rate read";
+
+/**
+ * How long nights wait on a read of the hotel's rates before the owner is
+ * told. One failed read is put right by the next, minutes later, and says
+ * nothing to anyone. An hour of them is a hotel that went live and is being
+ * sent nothing.
+ */
+export const RATE_READ_VISIBLE_AFTER_MS = 60 * 60_000;
 
 /**
  * Causes the base rate refresh files, not the push. The push never sees
@@ -143,6 +160,12 @@ export type PushFailure = {
    * once instead of after a day.
    */
   clearedByReconnect: boolean;
+  /**
+   * The owner is told once a night has been open under this cause this long,
+   * however few tries it has had. Null for the causes that go by the usual
+   * rule (push-incidents.ts: critical at once, or two hours over five tries).
+   */
+  visibleAfterMs: number | null;
   /** The root cause for the owner, with generic wording for the rooms. */
   customerSentence: string;
   /** The root cause for an admin reading the analytics panel or an alert. */
@@ -167,6 +190,7 @@ type CatalogEntry = {
   mayaBug?: boolean;
   dropTargets?: boolean;
   clearedByReconnect?: boolean;
+  visibleAfterMs?: number;
   sentence: (w: Words) => string;
   action: (w: Words) => string | null;
   admin: string;
@@ -299,6 +323,24 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     admin:
       "The base rate refresh found nearly every night MAYA sent to since the hotel went live quoting one ratio of the price sent: the PMS reporting prices through a rule of its own (tax included, a markup), or the hotel changing most of the window by one percentage. Those nights were not taken as the hotel's changes, and MAYA's next price for any of them writes over what the PMS has. Check the PMS. Filed by the refresh: open while a read finds such nights, closed by the first that finds none.",
   },
+  // Nothing was refused and nothing is wrong with the price. The first price
+  // MAYA sends to a night writes over the hotel's own rate, so it waits until
+  // that rate has been read, and the read is what is failing: Cloudbeds not
+  // answering getRatePlans, or answering without a base rate for any room
+  // type. Until it works a hotel that went live is sent nothing, which is
+  // why the owner hears about it after an hour rather than never.
+  awaiting_rate_read: {
+    known: true,
+    severity: "transient",
+    retry: "recheck",
+    visibleAfterMs: RATE_READ_VISIBLE_AFTER_MS,
+    sentence: (w) =>
+      `MAYA couldn't read your current rates in ${w.pms}, so its first prices for ${w.rooms} haven't been sent`,
+    action: (w) =>
+      `Check that ${thisOrThese(w)} ${w.plural ? "have" : "has"} a base rate in ${w.pms} with rates loaded for the nights ahead. MAYA sends its prices once it has read them.`,
+    admin:
+      "Nights MAYA has never sent to, held because the tick's read of the hotel's own rates did not work and none within the refresh interval did (failed, out of time, no rate targets, or only checked for gaps). Nothing is in the rate ledger for them. Open while the push holds them, closed as landed by the first send. Shown to the owner and alerted once a night has waited an hour. Check the base rate refresh in the sync log (calendar) and getRatePlans in the request log.",
+  },
   unknown: {
     known: false,
     severity: "transient",
@@ -335,9 +377,12 @@ const GUARDRAIL_CAUSE: Record<string, PushCause> = {
   [GUARDRAIL.zeroRateUnsupported]: "zero_rate_unsupported",
 };
 
-/** A skip reason that means a cell is not reaching the PMS: a guardrail code or no rate target. */
+/** A skip reason that means a cell is not reaching the PMS: a guardrail code, no rate target, or a rate read it waits on. */
 export function isIncidentSkipReason(reason: unknown): boolean {
-  return typeof reason === "string" && (reason === NO_RATE_TARGET_REASON || reason in GUARDRAIL_CAUSE);
+  return (
+    typeof reason === "string" &&
+    (reason === NO_RATE_TARGET_REASON || reason === AWAITING_RATE_READ_REASON || reason in GUARDRAIL_CAUSE)
+  );
 }
 
 /*
@@ -451,6 +496,7 @@ function causeOf(input: PushFailureInput): PushCause {
       return "no_base_rate";
     }
     if (reason === SHARED_RATIO_REASON) return "pms_rates_shared_ratio";
+    if (reason === AWAITING_RATE_READ_REASON) return "awaiting_rate_read";
     return GUARDRAIL_CAUSE[reason] ?? "unknown";
   }
 
@@ -549,6 +595,7 @@ export function classifyPushFailure(input: PushFailureInput): PushFailure {
     mayaBug: entry.mayaBug === true,
     dropTargets: entry.dropTargets === true,
     clearedByReconnect: entry.clearedByReconnect === true,
+    visibleAfterMs: entry.visibleAfterMs ?? null,
     customerSentence: entry.sentence(wordsFor(input.pms)),
     adminDescription: entry.admin,
   };
@@ -561,6 +608,7 @@ export function causeFacts(cause: string): {
   adminOnly: boolean;
   mayaBug: boolean;
   alertedElsewhere: boolean;
+  visibleAfterMs: number | null;
   adminDescription: string;
 } {
   const code = (PUSH_CAUSES as readonly string[]).includes(cause) ? (cause as PushCause) : "unknown";
@@ -571,6 +619,7 @@ export function causeFacts(cause: string): {
     adminOnly: entry.adminOnly === true,
     mayaBug: entry.mayaBug === true,
     alertedElsewhere: entry.alertedElsewhere === true,
+    visibleAfterMs: entry.visibleAfterMs ?? null,
     adminDescription: entry.admin,
   };
 }

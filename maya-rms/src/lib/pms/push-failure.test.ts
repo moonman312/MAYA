@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  AWAITING_RATE_READ_REASON,
   causeFacts,
   classifyPushFailure,
   describePushCause,
@@ -192,6 +193,35 @@ describe("classifyPushFailure", () => {
     expect(gap("not_in_catalog")).toMatchObject({ cause: "rate_not_found", severity: "critical" });
     expect(isIncidentSkipReason(NO_RATE_TARGET_REASON)).toBe(true);
     expect(isIncidentSkipReason("something else")).toBe(false);
+  });
+
+  it("files nights that wait on a read of the hotel's rates as something the owner hears about after an hour", () => {
+    const f = classifyPushFailure({ pms: "cloudbeds", phase: "guardrail", message: AWAITING_RATE_READ_REASON });
+    expect(f).toMatchObject({
+      cause: "awaiting_rate_read",
+      known: true,
+      // Not critical: one failed read must not reach the owner.
+      severity: "transient",
+      retry: "recheck",
+      adminOnly: false,
+      alertedElsewhere: false,
+      mayaBug: false,
+      dropTargets: false,
+      visibleAfterMs: 60 * 60_000,
+    });
+    expect(isIncidentSkipReason(AWAITING_RATE_READ_REASON)).toBe(true);
+    // Filed by the push, which holds the nights and later sends them.
+    expect(REFRESH_CAUSES).not.toContain("awaiting_rate_read");
+    // No other cause goes by the clock alone.
+    for (const cause of PUSH_CAUSES) {
+      if (cause !== "awaiting_rate_read") expect(causeFacts(cause).visibleAfterMs).toBeNull();
+    }
+    expect(describePushCause("awaiting_rate_read", "cloudbeds", ["Deluxe King"])).toEqual({
+      title: "MAYA couldn't read your current rates in Cloudbeds, so its first prices for Deluxe King haven't been sent",
+      action:
+        "Check that this room type has a base rate in Cloudbeds with rates loaded for the nights ahead. MAYA sends its prices once it has read them.",
+    });
+    expect(describePushCause("awaiting_rate_read", "think", ["A", "B", "C"]).action).toContain("these room types have a base rate in Think Reservations");
   });
 
   it("knows every cause it can produce", () => {

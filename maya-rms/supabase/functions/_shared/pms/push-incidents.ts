@@ -15,8 +15,11 @@
  *
  * Who hears about it. An owner sees an incident, and MAYA raises a critical
  * alert, only when it needs a person: its cause is known and critical, or a
- * cell has failed for two hours over at least five tries. Anything that lands
- * on a retry before then stays in the admin analytics and nowhere else.
+ * cell has failed for two hours over at least five tries, or has been open
+ * for as long as its cause allows (push-failure.ts visibleAfterMs: nights
+ * waiting an hour on a read of the hotel's rates, which are held, not tried).
+ * Anything that lands before then stays in the admin analytics and nowhere
+ * else.
  * Guardrail holds are MAYA's own decisions and are never shown to owners; the
  * ones that mean MAYA published a bad row raise a warning.
  *
@@ -574,7 +577,9 @@ async function record(
       const stuck = open.some(
         (c) => c.attempts >= ESCALATE_AFTER_ATTEMPTS && Date.parse(c.first_attempt_at) <= run.nowMs - ESCALATE_AFTER_MS,
       );
-      if (critical || stuck) {
+      const waitedMs = facts.visibleAfterMs;
+      const waited = waitedMs != null && open.some((c) => Date.parse(c.first_attempt_at) <= run.nowMs - waitedMs);
+      if (critical || stuck || waited) {
         w.row.customer_visible_at = now;
         w.dirty = true;
         summary.escalated += 1;
