@@ -12,6 +12,9 @@ const fake = vi.hoisted(() => ({
   access: null as unknown,
   accessError: null as { code?: string; message: string } | null,
   isAdmin: false as unknown,
+  staffRole: null as unknown,
+  staffRoleError: null as { code?: string; message: string } | null,
+  claimsThrows: false,
   calls: [] as string[],
 }));
 
@@ -21,19 +24,26 @@ vi.mock("@/utils/supabase/shared", () => ({ isSupabaseConfigured: () => true }))
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: {
-      getClaims: async () => (fake.calls.push("getClaims"), { data: fake.claims ? { claims: fake.claims } : null, error: fake.claims ? null : { message: "no session" } }),
+      getClaims: async () => {
+        fake.calls.push("getClaims");
+        if (fake.claimsThrows) throw new Error("JWT has expired");
+        return { data: fake.claims ? { claims: fake.claims } : null, error: fake.claims ? null : { message: "no session" } };
+      },
       getUser: async () => (fake.calls.push("getUser"), { data: { user: fake.user } }),
     },
     rpc: async (name: string) => {
       fake.calls.push(name);
       if (name === "staff_access") return { data: fake.access, error: fake.accessError };
       if (name === "is_platform_admin") return { data: fake.isAdmin, error: null };
+      if (name === "staff_role") return { data: fake.staffRole, error: fake.staffRoleError };
       return { data: null, error: { message: `unexpected ${name}` } };
     },
   }),
 }));
 
-const { getStaffSession, parseStaffAccess, requireStaffSection, staffCanSee, STAFF_MFA_REQUIRED } = await import("./staff-session");
+const { getStaffSession, loadStaffRole, parseStaffAccess, requireStaffSection, staffCanSee, STAFF_MFA_REQUIRED } = await import(
+  "./staff-session"
+);
 const { STAFF_SECTIONS } = await import("./staff-sections");
 
 const DEV_SECTIONS = ["docs_questions", "home", "hotel_team", "hotels", "pilot_health", "pms_access", "users"];
@@ -44,6 +54,9 @@ beforeEach(() => {
   fake.access = null;
   fake.accessError = null;
   fake.isAdmin = false;
+  fake.staffRole = null;
+  fake.staffRoleError = null;
+  fake.claimsThrows = false;
   fake.calls = [];
 });
 
@@ -77,6 +90,12 @@ describe("getStaffSession", () => {
     expect(await getStaffSession()).toEqual({ ok: false, reason: "not_staff", userId: "u1", email: "dev@example.com" });
     fake.claims = null;
     fake.calls = [];
+    expect(await getStaffSession()).toEqual({ ok: false, reason: "signed_out" });
+    expect(fake.calls).toEqual(["getClaims"]);
+  });
+
+  it("says signed out when the token is broken, and never asks the Auth server", async () => {
+    fake.claimsThrows = true;
     expect(await getStaffSession()).toEqual({ ok: false, reason: "signed_out" });
     expect(fake.calls).toEqual(["getClaims"]);
   });
@@ -149,5 +168,31 @@ describe("requireStaffSection", () => {
     fake.access = { role: null, aal: "aal2", mfa_required: false, sections: [] };
     const stranger = await requireStaffSection({} as never, "hotels");
     expect(!stranger.ok && stranger.response.status).toBe(403);
+  });
+});
+
+describe("loadStaffRole", () => {
+  const ssr = async () => (await import("@/utils/supabase/server")).createClient({} as never);
+
+  it("is the database's answer: a staff role, or null for anything else", async () => {
+    for (const role of ["platform_admin", "developer", "sales"]) {
+      fake.staffRole = role;
+      expect(await loadStaffRole(await ssr(), "u1")).toBe(role);
+    }
+    for (const other of [null, "platform_support", "owner", 7]) {
+      fake.staffRole = other;
+      expect(await loadStaffRole(await ssr(), "u1")).toBeNull();
+    }
+  });
+
+  it("falls back to is_platform_admin on a database the migration has not reached, and to nothing on any other error", async () => {
+    fake.staffRoleError = { code: "PGRST202", message: "Could not find the function public.staff_role" };
+    fake.isAdmin = true;
+    expect(await loadStaffRole(await ssr(), "u1")).toBe("platform_admin");
+    fake.isAdmin = false;
+    expect(await loadStaffRole(await ssr(), "u1")).toBeNull();
+    fake.staffRoleError = { code: "42501", message: "boom" };
+    fake.isAdmin = true;
+    expect(await loadStaffRole(await ssr(), "u1")).toBeNull();
   });
 });

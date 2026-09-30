@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { businessTotals, loadBusinessNumbers } from "./business-numbers";
+import { businessByMonth, businessTotals, loadBusinessNumbers } from "./business-numbers";
 
 function client(result: { data: unknown; error: { message: string } | null }, calls: unknown[] = []): SupabaseClient {
   return { rpc: async (name: string, args: unknown) => (calls.push([name, args]), result) } as unknown as SupabaseClient;
@@ -52,5 +52,20 @@ describe("businessTotals", () => {
       ]),
     ).toEqual({ roomsSold: 6, roomsAvailable: 22, occupancyPct: 27.3, roomRevenue: 860, adr: 135 });
     expect(businessTotals([])).toEqual({ roomsSold: 0, roomsAvailable: 0, occupancyPct: null, roomRevenue: 0, adr: null });
+  });
+});
+
+describe("businessByMonth", () => {
+  it("adds the nights up month by month, oldest first", () => {
+    const months = businessByMonth([
+      { stayDate: "2026-11-01", roomsSold: 5, roomsAvailable: 10, occupancyPct: 50, roomRevenue: 500, adr: 100 },
+      { stayDate: "2026-10-30", roomsSold: 4, roomsAvailable: 10, occupancyPct: 40, roomRevenue: 660, adr: 152.5 },
+      { stayDate: "2026-10-31", roomsSold: 2, roomsAvailable: 12, occupancyPct: 16.7, roomRevenue: 200, adr: 100 },
+    ]);
+    expect(months).toEqual([
+      { month: "2026-10", totals: { roomsSold: 6, roomsAvailable: 22, occupancyPct: 27.3, roomRevenue: 860, adr: 135 } },
+      { month: "2026-11", totals: { roomsSold: 5, roomsAvailable: 10, occupancyPct: 50, roomRevenue: 500, adr: 100 } },
+    ]);
+    expect(businessByMonth([])).toEqual([]);
   });
 });
