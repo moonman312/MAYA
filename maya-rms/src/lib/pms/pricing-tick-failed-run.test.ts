@@ -140,7 +140,7 @@ function hotel(rules: FakeRow[], extra: Record<string, FakeRow[]> = {}) {
     priceOf: (night: string) => Number(fake.tables.published_price.find((p) => p.stay_date === night && p.room_type_id === RT)?.price),
     marked: () => (fake.tables.pricing_dirty_nights ?? []).map((d) => String(d.stay_date)).sort(),
     state: () => ({ ...((fake.tables.hotel_pricing_state ?? [])[0] ?? {}) }),
-    async tick(engine: Engine, atMs: number) {
+    async tick(engine: Engine, atMs: number, extra: { passBudget?: { remaining: number } } = {}) {
       vi.setSystemTime(new Date(atMs));
       return runPricingTick(
         fake.client,
@@ -155,6 +155,7 @@ function hotel(rules: FakeRow[], extra: Record<string, FakeRow[]> = {}) {
           read: "ok",
           cadence: "daily",
           cadenceConfig: WHOLE_PASS,
+          ...extra,
         },
         {
           evaluate: engine.evaluateHotel,
@@ -289,22 +290,27 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     expect(w.sends.flat().filter((s) => s.stayDate === night).map((s) => s.price)).toEqual([150, 180]);
   }, 120_000);
 
-  it("while every run keeps failing, the alert channel is told once no run has finished for fifteen minutes", async () => {
+  it("while every run keeps failing, the alert channel is told once no run has priced anything for fifteen minutes", async () => {
     const night = addDays(LOCAL0, 5);
     const w = hotel([rule("b1000000-0000-4000-8000-000000000001", "Any booking", { occupancy_operator: "gt", occupancy_threshold: 0.05 }, 10)]);
     await w.tick(engine, T0);
     await w.tick(engine, T0 + 5 * MIN);
     markNights(w.tables, H, [night], "booking", iso(T0 + 6 * MIN));
 
+    // The last run that priced anything was the first, at T0; the tick at
+    // T0 + 5 had nothing to price (its heartbeat is not a run that priced).
+    // Fifteen minutes on from T0 is T0 + 15.
+    const lastPriced = w.tables.evaluation_run_log.filter((r) => r.run_kind !== "idle").map((r) => Date.parse(String(r.evaluated_at)));
+    expect(Math.max(...lastPriced)).toBe(T0);
+    expect(Date.parse(String(w.state().last_ok_run_at))).toBe(T0 + 5 * MIN);
     w.fail((c) => c.table === "manual_price");
     const results = [];
     for (const minutes of [10, 15, 20, 25]) results.push(await w.tick(engine, T0 + minutes * MIN));
     expect(results.map((r) => "error" in r.evaluate)).toEqual([true, true, true, true]);
-    // The last run that finished was at T0 + 5: fifteen minutes on is T0 + 20.
-    expect(results.map((r) => r.pricingAlert ?? null)).toEqual([null, null, { sent: true }, { sent: true }]);
-    expect(w.alerts).toHaveLength(2);
+    expect(results.map((r) => r.pricingAlert ?? null)).toEqual([null, { sent: true }, { sent: true }, { sent: true }]);
+    expect(w.alerts).toHaveLength(3);
     expect(w.alerts[0]).toMatchObject({ severity: "critical", key: `pricing-failing:${H}`, title: "Pricing keeps failing", hotelId: H });
-    expect(w.alerts[0].detail).toContain(`No pricing run has finished since ${iso(T0 + 5 * MIN)} (15 minutes).`);
+    expect(w.alerts[0].detail).toContain(`No pricing run has priced anything since ${iso(T0)} (15 minutes).`);
     expect(w.alerts[0].detail).toContain("Failed to load typed prices");
     expect(w.marked()).toEqual([night]);
 
@@ -312,8 +318,50 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     const healed = await w.tick(engine, T0 + 30 * MIN);
     expect(healed.evaluate).not.toHaveProperty("error");
     expect(healed).not.toHaveProperty("pricingAlert");
-    expect(w.alerts).toHaveLength(2);
+    expect(w.alerts).toHaveLength(3);
     expect(w.marked()).toEqual([]);
+  }, 120_000);
+});
+
+describe.each(ENGINES)("$name: the alert clock and ticks with nothing to price", (engine) => {
+  it("is not put off by idle ticks: a pass that fails whenever the fleet's budget reaches the hotel, and idles when it does not", async () => {
+    // A fleet shares its daily pass budget (MAYA_TICK_PASS_NIGHTS). A hotel
+    // that gets budget on every other tick prices its pass chunk then, and
+    // has nothing to do in between. When the chunk fails every time, the
+    // idle ticks in between still write their heartbeat and move the work
+    // list's last_ok_run_at, so a clock built on that never reaches fifteen
+    // minutes, although no night has been priced since yesterday.
+    const w = hotel([rule("b1000000-0000-4000-8000-000000000001", "Last minute", { dta_operator: "lt", dta_threshold_days: 6 }, 20)]);
+    await w.tick(engine, T0);
+    await w.tick(engine, T0 + 5 * MIN);
+    const priced = () => Math.max(...w.tables.evaluation_run_log.filter((r) => r.run_kind !== "idle").map((r) => Date.parse(String(r.evaluated_at))));
+    const lastPricedAt = priced();
+
+    // Ten past midnight in New York: the new day's pass is due, and its room types read fails.
+    const t1 = Date.parse(`${addDays(LOCAL0, 1)}T04:10:00Z`);
+    w.fail((c) => c.table === "room_types" && c.columns.includes("total_rooms"));
+    const results = [];
+    for (const [i, minutes] of [0, 5, 10, 15, 20, 25].entries()) {
+      results.push(await w.tick(engine, t1 + minutes * MIN, { passBudget: { remaining: i % 2 === 0 ? 1000 : 0 } }));
+    }
+    expect(results.map((r) => ("error" in r.evaluate ? "failed" : "idle" in r.evaluate ? "idle" : "priced"))).toEqual([
+      "failed", "idle", "failed", "idle", "failed", "idle",
+    ]);
+    // The idle ticks moved the work list's word and wrote their heartbeats...
+    expect(Date.parse(String(w.state().last_ok_run_at))).toBe(t1 + 25 * MIN);
+    expect(w.tables.evaluation_run_log.filter((r) => r.run_kind === "idle" && Date.parse(String(r.evaluated_at)) >= t1)).toHaveLength(3);
+    // ...but nothing has been priced since yesterday, and every failed tick says so.
+    expect(priced()).toBe(lastPricedAt);
+    expect(results.map((r) => r.pricingAlert ?? null)).toEqual([{ sent: true }, null, { sent: true }, null, { sent: true }, null]);
+    expect(w.alerts[0].detail).toContain(`No pricing run has priced anything since ${iso(lastPricedAt)}`);
+    expect(w.alerts[0].detail).toContain("Failed to load room types");
+
+    // A tick that prices again ends it.
+    w.heal();
+    const healed = await w.tick(engine, t1 + 30 * MIN, { passBudget: { remaining: 1000 } });
+    expect(healed.evaluate).not.toHaveProperty("error");
+    expect(healed).not.toHaveProperty("pricingAlert");
+    expect(priced()).toBe(t1 + 30 * MIN);
   }, 120_000);
 });
 
@@ -324,20 +372,52 @@ describe("alertPricingFailing", () => {
     return { alerts, alert: async (_s: SupabaseClient, a: Alert) => (alerts.push(a), { sent: true }) };
   };
 
-  it("says nothing while a run finished in the last fifteen minutes", async () => {
-    const { client } = fakeSupabase({});
-    const c = collect();
-    const told = await alertPricingFailing(client, H, failure, {
-      lastOkRunAt: iso(T0 - PRICING_FAILING_ALERT_AFTER_MS + 1),
-      nowMs: T0,
-      mayStart: true,
-      alert: c.alert,
+  it("says nothing while a run priced nights in the last fifteen minutes", async () => {
+    const { client } = fakeSupabase({
+      evaluation_run_log: [{ hotel_id: H, evaluated_at: iso(T0 - PRICING_FAILING_ALERT_AFTER_MS + 1), run_kind: "nights" }],
     });
+    const c = collect();
+    const told = await alertPricingFailing(client, H, failure, { lastOkRunAt: iso(T0 - 60 * MIN), nowMs: T0, mayStart: true, alert: c.alert });
     expect(told).toBeNull();
     expect(c.alerts).toEqual([]);
   });
 
-  it("without the work list's word, goes by the newest run on the run log", async () => {
+  it("goes by the newest run that priced nights, not by an idle tick's heartbeat or the work list's word", async () => {
+    // Priced an hour ago; idle heartbeats since, the last a minute ago, which
+    // also moved the work list's last_ok_run_at.
+    const { client } = fakeSupabase({
+      evaluation_run_log: [
+        { hotel_id: H, evaluated_at: iso(T0 - 60 * MIN), run_kind: "window" },
+        { hotel_id: H, evaluated_at: iso(T0 - 6 * MIN), run_kind: "idle" },
+        { hotel_id: H, evaluated_at: iso(T0 - 1 * MIN), run_kind: "idle" },
+        { hotel_id: "other", evaluated_at: iso(T0), run_kind: "nights" },
+      ],
+    });
+    const c = collect();
+    expect(await alertPricingFailing(client, H, failure, { lastOkRunAt: iso(T0 - 1 * MIN), nowMs: T0, mayStart: true, alert: c.alert })).toEqual({ sent: true });
+    expect(c.alerts[0].detail).toContain(`No pricing run has priced anything since ${iso(T0 - 60 * MIN)} (60 minutes)`);
+    // A typed price's own run counts: it priced nights.
+    const saved = fakeSupabase({
+      evaluation_run_log: [
+        { hotel_id: H, evaluated_at: iso(T0 - 60 * MIN), run_kind: "window" },
+        { hotel_id: H, evaluated_at: iso(T0 - 3 * MIN), run_kind: "save" },
+      ],
+    });
+    const d = collect();
+    expect(await alertPricingFailing(saved.client, H, failure, { lastOkRunAt: null, nowMs: T0, mayStart: true, alert: d.alert })).toBeNull();
+  });
+
+  it("before the cadence migration, when the run log has no kinds, goes by its newest run", async () => {
+    const withoutKinds = fakeSupabase(
+      { evaluation_run_log: [{ hotel_id: H, evaluated_at: iso(T0 - 60 * MIN) }, { hotel_id: H, evaluated_at: iso(T0 - 5 * MIN) }] },
+      { fault: (c) => (c.table === "evaluation_run_log" && c.filters.some((f) => String(f.value).includes("run_kind")) ? { code: "42703", message: "column evaluation_run_log.run_kind does not exist" } : null) },
+    );
+    const c = collect();
+    expect(await alertPricingFailing(withoutKinds.client, H, failure, { lastOkRunAt: null, nowMs: T0, mayStart: true, alert: c.alert })).toBeNull();
+    expect(withoutKinds.calls.filter((call) => call.table === "evaluation_run_log")).toHaveLength(2);
+  });
+
+  it("goes by the newest run on the run log whether or not the work list said anything", async () => {
     const recent = fakeSupabase({ evaluation_run_log: [{ hotel_id: H, evaluated_at: iso(T0 - 60 * MIN) }, { hotel_id: H, evaluated_at: iso(T0 - 5 * MIN) }, { hotel_id: "other", evaluated_at: iso(T0) }] });
     const a = collect();
     expect(await alertPricingFailing(recent.client, H, failure, { lastOkRunAt: undefined, nowMs: T0, mayStart: true, alert: a.alert })).toBeNull();
@@ -352,7 +432,7 @@ describe("alertPricingFailing", () => {
     const never = fakeSupabase({ evaluation_run_log: [] });
     const a = collect();
     expect(await alertPricingFailing(never.client, H, failure, { lastOkRunAt: null, nowMs: T0, mayStart: true, alert: a.alert })).toEqual({ sent: true });
-    expect(a.alerts[0].detail).toContain("No pricing run has finished for this hotel.");
+    expect(a.alerts[0].detail).toContain("No pricing run has priced anything for this hotel.");
 
     const down = fakeSupabase({}, { fault: () => TIMEOUT });
     const b = collect();

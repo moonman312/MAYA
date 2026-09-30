@@ -50,13 +50,15 @@
  * before it publishes when a read it prices from fails (anything but a table,
  * column or function no migration has created yet), its nights stay marked
  * and the pass stays where it was, so the next tick prices them again, and
- * the push holds them meanwhile. Once no run of the hotel has finished for
- * PRICING_FAILING_ALERT_AFTER_MS and this tick's failed too, the alert
- * channel is told (alertPricingFailing), at most once per raiseAlert's window.
+ * the push holds them meanwhile. Once no run of the hotel has priced anything
+ * for PRICING_FAILING_ALERT_AFTER_MS (a tick with nothing to price does not
+ * count) and this tick's failed too, the alert channel is told
+ * (alertPricingFailing), at most once per raiseAlert's window.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CadenceReport, EvaluateOptions } from "../engine/evaluate.ts";
+import { isMissingColumnError } from "../engine/snapshots.ts";
 import { hotelDayStartIso } from "../engine/timezone.ts";
 import { type Alert, raiseAlert } from "./alerting.ts";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
@@ -631,22 +633,34 @@ function pricingFailure(evaluate: unknown, recordError: string | undefined): Pri
 
 /**
  * Tell the alert channel that a hotel's pricing keeps failing: this tick's
- * run failed, and no run of the hotel has finished for
- * PRICING_FAILING_ALERT_AFTER_MS (or ever). The last run that finished is
- * the work list's (hotel_pricing_state.last_ok_run_at, which every recorded
- * run moves, idle ones included); where the list has none, or was not read,
- * the newest row of the run log, unless it is the record that failed (the
- * run log has the engine's own heartbeat, which says nothing about the
- * record). When neither has one, or neither can be read, nobody can say how
- * long it has been and the alert goes out: a database that answers nothing
- * is the failure that lasts. Never throws. Returns null when it is too soon
- * to say.
+ * run failed, and no run of the hotel has priced anything for
+ * PRICING_FAILING_ALERT_AFTER_MS (or ever).
+ *
+ * The clock for a run that stopped is the newest run on the run log that
+ * priced nights (run_kind window, nights or save, or a row from before the
+ * kinds). Not the work list's last_ok_run_at: an idle tick's heartbeat moves
+ * that too, and a hotel whose pass chunk fails on every tick that has pass
+ * budget and idles on the ticks that have none (the budget is shared across
+ * a fleet) would keep a fresh "ok" run for ever while no night is priced.
+ * The idle heartbeat's own run-log row (run_kind idle) is left out for the
+ * same reason. When the run log has no such row, or cannot be read, nobody
+ * can say how long it has been and the alert goes out: a database that
+ * answers nothing is the failure that lasts.
+ *
+ * The clock for a run that priced but could not be recorded is the work
+ * list's last_ok_run_at (the record is what moves it): the run log has this
+ * run's own heartbeat, which says nothing about the record. An idle tick's
+ * record moves it too, so a record that fails only for runs with nights is
+ * told late; a pricing_run_done that fails for every call stops the clock.
+ *
+ * Never throws. Returns null when it is too soon to say.
  */
 export async function alertPricingFailing(
   supabase: SupabaseClient,
   hotelId: string,
   failure: PricingFailure,
   opts: {
+    /** hotel_pricing_state.last_ok_run_at as the work list read it; undefined when not read. */
     lastOkRunAt: string | null | undefined;
     nowMs: number;
     /** Whether the alert's timeout still fits in the tick. */
@@ -655,12 +669,12 @@ export async function alertPricingFailing(
   },
 ): Promise<{ sent: boolean; reason?: string } | null> {
   try {
-    const lastOk = opts.lastOkRunAt || (failure.step === "evaluate" ? await lastRunLogged(supabase, hotelId) : null);
+    const lastOk = failure.step === "evaluate" ? await lastPricedRunLogged(supabase, hotelId) : opts.lastOkRunAt ?? null;
     const lastOkMs = lastOk ? Date.parse(lastOk) : NaN;
     if (Number.isFinite(lastOkMs) && opts.nowMs - lastOkMs < PRICING_FAILING_ALERT_AFTER_MS) return null;
     const since = Number.isFinite(lastOkMs)
-      ? `No pricing run has finished since ${new Date(lastOkMs).toISOString()} (${Math.round((opts.nowMs - lastOkMs) / 60_000)} minutes).`
-      : "No pricing run has finished for this hotel.";
+      ? `No pricing run has priced anything since ${new Date(lastOkMs).toISOString()} (${Math.round((opts.nowMs - lastOkMs) / 60_000)} minutes).`
+      : "No pricing run has priced anything for this hotel.";
     const what =
       failure.step === "evaluate"
         ? "The latest run stopped before it published anything, so no new price is published or sent until a run finishes."
@@ -692,15 +706,20 @@ export async function alertPricingFailing(
   }
 }
 
-/** The newest run on the hotel's run log (a heartbeat is written by every run that finishes), or null. */
-async function lastRunLogged(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("evaluation_run_log")
-    .select("evaluated_at")
-    .eq("hotel_id", hotelId)
-    .order("evaluated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+/**
+ * The newest run on the hotel's run log that priced nights, or null. Every
+ * run that finishes writes its heartbeat there with its kind; an idle tick's
+ * (run_kind idle) priced nothing and is left out. A row from before the
+ * kinds (run_kind null) was a run over the whole window.
+ */
+async function lastPricedRunLogged(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
+  const newest = (withKinds: boolean) => {
+    const q = supabase.from("evaluation_run_log").select("evaluated_at").eq("hotel_id", hotelId);
+    return (withKinds ? q.or("run_kind.is.null,run_kind.neq.idle") : q).order("evaluated_at", { ascending: false }).limit(1).maybeSingle();
+  };
+  let { data, error } = await newest(true);
+  // Before the cadence migration there is no kind, and no idle heartbeat either.
+  if (error && isMissingColumnError(error)) ({ data, error } = await newest(false));
   if (error || !data?.evaluated_at) return null;
   return String(data.evaluated_at);
 }
