@@ -325,6 +325,54 @@ newest 200 unknown incidents in the window, said in the most incidents first,
 so the classifier can be taught them. Below, every hotel with an incident open
 right now, whatever the window.
 
+### Revenue: right now and over the window (`analytics_now`, `analytics_range`)
+
+The top of the panel (the money tiles, the MRR and properties charts, the
+signup funnel, revenue by size, the attention list and the new, won back and
+churned lists). Both are in `99_supabase_migration_command_center_speed_v1.sql`
+and check the caller like every `analytics_*` function.
+
+- `analytics_now(include_test)`: every Stripe-plan subscription of a counted
+  property with its status, interval, billed rooms, code discount and whether
+  the property is simulating, plus the attention lists. It returns facts, not
+  prices: the app prices them with `lib/billing/tiers.ts`, the brackets pushed
+  to Stripe, so there is one copy of the brackets. **Paying** = active or past
+  due; a trial is counted apart, as what it would bring in. Live vs simulating
+  is among properties still served (trialing, active, past due); a property
+  with no settings row counts as live. **Needs attention**: a served
+  subscription whose card failed its re-check (internal plans included),
+  billing fewer rooms than it runs, a PMS connection not connected, and a
+  served Stripe plan with no engine run in 24 hours.
+- `analytics_range(from, to, include_test)`: one point per snapshot day in the
+  window (paying count and MRR, trialing count) from `hotel_metrics_daily`, and
+  the lifecycle events judged on each property's consecutive snapshot days,
+  including the days before the window: first paying day ever = **new**,
+  paying after a day that wasn't, having paid before = **won back**, not paying
+  straight after a paying day = **churned**. The table's first day is a census,
+  so nobody is new on it. The funnel: logins created (`+` addresses left out),
+  subscriptions created, PMS connected, onboarding finished, each in the
+  window. **Median to first price**: hours from PMS connect to the property's
+  first engine run, over properties whose first run landed in the window.
+
+Test properties: `hotels.is_test` for the live tables, the flag copied onto
+each snapshot row for the history.
+
+## How the page loads
+
+The frame (the heading, the date picker, Refresh) shows at once and each
+section fills in when its numbers arrive. Every section is kept for five
+minutes (`lib/admin/analytics-cache.ts`), the same for every platform admin,
+keyed by the window and the test toggle; "right now" is keyed by the toggle
+only, so a date change never recomputes it. "as of" beside Refresh is when the
+oldest number on screen was worked out. Refresh writes today's snapshot row
+and throws every kept section away. The last 7, 30 and 90 days are fetched
+ahead as soon as the picker shows.
+
+Today's point on the chart comes from today's snapshot row. The nightly cron
+writes how each day ended; while the day is going, a page whose window ends
+today has the row written again after it has answered, at most every five
+minutes.
+
 ### Right now (`analytics_book`)
 
 Active properties; paying, trialing, past due, internal; live vs simulating

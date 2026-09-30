@@ -3,9 +3,10 @@
  *
  * Driven nightly by pg_cron (supabase/cron/business-metrics-snapshot.sql.example)
  * with the same shared secret as the billing crons. The analytics page also
- * writes today's rows lazily when it loads, so a deployment whose cron was
- * never scheduled still accumulates history on every visit — the cron's job is
- * the quiet days nobody looked at.
+ * refreshes today's rows, after it has answered and at most every five
+ * minutes, and its Refresh button writes them too, so a deployment whose cron
+ * was never scheduled still accumulates history on the days someone looks.
+ * The cron's job is the quiet days nobody looked at.
  */
 
 import { snapshotHotelMetrics } from "@/lib/admin/analytics";
