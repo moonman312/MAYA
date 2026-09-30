@@ -69,7 +69,6 @@ import {
 
 /** The sync window is 30 days back and 396 forward, so check-ins from 2026-07-05 are inside. */
 const NOW = new Date("2026-08-04T10:00:00Z");
-const TODAY = "2026-08-04";
 
 /** Cloudbeds reservation ids are long numbers. */
 const GROUP = "5538214799001";
@@ -379,21 +378,19 @@ describe("an answer that cannot vouch for what it leaves out", () => {
 
   it("stops the run, with nothing written or removed, when what is stored cannot be read", async () => {
     const db = await storedGroup();
-    const before = JSON.stringify(db.tables.reservations);
     const failing = hotelDb(db.tables.reservations, {
       fault: (call) =>
         call.table === "reservations" && call.op === "select" && call.filters.some((f) => f.kind === "or")
           ? { message: "canceling statement due to statement timeout" }
           : null,
     });
+    const before = JSON.stringify(failing.tables.reservations);
     serve([changedGroup([king(GROUP, 999)])]);
 
     const res = await runCloudbedsSyncForHotel(failing.client, "hotel-1");
 
     expect(res).toMatchObject({ ok: false, error: expect.stringContaining("statement timeout") });
-    expect(JSON.stringify(failing.tables.reservations.map(({ hotel_id: _h, ...r }) => ({ hotel_id: "hotel-1", ...r })))).toBe(
-      JSON.stringify(JSON.parse(before).map(({ hotel_id: _h, ...r }: FakeRow) => ({ hotel_id: "hotel-1", ...r }))),
-    );
+    expect(JSON.stringify(failing.tables.reservations)).toBe(before);
     expect(failing.calls.some((c) => c.table === "reservations" && (c.op === "delete" || c.op === "upsert"))).toBe(false);
   });
 });
@@ -506,7 +503,7 @@ describe("a booking deleted in Cloudbeds", () => {
     expect(db.tables.reservations).toHaveLength(5);
     if (res.ok) expect(res.ingest.missingBookings).toMatchObject({ missing: 1, removed: 0, stillHeld: 1 });
     // Said where someone will see it: a full read that leaves out a live booking is a fault.
-    expect(errors.mock.calls.some((c) => String(c[0]).includes('"stillHeld":1'))).toBe(true);
+    expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes('"stillHeld":1'))).toBe(true);
   });
 
   it("keeps its nights when Cloudbeds gives no answer about it", async () => {
@@ -768,7 +765,7 @@ describe("a read that leaves out more bookings than anyone deletes in a day", ()
         overLimit: true,
       });
     }
-    expect(errors.mock.calls.some((c) => String(c[0]).includes("too many stored bookings missing"))).toBe(true);
+    expect(errors.mock.calls.some((c: unknown[]) => String(c[0]).includes("too many stored bookings missing"))).toBe(true);
   });
 
   it("still removes a handful from a small book", async () => {
