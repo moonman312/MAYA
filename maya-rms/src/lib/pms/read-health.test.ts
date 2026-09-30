@@ -17,6 +17,7 @@ import {
   READ_FAILING_ALERT_AFTER_MS,
   READ_FAILING_ERROR_AFTER_MS,
   READ_FAILURES_BEFORE_ALERT,
+  READ_FAILURES_BEFORE_CLOCK,
   readHealthAfterSync,
   readsFailingAlertKey,
 } from "../../../supabase/functions/_shared/pms/connection-health";
@@ -139,11 +140,17 @@ describe("reads that keep failing, then work again", () => {
     expect(w.recoveries).toHaveLength(1);
   });
 
-  it("alerts on thirty minutes without a good read even with fewer than three failures, and never counts a refused login", async () => {
+  it("alerts on thirty minutes without a good read once a second read has failed, and never counts a refused login", async () => {
     const w = world({ last_sync_at: iso(T0 - 35 * MIN) });
-    const out = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "timed out" }, { nowMs: T0, alert: w.alert });
-    expect(out).toMatchObject({ outcome: "failed", health: { failures: 1, minutesSinceGoodRead: 35, alert: { sent: true }, markedError: false } });
-    expect(w.alerts[0].detail).toMatch(/^No good read for 35 minutes; 1 failed read in a row/);
+    // The first failure after 35 quiet minutes says nothing: the gap was not the reads' doing.
+    const first = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "timed out" }, { nowMs: T0, alert: w.alert });
+    expect(first).toMatchObject({ outcome: "failed", health: { failures: 1, minutesSinceGoodRead: 35, alert: null, markedError: false } });
+    expect(w.alerts).toEqual([]);
+    w.release(false);
+    // The second, on the retry: the streak is the reads' own, and the clock counts.
+    const second = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "timed out" }, { nowMs: T0 + 10 * MIN, alert: w.alert });
+    expect(second).toMatchObject({ outcome: "failed", health: { failures: 2, minutesSinceGoodRead: 45, alert: { sent: true }, markedError: false } });
+    expect(w.alerts[0].detail).toMatch(/^No good read for 45 minutes; 2 failed reads in a row/);
 
     // A refused login is A7's: disconnected or counted there, not here.
     const refused = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "401", refusal: "refused" }, { nowMs: T0, alert: w.alert });
@@ -151,6 +158,32 @@ describe("reads that keep failing, then work again", () => {
     expect(w.alerts).toHaveLength(1);
     // A read the tick skipped says nothing either.
     expect(await readHealthAfterSync(w.client, H, "cloudbeds", { ok: true, skipped: "import_running" }, { alert: w.alert })).toEqual({ outcome: "skipped" });
+  });
+
+  it("a first failure after a quiet gap marks nothing and says nothing; the second, on the retry, reads Error and alerts", async () => {
+    // An import held the PMS for three hours (every read skipped), then the
+    // first read fails. Before the two-failure floor this marked Error and
+    // paged on that one failure, before any retry.
+    const w = world({ last_sync_at: iso(T0 - 180 * MIN) });
+    const first = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "503" }, { nowMs: T0, alert: w.alert });
+    expect(first).toMatchObject({ outcome: "failed", health: { failures: 1, minutesSinceGoodRead: 180, alert: null, markedError: false } });
+    expect(w.connection().status).toBe("connected");
+    expect(w.alerts).toEqual([]);
+    expect(w.events()).toEqual([]);
+    w.release(false);
+
+    // Ten minutes on, the retry fails too: now it is the reads' own outage.
+    const second = await readHealthAfterSync(w.client, H, "cloudbeds", { ok: false, error: "503" }, { nowMs: T0 + 10 * MIN, alert: w.alert });
+    expect(second).toMatchObject({ outcome: "failed", health: { failures: 2, minutesSinceGoodRead: 190, alert: { sent: true }, markedError: true } });
+    expect(w.connection().status).toBe("error");
+    expect(w.events()).toEqual(["pms.reads_failing"]);
+    expect(w.alerts[0].detail).toMatch(/^No good read for 190 minutes; 2 failed reads in a row\./);
+    w.release(false);
+
+    // The next read works: Connected again, one recovery line.
+    w.goodRead(T0 + 25 * MIN);
+    expect(await readHealthAfterSync(w.client, H, "cloudbeds", { ok: true }, { recover: w.recover })).toEqual({ outcome: "recovered", failures: 2, recovery: { sent: true } });
+    expect(w.connection().status).toBe("connected");
   });
 
   it("with no good read on record, alerts at the third failure and reads Error at the sixth", async () => {
@@ -176,11 +209,16 @@ describe("reads that keep failing, then work again", () => {
       ["disconnected", "disconnected", false],
       ["error", "error", false],
     ] as const) {
-      const w = world({ status, last_sync_at: iso(T0 - 2 * READ_FAILING_ERROR_AFTER_MS) });
+      // The second failure in a row, two hours after the last good read.
+      const w = world({ status, sync_failures: 1, last_sync_at: iso(T0 - 2 * READ_FAILING_ERROR_AFTER_MS) });
       const out = await noteReadFailure(w.client, H, "cloudbeds", "down", { nowMs: T0, alert: w.alert });
       expect(out?.markedError, status).toBe(marked);
       expect(w.connection().status, status).toBe(expected);
     }
+    // The first failure in a row after the same gap marks nothing, whatever the status.
+    const first = world({ status: "degraded", sync_failures: 0, last_sync_at: iso(T0 - 2 * READ_FAILING_ERROR_AFTER_MS) });
+    expect(await noteReadFailure(first.client, H, "cloudbeds", "down", { nowMs: T0, alert: first.alert })).toMatchObject({ failures: 1, markedError: false, alert: null });
+    expect(first.connection().status).toBe("degraded");
   });
 
   it("never throws: a connection that cannot be read is logged and the sync goes on", async () => {
@@ -198,6 +236,8 @@ describe("reads that keep failing, then work again", () => {
     expect(READ_FAILURES_BEFORE_ALERT).toBe(3);
     expect(READ_FAILING_ALERT_AFTER_MS).toBe(30 * MIN);
     expect(READ_FAILING_ERROR_AFTER_MS).toBe(60 * MIN);
+    // The clocks count once the streak is the reads' own: two failures in a row.
+    expect(READ_FAILURES_BEFORE_CLOCK).toBe(2);
   });
 });
 

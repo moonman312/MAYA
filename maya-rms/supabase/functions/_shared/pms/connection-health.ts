@@ -22,9 +22,13 @@
  * refused login, pricing stays held, the alert channel hears after three
  * failed reads in a row or thirty minutes without a good one, and after
  * about an hour the connection reads Error, which starts the outage email
- * and the banner. The first good read puts the status back (the sync stamps
- * it), resets the count (release_pms_sync) and posts a recovery line
- * (noteReadRecovered).
+ * and the banner. The clocks count from the last good read, so they need
+ * at least two failures in a row (READ_FAILURES_BEFORE_CLOCK): one failed
+ * read after a quiet gap that was not the reads' own doing (an import that
+ * held the PMS for hours, the sync itself not running) is not an outage
+ * yet, and must not mark Error or page anyone before a retry. The first
+ * good read puts the status back (the sync stamps it), resets the count
+ * (release_pms_sync) and posts a recovery line (noteReadRecovered).
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -249,10 +253,18 @@ export async function markConnectionDisconnected(
 
 /** Failed reads in a row before the alert channel hears. */
 export const READ_FAILURES_BEFORE_ALERT = 3;
-/** Time without a good read before the alert channel hears, whatever the count. */
+/** Time without a good read before the alert channel hears, once READ_FAILURES_BEFORE_CLOCK reads have failed in a row. */
 export const READ_FAILING_ALERT_AFTER_MS = 30 * 60_000;
-/** Time without a good read before the connection reads Error (the outage email and the banner follow). */
+/** Time without a good read before the connection reads Error (the outage email and the banner follow), once READ_FAILURES_BEFORE_CLOCK reads have failed in a row. */
 export const READ_FAILING_ERROR_AFTER_MS = 60 * 60_000;
+/**
+ * Failed reads in a row before the two clocks above count. They run from the
+ * last good read, which may be hours back for reasons that are not the
+ * reads' (an import held the PMS; the sync was not running), so the first
+ * failure after such a gap says nothing yet; the second, on the retry, is
+ * the reads' own.
+ */
+export const READ_FAILURES_BEFORE_CLOCK = 2;
 
 /** The alert key for a hotel's reads failing, one per PMS. */
 export function readsFailingAlertKey(pmsType: PmsTypeName, hotelId: string): string {
@@ -277,9 +289,11 @@ export type ReadHealth = {
  * failure. Never throws.
  *
  *   - After READ_FAILURES_BEFORE_ALERT in a row, or READ_FAILING_ALERT_AFTER_MS
- *     without a good read (last_sync_at), a critical alert, deduped by
- *     raiseAlert to once per six hours.
- *   - After READ_FAILING_ERROR_AFTER_MS without a good read, or, when there
+ *     without a good read (last_sync_at) with at least
+ *     READ_FAILURES_BEFORE_CLOCK failures in a row, a critical alert,
+ *     deduped by raiseAlert to once per six hours.
+ *   - After READ_FAILING_ERROR_AFTER_MS without a good read, again with at
+ *     least READ_FAILURES_BEFORE_CLOCK failures in a row, or, when there
  *     has never been one, twice the failures the alert needs, the status
  *     goes to Error from Connected or Degraded (never from Pending or
  *     Disconnected: nothing is being read there). The trigger from
@@ -314,9 +328,13 @@ export async function noteReadFailure(
     const sinceGoodMs = Number.isFinite(lastGoodMs) ? nowMs - lastGoodMs : null;
     const minutesSinceGoodRead = sinceGoodMs == null ? null : Math.round(sinceGoodMs / 60_000);
 
-    const alertDue = failures >= READ_FAILURES_BEFORE_ALERT || (sinceGoodMs != null && sinceGoodMs >= READ_FAILING_ALERT_AFTER_MS);
+    // The clocks run from the last good read, which a quiet gap (not the
+    // reads' doing) can leave hours back: they count only once the streak
+    // itself is more than one failure.
+    const clockCounts = failures >= READ_FAILURES_BEFORE_CLOCK && sinceGoodMs != null;
+    const alertDue = failures >= READ_FAILURES_BEFORE_ALERT || (clockCounts && sinceGoodMs >= READ_FAILING_ALERT_AFTER_MS);
     const errorDue =
-      sinceGoodMs != null ? sinceGoodMs >= READ_FAILING_ERROR_AFTER_MS : failures >= READ_FAILURES_BEFORE_ALERT * 2;
+      sinceGoodMs != null ? clockCounts && sinceGoodMs >= READ_FAILING_ERROR_AFTER_MS : failures >= READ_FAILURES_BEFORE_ALERT * 2;
     const reason = error.slice(0, 300);
 
     let markedError = false;
