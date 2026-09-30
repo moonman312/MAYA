@@ -40,7 +40,7 @@ const DAY = 86_400_000;
 const NOW = Date.parse("2026-10-06T14:00:00Z");
 const iso = (ms: number) => new Date(ms).toISOString();
 
-function world(opts: { mode?: string; rows?: FakeRow[]; timezone?: string; active?: boolean; subscription?: string } = {}) {
+function world(opts: { mode?: string; rows?: FakeRow[]; timezone?: string; active?: boolean; subscription?: string; maxRows?: number } = {}) {
   const d = fakeSupabase({
     hotels: [{ id: H, name: "Harbour Inn", timezone: opts.timezone ?? "UTC", is_active: opts.active ?? true, currency: "USD" }],
     hotel_settings: [{ hotel_id: H, simulation_mode: false, pms_rate_changes: opts.mode ?? "maya_wins" }],
@@ -59,12 +59,12 @@ function world(opts: { mode?: string; rows?: FakeRow[]; timezone?: string; activ
     ],
     pms_change_notices: opts.rows ?? [],
     pms_change_watch: [],
-  });
+  }, { maxRows: opts.maxRows });
   const emails: Record<string, string> = { u_gm: "gm@harbour.test", u_admin: "sam@harbour.test", u_rm: "priya@harbour.test", u_invited: "new@harbour.test" };
   const client = Object.assign(d.client, {
     auth: {
       admin: {
-        getUserById: async (id: string) => ({ data: { user: { email: emails[id] } }, error: null }),
+        getUserById: async (id: string) => ({ data: { user: { email: emails[id] ?? `${id}@inn.test` } }, error: null }),
       },
     },
   }) as unknown as SupabaseClient;
@@ -225,6 +225,68 @@ describe("the day's overwrites", () => {
     expect(await sendDuePmsChangeEmails(broken.client, "cloudbeds", {})).toEqual([]);
     const pre = fakeSupabase({}, { fault: (c) => (c.table === "pms_change_notices" ? { code: "PGRST205", message: "Could not find the table 'public.pms_change_notices' in the schema cache" } : null) });
     expect(await sendDuePmsChangeEmails(pre.client, "cloudbeds", {})).toEqual([]);
+  });
+});
+
+describe("many properties at once", () => {
+  const yesterday = NOW - DAY;
+  /** Another property on the same system, with its own General Manager. */
+  function addHotel(w: ReturnType<typeof world>, id: string, gm: string) {
+    w.tables.hotels.push({ id, name: `Inn ${id}`, timezone: "UTC", is_active: true, currency: "USD" });
+    w.tables.hotel_settings.push({ hotel_id: id, simulation_mode: false, pms_rate_changes: "maya_wins" });
+    w.tables.hotel_memberships.push({ hotel_id: id, user_id: gm, role: "general_manager", status: "active" });
+  }
+
+  it("emails every property once its day is over, however many overwrites another one had, listing all of that day's", async () => {
+    // Another pricing tool pushed its whole horizon at the Harbour Inn yesterday, twice over.
+    const flood: FakeRow[] = Array.from({ length: 2000 }, (_, i) => {
+      const night = new Date(Date.parse("2026-10-07T00:00:00Z") + (i % 1000) * DAY).toISOString().slice(0, 10);
+      return overwrite(`a${i}`, yesterday - 6 * 3_600_000 + i * 1000, night, i % 2000 < 1000 ? KING : SUITE, 150, 165);
+    });
+    const other = { ...overwrite("b1", yesterday, "2026-10-13", KING, 175, 165), hotel_id: "h-b" };
+    // PostgREST answers any read with at most 1,000 rows.
+    const w = world({ rows: [...flood, other], maxRows: 1000 });
+    addHotel(w, "h-b", "u_b");
+
+    const res = await sendDuePmsChangeEmails(w.client, "cloudbeds", w.deps());
+    expect(res).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ hotelId: H, email: "overwrites", outcome: "emailed", items: 2000 }),
+        expect.objectContaining({ hotelId: "h-b", email: "overwrites", outcome: "emailed", items: 1 }),
+      ]),
+    );
+    expect(w.tables.pms_change_notices.filter((r) => r.emailed_at == null)).toEqual([]);
+    const harbour = w.sent.find((e) => e.to === "gm@harbour.test")!;
+    // 1,000 nights for King and 1,000 for Suite: 40 lines, then the rest counted.
+    expect(harbour.text).toContain(`And ${2000 - MAX_DIGEST_LINES} more`);
+    // Nothing is left for later runs of the day to trip over.
+    const later = await sendDuePmsChangeEmails(w.client, "cloudbeds", w.deps({ now: () => NOW + 3_600_000 }));
+    expect(later).toEqual([]);
+  });
+
+  it("doesn't let properties whose email went already, or whose day isn't over, use up a run's turns", async () => {
+    const w = world({ rows: [] });
+    // Six properties whose day's email went out already, each with a late row from before midnight.
+    for (let i = 0; i < 6; i++) {
+      const id = `h-sent-${i}`;
+      addHotel(w, id, `u_sent_${i}`);
+      w.tables.pms_change_watch.push({ hotel_id: id, digest_sent_on: "2026-10-06" });
+      w.tables.pms_change_notices.push({ ...overwrite(`s${i}`, yesterday - 2 * 3_600_000, "2026-10-13", KING, 175, 165), hotel_id: id });
+    }
+    // Six more whose overwrites are all from today.
+    for (let i = 0; i < 6; i++) {
+      const id = `h-today-${i}`;
+      addHotel(w, id, `u_today_${i}`);
+      w.tables.pms_change_notices.push({ ...overwrite(`t${i}`, NOW - 3_600_000, "2026-10-13", KING, 175, 165), hotel_id: id });
+    }
+    // And one that is owed its email.
+    w.tables.pms_change_notices.push(overwrite("due", yesterday, "2026-10-13", KING, 175, 165));
+
+    const res = await sendDuePmsChangeEmails(w.client, "cloudbeds", w.deps());
+    expect(res).toContainEqual(expect.objectContaining({ hotelId: H, email: "overwrites", outcome: "emailed", items: 1 }));
+    expect(res.filter((r) => r.reason === "sent_today")).toHaveLength(6);
+    expect(w.notice("due").emailed_at).toBe(iso(NOW));
+    expect(w.tables.pms_change_notices.filter((r) => String(r.id).startsWith("t")).every((r) => r.emailed_at == null)).toBe(true);
   });
 });
 

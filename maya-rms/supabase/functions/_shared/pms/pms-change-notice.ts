@@ -17,14 +17,22 @@
  *
  * Where it runs: each scheduled sync calls sendDuePmsChangeEmails for its own
  * PMS once per fleet invocation, before claiming hotels, as it does the
- * connection email. The cost is one read on a partial index (items not
+ * connection email. The cost is a few reads on a partial index (items not
  * emailed yet) that is empty nearly all the time.
  *
+ * Properties first, not rows: the run finds each property with overwrites
+ * not emailed yet (one small read per property, oldest waiting first), so a
+ * property with thousands of overwrites never keeps another's email out of
+ * the run. A property whose day isn't over, or whose email for the day went
+ * already, costs a read and doesn't count toward HOTELS_PER_RUN.
+ *
  * Exactly once: the items are stamped (emailed_at) in a conditional update
- * before anything is sent. When every email then fails, the stamps are
- * handed back and a later run tries again, for RETRY_FOR_MS. A property that
- * stopped paying gets no email, and its items are stamped all the same. While
- * email isn't set up (no Resend secrets) nothing is stamped, so the first run
+ * before anything is sent; for the overwrites, every one found before the
+ * property's day began, in one update, and the email is built from what that
+ * update stamped. When every email then fails, the stamps are handed back
+ * and a later run tries again, for RETRY_FOR_MS. A property that stopped
+ * paying gets no email, and its items are stamped all the same. While email
+ * isn't set up (no Resend secrets) nothing is stamped, so the first run
  * after it is set sends what is due.
  *
  * Time: at most HOTELS_PER_RUN properties and about RUN_BUDGET_MS per
@@ -55,8 +63,13 @@ export const HOTELS_PER_RUN = 5;
 export const RUN_BUDGET_MS = 20_000;
 /** An email whose sends all failed is tried again until it is this late. */
 export const RETRY_FOR_MS = 12 * 60 * 60 * 1000;
-/** Items read per invocation. */
-const ROWS_READ = 1000;
+/** Properties with overwrites waiting one invocation looks at, at most. */
+export const HOTELS_SCANNED = 200;
+/** Warnings read per invocation (at most one a week per property, so few). */
+const WARNINGS_READ = 50;
+/** Rows per page when reading back the overwrites an email covers. */
+const PAGE = 1000;
+const NOTICE_COLUMNS = "id, hotel_id, kind, found_at, stay_date, room_type_id, pms_rate, maya_price, rates";
 
 const REPLY_TO = "info@modern-hospitality-solutions.com";
 const DEFAULT_APP_URL = "https://maya-rms.com";
@@ -224,6 +237,76 @@ async function releaseRows(supabase: SupabaseClient, ids: string[], at: string):
   }
 }
 
+/**
+ * Each property with overwrites not emailed yet, and when its oldest was
+ * found: one read per property, walking the properties in id order, so
+ * however many rows one property has, every other one is found too.
+ */
+async function hotelsWithOverwrites(supabase: SupabaseClient, pmsType: ChangePms): Promise<{ hotelId: string; oldest: string }[]> {
+  const out: { hotelId: string; oldest: string }[] = [];
+  let after: string | null = null;
+  while (out.length < HOTELS_SCANNED) {
+    let q = supabase
+      .from("pms_change_notices")
+      .select("hotel_id, found_at")
+      .eq("pms_type", pmsType)
+      .eq("kind", "overwrite")
+      .is("emailed_at", null);
+    if (after !== null) q = q.gt("hotel_id", after);
+    const { data, error } = await q.order("hotel_id", { ascending: true }).order("found_at", { ascending: true }).limit(1);
+    if (error) throw error;
+    const row = ((data ?? []) as { hotel_id: unknown; found_at: unknown }[])[0];
+    if (!row) break;
+    after = String(row.hotel_id);
+    out.push({ hotelId: after, oldest: String(row.found_at) });
+  }
+  return out;
+}
+
+/** The property's overwrites found before its day began and not emailed yet: all of them stamped `at`, in one update. */
+async function stampDayOverwrites(supabase: SupabaseClient, hotelId: string, pms: ChangePms, dayStartIso: string, at: string): Promise<void> {
+  const { error } = await supabase
+    .from("pms_change_notices")
+    .update({ emailed_at: at })
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", pms)
+    .eq("kind", "overwrite")
+    .is("emailed_at", null)
+    .lt("found_at", dayStartIso);
+  if (error) throw error;
+}
+
+/** Every overwrite stamped `at` for the property, read back a page at a time. */
+async function stampedOverwrites(supabase: SupabaseClient, hotelId: string, pms: ChangePms, at: string): Promise<NoticeRow[]> {
+  const out: NoticeRow[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("pms_change_notices")
+      .select(NOTICE_COLUMNS)
+      .eq("hotel_id", hotelId)
+      .eq("pms_type", pms)
+      .eq("kind", "overwrite")
+      .eq("emailed_at", at)
+      .order("found_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const page = (data ?? []) as NoticeRow[];
+    for (const r of page) out.push({ ...r, id: String(r.id), hotel_id: String(r.hotel_id), found_at: String(r.found_at) });
+    if (page.length < PAGE) return out;
+  }
+}
+
+async function releaseOverwrites(supabase: SupabaseClient, hotelId: string, pms: ChangePms, at: string): Promise<void> {
+  await supabase
+    .from("pms_change_notices")
+    .update({ emailed_at: null })
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", pms)
+    .eq("kind", "overwrite")
+    .eq("emailed_at", at);
+}
+
 /** Sends one email to each recipient; how many went out, and why the rest didn't. */
 async function sendAll(
   recipients: Recipient[],
@@ -295,12 +378,12 @@ async function sendWarning(
   return finish(supabase, ctx, base, { sent, items: claimed.length, rates, failed: failures.length, outOfTime });
 }
 
-/** The day's overwrites, once a day. */
+/** The day's overwrites, once a day: every one found before the property's day began. */
 async function sendOverwrites(
   supabase: SupabaseClient,
   ctx: HotelContext,
   today: string,
-  rows: NoticeRow[],
+  todayStartIso: string,
   deps: Required<PmsChangeEmailDeps>,
   deadline: number,
 ): Promise<PmsChangeEmailResult> {
@@ -332,18 +415,19 @@ async function sendOverwrites(
     await supabase.from("pms_change_watch").update({ digest_sent_on: before }).eq("hotel_id", ctx.hotelId).eq("digest_sent_on", today);
   };
 
-  let claimed: string[];
+  let mine: NoticeRow[];
   try {
-    claimed = await claimRows(supabase, rows.map((r) => r.id), ctx.nowIso);
+    await stampDayOverwrites(supabase, ctx.hotelId, ctx.pms, todayStartIso, ctx.nowIso);
+    mine = await stampedOverwrites(supabase, ctx.hotelId, ctx.pms, ctx.nowIso);
   } catch (e) {
+    await releaseOverwrites(supabase, ctx.hotelId, ctx.pms, ctx.nowIso).catch(() => {});
     await releaseDay();
     throw e;
   }
-  if (claimed.length === 0) {
+  if (mine.length === 0) {
     await releaseDay();
     return { ...base, outcome: "not_emailed", reason: "taken" };
   }
-  const mine = rows.filter((r) => claimed.includes(r.id));
 
   const { data: roomTypes } = await supabase.from("room_types").select("id, name").eq("hotel_id", ctx.hotelId);
   const names = new Map(((roomTypes ?? []) as { id: unknown; name: unknown }[]).map((r) => [String(r.id), String(r.name)]));
@@ -367,12 +451,12 @@ async function sendOverwrites(
   const oldest = Math.min(...mine.map((r) => Date.parse(r.found_at)));
   const late = deps.now() - oldest > RETRY_FOR_MS + 24 * 60 * 60 * 1000;
   if (ctx.recipients.length > 0 && sent === 0 && !late) {
-    await releaseRows(supabase, claimed, ctx.nowIso);
+    await releaseOverwrites(supabase, ctx.hotelId, ctx.pms, ctx.nowIso);
     await releaseDay();
     log({ hotelId: ctx.hotelId, email: "overwrites", retry: outOfTime ? "out_of_time" : "all_sends_failed", errors: failures.slice(0, 3) }, "error");
     return { ...base, outcome: "retry", reason: outOfTime ? "out_of_time" : "all_sends_failed", recipients: ctx.recipients.length, sent };
   }
-  return finish(supabase, ctx, base, { sent, items: claimed.length, nights: lines.length, failed: failures.length, outOfTime });
+  return finish(supabase, ctx, base, { sent, items: mine.length, nights: lines.length, failed: failures.length, outOfTime });
 }
 
 async function finish(
@@ -402,40 +486,38 @@ async function finish(
   };
 }
 
+type HotelRow = { id: string; name?: unknown; timezone?: unknown; is_active?: unknown; currency?: unknown };
+
 async function handleHotel(
   supabase: SupabaseClient,
   hotelId: string,
+  hotel: HotelRow | null,
   pms: ChangePms,
-  rows: NoticeRow[],
+  warnings: NoticeRow[],
+  oldestOverwrite: string | null,
   deps: Required<PmsChangeEmailDeps>,
   deadline: number,
 ): Promise<PmsChangeEmailResult[]> {
   const nowIso = new Date(deps.now()).toISOString();
-  const { data: hotel, error: hotelError } = await supabase
-    .from("hotels")
-    .select("id, name, timezone, is_active, currency")
-    .eq("id", hotelId)
-    .maybeSingle();
-  if (hotelError) throw hotelError;
-  const h = (hotel ?? {}) as { name?: unknown; timezone?: unknown; is_active?: unknown; currency?: unknown };
+  const h = hotel ?? ({ id: hotelId } as HotelRow);
   const timeZone = typeof h.timezone === "string" && h.timezone ? h.timezone : "UTC";
   const today = hotelDate(nowIso, timeZone);
-  const todayStart = Date.parse(dayStart(today, timeZone));
+  const todayStartIso = dayStart(today, timeZone);
 
-  const warnings = rows.filter((r) => r.kind === "other_tool");
   // A day's overwrites go out once that day is over at the property.
-  const overwrites = rows.filter((r) => r.kind === "overwrite" && Date.parse(r.found_at) < todayStart);
-  if (warnings.length === 0 && overwrites.length === 0) return [];
+  const overwritesDue = oldestOverwrite !== null && Date.parse(oldestOverwrite) < Date.parse(todayStartIso);
+  if (warnings.length === 0 && !overwritesDue) return [];
 
   const due: PmsChangeEmailResult[] = [
     ...(warnings.length > 0 ? [{ hotelId, email: "other_tool" as const }] : []),
-    ...(overwrites.length > 0 ? [{ hotelId, email: "overwrites" as const }] : []),
+    ...(overwritesDue ? [{ hotelId, email: "overwrites" as const }] : []),
   ].map((b) => ({ ...b, outcome: "not_emailed" as const }));
 
   // No email is owed to a property that stopped paying, or one that has gone.
   const paid = hotel ? await isPaidLiveHotel(supabase, hotelId, h.is_active as boolean | null) : false;
   if (!paid) {
-    await claimRows(supabase, [...warnings, ...overwrites].map((r) => r.id), nowIso);
+    await claimRows(supabase, warnings.map((r) => r.id), nowIso);
+    if (overwritesDue) await stampDayOverwrites(supabase, hotelId, pms, todayStartIso, nowIso);
     log({ hotelId, pmsType: pms, notEmailed: hotel ? "not_paying" : "no_hotel" });
     return due.map((d) => ({ ...d, reason: hotel ? "not_paying" : "no_hotel" }));
   }
@@ -473,7 +555,26 @@ async function handleHotel(
       out.push(await sendWarning(supabase, ctx, warnings, deps, deadline));
     }
   }
-  if (overwrites.length > 0) out.push(await sendOverwrites(supabase, ctx, today, overwrites, deps, deadline));
+  if (overwritesDue) out.push(await sendOverwrites(supabase, ctx, today, todayStartIso, deps, deadline));
+  return out;
+}
+
+/** A result that did nothing but find the day's email gone already: not a property's turn used up. */
+function idle(r: PmsChangeEmailResult): boolean {
+  return r.outcome === "not_emailed" && (r.reason === "sent_today" || r.reason === "taken");
+}
+
+/** The properties' rows, a batch at a time; a property with no row reads as gone. */
+async function hotelRows(supabase: SupabaseClient, ids: string[]): Promise<Map<string, HotelRow>> {
+  const out = new Map<string, HotelRow>();
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabase
+      .from("hotels")
+      .select("id, name, timezone, is_active, currency")
+      .in("id", ids.slice(i, i + 100));
+    if (error) throw error;
+    for (const r of (data ?? []) as HotelRow[]) out.set(String(r.id), r);
+  }
   return out;
 }
 
@@ -495,44 +596,70 @@ export async function sendDuePmsChangeEmails(
   };
   const deadline = full.clock() + RUN_BUDGET_MS;
   try {
-    // Warnings and overwrites read apart, so a property with thousands of
-    // overwrites can never keep another's warning out of the read.
-    const unemailed = (kind: string, limit: number) =>
+    // Warnings and overwrites found apart: warnings are few and read as
+    // rows; overwrites by property, so a property with thousands can never
+    // keep another's email, or a warning, out of the run.
+    const [warningRead, overwriteHotels] = await Promise.all([
       supabase
         .from("pms_change_notices")
-        .select("id, hotel_id, kind, found_at, stay_date, room_type_id, pms_rate, maya_price, rates")
+        .select(NOTICE_COLUMNS)
         .eq("pms_type", pmsType)
-        .eq("kind", kind)
+        .eq("kind", "other_tool")
         .is("emailed_at", null)
         .order("found_at", { ascending: true })
-        .limit(limit);
-    const [warnings, overwrites] = await Promise.all([unemailed("other_tool", 50), unemailed("overwrite", ROWS_READ)]);
-    const error = warnings.error ?? overwrites.error;
+        .limit(WARNINGS_READ),
+      hotelsWithOverwrites(supabase, pmsType).then(
+        (list) => ({ list, error: null }),
+        (error: unknown) => ({ list: [] as { hotelId: string; oldest: string }[], error: error as { message?: string } }),
+      ),
+    ]);
+    const error = warningRead.error ?? overwriteHotels.error;
     if (error) {
       // Before 99_supabase_migration_pms_rate_changes_v1.sql there is nothing to send.
-      if (!isMissingRelationError(error)) log({ pmsType, step: "query", error: error.message }, "error");
+      if (!isMissingRelationError(error as { code?: string; message: string })) {
+        log({ pmsType, step: "query", error: errorText(error) }, "error");
+      }
       return [];
     }
-    const byHotel = new Map<string, NoticeRow[]>();
-    for (const r of [...(warnings.data ?? []), ...(overwrites.data ?? [])] as NoticeRow[]) {
+    const warningsByHotel = new Map<string, NoticeRow[]>();
+    for (const r of (warningRead.data ?? []) as NoticeRow[]) {
       const hotelId = String(r.hotel_id);
-      byHotel.set(hotelId, [...(byHotel.get(hotelId) ?? []), { ...r, id: String(r.id), hotel_id: hotelId, found_at: String(r.found_at) }]);
+      warningsByHotel.set(hotelId, [...(warningsByHotel.get(hotelId) ?? []), { ...r, id: String(r.id), hotel_id: hotelId, found_at: String(r.found_at) }]);
     }
+    const oldestByHotel = new Map(overwriteHotels.list.map((h) => [h.hotelId, h.oldest]));
+    // Warnings first, then the properties whose overwrites have waited longest.
+    const order = [
+      ...warningsByHotel.keys(),
+      ...[...overwriteHotels.list].sort((a, b) => Date.parse(a.oldest) - Date.parse(b.oldest)).map((h) => h.hotelId),
+    ].filter((id, i, all) => all.indexOf(id) === i);
+    if (order.length === 0) return [];
+    const hotels = await hotelRows(supabase, order);
+
     const results: PmsChangeEmailResult[] = [];
-    let hotels = 0;
-    for (const [hotelId, rows] of byHotel) {
-      if (hotels >= HOTELS_PER_RUN) break;
+    let busy = 0;
+    for (const hotelId of order) {
+      if (busy >= HOTELS_PER_RUN) break;
       if (full.clock() >= deadline) {
         log({ pmsType, step: "run", outOfTime: true });
         break;
       }
       try {
-        const done = await handleHotel(supabase, hotelId, pmsType, rows, full, deadline);
-        if (done.length > 0) hotels += 1;
+        const done = await handleHotel(
+          supabase,
+          hotelId,
+          hotels.get(hotelId) ?? null,
+          pmsType,
+          warningsByHotel.get(hotelId) ?? [],
+          oldestByHotel.get(hotelId) ?? null,
+          full,
+          deadline,
+        );
+        if (done.some((r) => !idle(r))) busy += 1;
         results.push(...done);
       } catch (e) {
         log({ hotelId, pmsType, step: "hotel", error: errorText(e) }, "error");
         results.push({ hotelId, email: "overwrites", outcome: "retry", reason: "unexpected" });
+        busy += 1;
       }
     }
     return results;
