@@ -461,14 +461,17 @@ describe("runPricingTick", () => {
   it("vouches for prices its own evaluation left unchanged, and not for them once evaluation fails", async () => {
     // Written two days ago and unchanged since: the engine writes on change only.
     const old = { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 180, computed_at: "2026-09-30T05:00:00Z" };
-    // The hotel's own rate under it: a night with none is held, whatever vouches for its price.
+    // The hotel's own rate under it, and the PMS still quotes it: a night
+    // with none is held, whatever vouches for its price (and a full read
+    // that no longer finds the rate removes the row, base-rate-calendar.ts).
     const onRecord = { hotel_id: HOTEL, stay_date: "2026-10-01", room_type_id: "rt-king", price: 170 };
+    const quoted = { stayDate: "2026-10-01", externalRoomTypeId: "CB-KING", price: 170 };
 
     const good = db({ published_price: [{ ...old }], base_rate_calendar: [{ ...onRecord }] });
     const ok = await runPricingTick(
       good.client,
       HOTEL,
-      { ...BASE_OPTS, adapter: makeAdapter().adapter, evaluateBy: T0 + 60_000 },
+      { ...BASE_OPTS, adapter: makeAdapter([quoted]).adapter, evaluateBy: T0 + 60_000 },
       { evaluate: async () => ({ run_id: "run-1" }), now: () => T0 },
     );
     expect(ok.push).toMatchObject({ pushed: true, sent: 1, skippedGuardrail: 0 });
@@ -482,7 +485,7 @@ describe("runPricingTick", () => {
     const failed = await runPricingTick(
       bad.client,
       HOTEL,
-      { ...BASE_OPTS, adapter: makeAdapter().adapter, evaluateBy: T0 + 60_000 },
+      { ...BASE_OPTS, adapter: makeAdapter([quoted]).adapter, evaluateBy: T0 + 60_000 },
       {
         evaluate: async () => {
           throw new Error("ladder writes failed");
