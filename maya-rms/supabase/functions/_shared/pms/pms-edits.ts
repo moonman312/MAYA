@@ -135,8 +135,11 @@
  *     again. The overwritten nights are not "moved": MAYA's price for them
  *     has not changed, so the push is not held for them.
  *
- * Closing a night at 0, and a rate changed while MAYA only simulated, work
- * the same in both.
+ * A rate changed while MAYA only simulated works the same in both, and so
+ * does closing a night at 0, but for one thing: under "MAYA's price wins" a
+ * night with a price typed in MAYA open is not closed and its price is not
+ * cleared. The 0 is overwritten like any change, and the typed price goes
+ * out again.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -330,7 +333,10 @@ export function planPmsEdits(input: {
     // A comp night's manual price of 0 set back by hand over a rule MAYA
     // stacked on it is that manual price, as any other.
     if (!ratesDiffer(r.pmsRate, 0) && !(manual && !ratesDiffer(manual.price, 0))) {
-      if (settled || !manual) plan.closed.push(r);
+      // Under "MAYA's price wins" a price typed in MAYA is never cleared: it
+      // is MAYA's price, and it goes out again over the 0, as over any change.
+      if (wins && settled && manual?.source === "maya") plan.overwrites.push({ read: r, pmsRate: 0 });
+      else if (settled || !manual) plan.closed.push(r);
       else plan.heldAtZero.push(r);
       continue;
     }

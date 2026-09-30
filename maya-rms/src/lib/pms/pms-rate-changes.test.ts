@@ -329,6 +329,30 @@ describe.each(ENGINES)("$name: MAYA's price wins", (engine) => {
     expect(w.notices()).toEqual([expect.objectContaining({ stay_date: night(8), pms_rate: 180, maya_price: 200 })]);
   }, 120_000);
 
+  it("never clears a price typed in MAYA when the night is set to 0 there: the typed price goes out again", async () => {
+    const typedAt = iso(T0 - 5 * HOUR);
+    const w = hotel("maya_wins", {
+      manual_price: [{ id: "m8", hotel_id: H, stay_date: night(8), room_type_id: RT, price: 200, set_by: "u1", set_at: typedAt, cleared_at: null, source: "maya", pms_type: null }],
+      rate_updates: Array.from({ length: HORIZON }, (_, n) => (n === 8 ? settled(8, 200) : settled(n, 150))),
+      published_price: Array.from({ length: HORIZON }, (_, n) => ({
+        hotel_id: H, stay_date: night(n), room_type_id: RT, price: n === 8 ? 200 : 150, base_price: n === 8 ? 200 : 150, computed_at: iso(T0 - 2 * HOUR),
+      })),
+    });
+    // Night 8 carries a typed price; night 3 only MAYA's. Both set to 0 in Cloudbeds.
+    w.inPms.set(night(8), 0);
+    w.inPms.set(night(3), 0);
+    const res = await w.tick(engine, T0);
+    expect(res.evaluate).not.toHaveProperty("error");
+    expect(w.manualOf(night(8))).toEqual([expect.objectContaining({ price: 200, source: "maya", cleared_at: null, set_at: typedAt })]);
+    expect(w.baseOf(night(8))).toMatchObject({ price: 150 });
+    expect(w.priceOf(night(8))).toBe(200);
+    expect(w.sent()).toEqual([{ stayDate: night(8), price: 200 }]);
+    expect(w.notices()).toEqual([expect.objectContaining({ kind: "overwrite", stay_date: night(8), pms_rate: 0, maya_price: 200 })]);
+    // A night with no typed price is closed, as a 0 always closes one.
+    expect(w.baseOf(night(3))).toMatchObject({ price: 0 });
+    expect(w.priceOf(night(3))).toBeNull();
+  }, 120_000);
+
   it("hands back a rate kept from the PMS that is still open, and nights still marked removed", async () => {
     const keptAt = iso(T0 - 5 * HOUR);
     const w = hotel("maya_wins", {

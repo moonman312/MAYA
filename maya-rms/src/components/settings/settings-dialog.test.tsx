@@ -267,6 +267,11 @@ describe("the property system's section", () => {
     expect(screen.queryByText(/For properties that also run another pricing tool/)).toBeNull();
     fireEvent.click(within(region).getByRole("button", { name: "What the two choices do" }));
     expect(screen.getByText(/For properties that also run another pricing tool/)).toBeTruthy();
+    // A typed price is safe only with MAYA's price wins: the help says so, and promises nothing more.
+    expect(region.textContent).toContain(
+      "With MAYA's price wins, that is the price MAYA sends again. With Keep the change, a later change in Cloudbeds replaces it.",
+    );
+    expect(region.textContent).not.toMatch(/either way/);
   });
 
   it("does not show on Mews or without a connection", async () => {

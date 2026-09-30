@@ -14,7 +14,7 @@ export function pmsChangesHelp(pms: string) {
     lines: [
       `Keep the change as your price: a rate changed in ${pms} on a night MAYA sent to becomes your price for that night. A rate removed there stops MAYA pricing the night until ${pms} has a rate again.`,
       `MAYA's price wins: MAYA sends its own price again, lists each night in the Change Log, and emails the General Manager and Hotel Admins at most once a day. For properties that also run another pricing tool.`,
-      "To set a price by hand, set it on MAYA's calendar. A price you set there is kept either way.",
+      `To set a price by hand, set it on MAYA's calendar. With MAYA's price wins, that is the price MAYA sends again. With Keep the change, a later change in ${pms} replaces it.`,
     ],
   };
 }

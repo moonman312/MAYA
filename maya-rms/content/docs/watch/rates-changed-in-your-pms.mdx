@@ -35,7 +35,7 @@ updated: 2026-09-30
 ---
 
 <InPlainWords>
-On a night MAYA has already sent a price to and confirmed, what happens to a rate you change in your property system an hour or more later is your setting's call, in Settings under your system's name. As every property starts, <Ui>Keep the change as your price</Ui>: your rate is kept as your price and marked "Changed in Cloudbeds", and a rate you remove there stops MAYA pricing that night until your system has a rate again. With <Ui>MAYA's price wins</Ui>, nothing is kept: MAYA sends its own price again and tells you once a day. On a night MAYA has never sent to, your rate becomes the starting point either way, and your rules work from it. Setting a night to 0 in your system closes it.
+On a night MAYA has already sent a price to and confirmed, what happens to a rate you change in your property system an hour or more later is your setting's call, in Settings under your system's name. As every property starts, <Ui>Keep the change as your price</Ui>: your rate is kept as your price and marked "Changed in Cloudbeds", and a rate you remove there stops MAYA pricing that night until your system has a rate again. With <Ui>MAYA's price wins</Ui>, nothing is kept: MAYA sends its own price again and tells you once a day. On a night MAYA has never sent to, your rate becomes the starting point either way, and your rules work from it. Setting a night to 0 in your system closes it, unless MAYA's price wins and you typed that night's price in MAYA.
 </InPlainWords>
 
 ## The two cases
@@ -61,7 +61,7 @@ Open <Ui>Settings</Ui> from the gear at the top of the dashboard. On Cloudbeds a
 - **<Ui>Keep the change as your price</Ui>.** Every property starts on it. A rate you change in your system on a night MAYA has sent to is kept as your price, as described on the rest of this page, and a rate you remove there stops MAYA pricing the night ([A rate removed in your system](#a-rate-removed-in-your-system)). When the changes look like another pricing tool at work, MAYA says so ([When something else seems to change your rates](#when-something-else-seems-to-change-your-rates)).
 - **<Ui>MAYA's price wins</Ui>.** Nothing changed or removed in your system on a night MAYA has sent to is kept. MAYA sends its own price again on its next run, lists each night in the <Ui>Change Log</Ui>, and emails your General Managers and Hotel Admins once a day about them ([When MAYA's price wins](#when-mayas-price-wins)).
 
-MAYA's price wins is for a property that also runs another pricing tool, such as a second revenue system, which changes the base rate in your system by itself. Cloudbeds and ThinkReservations cannot tell MAYA who or what changed a rate. MAYA only knows the rate differs from the price it sent, so the setting is yours to choose. Either way, a price you type on MAYA's calendar is kept.
+MAYA's price wins is for a property that also runs another pricing tool, such as a second revenue system, which changes the base rate in your system by itself. Cloudbeds and ThinkReservations cannot tell MAYA who or what changed a rate. MAYA only knows the rate differs from the price it sent, so the setting is yours to choose. With <Ui>MAYA's price wins</Ui>, a price you type on MAYA's calendar is the one MAYA sends again, and nothing in your system changes or clears it. With <Ui>Keep the change as your price</Ui>, a price you typed stands until a later change in your system on that night replaces it, like any change there, or a 0 there closes the night.
 
 A Revenue Manager, General Manager or Hotel Admin can change the setting. Turning <Ui>MAYA's price wins</Ui> on while some nights ahead still keep a rate changed in your system asks first, and replaces them with MAYA's prices only when you say so. Turning it off changes nothing that has already happened. [Settings](/docs/watch/settings#changes-made-in-your-property-system) shows both.
 
@@ -127,9 +127,9 @@ MAYA sent $165.00 to Standard on Friday, November 13, 2026, and Cloudbeds confir
 
 With <Ui>MAYA's price wins</Ui> on, a rate changed or removed in your system on a night MAYA has sent to, under the conditions above, is not kept. MAYA reads the change within about an hour, as with any change, and sends its own price to that night again on the same run. It goes out like every other price: only while you are live, with your floors, ceilings and every other check applied. Nothing becomes a manual price, and no night shows "Changed in Cloudbeds".
 
-A price typed in MAYA is MAYA's price too. When a rate is changed in your system on a night whose price you typed in MAYA, MAYA sends your typed price again. The typed price itself is never changed or cleared.
+A price typed in MAYA is MAYA's price too. When a rate is changed in your system on a night whose price you typed in MAYA, MAYA sends your typed price again. The typed price itself is never changed or cleared, even by a 0 in your system: that night is not closed, and your typed price goes out again over the 0, listed like any other night MAYA sent its price to again.
 
-Two things work as they do with the other choice: setting a night to 0 in your system still closes it ([Closing a night at 0](#closing-a-night-at-0)), and a difference shared by nearly every night, such as tax, is still read as your system's own rule and left alone ([Prices with tax or a markup](#prices-with-tax-or-a-markup)).
+Two things work as they do with the other choice: setting a night to 0 in your system still closes it, unless you typed its price in MAYA ([Closing a night at 0](#closing-a-night-at-0)), and a difference shared by nearly every night, such as tax, is still read as your system's own rule and left alone ([Prices with tax or a markup](#prices-with-tax-or-a-markup)).
 
 If another tool keeps changing the same rate, MAYA sends its price again after each change it reads. Guests can see the other tool's rate in the time between, so switching the other tool off is still the surest way.
 
@@ -174,18 +174,19 @@ If you were live before and went back to simulation, a rate you change in your s
 
 ## Closing a night at 0
 
-Set a night's rate to 0 in your system and MAYA reads it as closed, whichever choice your setting has.
+Set a night's rate to 0 in your system and MAYA reads it as closed, whichever choice your setting has, but for one case with <Ui>MAYA's price wins</Ui> (below).
 
 - On a night MAYA has sent to, the starting point becomes 0, MAYA stops pricing that night and sends nothing to it. Any manual price on that night is cleared, and the rules it paused are released. This needs you to be live and the 0 to be on the rate plan MAYA writes to. MAYA's last send to the night must also have gone through over an hour ago. It does not need to be confirmed, because MAYA never sends 0 itself.
 - On a night MAYA has never sent to, a rate of 0 is left unpriced from the start. MAYA does not open a closed night at the floor.
 
 Open the night again by loading a rate in your system. The next hourly read takes that rate as the starting point, and your rules work from it.
 
-A 0 in your system does not close a night MAYA has sent to in three cases:
+A 0 in your system does not close a night MAYA has sent to in four cases:
 
 - **A comp night you set in MAYA.** A typed price of 0 makes the night free, so a 0 in your system for that night matches your price rather than closing the night. [Setting a price yourself](/docs/watch/setting-a-price-yourself) covers comp nights.
 - **A manual price whose last send was never confirmed.** The night is held rather than closed, since that price may never have reached your system. The manual price stays, and MAYA sends nothing new to the night while your system has 0.
 - **A newer price typed in MAYA that is still on its way.** Your typed price is kept and sent as usual.
+- **A price typed in MAYA, with <Ui>MAYA's price wins</Ui> on.** That setting never clears a typed price. MAYA sends it again over the 0, and the change log and the day's email list the night like any other it sent its price to again.
 
 ## Prices with tax or a markup
 
