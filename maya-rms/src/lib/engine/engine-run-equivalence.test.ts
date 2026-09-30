@@ -346,13 +346,19 @@ function seed(): Record<string, FakeRow[]> {
     room_types: ROOM_TYPES,
     pricing_rules: RULES,
     reservations,
-    base_rate_calendar: Array.from({ length: HORIZON }, (_, i) => ({
-      hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: SUITE, price: 160 + (i % 4) * 5,
-    })),
+    // The hotel's own rate for every room type: the only base besides a
+    // typed price (base-price.ts). The Suite's varies by night; the others
+    // are flat, the court's a hire fee.
+    base_rate_calendar: Array.from({ length: HORIZON }, (_, i) => [
+      { hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: SUITE, price: 160 + (i % 4) * 5 },
+      { hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: KING, price: 120 },
+      { hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: QUEEN, price: 105 },
+      { hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: COURT, price: 35 },
+    ]).flat(),
     published_price: [
-      // Remembered base for the court, which has no base_rate anywhere else.
+      // A price from an earlier run on the court, at a base it no longer has.
       ...Array.from({ length: HORIZON }, (_, i) => ({
-        hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: COURT, price: 40, base_price: 35, computed_at: "2026-06-01T00:00:00Z",
+        hotel_id: "h1", stay_date: addDays(LOCAL0, i), room_type_id: COURT, price: 40, base_price: 38, computed_at: "2026-06-01T00:00:00Z",
       })),
     ],
     ladder_rule_state: [
