@@ -577,6 +577,70 @@ export async function cloudbedsGetReservationDetail(
   }
 }
 
+/** What Cloudbeds says about one reservation when asked for it by id. */
+export type CloudbedsReservationLookup =
+  | { found: JsonRecord }
+  /** Cloudbeds answered, in its own format, that it has no such reservation to give. */
+  | { gone: string }
+  /** No answer to act on: an outage, throttling, a refused token, a missing permission. */
+  | { unknown: string };
+
+/**
+ * Wording that is about the app or the call rather than the reservation
+ * asked for. Unverified guesses apart from the scope message, seen live from
+ * getTaxesAndFees 2026-09-08.
+ */
+const NOT_ABOUT_THE_RESERVATION = [
+  "scope",
+  "not granted",
+  "permission",
+  "access",
+  "token",
+  "unauthorized",
+  "too many requests",
+  "rate limit",
+  "propertyid",
+  "property id",
+];
+
+/**
+ * getReservation for one id, telling "Cloudbeds has no such reservation" from
+ * "Cloudbeds did not answer". For a caller about to act on a booking being
+ * gone: cloudbedsGetReservationDetail answers null for both.
+ *
+ * ⚠ What Cloudbeds says about a reservation deleted in it has not been seen
+ * live. Any refusal in its own format that is not about the app, the token,
+ * a permission or the property is taken as that answer; everything else is
+ * unknown, and the caller leaves the booking alone.
+ */
+export async function cloudbedsLookUpReservation(
+  creds: CloudbedsResolvedCredentials,
+  reservationId: string,
+  opts: { deadlineAt?: number } = {},
+): Promise<CloudbedsReservationLookup> {
+  try {
+    const res = await cloudbedsGet(
+      creds,
+      "getReservation",
+      { propertyID: creds.propertyId, reservationID: reservationId },
+      undefined,
+      { deadlineAt: opts.deadlineAt },
+    );
+    const data = res.data;
+    if (data && typeof data === "object" && !Array.isArray(data)) return { found: data as JsonRecord };
+    return { unknown: "the answer held no reservation" };
+  } catch (e) {
+    if (!(e instanceof CloudbedsHttpError)) return { unknown: errorText(e) };
+    const outage = e.foreignBody || e.status === 408 || e.status === 429 || e.status >= 500;
+    const refused = e.status === 401 || e.status === 403 || saysNotConnected(e.message);
+    const said = e.message.toLowerCase();
+    if (outage || refused || NOT_ABOUT_THE_RESERVATION.some((p) => said.includes(p))) {
+      return { unknown: errorText(e) };
+    }
+    return { gone: errorText(e) };
+  }
+}
+
 /* ── Rate PUSH (write) — outbound to Cloudbeds ─────────────────────────────── */
 
 /** POST a JSON body to a Cloudbeds classic endpoint (Bearer auth, paced, 429 backoff). */

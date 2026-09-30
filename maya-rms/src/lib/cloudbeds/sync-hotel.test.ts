@@ -24,6 +24,8 @@ const client = vi.hoisted(() => {
     cloudbedsGetReservationsRange: vi.fn(),
     cloudbedsGetReservationsPage: vi.fn(),
     cloudbedsGetReservationDetail: vi.fn(),
+    // A stored booking a full read left out is asked for by id before anything is removed.
+    cloudbedsLookUpReservation: vi.fn(async (): Promise<Record<string, unknown>> => ({ unknown: "not stubbed" })),
     // The wire format, unmocked in spirit: a sync that persists its own
     // watermark goes incremental on the next run and formats it with this.
     cloudbedsTimestamp: (d: Date) => d.toISOString().slice(0, 19).replace("T", " "),
@@ -114,6 +116,10 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
         preds.push((r) => vals.includes(r[col]));
         return builder;
       },
+      gte(col: string, val: string) {
+        preds.push((r) => String(r[col]) >= val);
+        return builder;
+      },
       then<T>(resolve: (v: { error: null }) => T) {
         const survivors = reservations.filter((r) => !preds.every((p) => p(r)));
         reservations.length = 0;
@@ -134,6 +140,15 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
       },
       in(col: string, vals: unknown[]) {
         preds.push((r) => vals.includes(r[col]));
+        return builder;
+      },
+      gte(col: string, val: string) {
+        preds.push((r) => String(r[col]) >= val);
+        return builder;
+      },
+      // PostgREST's or=(col.eq.value,col.like.prefix*), as stored-rooms.ts writes it.
+      or(filter: string) {
+        preds.push(orFilter(filter));
         return builder;
       },
       // Ordering is honoured by the static array's own order.
@@ -205,6 +220,21 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
     connUpdates: ResRow[];
     connection: ResRow;
   };
+}
+
+/** One `or=` filter as a row test: `col.eq.value` and `col.like.pattern`, `*` for any run of characters. */
+function orFilter(filter: string): (r: ResRow) => boolean {
+  const tests = filter.split(",").map((part) => {
+    const [col, op, ...rest] = part.split(".");
+    const value = rest.join(".");
+    if (op === "eq") return (r: ResRow) => String(r[col]) === value;
+    if (op === "like") {
+      const pattern = new RegExp(`^${value.split("*").map((v) => v.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+      return (r: ResRow) => pattern.test(String(r[col]));
+    }
+    throw new Error(`or filter not modelled: ${part}`);
+  });
+  return (r) => tests.some((t) => t(r));
 }
 
 /* ── Rate-details fixtures, shaped like the sandbox payload ─────────────── */
@@ -364,6 +394,8 @@ beforeEach(() => {
   client.cloudbedsGetReservationsRange.mockReset();
   client.cloudbedsGetReservationsPage.mockReset();
   client.cloudbedsGetReservationDetail.mockReset();
+  client.cloudbedsLookUpReservation.mockReset();
+  client.cloudbedsLookUpReservation.mockImplementation(async () => ({ unknown: "not stubbed" }));
   client.cloudbedsGetTaxesAndFees.mockClear();
   serve([]);
 });

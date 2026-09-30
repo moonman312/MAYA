@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  cloudbedsRoomRowIds,
+  parseCloudbedsHistoryRateDetails,
   parseCloudbedsReservationDetail,
   parseCloudbedsReservations,
 } from "../../../supabase/functions/_shared/cloudbeds/etl";
@@ -358,5 +360,156 @@ describe("cloudbeds etl confirmation pending", () => {
     expect(rows.map((r) => [r.external_reservation_id, r.stay_date, r.current_rate])).toEqual([
       ["p2-1", "2026-09-04", 150],
     ]);
+  });
+});
+
+describe("row ids for rooms that are already stored", () => {
+  const RID = "5538214799001";
+  const room = (sub: string) => ({ subReservationID: sub });
+
+  it("are what they always were when nothing is stored", () => {
+    expect(cloudbedsRoomRowIds(RID, [room(RID), room(`${RID}-1`), room(`${RID}-2`)])).toEqual([
+      `${RID}-3`,
+      `${RID}-1`,
+      `${RID}-2`,
+    ]);
+    expect(cloudbedsRoomRowIds(RID, [room(RID), room(`${RID}-2`), room(`${RID}-3`)])).toEqual([
+      `${RID}-1`,
+      `${RID}-2`,
+      `${RID}-3`,
+    ]);
+    expect(cloudbedsRoomRowIds(RID, [null, null])).toEqual([`${RID}-1`, `${RID}-2`]);
+  });
+
+  it("stay put when a room with a lower number leaves the booking", () => {
+    const stored = [
+      { rowId: `${RID}-1`, sub: `${RID}-1` },
+      { rowId: `${RID}-2`, sub: `${RID}-2` },
+      { rowId: `${RID}-3`, sub: RID },
+    ];
+    expect(cloudbedsRoomRowIds(RID, [room(RID), room(`${RID}-2`)], stored)).toEqual([`${RID}-3`, `${RID}-2`]);
+  });
+
+  it("stay put when a new room spells out the number a stored room holds", () => {
+    const stored = [{ rowId: `${RID}-1`, sub: RID }];
+    expect(cloudbedsRoomRowIds(RID, [room(RID), room(`${RID}-1`)], stored)).toEqual([`${RID}-1`, `${RID}-2`]);
+    // And once both are stored, each is found by its own id, in any order.
+    const both = [...stored, { rowId: `${RID}-2`, sub: `${RID}-1` }];
+    expect(cloudbedsRoomRowIds(RID, [room(`${RID}-1`), room(RID)], both)).toEqual([`${RID}-2`, `${RID}-1`]);
+  });
+
+  it("never hand a new room the rows of a room that has left", () => {
+    // The Queen (-1) left and a third room arrives without a number of its own.
+    const stored = [
+      { rowId: `${RID}-1`, sub: `${RID}-1` },
+      { rowId: `${RID}-2`, sub: RID },
+    ];
+    expect(cloudbedsRoomRowIds(RID, [room(RID), { roomTypeID: "540123" }], stored)).toEqual([`${RID}-2`, `${RID}-3`]);
+  });
+
+  it("take over rows stored without a payload, which no room can be told from", () => {
+    const stored = [{ rowId: `${RID}-1`, sub: null }];
+    expect(cloudbedsRoomRowIds(RID, [room(RID)], stored)).toEqual([`${RID}-1`]);
+    expect(cloudbedsRoomRowIds(RID, [room(RID), room(`${RID}-1`)], stored)).toEqual([`${RID}-2`, `${RID}-1`]);
+  });
+
+  it("pick the older rows when an earlier re-labelling left one room under two ids", () => {
+    const sameRun = [
+      { rowId: `${RID}-1`, sub: RID, createdAt: "2026-07-01T09:31:00Z" },
+      { rowId: `${RID}-3`, sub: RID, createdAt: "2026-07-01T09:31:00Z" },
+    ];
+    expect(cloudbedsRoomRowIds(RID, [room(RID)], sameRun)).toEqual([`${RID}-3`]);
+    const later = [
+      { rowId: `${RID}-1`, sub: RID, createdAt: "2026-07-01T09:31:00Z" },
+      { rowId: `${RID}-3`, sub: RID, createdAt: "2026-07-09T12:00:00Z" },
+    ];
+    expect(cloudbedsRoomRowIds(RID, [room(RID)], later)).toEqual([`${RID}-1`]);
+  });
+
+  it("ignore stored ids that are not this booking's rooms", () => {
+    const stored = [
+      { rowId: RID, sub: RID },
+      { rowId: "101", sub: RID },
+      { rowId: `${RID}-2-1`, sub: RID },
+    ];
+    expect(cloudbedsRoomRowIds(RID, [room(RID)], stored)).toEqual([`${RID}-1`]);
+  });
+
+  it("do not take a physical room's id for the room's own", () => {
+    // roomID names room 101, whoever is in it. It is never a row id and never an identity.
+    expect(cloudbedsRoomRowIds(RID, [{ roomID: "101" }], [{ rowId: `${RID}-1`, sub: RID }])).toEqual([`${RID}-2`]);
+  });
+});
+
+describe("rooms Cloudbeds lists as cancelled", () => {
+  const RID = "5538214799001";
+  const detail = (queenStatus: string) => ({
+    reservationID: RID,
+    status: "confirmed",
+    dateCreated: "2026-07-01",
+    assigned: [
+      { subReservationID: RID, roomTypeID: "K", roomStatus: "not_checked_in", dailyRates: [{ date: "2026-08-15", rate: 240 }] },
+      { subReservationID: `${RID}-1`, roomTypeID: "Q", roomStatus: queenStatus, dailyRates: [{ date: "2026-08-15", rate: 180 }] },
+    ],
+  });
+
+  it("produce no rows, and are named so what is stored for them can go", () => {
+    const parsed = parseCloudbedsReservationDetail(detail("cancelled"));
+    expect(parsed.rows.map((r) => [r.external_reservation_id, r.external_room_type_id])).toEqual([[`${RID}-2`, "K"]]);
+    expect(parsed.roomRowIds).toEqual([`${RID}-2`]);
+    expect(parsed.releasedRowIds).toEqual([`${RID}-1`]);
+    expect(parsed.namesRooms).toBe(true);
+  });
+
+  it("are counted like any other room while Cloudbeds holds them", () => {
+    const parsed = parseCloudbedsReservationDetail(detail("checked_in"));
+    expect(parsed.rows).toHaveLength(2);
+    expect(parsed.releasedRowIds).toEqual([]);
+  });
+
+  it("take no share of the total on the list path", () => {
+    const { reservations } = parseCloudbedsReservations([
+      {
+        reservationID: RID,
+        status: "confirmed",
+        startDate: "2026-08-15",
+        endDate: "2026-08-16",
+        total: 240,
+        rooms: [
+          { subReservationID: RID, roomTypeID: "K", roomStatus: "not_checked_in" },
+          { subReservationID: `${RID}-1`, roomTypeID: "Q", roomStatus: "cancelled" },
+        ],
+      },
+    ]);
+    expect(reservations.map((r) => [r.external_reservation_id, r.external_room_type_id, r.current_rate])).toEqual([
+      [`${RID}-2`, "K", 240],
+    ]);
+  });
+
+  it("are reconciled away by the history import", () => {
+    const { rows, reconcileIds } = parseCloudbedsHistoryRateDetails(
+      [
+        {
+          reservationID: RID,
+          status: "checked_out",
+          dateCreated: "2025-01-01 10:00:00",
+          reservationCheckIn: "2025-02-01",
+          reservationCheckOut: "2025-02-02",
+          rooms: [
+            { subReservationID: RID, roomTypeID: "K", roomStatus: "checked_out", detailedRoomRates: { "2025-02-01": 240 } },
+            { subReservationID: `${RID}-1`, roomTypeID: "Q", roomStatus: "cancelled", detailedRoomRates: { "2025-02-01": 180 } },
+          ],
+        },
+      ],
+      { from: "2025-01-01", to: "2025-03-01" },
+    );
+    expect(rows.map((r) => r.external_reservation_id)).toEqual([`${RID}-2`]);
+    expect(reconcileIds.sort()).toEqual([RID, `${RID}-1`, `${RID}-2`]);
+  });
+
+  it("say nothing about rooms when the payload only declares how many there are", () => {
+    const parsed = parseCloudbedsReservationDetail({ reservationID: RID, status: "confirmed", roomsQuantity: 2 });
+    expect(parsed.rows).toEqual([]);
+    expect(parsed.namesRooms).toBe(false);
   });
 });

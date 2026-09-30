@@ -208,15 +208,54 @@ export function cloudbedsRoomSlots(res: Json): (Json | null)[] {
  * room whose subReservationID is the reservation id itself and every further
  * room is `<reservationID>-<n>`, so exactly one room per booking takes a
  * derived key and the keys do not depend on the order rooms are listed in.
+ *
+ * A derived key does depend on which other rooms the booking has, though: it
+ * is the lowest number no other room spells out. Take a room off the booking
+ * and the number it held is free, so the room with the derived key would move
+ * onto it and leave its old rows behind; add a room that spells out the number
+ * the derived key holds and that room would take the stored rows over. So a
+ * room already stored keeps the row id it is stored under. `stored` is what
+ * the table holds for this booking (cloudbeds/stored-rooms.ts), and a room is
+ * recognised by the subReservationID its stored payload carries. Rows stored
+ * without one (the history import keeps no payload) are anybody's, as before.
+ * Without `stored` the ids are what they always were.
  */
-export function cloudbedsRoomRowIds(parentId: string, slots: (Json | null)[]): string[] {
-  const explicit = slots.map((entry) => {
-    const id = entry ? firstString(entry, ROOM_ID_KEYS) : null;
-    return id && id.startsWith(`${parentId}-`) ? id : null;
+export function cloudbedsRoomRowIds(
+  parentId: string,
+  slots: (Json | null)[],
+  stored: readonly CloudbedsStoredRoomKey[] = [],
+): string[] {
+  const prefix = `${parentId}-`;
+  const inNamespace = (id: string) => id.startsWith(prefix) && /^[0-9]+$/.test(id.slice(prefix.length));
+  // Which stored row id each room already stored is under, by the room's own id.
+  const storedAt = new Map<string, CloudbedsStoredRoomKey>();
+  const heldByAKnownRoom = new Set<string>();
+  for (const s of stored) {
+    if (!s.sub || !inNamespace(s.rowId)) continue;
+    heldByAKnownRoom.add(s.rowId);
+    const other = storedAt.get(s.sub);
+    if (!other || olderHome(s, other, prefix)) storedAt.set(s.sub, s);
+  }
+
+  const ids: (string | null)[] = slots.map(() => null);
+  const taken = new Set<string>(heldByAKnownRoom);
+  // 1. A room already stored stays where it is.
+  slots.forEach((entry, i) => {
+    const sub = entry ? roomIdentity(entry, parentId) : null;
+    const home = sub ? storedAt.get(sub) : undefined;
+    if (home) ids[i] = home.rowId;
   });
-  const taken = new Set(explicit.filter((id): id is string => id !== null));
+  // 2. A room that spells out its own id takes it, unless another room is stored there.
+  slots.forEach((entry, i) => {
+    if (ids[i]) return;
+    const id = entry ? firstString(entry, ROOM_ID_KEYS) : null;
+    if (!id || !id.startsWith(prefix) || heldByAKnownRoom.has(id)) return;
+    ids[i] = id;
+    taken.add(id);
+  });
+  // 3. Everything else takes the lowest number nobody holds.
   let n = 1;
-  return explicit.map((id) => {
+  return ids.map((id) => {
     if (id) return id;
     // A payload can spell out `-2` and leave `-1` anonymous; skip what's taken.
     while (taken.has(`${parentId}-${n}`)) n += 1;
@@ -224,6 +263,56 @@ export function cloudbedsRoomRowIds(parentId: string, slots: (Json | null)[]): s
     taken.add(derived);
     return derived;
   });
+}
+
+/** A stored room of one booking: the row id it is under and the room it holds. */
+export type CloudbedsStoredRoomKey = {
+  /** reservations.external_reservation_id. */
+  rowId: string;
+  /** The subReservationID in the rows' stored payload, null when they carry none. */
+  sub: string | null;
+  /** When the first of its rows reached MAYA, when known. */
+  createdAt?: string | null;
+};
+
+/**
+ * The id Cloudbeds gives a room inside its booking: the booking's own id for
+ * its first room, `<reservationID>-<n>` for the rest. Null for anything else,
+ * a physical room's id included, which can change while the stay does not.
+ */
+function roomIdentity(entry: Json, parentId: string): string | null {
+  const sub = firstString(entry, ["subReservationID"]);
+  if (!sub) return null;
+  return sub === parentId || sub.startsWith(`${parentId}-`) ? sub : null;
+}
+
+/**
+ * Of two stored row ids holding the same room, whether `a` is the one to
+ * keep. Only an earlier re-labelling leaves a room under two ids: the rows it
+ * was first written to, and the rows of a room that left, which it moved onto
+ * and whose first rate they still carry as base_rate. The first are the older
+ * ones; written in the same run, they are the ones with the higher number,
+ * because a derived number only ever moves down when a room leaves.
+ */
+function olderHome(a: CloudbedsStoredRoomKey, b: CloudbedsStoredRoomKey, prefix: string): boolean {
+  const at = a.createdAt ? Date.parse(a.createdAt) : NaN;
+  const bt = b.createdAt ? Date.parse(b.createdAt) : NaN;
+  if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return at < bt;
+  return Number(a.rowId.slice(prefix.length)) > Number(b.rowId.slice(prefix.length));
+}
+
+/**
+ * Whether Cloudbeds lists a room on a booking it no longer holds for it. A
+ * room taken off a booking can stay in its rooms with roomStatus "cancelled"
+ * while the booking itself stays confirmed for the rooms that are left.
+ * ⚠ VERIFY the spelling against a live payload: both spellings and no_show
+ * (which the booking-level statuses treat as a release too) are accepted.
+ */
+const RELEASED_ROOM_STATUSES = ["canceled", "cancelled", "no_show", "noshow"];
+
+export function cloudbedsRoomReleased(entry: Json): boolean {
+  const status = firstString(entry, ["roomStatus"]);
+  return !!status && RELEASED_ROOM_STATUSES.includes(status.trim().toLowerCase());
 }
 
 /**
@@ -357,14 +446,18 @@ export function parseCloudbedsReservations(
 
     const slots = cloudbedsRoomSlots(res);
     const roomIds = cloudbedsRoomRowIds(rid, slots);
+    // Rooms Cloudbeds lists as cancelled hold no night and take no share of the total.
+    const released = slots.map((entry) => !!entry && cloudbedsRoomReleased(entry));
+    const held = released.filter((r) => !r).length;
     const detailRates = nightlyRateByResId?.get(rid) ?? null;
     const total =
       firstNumber(res, ["total", "balance", "grandTotal", "totalRate", "roomTotal"]) ?? null;
     const fallbackNightly =
-      total != null ? Math.round((total / (nights.length * slots.length)) * 100) / 100 : null;
+      total != null && held > 0 ? Math.round((total / (nights.length * held)) * 100) / 100 : null;
 
     for (let slot = 0; slot < slots.length; slot += 1) {
       const entry = slots[slot];
+      if (released[slot]) continue;
       const roomId = roomIds[slot];
       const externalRoomTypeId =
         (entry ? firstString(entry, ROOM_TYPE_KEYS) : null) ?? bookingRoomTypeId;
@@ -473,10 +566,26 @@ function roomDailyRates(value: unknown): Json[] {
  *
  * Verified against the live sandbox getReservation response.
  */
-export function parseCloudbedsReservationDetail(detail: Json): {
+export function parseCloudbedsReservationDetail(
+  detail: Json,
+  opts: {
+    /** What the table holds for this booking, so a stored room keeps its row id (cloudbedsRoomRowIds). */
+    stored?: readonly CloudbedsStoredRoomKey[];
+  } = {},
+): {
   reservationId: string | null;
   status: string | null;
   rows: CloudbedsParsedReservationRow[];
+  /** The row id of every room the booking holds, whether or not its payload carried nights. */
+  roomRowIds: string[];
+  /** The row ids of rooms Cloudbeds lists as cancelled: no rows, and nothing stored should be left. */
+  releasedRowIds: string[];
+  /**
+   * The payload lists the booking's rooms itself, every one of them, rather
+   * than declaring a count. Only then does a stored room it does not list
+   * count as gone.
+   */
+  namesRooms: boolean;
 } {
   const reservationId = firstString(detail, ["reservationID", "reservationId", "id"]);
   const status = firstString(detail, ["status", "reservationStatus"]);
@@ -486,13 +595,22 @@ export function parseCloudbedsReservationDetail(detail: Json): {
   // Without a parent id there is no namespace to key rooms in, and a row keyed by
   // a bare roomID belongs to the room rather than to this booking.
   const slots = reservationId ? cloudbedsRoomSlots(detail) : [];
-  const roomIds = reservationId ? cloudbedsRoomRowIds(reservationId, slots) : [];
+  // Keyed over every room listed, released ones included, so the numbers the
+  // others take do not move when a room is cancelled.
+  const roomIds = reservationId ? cloudbedsRoomRowIds(reservationId, slots, opts.stored) : [];
+  const roomRowIds = new Set<string>();
+  const releasedRowIds = new Set<string>();
 
   for (let slot = 0; slot < slots.length; slot += 1) {
     const room = slots[slot];
     if (!room) continue;
-    const rtId = firstString(room, ROOM_TYPE_KEYS);
     const subId = roomIds[slot];
+    if (cloudbedsRoomReleased(room)) {
+      releasedRowIds.add(subId);
+      continue;
+    }
+    roomRowIds.add(subId);
+    const rtId = firstString(room, ROOM_TYPE_KEYS);
 
     const daily = Array.isArray(room.dailyRates) ? (room.dailyRates as Json[]) : [];
     for (const dr of daily) {
@@ -513,8 +631,17 @@ export function parseCloudbedsReservationDetail(detail: Json): {
       });
     }
   }
+  // A room listed twice (one id, two entries) and released in one of them is still held.
+  for (const id of roomRowIds) releasedRowIds.delete(id);
 
-  return { reservationId, status, rows };
+  return {
+    reservationId,
+    status,
+    rows,
+    roomRowIds: [...roomRowIds],
+    releasedRowIds: [...releasedRowIds],
+    namesRooms: slots.length > 0 && slots.every((room) => room !== null),
+  };
 }
 
 /**
@@ -596,9 +723,9 @@ function isActiveReservationStatus(status: string | null): boolean {
  * import keyed differently (the list path put a whole multi-room booking
  * under `<id>-1`, and rows from before per-room keying sit under the bare
  * id), loses the nights it no longer has. For an active booking only the bare
- * id and the room ids that produced rows are claimed, as the live sync's
- * stale-night pass claims them: a room or a booking whose payload is missing
- * its rates is no reason to wipe nights already stored.
+ * id, the room ids that produced rows and the rooms Cloudbeds lists as
+ * cancelled are claimed: a room or a booking whose payload is missing its
+ * rates is no reason to wipe nights already stored.
  *
  * Nothing about a booking is logged or returned beyond these ids, rows and
  * counts.
@@ -647,6 +774,8 @@ export function parseCloudbedsHistoryRateDetails(
     stats.owned += 1;
     if (parsed.rows.length === 0) continue;
     reconcile.add(rid);
+    // A room Cloudbeds lists as cancelled holds no night, whatever an older import stored for it.
+    for (const id of parsed.releasedRowIds) reconcile.add(id);
     for (const r of parsed.rows) {
       reconcile.add(r.external_reservation_id);
       byKey.set(`${r.external_reservation_id}:${r.stay_date}`, {

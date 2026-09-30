@@ -320,6 +320,44 @@ describe.skipIf(!PGLITE_DIR)("the pricing cadence migration in PGlite", () => {
       expect(await dirty()).toEqual([[night(4), ["booking"]]]);
     });
 
+    it("the Cloudbeds sync's deletes mark the nights they free: a room taken off a booking, a cancellation, a booking deleted in Cloudbeds", async () => {
+      const rid = "5538214799001";
+      const room = (n: number, slot: number, stay: string) => res(id(900 + n), stay, { ext: `${rid}-${slot}` });
+      await insert([
+        room(1, 1, night(20)), room(2, 1, night(21)),
+        room(3, 2, night(20)), room(4, 2, night(21)),
+        room(5, 3, night(20)), room(6, 3, night(21)),
+        // A night already over, which marks nothing.
+        room(7, 3, night(-2)),
+      ]);
+
+      // A room that left its booking: deleted a night at a time (stale-nights.ts).
+      await clear();
+      await db.exec(
+        `delete from public.reservations where hotel_id = '${H}' and stay_date = '${night(20)}' and external_reservation_id in ('${rid}-1')`,
+      );
+      expect(await dirty()).toEqual([[night(20), ["booking"]]]);
+
+      // A booking deleted in Cloudbeds: its nights from today on (stored-rooms.ts).
+      await clear();
+      await db.exec(
+        `delete from public.reservations where hotel_id = '${H}' and stay_date >= '${today}' and external_reservation_id in ('${rid}-1', '${rid}-2')`,
+      );
+      expect(await dirty()).toEqual([
+        [night(20), ["booking"]],
+        [night(21), ["booking"]],
+      ]);
+
+      // A cancellation: every row under the booking's ids.
+      await clear();
+      await db.exec(`delete from public.reservations where hotel_id = '${H}' and external_reservation_id in ('${rid}-3')`);
+      expect(await dirty()).toEqual([
+        [night(20), ["booking"]],
+        [night(21), ["booking"]],
+      ]);
+      expect(await q(`select count(*)::int as n from public.reservations where external_reservation_id like '${rid}-%'`)).toEqual([{ n: 0 }]);
+    });
+
     it("one statement that inserts some rows and changes others (the sync's upsert) marks exactly those nights, once each", async () => {
       await clear();
       await db.exec(`

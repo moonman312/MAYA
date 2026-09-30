@@ -106,9 +106,10 @@ export function fakeSupabase(
   };
 
   /**
-   * PostgREST's `or=(...)` grammar, the subset the engine writes:
-   * `col.op.value` terms joined by commas, nested `and(...)`, and the
-   * operators eq/gt/gte/lt/lte/is.null/in.(...)/not.in.(...).
+   * PostgREST's `or=(...)` grammar, the subset the engine and the syncs
+   * write: `col.op.value` terms joined by commas, nested `and(...)`, and the
+   * operators eq/gt/gte/lt/lte/is.null/in.(...)/not.in.(...)/like (with `*`
+   * or `%` for any run of characters).
    */
   const splitTop = (expr: string): string[] => {
     const out: string[] = [];
@@ -144,8 +145,14 @@ export function fakeSupabase(
     }
     const raw = rest.join(".");
     const list = op === "in" ? raw.replace(/^\(|\)$/g, "").split(",") : [];
+    const like =
+      op === "like"
+        ? new RegExp(`^${raw.split(/[*%]/).map((part) => part.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`)
+        : null;
     const test = (v: unknown): boolean => {
       switch (op) {
+        case "like":
+          return v != null && like!.test(String(v));
         case "eq":
           return String(v) === raw;
         case "gt":

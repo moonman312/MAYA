@@ -14,6 +14,7 @@ import {
   cloudbedsGetReservationsPage,
   cloudbedsGetReservationsRange,
   cloudbedsGetReservationsWithRateDetailsPage,
+  cloudbedsLookUpReservation,
   cloudbedsTimestamp,
   cloudbedsGetRoomTypes,
   cloudbedsGetTaxesAndFees,
@@ -58,6 +59,13 @@ import { decideSyncWindow } from "../pms/sync-mode.ts";
 import { DEFAULT_SYNC_DAYS_FORWARD, MAX_SYNC_DAYS_FORWARD } from "../pms/pricing-window.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 import { cloudbedsRateDetailsRefused } from "./rate-details-refusal.ts";
+import {
+  deleteNightsFrom,
+  isCloudbedsBookingId,
+  loadStoredBookingsFrom,
+  loadStoredRooms,
+  type StoredRoom,
+} from "./stored-rooms.ts";
 
 const RECONCILE_IN_CHUNK = 200;
 const PAGE_GUARD = 1000;
@@ -86,6 +94,17 @@ const CHECKOUT_CURSOR_PREFIX = "checkout:";
 const CANCEL_CURSOR_PREFIX = "cancel:";
 
 type Json = Record<string, unknown>;
+
+/**
+ * Stored bookings a full read may find missing before it stops believing
+ * itself: this many, or this share of the bookings stored with nights to
+ * come, whichever is more. Bookings are deleted in Cloudbeds one at a time,
+ * by a person. A read that comes back without a fifth of the book has gone
+ * wrong in a way nobody thought of, and removing those nights would empty the
+ * hotel's occupancy and send its prices down.
+ */
+const MISSING_BOOKINGS_LIMIT = 5;
+const MISSING_BOOKINGS_SHARE = 0.2;
 
 /** A write failed inside the sweep's slice callback; the run stops with it. */
 class WindowWriteError extends Error {}
@@ -140,8 +159,43 @@ export type CloudbedsSyncSuccess = {
     rowsWithMissingRate: number;
     unchangedRowsSkipped: number;
     tokenRefreshed: boolean;
+    /** Rooms stored for a booking this run read that Cloudbeds no longer lists on it, now removed. */
+    roomsNoLongerOnBooking: number;
+    /** What the full read did about stored bookings Cloudbeds did not return. */
+    missingBookings: MissingBookingsCheck;
   };
 };
+
+/**
+ * Stored bookings with nights still to come that a full read did not return.
+ * `checked` false means the read could not vouch for what it left out (why
+ * says which way), and nothing was looked at.
+ */
+export type MissingBookingsCheck =
+  | { checked: false; why: MissingBookingsSkip }
+  | {
+      checked: true;
+      /** Stored bookings with a night from today on, Cloudbeds' ids only. */
+      stored: number;
+      /** Of those, the ones the read did not return. */
+      missing: number;
+      /** Asked for one by one and gone from Cloudbeds, or cancelled there: removed. */
+      removed: number;
+      /** Asked for one by one and still held in Cloudbeds: left alone. */
+      stillHeld: number;
+      /** Cloudbeds gave no answer to act on, or time ran out: left alone. */
+      unconfirmed: number;
+      /** Too many were missing to believe: none was asked about, none removed. */
+      overLimit?: true;
+    };
+
+export type MissingBookingsSkip =
+  | "incremental_read"
+  | "read_cut_short"
+  | "read_resumed"
+  | "read_incomplete"
+  | "per_booking_read"
+  | "stored_read_failed";
 
 export type CloudbedsSyncFailure = {
   ok: false;
@@ -362,20 +416,10 @@ export function sweepIdCompare(a: string, b: string): number {
   return a.length - b.length || (a < b ? -1 : a > b ? 1 : 0);
 }
 
-/**
- * The live sync's stale-night pass: only ids with at least one active night
- * this run are vouched for. A booking whose payload lost its rates parses to
- * no nights, and that is no reason to wipe what is stored; cancellations are
- * deleted by id elsewhere.
- */
-async function deleteStaleStayNights(
-  supabase: SupabaseClient,
-  hotelId: string,
-  activeByExternalId: Map<string, Set<string>>,
-): Promise<{ error: { message: string } | null }> {
-  const keep = new Map([...activeByExternalId].filter(([, nights]) => nights.size > 0));
-  const { error } = await deleteNightsOutside(supabase, hotelId, keep);
-  return { error };
+/** Whether Cloudbeds flags the booking itself as deleted (`isDeleted`, on the rate-details payload). */
+function isDeletedBooking(row: Json): boolean {
+  const flag = row.isDeleted;
+  return flag === true || flag === 1 || flag === "1" || (typeof flag === "string" && flag.trim().toLowerCase() === "true");
 }
 
 /* ── Writing the window ──────────────────────────────────────────────────── */
@@ -397,12 +441,23 @@ type BookingKind = "active" | "canceled" | "outside" | "unknown";
  * at the end, and never for an id the run holds as active, so a booking
  * canceled in one batch and live again in the next keeps its rows (and the
  * base_rate the trigger pinned on their first insert).
+ *
+ * What is stored for a booking is read back before its fresh answer is
+ * written (stored-rooms.ts), for two things. A room already stored keeps the
+ * row id it is under, whatever the other rooms of the booking do. And a
+ * stored room the fresh answer does not list has left the booking: its
+ * nights are deleted, as a cancelled booking's are, by every id the table
+ * holds for it rather than the ids worked out from the rooms still listed.
+ * Only an answer that lists its rooms and carries nights vouches for what it
+ * leaves out; a payload that lost its rooms or its rates wipes nothing.
  */
 function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExternal: Record<string, string>) {
   const latest = new Map<string, BookingKind>();
   const extIdsByRid = new Map<string, string[]>();
   const canceledIdsByRid = new Map<string, string[]>();
   const looseCanceled = new Set<string>();
+  /** Cancelled bookings the per-booking path found, by booking id. */
+  const looseCanceledBookings = new Set<string>();
   const activeNights = new Map<string, Set<string>>();
   const stats = {
     upserted: 0,
@@ -415,14 +470,31 @@ function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExter
     activeBookings: 0,
     writeMs: 0,
     writtenRows: 0,
+    roomsGone: 0,
   };
 
   async function writeActive(entries: { rid: string; detail: Json }[]): Promise<{ message: string } | null> {
+    if (entries.length === 0) return null;
+    const started = Date.now();
+    // A read that fails stops the run: nothing is written on a guess at what is stored.
+    const stored = await loadStoredRooms(supabase, hotelId, entries.map((e) => e.rid));
+    if (stored.error) return stored.error;
+
     const allRows: CloudbedsParsedReservationRow[] = [];
+    // Stored rooms the fresh answer no longer lists: every night under them goes.
+    const gone = new Map<string, Set<string>>();
     for (const { rid, detail } of entries) {
-      const rows = parseCloudbedsReservationDetail(detail).rows;
-      allRows.push(...rows);
-      extIdsByRid.set(rid, [...new Set(rows.map((r) => r.external_reservation_id))]);
+      const storedRooms = stored.bookings.get(rid) ?? new Map<string, StoredRoom>();
+      const parsed = parseCloudbedsReservationDetail(detail, {
+        stored: [...storedRooms].map(([rowId, room]) => ({ rowId, sub: room.sub, createdAt: room.createdAt })),
+      });
+      allRows.push(...parsed.rows);
+      extIdsByRid.set(rid, [...new Set(parsed.rows.map((r) => r.external_reservation_id))]);
+      if (!parsed.namesRooms || parsed.rows.length === 0) continue;
+      const held = new Set(parsed.roomRowIds);
+      for (const rowId of storedRooms.keys()) {
+        if (!held.has(rowId)) gone.set(rowId, new Set());
+      }
     }
     // Dedupe to the reservations unique key (external_reservation_id, stay_date).
     const byKey = new Map<string, CloudbedsParsedReservationRow>();
@@ -449,7 +521,6 @@ function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExter
       current_rate: r.current_rate,
       raw_payload: r.raw_payload,
     }));
-    const started = Date.now();
     // Most of a full sweep is rows that didn't move; writing them anyway is
     // WAL, realtime messages, and vacuum work for nothing.
     const diffed = await dropUnchangedReservationRows(supabase, hotelId, allRes);
@@ -468,11 +539,18 @@ function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExter
       if (resErr) return resErr;
     }
 
-    // Prune stale nights for the bookings just written (date/rate changes).
+    // Prune stale nights for the bookings just written (date/rate changes),
+    // and every night of the rooms that have left them. Only ids with a night
+    // this run are vouched for: a room whose payload lost its rates is in
+    // neither list, and keeps what is stored.
     const touched = new Map<string, Set<string>>();
     for (const r of rows) touched.set(r.external_reservation_id, activeNights.get(r.external_reservation_id)!);
-    const staleDel = await deleteStaleStayNights(supabase, hotelId, touched);
+    for (const [rowId, none] of gone) {
+      if (!touched.has(rowId) && !activeNights.has(rowId)) touched.set(rowId, none);
+    }
+    const staleDel = await deleteNightsOutside(supabase, hotelId, touched);
     if (staleDel.error) return staleDel.error;
+    stats.roomsGone += [...gone.keys()].filter((rowId) => touched.get(rowId)?.size === 0).length;
     stats.writeMs += Date.now() - started;
     stats.writtenRows += allRes.length;
     return null;
@@ -508,7 +586,7 @@ function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExter
         forget(rid);
         const detail = cloudbedsRateDetailsToDetail(row);
         const status = typeof detail.status === "string" ? detail.status : null;
-        if (isCanceledStatus(status)) {
+        if (isCanceledStatus(status) || isDeletedBooking(row)) {
           // Wherever its dates now fall: a canceled booking should hold no nights.
           stats.canceledSeen += 1;
           latest.set(rid, "canceled");
@@ -543,18 +621,30 @@ function createWindowWriter(supabase: SupabaseClient, hotelId: string, idByExter
       });
       return writeActive(entries);
     },
-    addCanceledIds(ids: Iterable<string>): void {
-      for (const id of ids) looseCanceled.add(id);
+    addCanceled(rowIds: Iterable<string>, bookingIds: Iterable<string>): void {
+      for (const id of rowIds) looseCanceled.add(id);
+      for (const id of bookingIds) looseCanceledBookings.add(id);
     },
     /**
-     * The run's cancellations. Never an id this run holds as booked: if a
-     * status flipped between reads, the nights just confirmed win and the
-     * next sync re-decides with a consistent read.
+     * The run's cancellations: the ids worked out from each cancelled
+     * booking's own rooms, and every id the table holds for the booking. A
+     * room that left the booking before it was cancelled is only in the
+     * second. Never an id this run holds as booked: if a status flipped
+     * between reads, the nights just confirmed win and the next sync
+     * re-decides with a consistent read.
      */
-    canceledIds(): string[] {
+    async canceledIds(): Promise<{ ids: string[]; error: { message: string } | null }> {
       const all = new Set(looseCanceled);
       for (const ids of canceledIdsByRid.values()) for (const id of ids) all.add(id);
-      return [...all].filter((id) => !activeNights.has(id));
+      const bookings = [...canceledIdsByRid.keys(), ...looseCanceledBookings].filter((rid) => latest.get(rid) !== "active");
+      const stored = await loadStoredRooms(supabase, hotelId, bookings);
+      if (stored.error) return { ids: [], error: stored.error };
+      for (const rooms of stored.bookings.values()) for (const rowId of rooms.keys()) all.add(rowId);
+      return { ids: [...all].filter((id) => !activeNights.has(id)), error: null };
+    },
+    /** Every booking Cloudbeds returned this run, whatever was done with it. */
+    seenBookingIds(): ReadonlySet<string> {
+      return new Set([...latest.keys(), ...looseCanceledBookings]);
     },
     windowRows(): { count: number; oldest: string | null; newest: string | null } {
       let count = 0;
@@ -604,6 +694,8 @@ type WindowPull = {
   details: Json[];
   /** Row ids of canceled and no-show bookings seen so far. */
   canceledRowIds: Set<string>;
+  /** The same bookings by their own ids, so every room stored for them can be found. */
+  canceledBookingIds: Set<string>;
   canceledSeen: number;
   detailFetched: number;
   detailFailed: number;
@@ -611,6 +703,14 @@ type WindowPull = {
   bookingsWithUnknownStatus: number;
   pages: number;
   truncated: boolean;
+  /** This run picked a sweep up part way, so it did not see the bookings before its checkpoint. */
+  resumed: boolean;
+  /**
+   * The run read the whole answer: every slice to its last page, each
+   * returning as many bookings as Cloudbeds said it held. Only then does a
+   * booking's absence from it mean anything.
+   */
+  complete: boolean;
   /** Checkpoint to store when truncated. */
   nextCursor: string | null;
   /**
@@ -658,6 +758,10 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
   let pages = 0;
   let pageMsTotal = 0;
   let truncated = false;
+  // Whether what was read is all there was (WindowPull.complete).
+  let everySliceWhole = true;
+  let reachedTheEnd = false;
+  const resumed = resumeFrom != null && resumeFrom > checkInFrom;
   let from = resumeFrom && resumeFrom > checkInFrom ? resumeFrom : checkInFrom;
   // Where this run started counts as the checkpoint until a slice completes,
   // so a run that finished none reports the same position twice and a caller
@@ -671,6 +775,13 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
     const openEnded = to === undefined || to >= sizingHorizon;
     const query = { checkOutFrom: from, checkOutTo: openEnded ? undefined : to, modifiedFrom };
     let sliceTotal: number | null = null;
+    // What this slice returned against what Cloudbeds said it held. A page
+    // that comes back short of the total, a page limit reached, or the same
+    // booking on two pages while another slipped between them all read as a
+    // slice that ended; the count is what tells them from one that did.
+    const sliceIds = new Set<string>();
+    let saidTotal: number | null = null;
+    let readToLastPage = false;
 
     for (let pageNumber = 1; pageNumber <= PAGE_GUARD; pageNumber += 1) {
       // The budget covers writing what was read, not only reading it: a run
@@ -686,8 +797,11 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
       pageMsTotal += Date.now() - startedAt;
       for (const row of page.reservations) {
         const rid = reservationIdOf(row);
-        if (rid) byId.set(rid, row);
+        if (!rid) continue;
+        byId.set(rid, row);
+        sliceIds.add(rid);
       }
+      saidTotal = page.total;
       if (pageNumber === 1 && page.total != null) {
         sliceTotal = page.total;
         const span = daysBetween(from, query.checkOutTo ?? sizingHorizon);
@@ -707,10 +821,17 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
           continue sweep;
         }
       }
-      if (!page.hasMore) break;
+      if (!page.hasMore) {
+        readToLastPage = true;
+        break;
+      }
     }
+    if (!readToLastPage || saidTotal == null || sliceIds.size < saidTotal) everySliceWhole = false;
 
-    if (query.checkOutTo === undefined) break;
+    if (query.checkOutTo === undefined) {
+      reachedTheEnd = true;
+      break;
+    }
     reached = query.checkOutTo;
     from = query.checkOutTo;
     // Written and checkpointed before the next slice is read.
@@ -730,6 +851,7 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
     source: "rate_details",
     details: [],
     canceledRowIds: new Set(),
+    canceledBookingIds: new Set(),
     canceledSeen: 0,
     detailFetched: 0,
     detailFailed: 0,
@@ -737,6 +859,8 @@ async function pullWithRateDetails(args: WindowArgs): Promise<WindowPull> {
     bookingsWithUnknownStatus: 0,
     pages,
     truncated,
+    resumed,
+    complete: everySliceWhole && reachedTheEnd && !truncated,
     nextCursor: truncated ? `${CHECKOUT_CURSOR_PREFIX}${reached}` : null,
     listCancellations: null,
   };
@@ -785,6 +909,7 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
   const seenResIds = new Set<string>();
   const details: Json[] = [];
   const canceledRowIds = new Set<string>();
+  const canceledBookingIds = new Set<string>();
   let detailFetched = 0;
   let detailFailed = 0;
   let canceledSeen = 0;
@@ -818,6 +943,7 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
     // cancel between that page and this detail call — the detail is newer.
     if (isCanceledStatus(status)) {
       canceledSeen += 1;
+      canceledBookingIds.add(rid);
       for (const id of rowIdsForReservation(rid, detail)) canceledRowIds.add(id);
       continue;
     }
@@ -828,6 +954,7 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
     source: "per_booking",
     details,
     canceledRowIds,
+    canceledBookingIds,
     canceledSeen,
     detailFetched,
     detailFailed,
@@ -835,6 +962,10 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
     bookingsWithUnknownStatus: 0,
     pages,
     truncated,
+    resumed: sweepCursor !== null || cancelCursor !== null,
+    // The lists are read by check-in and by status, a page at a time with no
+    // count to hold them to, so a booking's absence from them proves nothing.
+    complete: false,
     nextCursor: truncated ? sweepReachedId ?? sweepCursor : null,
     listCancellations: null,
   };
@@ -883,6 +1014,7 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
           // null for a 5xx or timeout too, not only a genuinely missing booking.)
           canceledDetailFailed += 1;
           pull.canceledSeen += 1;
+          pull.canceledBookingIds.add(rid);
           for (const id of rowIdsForReservation(rid, item)) pull.canceledRowIds.add(id);
           continue;
         }
@@ -892,6 +1024,7 @@ async function pullPerBooking(args: WindowArgs): Promise<WindowPull> {
         // does not overrule the list, which said canceled.
         if (status && !isCanceledStatus(status)) continue;
         pull.canceledSeen += 1;
+        pull.canceledBookingIds.add(rid);
         for (const id of rowIdsForReservation(rid, detail)) pull.canceledRowIds.add(id);
       }
       if (stoppedEarly) {
@@ -937,6 +1070,115 @@ function tokenRefreshFor(supabase: SupabaseClient, hotelId: string): CloudbedsTo
       return { accessToken: again.accessToken, tokenType: again.tokenType };
     },
   };
+}
+
+/**
+ * Stored bookings with nights still to come that a full read did not
+ * return: deleted in Cloudbeds, which never lists them again.
+ *
+ * Only a read that vouches for what it leaves out gets here (the caller
+ * checks: a full read, from the start of its window, to its end, every slice
+ * whole). Even then absence is only a reason to ask. Each missing booking is
+ * asked for by its id, and its nights from today on are removed only when
+ * Cloudbeds answers that it has no such booking, or has it cancelled. One
+ * Cloudbeds still holds was missed by the read and is left as stored; so is
+ * one the question got no answer about. Nights already past are history and
+ * stay, unless the booking is cancelled, which removes them as any
+ * cancellation does.
+ *
+ * Never throws and never fails the run: what it could not check this time
+ * the next full read checks again.
+ */
+async function removeMissingBookings(args: {
+  supabase: SupabaseClient;
+  hotelId: string;
+  creds: CloudbedsResolvedCredentials;
+  /** The first night that counts as still to come. */
+  today: string;
+  seen: ReadonlySet<string>;
+  deadlineAt: number;
+}): Promise<MissingBookingsCheck> {
+  const { supabase, hotelId, creds, today, seen, deadlineAt } = args;
+  const log = (line: Record<string, unknown>, level: "log" | "error" = "log") =>
+    console[level](JSON.stringify({ fn: "runCloudbedsSyncForHotel", hotelId, step: "missing_bookings", ...line }));
+  try {
+    const stored = await loadStoredBookingsFrom(supabase, hotelId, today);
+    if (stored.error) {
+      log({ error: stored.error.message }, "error");
+      return { checked: false, why: "stored_read_failed" };
+    }
+    const missing = [...stored.bookings.keys()]
+      .filter((id) => isCloudbedsBookingId(id) && !seen.has(id))
+      .sort(sweepIdCompare);
+    const check = { checked: true as const, stored: stored.bookings.size, missing: missing.length, removed: 0, stillHeld: 0, unconfirmed: 0 };
+    if (missing.length === 0) return check;
+
+    const limit = Math.max(MISSING_BOOKINGS_LIMIT, Math.floor(stored.bookings.size * MISSING_BOOKINGS_SHARE));
+    if (missing.length > limit) {
+      log({ stored: check.stored, missing: check.missing, limit, error: "too many stored bookings missing from the read; none removed" }, "error");
+      await raiseAlert(supabase, {
+        severity: "warn",
+        key: `cloudbeds_missing_bookings:${hotelId}`,
+        title: "Cloudbeds read left out too many stored bookings",
+        detail:
+          `${check.missing} of ${check.stored} stored bookings with nights to come were not in a full read ` +
+          `(limit ${limit}). Nothing was removed. Compare the hotel's bookings in Cloudbeds with MAYA's.`,
+        hotelId,
+      });
+      return { ...check, unconfirmed: missing.length, overLimit: true };
+    }
+
+    const gone: string[] = [];
+    const cancelled: string[] = [];
+    for (let i = 0; i < missing.length; i += 1) {
+      if (Date.now() > deadlineAt) {
+        check.unconfirmed += missing.length - i;
+        break;
+      }
+      const id = missing[i];
+      const answer = await cloudbedsLookUpReservation(creds, id, { deadlineAt });
+      if ("unknown" in answer) {
+        check.unconfirmed += 1;
+      } else if ("gone" in answer) {
+        gone.push(id);
+      } else if (isCanceledStatus(parseCloudbedsReservationDetail(answer.found).status) || isDeletedBooking(answer.found)) {
+        cancelled.push(id);
+      } else {
+        check.stillHeld += 1;
+      }
+    }
+
+    if (gone.length > 0) {
+      const rowIds = gone.flatMap((id) => [...(stored.bookings.get(id) ?? [])]);
+      const del = await deleteNightsFrom(supabase, hotelId, rowIds, today);
+      if (del.error) {
+        log({ error: del.error.message }, "error");
+        check.unconfirmed += gone.length;
+      } else {
+        check.removed += gone.length;
+      }
+    }
+    if (cancelled.length > 0) {
+      const rooms = await loadStoredRooms(supabase, hotelId, cancelled);
+      const rowIds = [...rooms.bookings.values()].flatMap((r) => [...r.keys()]);
+      const del = rooms.error ? { error: rooms.error } : await deleteCanceledReservationRows(supabase, hotelId, rowIds);
+      if (del.error) {
+        log({ error: del.error.message }, "error");
+        check.unconfirmed += cancelled.length;
+      } else {
+        check.removed += cancelled.length;
+      }
+    }
+    // Reservation ids only: nothing about a guest.
+    log(
+      { ...check, removedBookings: [...gone, ...cancelled].slice(0, 20) },
+      check.stillHeld > 0 ? "error" : "log",
+    );
+    return check;
+  } catch (e) {
+    log({ error: (e instanceof Error ? e.message : String(e)).slice(0, 300) }, "error");
+    return { checked: false, why: "stored_read_failed" };
+  }
 }
 
 /**
@@ -1145,12 +1387,13 @@ export async function runCloudbedsSyncForHotel(
     const writer = createWindowWriter(supabase, hotelId, idByExternal);
     const sweepAnchor = (sweepStartedAt ?? runStartedAt).toISOString();
     let writeFailure: { message: string } | null = null;
+    const readDeadlineAt = Math.min(Date.now() + CLOUDBEDS_SYNC_BUDGET_MS, options?.deadlineAt ?? Infinity);
     const windowArgs: WindowArgs = {
       creds,
       checkInFrom,
       checkInTo,
       modifiedFrom,
-      deadlineAt: Math.min(Date.now() + CLOUDBEDS_SYNC_BUDGET_MS, options?.deadlineAt ?? Infinity),
+      deadlineAt: readDeadlineAt,
       storedCursor,
       checkpointable,
       onBookings: async (bookings, reached) => {
@@ -1240,13 +1483,43 @@ export async function runCloudbedsSyncForHotel(
     const cancellations = pull.listCancellations
       ? await pull.listCancellations()
       : { pages: 0, statusesFailed: 0, detailFailed: 0 };
-    writer.addCanceledIds(pull.canceledRowIds);
+    writer.addCanceled(pull.canceledRowIds, pull.canceledBookingIds);
 
-    const canceledIds = writer.canceledIds();
+    const canceled = await writer.canceledIds();
+    if (canceled.error) return { ok: false, error: canceled.error.message };
+    const canceledIds = canceled.ids;
     const canceledDel = await deleteCanceledReservationRows(supabase, hotelId, canceledIds);
     if (canceledDel.error) return { ok: false, error: canceledDel.error.message };
 
     const truncated = pull.truncated;
+
+    // A booking deleted in Cloudbeds is in no answer ever again, so only a
+    // read of everything can notice it is gone, and only one that was whole.
+    // The nights it asks about start today (UTC): any booking holding one
+    // checks out after the day the read starts from, so the read had to
+    // return it.
+    const today = ymd(runStartedAt);
+    const skipMissing: MissingBookingsSkip | null = incremental
+      ? "incremental_read"
+      : pull.source !== "rate_details"
+        ? "per_booking_read"
+        : truncated
+          ? "read_cut_short"
+          : pull.resumed
+            ? "read_resumed"
+            : !pull.complete || checkInFrom > today
+              ? "read_incomplete"
+              : null;
+    const missingBookings: MissingBookingsCheck = skipMissing
+      ? { checked: false, why: skipMissing }
+      : await removeMissingBookings({
+          supabase,
+          hotelId,
+          creds,
+          today,
+          seen: writer.seenBookingIds(),
+          deadlineAt: readDeadlineAt,
+        });
     // What a truncated sweep leaves for the next run. A chunk that completed no
     // slice keeps the checkpoint it resumed from rather than forgetting it.
     const savedCursor = checkpointable && truncated ? pull.nextCursor ?? storedCursor : null;
@@ -1337,6 +1610,8 @@ export async function runCloudbedsSyncForHotel(
         rowsWithMissingRate,
         unchangedRowsSkipped,
         tokenRefreshed: resolved.refreshed || refresh.fresh === true,
+        roomsNoLongerOnBooking: writer.stats.roomsGone,
+        missingBookings,
       },
     };
   } catch (error) {

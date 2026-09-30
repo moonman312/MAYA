@@ -10,6 +10,7 @@ import {
   cloudbedsGet,
   cloudbedsGetReservationsWithRateDetailsPage,
   CloudbedsHttpError,
+  cloudbedsLookUpReservation,
   cloudbedsPost,
 } from "../../../supabase/functions/_shared/cloudbeds/client";
 
@@ -254,5 +255,46 @@ describe("a read refused with 401 or 403", () => {
 
     expect(err).toMatchObject({ status: 400, foreignBody: false });
     expect(creds.refresh.mint).not.toHaveBeenCalled();
+  });
+});
+
+describe("asking Cloudbeds about one reservation", () => {
+  const ask = () => cloudbedsLookUpReservation({ ...CREDS }, "5538214799003");
+
+  it("finds a reservation Cloudbeds holds", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json(200, { success: true, data: { reservationID: "5538214799003", status: "confirmed" } })));
+    await expect(ask()).resolves.toEqual({ found: { reservationID: "5538214799003", status: "confirmed" } });
+  });
+
+  it("takes Cloudbeds' word that there is no such reservation", async () => {
+    for (const answer of [
+      json(200, { success: false, message: "Reservation not found" }),
+      json(404, { success: false, message: "Invalid reservationID" }),
+      json(400, { success: false, message: "The reservation was deleted" }),
+    ]) {
+      vi.stubGlobal("fetch", vi.fn(async () => answer));
+      expect(await ask()).toHaveProperty("gone");
+    }
+  });
+
+  it("does not take anything else for that", async () => {
+    for (const answer of [
+      json(503, { success: false, message: "Service unavailable" }),
+      json(500, {}),
+      new Response("<html>404 Not Found</html>", { status: 404 }),
+      new Response("", { status: 404 }),
+      json(401, { success: false, message: "Access token is invalid or has expired." }),
+      json(403, { success: false, message: "Forbidden" }),
+      json(200, { success: false, message: "Scope required for this call was not granted by property." }),
+      json(200, { success: false, message: "Application is not available to be connected." }),
+      json(200, { success: false, message: "Parameter propertyID is not valid" }),
+      json(200, { success: true, data: [] }),
+      json(200, { success: true }),
+    ]) {
+      vi.stubGlobal("fetch", vi.fn(async () => answer));
+      expect(await ask()).toHaveProperty("unknown");
+    }
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(new TypeError("fetch failed"))));
+    expect(await ask()).toHaveProperty("unknown");
   });
 });
