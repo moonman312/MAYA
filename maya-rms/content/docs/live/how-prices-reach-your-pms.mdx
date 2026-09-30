@@ -3,8 +3,8 @@ title: How prices reach your property system
 summary: Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
 section: live
 order: 30
-readingTime: 21
-keywords: [sending, sent, push, when are prices sent, how many nights, 396 nights, 13 months, a year ahead, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 399 days, price beyond the window, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
+readingTime: 22
+keywords: [pricing run cannot finish, pricing run failed, run stopped, sending, sent, push, when are prices sent, how many nights, 396 nights, 13 months, a year ahead, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 399 days, price beyond the window, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
 questions:
   - When are prices sent to my property system? {#when-prices-are-sent/every-cycle}
   - How many nights ahead does MAYA send? {#how-many-nights-396/your-rules-price}
@@ -23,6 +23,8 @@ questions:
   - What happens to a room type I removed from my system? {#room-types-you-have-unticked-or-switched-off/a-room-type}
   - Does it send the same price to every rate plan? {#which-rate-is-changed/cloudbeds-maya-writes}
   - What happens on a cycle where the read of my bookings failed? {#when-the-read-of-your-bookings-fails}
+  - What happens when a pricing run cannot finish? {#when-a-pricing-run-cannot-finish}
+  - Can a price be sent that left out the price I typed? {#when-a-pricing-run-cannot-finish}
   - Does a big property slow the cycle? {#large-properties}
   - Does MAYA respect Cloudbeds' API limits? {#large-properties}
   - Why does the first send take longer than five minutes? {#the-first-send-to-a-night-waits-for-a-fresh-read/the-first-time}
@@ -185,6 +187,14 @@ Nothing is priced or sent on that cycle. MAYA tries again, waiting longer after 
 While reads are failing, the rates already in your system stay exactly as they are. MAYA never sends a rate to undo an earlier one.
 
 If only the hourly read of your rates fails, rules still run and changed prices still go out. Only nights MAYA has never sent to wait for the next successful read.
+
+## When a pricing run cannot finish
+
+Your prices are made from the prices you typed, your own rates, your room types, your closed periods, your "not a fair comparison" dates and your bookings. A pricing run reads all of them from MAYA's records before it works out a price. If one of them cannot be read, the run stops before it changes any price. It does not carry on without the part it could not read, so a night is never priced as if you had typed no price, or as if your property had never been closed.
+
+The prices already published stay as they are, and nothing new is sent for the nights that run was pricing. The next cycle prices the same nights again and sends what changed. A night that has waited more than 30 minutes to be priced is held back from sending until it is priced, as the table under [What is never sent](#what-is-never-sent) says.
+
+When no pricing run has finished for your property for 15 minutes and the latest one could not finish either, an automatic alert goes to our team.
 
 ## Large properties
 

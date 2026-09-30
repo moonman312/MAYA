@@ -4683,7 +4683,7 @@
   "order": 30,
   "title": "How prices reach your property system",
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
-  "readingTime": 21,
+  "readingTime": 22,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -4749,6 +4749,11 @@
    },
    {
     "depth": 2,
+    "text": "When a pricing run cannot finish",
+    "id": "when-a-pricing-run-cannot-finish"
+   },
+   {
+    "depth": 2,
     "text": "Large properties",
     "id": "large-properties"
    },
@@ -4781,6 +4786,8 @@
    "What happens to a room type I removed from my system?",
    "Does it send the same price to every rate plan?",
    "What happens on a cycle where the read of my bookings failed?",
+   "What happens when a pricing run cannot finish?",
+   "Can a price be sent that left out the price I typed?",
    "Does a big property slow the cycle?",
    "Does MAYA respect Cloudbeds' API limits?",
    "Why does the first send take longer than five minutes?",
