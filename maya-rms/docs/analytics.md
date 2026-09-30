@@ -349,10 +349,14 @@ and check the caller like every `analytics_*` function.
   including the days before the window: first paying day ever = **new**,
   paying after a day that wasn't, having paid before = **won back**, not paying
   straight after a paying day = **churned**. The table's first day is a census,
-  so nobody is new on it. The funnel: logins created (`+` addresses left out),
-  subscriptions created, PMS connected, onboarding finished, each in the
-  window. **Median to first price**: hours from PMS connect to the property's
-  first engine run, over properties whose first run landed in the window.
+  so nobody is new on it. The funnel: accounts, subscriptions created, PMS
+  connected, onboarding finished, each in the window. **Accounts created**
+  counts an account once its email address is confirmed, on the day it was
+  confirmed (`auth.users.email_confirmed_at`, profile row or not), the same
+  moment `account.created` is dated; an address typed in and never confirmed
+  never counts, and `+` addresses are left out. **Median to first price**:
+  hours from PMS connect to the property's first engine run, over properties
+  whose first run landed in the window.
 
 Test properties: `hotels.is_test` for the live tables, the flag copied onto
 each snapshot row for the history.
