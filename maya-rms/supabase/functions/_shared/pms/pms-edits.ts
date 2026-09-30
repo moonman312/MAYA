@@ -777,6 +777,31 @@ async function handBackPmsChanges(
   return [...fromPms, ...removedInPms];
 }
 
+/**
+ * Whether any open manual price in the window came from the PMS: one count.
+ * A failed read says no; the next refresh asks again.
+ */
+async function hasOpenPmsPrices(
+  supabase: SupabaseClient,
+  hotelId: string,
+  window: { firstDate: string; lastDate: string },
+): Promise<boolean> {
+  try {
+    const { count, error } = await supabase
+      .from("manual_price")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotelId)
+      .eq("source", "pms")
+      .is("cleared_at", null)
+      .gte("stay_date", window.firstDate)
+      .lte("stay_date", window.lastDate);
+    if (error) return false;
+    return (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** hotel_settings as this step reads it; `mode` 'keep' before the setting's migration. */
 async function readEditSettings(
   supabase: SupabaseClient,
@@ -804,7 +829,9 @@ async function readEditSettings(
  * night's PMS rate differs from its ledger row, the row is a skip, its send
  * is not known to be there since the hotel went live, or a night MAYA sent
  * to is missing from the read. Does nothing for a hotel that is not live or
- * a database without the columns that say where a price came from. Logs one
+ * a database without the columns that say where a price came from. Under
+ * "MAYA's price wins" it also counts the open manual prices kept from the
+ * PMS, so a stray one is handed back however quiet the read. Logs one
  * line of counts when there was anything to count. Never throws: a failed
  * write is logged, the result says so (`failed`) with the nights the push
  * must hold this tick (holdCells), and the next refresh looks again.
@@ -865,7 +892,11 @@ export async function adoptPmsEdits(
       const confirmedAtMs = r.ledger.confirmed_at != null ? Date.parse(String(r.ledger.confirmed_at)) : NaN;
       return !(confirmedAtMs >= (Number.isFinite(liveSinceMs) ? liveSinceMs : -Infinity)) ||
         !pmsHoldsPrice(r.pmsRate, Number(r.ledger.price));
-    });
+    }) ||
+      // Under "MAYA's price wins", a rate kept from the PMS still open (a
+      // refresh that read 'keep' just before the setting was saved) is handed
+      // back even though the PMS still quotes it and nothing else differs.
+      (wins && (await hasOpenPmsPrices(supabase, hotelId, window)));
     if (!worthALook) {
       await recordSharedRatio(supabase, hotelId, pmsType, [], at);
       return none;

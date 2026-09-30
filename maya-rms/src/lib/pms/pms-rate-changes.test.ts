@@ -373,6 +373,22 @@ describe.each(ENGINES)("$name: MAYA's price wins", (engine) => {
     ]);
   }, 120_000);
 
+  it("hands back a rate kept from the PMS just before the setting went on, though the PMS still quotes it and nothing else changed", async () => {
+    // A refresh read Keep a moment before the owner confirmed MAYA's price wins, and kept 175 on night 10.
+    const w = hotel("maya_wins", {
+      manual_price: [{ id: "m10", hotel_id: H, stay_date: night(10), room_type_id: RT, price: 175, set_by: null, set_at: iso(T0 - 90 * MIN), cleared_at: null, source: "pms", pms_type: "cloudbeds" }],
+      rate_updates: Array.from({ length: HORIZON }, (_, n) => (n === 10 ? settled(10, 175, { pms_edited_at: iso(T0 - 90 * MIN) }) : settled(n, 150))),
+      published_price: Array.from({ length: HORIZON }, (_, n) => ({
+        hotel_id: H, stay_date: night(n), room_type_id: RT, price: n === 10 ? 175 : 150, base_price: n === 10 ? 175 : 150, computed_at: iso(T0 - 90 * MIN),
+      })),
+    });
+    expect(w.inPms.get(night(10))).toBe(175);
+    await w.tick(engine, T0);
+    expect(w.manualOf(night(10))).toEqual([expect.objectContaining({ price: 175, source: "pms", cleared_at: iso(T0) })]);
+    expect(w.priceOf(night(10))).toBe(150);
+    expect(w.sent()).toEqual([{ stayDate: night(10), price: 150 }]);
+  }, 120_000);
+
   it("changes nothing while MAYA only simulates", async () => {
     const w = hotel("maya_wins");
     w.tables.hotel_settings[0].simulation_mode = true;
