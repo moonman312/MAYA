@@ -454,8 +454,8 @@ describe("a login for a property that is already another MAYA hotel's", () => {
   // enough), so any login used to be taken and stored under it.
   const unbound = () => property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
   /** The admin log line that names the hotel in the way, which the person is not told. */
-  const blockingLine = (errors: ReturnType<typeof vi.spyOn>) => {
-    const lines = errors.mock.calls.map((c) => {
+  const blockingLine = (errors: { mock: { calls: unknown[][] } }) => {
+    const lines: Record<string, unknown>[] = errors.mock.calls.map((c) => {
       try {
         return JSON.parse(String(c[0])) as Record<string, unknown>;
       } catch {
