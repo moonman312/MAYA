@@ -62,12 +62,15 @@ export default async function Home({
     // on a dashboard with nothing in it and no route back.
     //
     // Except for us: membership is what resolveAccessibleHotelId reads, and
-    // MAYA staff usually have none, so this would send Jake and Corey (or a
-    // sales login) to a payment form for a property they were never buying.
-    // The Command Center sends a developer or sales login to its code step.
+    // platform admins and sales logins have none, so this would send Jake and
+    // Corey (or a sales login) to a payment form for a property they were
+    // never buying. The Command Center sends a sales login to its code step.
+    // A developer is the exception to the exception: his own test property
+    // comes through the ordinary signup, so with none yet he goes to
+    // onboarding like anyone else, and reaches the Command Center at /admin.
     const hotelId = await resolveAccessibleHotelId(supabase);
     if (!hotelId) {
-      redirect(isStaff ? "/admin" : "/onboarding");
+      redirect(staffRole === "platform_admin" || staffRole === "sales" ? "/admin" : "/onboarding");
     }
 
     // A platform admin on a property they do not belong to is a Viewer

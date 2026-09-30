@@ -1,9 +1,10 @@
 /**
- * The app's first page for MAYA staff. A staff login with no property of its
- * own (a platform admin, or a sales login) goes to the Command Center, which
- * sends a developer or sales login to its code step, never to onboarding's
- * payment form. Every staff login gets the Command Center link on a
- * property's dashboard; only a platform admin is treated as one.
+ * The app's first page for MAYA staff. A platform admin or a sales login
+ * with no property goes to the Command Center (which sends a sales login to
+ * its code step), never to onboarding's payment form. A developer with no
+ * property goes to onboarding like anyone else: his own test property comes
+ * through the ordinary signup. Every staff login gets the Command Center link
+ * on a property's dashboard; only a platform admin is treated as one.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactElement } from "react";
@@ -53,13 +54,15 @@ beforeEach(() => {
 });
 
 describe("the app's first page", () => {
-  it("sends staff with no property to the Command Center, and everyone else to onboarding", async () => {
-    for (const role of ["platform_admin", "developer", "sales"]) {
+  it("sends a platform admin or sales login with no property to the Command Center, and everyone else to onboarding", async () => {
+    for (const role of ["platform_admin", "sales"]) {
       state.role = role;
-      expect(await open()).toBe("REDIRECT /admin");
+      expect([role, await open()]).toEqual([role, "REDIRECT /admin"]);
     }
-    state.role = null;
-    expect(await open()).toBe("REDIRECT /onboarding");
+    for (const role of ["developer", null]) {
+      state.role = role;
+      expect([role, await open()]).toEqual([role, "REDIRECT /onboarding"]);
+    }
   });
 
   it("gives every staff login on its own property the Command Center link, and only an admin the admin's view", async () => {
