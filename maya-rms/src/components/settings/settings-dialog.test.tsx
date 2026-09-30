@@ -205,6 +205,23 @@ describe("the Display section", () => {
     expect(document.cookie).not.toContain(`${TEXT_SIZE_COOKIE}=`);
   });
 
+  it("says so when the size could not be saved with the person's login, and keeps showing it on this page", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/settings") return json(payload);
+        if (url === "/api/settings/display" && init?.method === "PUT") return json({ error: "Something on our side isn't ready yet." }, 503);
+        return new Response(null, { status: 204 });
+      }),
+    );
+    open();
+    const display = screen.getByRole("region", { name: "Display" });
+    fireEvent.click(within(display).getByRole("radio", { name: "Large" }));
+    expect((await within(display).findByRole("alert")).textContent).toBe("Couldn't save your text size. Try again.");
+    expect(document.documentElement.getAttribute("data-text-size")).toBe("large");
+  });
+
   it("opens on the size the page is showing", () => {
     document.documentElement.setAttribute("data-text-size", "large");
     open();

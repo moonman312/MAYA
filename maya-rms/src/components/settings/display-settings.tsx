@@ -5,6 +5,8 @@ import { track } from "@/lib/analytics/track";
 import { TEXT_SIZES, TEXT_SIZE_LABELS, applyTextSize, type TextSize } from "@/lib/text-size";
 import { Choice, SettingRow, SettingsSection, type SaveState } from "./settings-section";
 
+export const TEXT_SIZE_NOT_SAVED = "Couldn't save your text size. Try again.";
+
 /**
  * Settings, Display: choices for the signed-in person only. The text size
  * shows at once on this browser and is saved on their profile, so every
@@ -28,15 +30,15 @@ export function DisplaySettings({ initial, hotelId }: { initial: TextSize; hotel
       });
       if (mine !== seq.current) return;
       if (!res.ok) {
-        // It still shows here, and stays on this browser; only the copy for other devices is missing.
-        setState({ kind: "error", message: "Saved on this device only. Try again to use it everywhere." });
+        // It still shows on this page, but the next dashboard load goes back to the size on the profile.
+        setState({ kind: "error", message: TEXT_SIZE_NOT_SAVED });
         return;
       }
       setState({ kind: "saved" });
       track("settings.text_size_saved", { size: next }, hotelId);
     } catch {
       if (mine !== seq.current) return;
-      setState({ kind: "error", message: "Saved on this device only. Try again to use it everywhere." });
+      setState({ kind: "error", message: TEXT_SIZE_NOT_SAVED });
     }
   }
 
