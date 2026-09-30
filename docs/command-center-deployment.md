@@ -161,7 +161,7 @@ Run through this once end-to-end on staging (or your dev DB with a real email yo
 - [ ] From an incognito platform-admin session, `/admin/hotels/[hotelId]` shows the accepted user in Members with role `hotel_admin`, and the pending invite row is gone (or marked `accepted` on the Pending Invites page).
 - [ ] `/admin/users` shows the new user. With God Mode on, setting their Staff role to Platform admin and back to None grants and revokes it; setting the last platform admin to None is refused with a message.
 - [ ] Set a test login to Developer. Signed in as it, `/admin` goes to `/admin-code`; after the code, the nav shows only Overview, Hotels, Pilot health, Users, PMS Access and Docs Questions, and a hotel's page has no buttons or switches.
-- [ ] Set it to Sales. After the code, the nav shows only Overview, Hotels, Analytics, Pilot health, Stalled Signups and Docs Questions, and a real hotel's page shows its business numbers.
+- [ ] Set it to Sales. After the code, the nav shows only Overview, Hotels, Analytics, Pilot health, Stalled Signups and Docs Questions, and a real hotel's page shows its business numbers. On Analytics, Subscriptions by source says "code" where a signup used one, never the code itself.
 - [ ] `/admin/pending-invites` — create another pending invite from a hotel detail page, then Resend and Revoke buttons both work.
 - [ ] `/pms/mews/test` still works from a normal user's session (existing UI wasn't touched).
 

@@ -62,7 +62,9 @@ does.
 
 **Test properties.** Everything excludes `hotels.is_test` by default (the
 panel's "including test properties" link flips it for a platform admin; a
-Sales login gets no link and always counts customers only). The flag is copied onto
+Sales login gets no link and always counts customers only, and the functions
+themselves ignore `p_include_test` for anyone but `analytics_full_reader()`:
+the service role, a platform admin, or a direct database session). The flag is copied onto
 each event, so a deleted test hotel stays excluded. Account-level events, which
 have no hotel, use the `+suffix` email convention the panel already used, and
 MAYA staff are never customers: an event with no hotel whose person holds a
@@ -78,7 +80,9 @@ can update or delete it through the API, the service role included; the
 service role may insert (that is `/api/events`). The functions call
 `analytics_assert_reader()`, which lets through a platform admin, a Sales login
 at `aal2` (`staff_can_read('analytics')`) and the service role, and allows a
-direct database session.
+direct database session. A Sales login gets customers only (above) and is
+told a signup used a code (`code`), never which one: which code, and test
+properties, are for `analytics_full_reader()`.
 
 ## Columns
 
@@ -298,12 +302,14 @@ none), properties and billed rooms.
 
 Subscriptions started in the window by channel (Marketplace or direct) and
 signup code, with where they are now (trialing, paying, lost) and billed rooms.
+A Sales login gets `code` in place of each code, and the rows that then match
+added up; the Analytics page does the same for Sales as it draws the panel.
 
 ### Engagement (`analytics_event_counts`)
 
 Every event in the window with occurrences, distinct properties and users, a
 `detail` split where it matters (rule origin, dashboard tab, import kind or
-failure kind, role, code, activation path) and a `quantity` (nights for manual
+failure kind, role, code (`code` for a Sales login), activation path) and a `quantity` (nights for manual
 prices, units out of service, rows imported). Each event also has a
 `detail = '(all)'` row whose property count is counted, not summed.
 
@@ -414,7 +420,9 @@ Today's point on the chart, today's new, won back and churned, and "MRR at
 last count" come from today's snapshot row. The nightly cron writes how each
 day ended; while the day is going, a section that reads the row writes it
 again before it is worked out (at most once every five minutes on each
-server), so what it shows already has it.
+server), so what it shows already has it. That write happens on whoever's
+load works the section out, a Sales login's included; it is the same derived
+row the cron writes.
 
 The follow-up list's owner emails are never kept: the kept list holds the
 owner's user id, and each load asks `analytics_owner_emails(user_ids)` for
