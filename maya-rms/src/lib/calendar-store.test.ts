@@ -396,7 +396,7 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
       const old = calendarDb(
         {
           ...seed,
-          pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected" }],
+          pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_refreshed_at: "2026-10-10T11:00:00Z" }],
           base_rate_calendar: [{ hotel_id: "h1", stay_date: "2026-10-15", room_type_id: "rt1", price: 200 }],
         },
         { fault: (c) => (c.table === "pms_connections" && c.columns.includes("base_rates_returned_through") ? missingColumn("pms_connections", "base_rates_returned_through") : null) },
@@ -405,6 +405,29 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
       expect(cal.days["15"].room_types[0]).not.toHaveProperty("no_rate_in_pms");
       expect(cal.days["16"].room_types[0].no_rate_in_pms).toBe(true);
       expect(err).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says nothing about rates before MAYA's first read of them: an empty calendar then is MAYA's doing, not the system's", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const seed = {
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+        base_rate_calendar: [],
+      };
+      const flag = async (connection: Record<string, unknown>) => {
+        const { client } = calendarDb({ ...seed, pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", ...connection }] });
+        return (await getCalendar(2026, 10, client)).days["15"].room_types[0].no_rate_in_pms ?? false;
+      };
+      // A pending connection, or a connected one in the minutes before the first tick: no read has happened.
+      expect(await flag({ status: "pending" })).toBe(false);
+      expect(await flag({ status: "connected", base_rates_refreshed_at: null, base_rates_returned_through: null })).toBe(false);
+      // Once a read has recorded a refresh (or a returned night), an empty calendar is the system's answer.
+      expect(await flag({ status: "connected", base_rates_refreshed_at: "2026-10-10T11:00:00Z" })).toBe(true);
+      expect(await flag({ status: "connected", base_rates_returned_through: "2026-10-12" })).toBe(true);
     } finally {
       vi.useRealTimers();
     }

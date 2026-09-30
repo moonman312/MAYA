@@ -536,33 +536,43 @@ const READS_RATES = new Set(["cloudbeds", "think"]);
 type RateSourceConnection = {
   /** The connection in service: connected first, else the newest. */
   pmsType: string;
+  /**
+   * A read of the hotel's rates has happened (base_rates_refreshed_at, or a
+   * returned night on record). Until one has, an empty calendar says nothing
+   * about the property system: it is MAYA that has not read yet.
+   */
+  ratesRead: boolean;
   /** The last night the property system returned a rate for on its last read, YYYY-MM-DD; null until a read recorded one. */
   ratesReturnedThrough: string | null;
 };
 
 /**
- * The property system MAYA reads rates from, and how far its last read got
- * (pms_connections.base_rates_returned_through, stamped by the scheduled
- * sync's rate refresh). Null when the hotel has no such connection, or the
- * read fails. Before the column's migration it is read without it: every
- * rate on record then counts, as the engine reads it.
+ * The property system MAYA reads rates from, whether a read has happened
+ * yet (pms_connections.base_rates_refreshed_at) and how far the last one
+ * got (base_rates_returned_through), both stamped by the scheduled sync's
+ * rate refresh. Null when the hotel has no such connection, or the read
+ * fails. Before the returned night's migration it is read without it:
+ * every rate on record then counts, as the engine reads it.
  */
 async function readRateSource(supabase: SupabaseClient, hotelId: string): Promise<RateSourceConnection | null> {
   const read = (columns: string) =>
     supabase.from("pms_connections").select(columns).eq("hotel_id", hotelId).order("updated_at", { ascending: false });
   try {
-    let { data, error } = await read("pms_type, status, base_rates_returned_through");
+    let { data, error } = await read("pms_type, status, base_rates_refreshed_at, base_rates_returned_through");
+    if (error && isMissingColumnError(error)) ({ data, error } = await read("pms_type, status, base_rates_refreshed_at"));
     if (error && isMissingColumnError(error)) ({ data, error } = await read("pms_type, status"));
     if (error) throw new Error(error.message);
-    const rows = ((data ?? []) as unknown as { pms_type?: unknown; status?: unknown; base_rates_returned_through?: unknown }[]).filter(
-      (r) => READS_RATES.has(String(r.pms_type)),
-    );
+    const rows = (
+      (data ?? []) as unknown as { pms_type?: unknown; status?: unknown; base_rates_refreshed_at?: unknown; base_rates_returned_through?: unknown }[]
+    ).filter((r) => READS_RATES.has(String(r.pms_type)));
     const row = rows.find((r) => r.status === "connected") ?? rows[0];
     if (!row) return null;
     const through = row.base_rates_returned_through;
+    const ratesReturnedThrough = through != null && String(through).length >= 10 ? String(through).slice(0, 10) : null;
     return {
       pmsType: String(row.pms_type),
-      ratesReturnedThrough: through != null && String(through).length >= 10 ? String(through).slice(0, 10) : null,
+      ratesRead: row.base_rates_refreshed_at != null || ratesReturnedThrough != null,
+      ratesReturnedThrough,
     };
   } catch (e) {
     console.error(
@@ -808,8 +818,12 @@ async function getCalendarFromDb(
       // No rate on record from the property system for a night ahead, and
       // nothing typed: MAYA leaves it unpriced (engine/base-price.ts). A row
       // past the last night the system returned is not a rate on record.
+      // Said only once a read of the rates has happened: before that (a
+      // pending connection, the minutes before the first tick) the empty
+      // calendar is MAYA's doing, not the system's.
       const noRateInPms =
         rateSource != null &&
+        rateSource.ratesRead &&
         dateStr >= todayStr &&
         manual == null &&
         (!ownRateCells.has(cellKey) ||
