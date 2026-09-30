@@ -649,7 +649,9 @@ export async function publishPrices(
  * (guardrail:zero_base) so admins can see it. A ledger that can't be read
  * keeps every row this run, for the same reason. Not a sent row at 0: the
  * base rate refresh found the hotel closed that night in the PMS
- * (pms-edits.ts), so MAYA's rate is not there any more.
+ * (pms-edits.ts), so MAYA's rate is not there any more. Nor a night in
+ * `removedInPms`: the refresh found the PMS has no rate for it at all now
+ * (base_rate_calendar.pms_removed_at), so MAYA's rate is not there either.
  *
  * Never throws: the prices this run did publish stand either way. A row that
  * could not be removed is logged; the push holds back a closed night on its
@@ -661,6 +663,7 @@ export async function clearUnpricedCells(
   supabase: SupabaseClient,
   hotelId: string,
   keys: string[],
+  opts: { removedInPms?: ReadonlySet<string> } = {},
 ): Promise<void> {
   const byRoomType = new Map<string, string[]>();
   for (const key of keys) {
@@ -690,7 +693,7 @@ export async function clearUnpricedCells(
           .filter((r) => !(r.status === "sent" && r.price != null && Number(r.price) === 0))
           .map((r) => String(r.stay_date).slice(0, 10)),
       );
-      const clear = chunk.filter((d) => !keep.has(d));
+      const clear = chunk.filter((d) => !keep.has(d) || opts.removedInPms?.has(`${d}|${roomTypeId}`));
       if (clear.length === 0) continue;
       const { error } = await supabase
         .from("published_price")

@@ -367,7 +367,7 @@ describe("adoptPmsEdits", () => {
       AT,
     );
 
-    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"], holdCells: [] });
+    expect(res).toEqual({ adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, removed: 0, overwritten: 0, suppressedRules: 1, retiredPickups: 1, movedCells: ["2026-10-05|rt-king"], holdCells: [] });
     expect(d.tables.manual_price).toEqual([
       expect.objectContaining({ hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt-king", price: 250, source: "pms", pms_type: "cloudbeds", set_by: null, note: null, set_at: AT, cleared_at: null }),
     ]);
@@ -382,7 +382,7 @@ describe("adoptPmsEdits", () => {
     // One line, counts only.
     const lines = log.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((l) => l.fn === "adoptPmsEdits");
     expect(lines).toEqual([
-      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+      { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, removed: 0, overwritten: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
     ]);
   });
 
@@ -399,7 +399,7 @@ describe("adoptPmsEdits", () => {
       WINDOW,
       AT,
     );
-    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [], holdCells: [] });
+    expect(res).toEqual({ adopted: 0, inStep: 0, landed: 1, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, removed: 0, overwritten: 0, suppressedRules: 0, retiredPickups: 0, movedCells: [], holdCells: [] });
     expect(d.tables.manual_price).toEqual([]);
     expect(d.tables.rate_updates).toEqual([
       expect.objectContaining({

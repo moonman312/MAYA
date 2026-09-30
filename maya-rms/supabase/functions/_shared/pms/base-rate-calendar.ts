@@ -21,8 +21,17 @@
  * here, when MAYA has never sent to it, so the engine unprices it and the
  * push holds it rather than send the rate an earlier read stored. The next
  * read that returns the night captures it again. A night MAYA has sent to
- * keeps its row whatever the PMS quotes: what is there is MAYA's own price
- * (the refresh rule below), and pms-edits.ts is what judges those nights.
+ * keeps its row whatever the PMS quotes (the refresh rule below), and
+ * pms-edits.ts is what judges those nights: the ones the read returned, and
+ * the ones it no longer returns (`missing`: a rate removed in the PMS). Only
+ * a night inside the stretch this read returned rates for, that the last
+ * full read covered too (pms_connections.base_rates_returned_through), with
+ * a rate of the hotel's on record, counts as missing: past the last night
+ * the PMS returns, no night has a rate on record anyway (see below), and a
+ * night MAYA sent only a typed price to, with no rate of the hotel's under
+ * it, had nothing of the hotel's to remove. A night stamped as removed that
+ * a read returns again is unstamped here (pms_removed_at), whatever the
+ * property's setting, and pms-edits.ts judges its rate as any other.
  *
  * THE REFRESH RULE, and it is the whole safety story: a cell may be captured
  * only while MAYA has never pushed a rate to it. After we push, the PMS is
@@ -66,7 +75,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { PmsRatePushAdapter, RateCalendarEntry, RateTargetMap } from "./rate-push.ts";
 import { ledgerRowNeverSent } from "./push-guardrails.ts";
-import { adoptPmsEdits, type PushedNightRead } from "./pms-edits.ts";
+import { adoptPmsEdits, type PushedNightRead, type SentNight } from "./pms-edits.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { isMissingColumnError } from "../engine/snapshots.ts";
 import { addCalendarDays, evalIsoToHotelDateString } from "../engine/timezone.ts";
@@ -95,6 +104,13 @@ export type SeedCalendarResult =
       pmsEditsAdopted: number;
       /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
       loadedAfterZeroBase: number;
+      /**
+       * Nights MAYA sent to that this read no longer returned (see the
+       * header), handed to pms-edits.ts to judge as a rate removed in the PMS.
+       */
+      missingSent: number;
+      /** Nights stamped as removed in the PMS that this read returned a rate for again: unstamped. */
+      rateBack: number;
       /**
        * Rows a full read did not return, on nights MAYA has never sent to,
        * for the room types it targeted: removed, so they are no longer a
@@ -246,18 +262,15 @@ async function seedWithTargets(
     }
   }
 
-  const stored = await readAll(
-    supabase,
-    "base_rate_calendar",
-    "stay_date, room_type_id, price",
-    hotelId,
-    firstDate,
-    lastDate,
-    ["stay_date", "room_type_id"],
-    "stored base rates",
-  );
+  const { rows: stored, removalsKnown } = await readStoredBase(supabase, hotelId, firstDate, lastDate);
   const storedPrice = new Map<string, number>();
-  for (const s of stored) storedPrice.set(`${s.stay_date}|${s.room_type_id}`, Number(s.price));
+  // Nights stamped as removed in the PMS (pms_removed_at): see pms-edits.ts.
+  const stampedRemoved = new Set<string>();
+  for (const s of stored) {
+    const key = `${s.stay_date}|${s.room_type_id}`;
+    storedPrice.set(key, Number(s.price));
+    if (s.pms_removed_at != null) stampedRemoved.add(key);
+  }
 
   const capturedAt = new Date().toISOString();
   const rows: { hotel_id: string; stay_date: string; room_type_id: string; price: number; source: string; captured_at: string }[] = [];
@@ -377,11 +390,31 @@ async function seedWithTargets(
     console.log(JSON.stringify({ fn: "seedBaseRateCalendar", hotelId, step: "no_longer_in_pms", dropped: droppedCount }));
   }
 
+  // Nights stamped as removed that the PMS quotes again: a rate on record
+  // once more, which pms-edits.ts judges as any other read.
+  const rateBack = [...stampedRemoved].filter((key) => seen.has(key));
+  await unstampRemoved(supabase, hotelId, rateBack);
+
+  // Nights MAYA sent to that this read did not return (see the header).
+  const missing = removalsKnown && settleKnown
+    ? await missingSentNights(supabase, hotelId, adapter.pmsType, {
+      pushedCells,
+      seen,
+      storedPrice,
+      targets: read.targets,
+      externalByLocal: new Map([...localByExternal].map(([ext, local]) => [local, ext])),
+      last: opts.span ? null : returnedThrough,
+    })
+    : [];
+
   // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
   const pmsEdits =
-    settleKnown && pushedReads.length > 0
+    settleKnown && (pushedReads.length > 0 || missing.length > 0 || stampedRemoved.size > rateBack.length)
       ? await adoptPmsEdits(supabase, hotelId, adapter.pmsType, pushedReads, read.targets, { firstDate, lastDate }, opts.at ?? capturedAt, {
         sendsZero: adapter.acceptsZeroRate === true,
+        missing,
+        removedInPms: new Set([...stampedRemoved].filter((key) => !seen.has(key))),
+        today,
       })
       : null;
 
@@ -393,6 +426,8 @@ async function seedWithTargets(
       skippedAlreadyPushed,
       pmsEditsAdopted: pmsEdits?.adopted ?? 0,
       loadedAfterZeroBase,
+      missingSent: missing.length,
+      rateBack: rateBack.length,
       dropped: droppedCount,
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
@@ -429,6 +464,96 @@ async function readPushedCells(
     if (!isMissingColumnError(e)) throw e;
     return { rows: await read(base), settleKnown: false };
   }
+}
+
+/**
+ * The window's stored base rates, with the stamp of a rate removed in the
+ * PMS. Before 99_supabase_migration_pms_rate_changes_v1.sql there is no
+ * stamp: the rows are read without it, and `removalsKnown` is false, so no
+ * night is taken as removed.
+ */
+async function readStoredBase(
+  supabase: SupabaseClient,
+  hotelId: string,
+  firstDate: string,
+  lastDate: string,
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ rows: any[]; removalsKnown: boolean }> {
+  const read = (columns: string) =>
+    readAll(supabase, "base_rate_calendar", columns, hotelId, firstDate, lastDate, ["stay_date", "room_type_id"], "stored base rates");
+  try {
+    return { rows: await read("stay_date, room_type_id, price, pms_removed_at"), removalsKnown: true };
+  } catch (e) {
+    if (!isMissingColumnError(e)) throw e;
+    return { rows: await read("stay_date, room_type_id, price"), removalsKnown: false };
+  }
+}
+
+/** Takes the removed stamp off these nights (`stay_date|room_type_id`): the PMS quotes a rate for them again. */
+async function unstampRemoved(supabase: SupabaseClient, hotelId: string, keys: string[]): Promise<void> {
+  const byRoomType = new Map<string, string[]>();
+  for (const key of keys) {
+    const [stayDate, roomTypeId] = key.split("|");
+    byRoomType.set(roomTypeId, [...(byRoomType.get(roomTypeId) ?? []), stayDate]);
+  }
+  for (const [roomTypeId, dates] of byRoomType) {
+    for (let i = 0; i < dates.length; i += CHUNK) {
+      const { error } = await supabase
+        .from("base_rate_calendar")
+        .update({ pms_removed_at: null })
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", dates.slice(i, i + CHUNK));
+      if (error) throw new Error(`Failed to price nights whose rate is back in the PMS: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * Nights MAYA sent to that the read did not return, and that count as a rate
+ * removed in the PMS (see the header): a room type the read targeted, a rate
+ * of the hotel's on record above 0, and a night no later than the last one
+ * the previous full read returned rates for, nor, for a full read, the last
+ * one this read returned. With no previous full read on record, none.
+ */
+async function missingSentNights(
+  supabase: SupabaseClient,
+  hotelId: string,
+  pmsType: string,
+  input: {
+    pushedCells: Map<string, Record<string, unknown>>;
+    seen: Set<string>;
+    storedPrice: Map<string, number>;
+    targets: RateTargetMap;
+    /** local room type id -> the PMS's own. */
+    externalByLocal: Map<string, string>;
+    /** The last night this read returned a rate for; null for a span read. */
+    last: string | null;
+  },
+): Promise<SentNight[]> {
+  const candidates: SentNight[] = [];
+  for (const [key, ledger] of input.pushedCells) {
+    if (input.seen.has(key)) continue;
+    const [stayDate, roomTypeId] = key.split("|");
+    const ext = input.externalByLocal.get(roomTypeId);
+    if (!ext || !input.targets[ext]) continue;
+    if (!((input.storedPrice.get(key) ?? 0) > 0)) continue;
+    candidates.push({ stayDate, roomTypeId, externalRoomTypeId: ext, ledger });
+  }
+  if (candidates.length === 0) return [];
+  const { data, error } = await supabase
+    .from("pms_connections")
+    .select("base_rates_returned_through")
+    .eq("hotel_id", hotelId)
+    .eq("pms_type", pmsType)
+    .maybeSingle();
+  if (error || !data) return [];
+  const before = (data as { base_rates_returned_through?: unknown }).base_rates_returned_through;
+  if (before == null || String(before).length < 10) return [];
+  const beforeDay = String(before).slice(0, 10);
+  const limit = input.last != null && input.last < beforeDay ? input.last : beforeDay;
+  return candidates.filter((c) => c.stayDate <= limit);
 }
 
 /** Targets and nightly rates, from one read where the vendor allows it; null when nothing is targetable. */

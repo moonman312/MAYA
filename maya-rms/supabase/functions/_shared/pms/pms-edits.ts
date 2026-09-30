@@ -100,6 +100,43 @@
  * hotel's already, and its new rate is taken as before. A send whose price
  * the PMS still has is stamped again, so a change the hotel makes to it
  * from now on is taken.
+ *
+ * A rate REMOVED in the PMS counts the same way as one changed there: a
+ * night MAYA sent to that a full read no longer returns (the seeder's
+ * `missing`, base-rate-calendar.ts), inside the stretch the PMS still
+ * returns rates for and that an earlier read covered, with a rate on record
+ * from the PMS. It is judged by the same conditions as a change (live, a
+ * settled send over the settle window old, to the rate the read targets,
+ * settled since the hotel went live, no typed price since on its way). A
+ * night MAYA never sent to, or one MAYA sent only a typed price to with no
+ * rate of the hotel's under it, is not a removal: nothing of the hotel's was
+ * there to remove.
+ *
+ * What MAYA does with a change or a removal is the property's setting,
+ * hotel_settings.pms_rate_changes (Jake, 2026-09-30):
+ *
+ *   'keep' (the default) as above: a change becomes a manual price. A
+ *     removal stamps the night's base_rate_calendar row (pms_removed_at): the
+ *     engine prices nothing on it, and a price typed before it waits too, so
+ *     nothing is published or sent there. The row keeps the hotel's own rate
+ *     from before MAYA's first send and the ledger keeps what MAYA sent, so a
+ *     read that returns a rate again clears the stamp (the seeder does), and
+ *     that rate is judged as any other: kept as the owner's price when it
+ *     differs from MAYA's, MAYA's pricing back as it was when it does not.
+ *     These changes feed the warning that something other than MAYA seems
+ *     to be changing rates (pms-change-watch.ts).
+ *   'maya_wins' nothing is kept. The ledger says what the PMS holds (the
+ *     changed rate, or for a removal a skipped row with
+ *     PMS_RATE_REMOVED_REASON and no sent_price), so the next push finds
+ *     MAYA's published price differs and sends it again, through every
+ *     guardrail and only while live. Each overwrite is one change log item
+ *     and goes into the day's email (pms-change-watch.ts). A price typed in
+ *     MAYA is never replaced: it is MAYA's price, and it is what goes out
+ *     again. The overwritten nights are not "moved": MAYA's price for them
+ *     has not changed, so the push is not held for them.
+ *
+ * Closing a night at 0, and a rate changed while MAYA only simulated, work
+ * the same in both.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -107,8 +144,13 @@ import { isMissingColumnError, isMissingRelationError } from "../engine/snapshot
 import { mwsEnv } from "../mews/env.ts";
 import { hotelRuleIds, setManualPrices } from "./manual-price.ts";
 import { classifyPushFailure, SHARED_RATIO_REASON } from "./push-failure.ts";
+import { PMS_RATE_REMOVED_REASON } from "./push-guardrails.ts";
 import { recordPushIncidents, type RunCell, type RunFailure } from "./push-incidents.ts";
+import { recordOverwrites, watchPmsChanges } from "./pms-change-watch.ts";
 import { type RateTargetMap, upsertLedger } from "./rate-push.ts";
+
+/** hotel_settings.pms_rate_changes: keep a change made in the PMS as the owner's price, or send MAYA's price again. */
+export type PmsRateChangeMode = "keep" | "maya_wins";
 
 const DEFAULT_SETTLE_MINUTES = 60;
 const HALF_CENT = 0.005 + 1e-9;
@@ -144,16 +186,23 @@ export function pmsHoldsPrice(pmsRate: number, mayaPrice: number): boolean {
   return whole && Math.abs(pmsRate - mayaPrice) < 1;
 }
 
-/** One night MAYA has sent to, as the refresh just read it. */
-export type PushedNightRead = {
+/** One night MAYA has sent to, and its ledger row. */
+export type SentNight = {
   stayDate: string;
   roomTypeId: string;
   externalRoomTypeId: string;
-  /** What the PMS quotes for the night now. */
-  pmsRate: number;
   /** The night's rate_updates row, with the settle columns. */
   ledger: Record<string, unknown>;
 };
+
+/** One night MAYA has sent to, as the refresh just read it. */
+export type PushedNightRead = SentNight & {
+  /** What the PMS quotes for the night now. */
+  pmsRate: number;
+};
+
+/** A night MAYA sent to, and what MAYA does about the PMS's rate there under "MAYA's price wins": null when it was removed. */
+export type Overwrite = { read: SentNight; pmsRate: number | null };
 
 export type OpenManualPrice = { price: number; source: "maya" | "pms"; setAtMs: number };
 
@@ -174,6 +223,10 @@ export type PmsEditPlan = {
   heldAtZero: PushedNightRead[];
   /** Nights changed while MAYA only simulated: the PMS rate is the night's base again. */
   rebased: { read: PushedNightRead; price: number }[];
+  /** 'keep': nights MAYA sent to whose rate the PMS removed, to stop pricing. */
+  removed: SentNight[];
+  /** 'maya_wins': nights changed or removed in the PMS that MAYA sends its price to again. */
+  overwrites: Overwrite[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
@@ -198,6 +251,15 @@ export function planPmsEdits(input: {
   settleMs: number;
   liveSinceMs?: number;
   sendsZero?: boolean;
+  /**
+   * Nights MAYA sent to that the read did not return, as the seeder chose
+   * them (see the header): judged for a removal.
+   */
+  missing?: SentNight[];
+  /** Nights already stamped as removed in the PMS: not taken again under 'keep'. */
+  removedInPms?: ReadonlySet<string>;
+  /** hotel_settings.pms_rate_changes; 'keep' when not given. */
+  mode?: PmsRateChangeMode;
 }): PmsEditPlan {
   const plan: PmsEditPlan = {
     edits: [],
@@ -206,11 +268,14 @@ export function planPmsEdits(input: {
     closed: [],
     heldAtZero: [],
     rebased: [],
+    removed: [],
+    overwrites: [],
     waiting: 0,
     typedSinceSend: 0,
     systematic: 0,
     systematicNights: [],
   };
+  const wins = input.mode === "maya_wins";
   const liveSinceMs = input.liveSinceMs ?? NaN;
   // Settled, old enough, sent to the rate read and not typed over since: the
   // nights a ratio is judged over, those still quoting MAYA's price and those
@@ -289,10 +354,42 @@ export function planPmsEdits(input: {
       continue;
     }
     const change = { read: d.read, price: Math.round(d.pmsRate * 100) / 100 };
-    if (d.whileLive) plan.edits.push(change);
-    else plan.rebased.push(change);
+    if (!d.whileLive) plan.rebased.push(change);
+    else if (wins) plan.overwrites.push({ read: d.read, pmsRate: change.price });
+    else plan.edits.push(change);
   }
   plan.systematic = plan.systematicNights.length;
+
+  // Rates removed in the PMS, on the same terms as a change.
+  for (const m of input.missing ?? []) {
+    const l = m.ledger;
+    const key = `${m.stayDate}|${m.roomTypeId}`;
+    if (l.status !== "sent") continue;
+    const ledgerPrice = l.price != null ? Number(l.price) : NaN;
+    // A night MAYA left at 0 is closed or a comp night: nothing of MAYA's to remove.
+    if (!(ledgerPrice > 0)) continue;
+    const target = input.targets[m.externalRoomTypeId];
+    const sameTarget =
+      !!target && l.external_rate_id != null && String(l.external_rate_id) === target &&
+      String(l.external_room_type_id ?? "") === m.externalRoomTypeId;
+    if (!sameTarget) continue;
+    if (!wins && input.removedInPms?.has(key)) continue;
+    const pushedAtMs = l.pushed_at != null ? Date.parse(String(l.pushed_at)) : NaN;
+    const confirmedAtMs = l.confirmed_at != null ? Date.parse(String(l.confirmed_at)) : NaN;
+    if (!(pushedAtMs <= input.nowMs - input.settleMs) || l.confirmed_at == null) {
+      plan.waiting += 1;
+      continue;
+    }
+    const manual = input.manual.get(key);
+    // Removed while MAYA only simulated: going live said MAYA's prices replace the hotel's.
+    if (liveSinceMs > confirmedAtMs && manual?.source !== "pms") continue;
+    if (manual && manual.source === "maya" && manual.setAtMs > pushedAtMs && ratesDiffer(manual.price, ledgerPrice)) {
+      plan.typedSinceSend += 1;
+      continue;
+    }
+    if (wins) plan.overwrites.push({ read: m, pmsRate: null });
+    else plan.removed.push(m);
+  }
   return plan;
 }
 
@@ -333,11 +430,16 @@ export type PmsEditsResult = {
   clearedManual: number;
   /** Nights changed while MAYA only simulated, now at that rate as their base. */
   rebased: number;
+  /** 'keep': nights whose rate the PMS removed after MAYA sent to them, now stamped and not priced. */
+  removed: number;
+  /** 'maya_wins': nights changed or removed in the PMS that MAYA sends its price to again. */
+  overwritten: number;
   suppressedRules: number;
   retiredPickups: number;
   /**
    * `stay_date|room_type_id` of the nights the PMS rate moved on: taken as a
-   * change, closed, or a new base. Listed even when writing them failed.
+   * change, closed, removed, or a new base. Listed even when writing them
+   * failed. Not the nights MAYA overwrites: its price for them stands.
    */
   movedCells: string[];
   /**
@@ -354,8 +456,26 @@ export type PmsEditsResult = {
   failed?: true;
 };
 
+function noResult(): PmsEditsResult {
+  return {
+    adopted: 0,
+    inStep: 0,
+    landed: 0,
+    closed: 0,
+    heldAtZero: 0,
+    clearedManual: 0,
+    rebased: 0,
+    removed: 0,
+    overwritten: 0,
+    suppressedRules: 0,
+    retiredPickups: 0,
+    movedCells: [],
+    holdCells: [],
+  };
+}
+
 /** A night's ledger row as read, with what this step now knows about it. */
-function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over: Record<string, unknown>): Record<string, unknown> {
+function ledgerRow(hotelId: string, pmsType: string, read: SentNight, over: Record<string, unknown>): Record<string, unknown> {
   const l = read.ledger;
   return {
     hotel_id: hotelId,
@@ -378,10 +498,26 @@ function ledgerRow(hotelId: string, pmsType: string, read: PushedNightRead, over
 }
 
 /**
+ * The ledger rows of the nights MAYA sends its price to again: what the PMS
+ * holds now. A changed rate is a send at that rate, so MAYA's published
+ * price differs from it; a removed one is a skip with no price in the PMS
+ * (PMS_RATE_REMOVED_REASON), which the push takes as no send at all. Either
+ * way the next push sends MAYA's price.
+ */
+export function overwriteLedgerRows(hotelId: string, pmsType: string, overwrites: Overwrite[], at: string): Record<string, unknown>[] {
+  return overwrites.map(({ read, pmsRate }) =>
+    pmsRate != null
+      ? ledgerRow(hotelId, pmsType, read, { price: pmsRate, sent_price: pmsRate, pms_edited_at: at })
+      : ledgerRow(hotelId, pmsType, read, { status: "skipped", error: PMS_RATE_REMOVED_REASON, sent_price: null, pms_edited_at: at })
+  );
+}
+
+/**
  * Adopt the plan's edits as manual prices, close the nights the hotel closed,
- * take the rates it set while MAYA only simulated as base rates, bring the
- * ledger in step with what the PMS holds, and stamp the sends it found there
- * as settled. `at` is the tick's instant: set_at, and the evaluation that
+ * stop pricing the nights whose rate it removed, take the rates it set while
+ * MAYA only simulated as base rates, bring the ledger in step with what the
+ * PMS holds (the overwrites included), and stamp the sends it found there as
+ * settled. `at` is the tick's instant: set_at, and the evaluation that
  * follows prices at it. Throws the database's error on a failed write.
  *
  * Base rates go first: on their own they only have MAYA price a night on the
@@ -394,12 +530,13 @@ export async function applyPmsEdits(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed" | "rebased">,
+  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed" | "rebased"> & Partial<Pick<PmsEditPlan, "removed" | "overwrites">>,
   at: string,
   manual: Map<string, OpenManualPrice> = new Map(),
 ): Promise<PmsEditsResult> {
   await writeBaseRates(supabase, hotelId, plan.rebased, at);
   const clearedManual = await closeNights(supabase, hotelId, plan.closed, manual, at);
+  await markRemoved(supabase, hotelId, plan.removed ?? [], at);
   let reset = { suppressedRules: 0, retiredPickups: 0 };
   if (plan.edits.length > 0) {
     reset = await setManualPrices(
@@ -426,6 +563,7 @@ export async function applyPmsEdits(
   for (const { read, price } of [...plan.closed.map((read) => ({ read, price: 0 })), ...plan.rebased]) {
     inStep.push(ledgerRow(hotelId, pmsType, read, { price, sent_price: price, confirmed_at: at, pms_edited_at: at }));
   }
+  inStep.push(...overwriteLedgerRows(hotelId, pmsType, plan.overwrites ?? [], at));
   const landed = plan.landed.map((read) => ledgerRow(hotelId, pmsType, read, { confirmed_at: at }));
   for (const batch of [inStep, landed]) {
     for (let i = 0; i < batch.length; i += 500) {
@@ -442,6 +580,8 @@ export async function applyPmsEdits(
     heldAtZero: 0,
     clearedManual,
     rebased: plan.rebased.length,
+    removed: (plan.removed ?? []).length,
+    overwritten: (plan.overwrites ?? []).length,
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
     movedCells: movedCells(plan),
@@ -449,10 +589,16 @@ export async function applyPmsEdits(
   };
 }
 
-function movedCells(plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased"> & Partial<Pick<PmsEditPlan, "heldAtZero">>): string[] {
-  return [...plan.edits.map((e) => e.read), ...plan.closed, ...plan.rebased.map((e) => e.read), ...(plan.heldAtZero ?? [])].map(
-    (r) => `${r.stayDate}|${r.roomTypeId}`,
-  );
+function movedCells(
+  plan: Pick<PmsEditPlan, "edits" | "closed" | "rebased"> & Partial<Pick<PmsEditPlan, "heldAtZero" | "removed">>,
+): string[] {
+  return [
+    ...plan.edits.map((e) => e.read),
+    ...plan.closed,
+    ...plan.rebased.map((e) => e.read),
+    ...(plan.heldAtZero ?? []),
+    ...(plan.removed ?? []),
+  ].map((r) => `${r.stayDate}|${r.roomTypeId}`);
 }
 
 /**
@@ -493,25 +639,45 @@ async function writeBaseRates(
   }
 }
 
+/** Nights grouped by room type, as `room_type_id -> stay dates`. */
+function datesByRoomType(nights: { roomTypeId: string; stayDate: string }[]): Map<string, string[]> {
+  const byRoomType = new Map<string, string[]>();
+  for (const r of nights) byRoomType.set(r.roomTypeId, [...(byRoomType.get(r.roomTypeId) ?? []), r.stayDate]);
+  return byRoomType;
+}
+
 /**
- * Nights the hotel closed: base rate 0, and any open manual price on them
- * cleared with the rules it paused let go again, as a Clear in MAYA does.
- * Returns how many manual prices were cleared.
+ * Nights whose rate the PMS removed: stamped on their base_rate_calendar row,
+ * which the engine then prices nothing on (see the header). A night already
+ * stamped keeps its first stamp.
  */
-async function closeNights(
+async function markRemoved(supabase: SupabaseClient, hotelId: string, nights: SentNight[], at: string): Promise<void> {
+  for (const [roomTypeId, dates] of datesByRoomType(nights)) {
+    for (let i = 0; i < dates.length; i += 100) {
+      const { error } = await supabase
+        .from("base_rate_calendar")
+        .update({ pms_removed_at: at })
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", dates.slice(i, i + 100))
+        .is("pms_removed_at", null);
+      if (error) throw new Error(`Failed to stop pricing nights whose rate was removed in the PMS: ${error.message}`);
+    }
+  }
+}
+
+/**
+ * Open manual prices on these nights cleared, and the rules they paused let
+ * go again, as a Clear in MAYA does. Returns how many were cleared.
+ */
+async function clearManualPrices(
   supabase: SupabaseClient,
   hotelId: string,
-  nights: PushedNightRead[],
-  manual: Map<string, OpenManualPrice>,
+  nights: { roomTypeId: string; stayDate: string }[],
   at: string,
 ): Promise<number> {
   if (nights.length === 0) return 0;
-  await writeBaseRates(supabase, hotelId, nights.map((read) => ({ read, price: 0 })), at);
-
-  const withManual = nights.filter((r) => manual.has(`${r.stayDate}|${r.roomTypeId}`));
-  if (withManual.length === 0) return 0;
-  const byRoomType = new Map<string, string[]>();
-  for (const r of withManual) byRoomType.set(r.roomTypeId, [...(byRoomType.get(r.roomTypeId) ?? []), r.stayDate]);
+  const byRoomType = datesByRoomType(nights);
   let cleared = 0;
   // Cleared before the rules are let go: the other way round, a failure
   // between the two would have the rules apply on top of the manual price.
@@ -525,7 +691,7 @@ async function closeNights(
         .in("stay_date", dates.slice(i, i + 100))
         .is("cleared_at", null)
         .select("stay_date");
-      if (error) throw new Error(`Failed to clear manual prices on closed nights: ${error.message}`);
+      if (error) throw new Error(`Failed to clear manual prices: ${error.message}`);
       cleared += (data ?? []).length;
     }
   }
@@ -540,24 +706,107 @@ async function closeNights(
         .eq("room_type_id", roomTypeId)
         .in("stay_date", dates.slice(i, i + 100))
         .not("suppressed_at", "is", null);
-      if (error) throw new Error(`Failed to let rules go on closed nights: ${error.message}`);
+      if (error) throw new Error(`Failed to let rules go on nights handed back to MAYA: ${error.message}`);
     }
   }
   return cleared;
 }
 
 /**
+ * Nights the hotel closed: base rate 0, and any open manual price on them
+ * cleared with the rules it paused let go again, as a Clear in MAYA does.
+ * Returns how many manual prices were cleared.
+ */
+async function closeNights(
+  supabase: SupabaseClient,
+  hotelId: string,
+  nights: PushedNightRead[],
+  manual: Map<string, OpenManualPrice>,
+  at: string,
+): Promise<number> {
+  if (nights.length === 0) return 0;
+  await writeBaseRates(supabase, hotelId, nights.map((read) => ({ read, price: 0 })), at);
+  return clearManualPrices(
+    supabase,
+    hotelId,
+    nights.filter((r) => manual.has(`${r.stayDate}|${r.roomTypeId}`)),
+    at,
+  );
+}
+
+/**
+ * Under "MAYA's price wins" no rate changed in the PMS is kept, so an open
+ * manual price that came from the PMS (turning the setting on clears them,
+ * and one a refresh took while the setting was saved is the only way one is
+ * left) is handed back to MAYA here, and the night stamps of rates removed
+ * under 'keep' are lifted. Prices typed in MAYA are never touched. Returns
+ * the nights handed back, and takes them out of `manual`.
+ */
+async function handBackPmsChanges(
+  supabase: SupabaseClient,
+  hotelId: string,
+  manual: Map<string, OpenManualPrice>,
+  removedInPms: ReadonlySet<string>,
+  at: string,
+): Promise<string[]> {
+  const fromPms = [...manual].filter(([, m]) => m.source === "pms").map(([key]) => key);
+  const nights = (keys: Iterable<string>) =>
+    [...keys].map((key) => {
+      const [stayDate, roomTypeId] = key.split("|");
+      return { stayDate, roomTypeId };
+    });
+  await clearManualPrices(supabase, hotelId, nights(fromPms), at);
+  for (const key of fromPms) manual.delete(key);
+  for (const [roomTypeId, dates] of datesByRoomType(nights(removedInPms))) {
+    for (let i = 0; i < dates.length; i += 100) {
+      const { error } = await supabase
+        .from("base_rate_calendar")
+        .update({ pms_removed_at: null })
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", dates.slice(i, i + 100));
+      if (error) throw new Error(`Failed to hand nights removed in the PMS back to MAYA: ${error.message}`);
+    }
+  }
+  return [...fromPms, ...removedInPms];
+}
+
+/** hotel_settings as this step reads it; `mode` 'keep' before the setting's migration. */
+async function readEditSettings(
+  supabase: SupabaseClient,
+  hotelId: string,
+): Promise<{ data: { simulation_mode?: unknown; live_since?: unknown; mode: PmsRateChangeMode } | null; error: unknown }> {
+  const read = (columns: string) => supabase.from("hotel_settings").select(columns).eq("hotel_id", hotelId).maybeSingle();
+  let { data, error } = await read("simulation_mode, live_since, pms_rate_changes");
+  if (error && isMissingColumnError(error) && /pms_rate_changes/.test(String((error as { message?: unknown }).message ?? ""))) {
+    ({ data, error } = await read("simulation_mode, live_since"));
+  }
+  if (error || !data) return { data: null, error };
+  const row = data as unknown as Record<string, unknown>;
+  return {
+    data: { simulation_mode: row.simulation_mode, live_since: row.live_since, mode: row.pms_rate_changes === "maya_wins" ? "maya_wins" : "keep" },
+    error: null,
+  };
+}
+
+/**
  * The refresh's step: find this hotel's hand edits among the nights MAYA has
- * sent to and adopt them, and stamp the sends it finds in the PMS as settled.
- * Reads the hotel's settings and whether an incident about nights a shared
- * ratio explained is open, and nothing more unless some night's PMS rate
- * differs from its ledger row, the row is a skip, or its send is not known
- * to be there since the hotel went live. Does nothing for a hotel that is
- * not live or a database without the columns that say where a price came
- * from. Logs one line of counts when there was anything to count. Never
- * throws: a failed write is logged, the result says so (`failed`) with the
- * nights the push must hold this tick (holdCells), and the next refresh
- * looks again.
+ * sent to, and the rates it removed there, and do what the property's
+ * setting says with them (see the header); stamp the sends it finds in the
+ * PMS as settled. Reads the hotel's settings and whether an incident about
+ * nights a shared ratio explained is open, and nothing more unless some
+ * night's PMS rate differs from its ledger row, the row is a skip, its send
+ * is not known to be there since the hotel went live, or a night MAYA sent
+ * to is missing from the read. Does nothing for a hotel that is not live or
+ * a database without the columns that say where a price came from. Logs one
+ * line of counts when there was anything to count. Never throws: a failed
+ * write is logged, the result says so (`failed`) with the nights the push
+ * must hold this tick (holdCells), and the next refresh looks again.
+ *
+ * Under 'keep', the changes it keeps are counted for the warning that
+ * something other than MAYA seems to be changing rates; under 'maya_wins',
+ * each overwrite is written for the change log and the day's email
+ * (pms-change-watch.ts). Neither can fail this step.
  */
 export async function adoptPmsEdits(
   supabase: SupabaseClient,
@@ -567,34 +816,29 @@ export async function adoptPmsEdits(
   targets: RateTargetMap,
   window: { firstDate: string; lastDate: string },
   at: string,
-  opts: { sendsZero?: boolean } = {},
+  opts: {
+    sendsZero?: boolean;
+    /** Nights MAYA sent to that the read did not return (the seeder's choice). */
+    missing?: SentNight[];
+    /** Nights in the window already stamped as removed in the PMS, that the read did not return. */
+    removedInPms?: ReadonlySet<string>;
+    /** The property's date the read was made on, for the warning's day count. */
+    today?: string;
+  } = {},
 ): Promise<PmsEditsResult> {
-  const none: PmsEditsResult = {
-    adopted: 0,
-    inStep: 0,
-    landed: 0,
-    closed: 0,
-    heldAtZero: 0,
-    clearedManual: 0,
-    rebased: 0,
-    suppressedRules: 0,
-    retiredPickups: 0,
-    movedCells: [],
-    holdCells: [],
-  };
+  const none = noResult();
+  const inRange = (stayDate: string) => stayDate >= window.firstDate && stayDate <= window.lastDate;
   const inWindow = reads.filter((r) =>
-    r.stayDate >= window.firstDate && r.stayDate <= window.lastDate && (r.ledger.status === "sent" || r.ledger.status === "skipped")
+    inRange(r.stayDate) && (r.ledger.status === "sent" || r.ledger.status === "skipped")
   );
-  if (inWindow.length === 0) return none;
+  const missing = (opts.missing ?? []).filter((m) => inRange(m.stayDate) && m.ledger.status === "sent");
+  const removedInPms = new Set([...(opts.removedInPms ?? [])].filter((key) => inRange(key.slice(0, 10))));
+  if (inWindow.length === 0 && missing.length === 0 && removedInPms.size === 0) return none;
 
   let plan: PmsEditPlan | null = null;
   const settleMs = pmsEditSettleMs();
   try {
-    const { data: settings, error: settingsError } = await supabase
-      .from("hotel_settings")
-      .select("simulation_mode, live_since")
-      .eq("hotel_id", hotelId)
-      .maybeSingle();
+    const { data: settings, error: settingsError } = await readEditSettings(supabase, hotelId);
     if (settingsError) {
       if (isMissingColumnError(settingsError)) return logPreMigration(hotelId);
       throw settingsError;
@@ -602,11 +846,14 @@ export async function adoptPmsEdits(
     // A missing row is simulation, as the push reads it.
     if (settings?.simulation_mode !== false) return none;
     const liveSinceMs = settings.live_since != null ? Date.parse(String(settings.live_since)) : NaN;
+    const mode = settings.mode;
+    const wins = mode === "maya_wins";
 
     // Nothing more is read while every sent night still has MAYA's price,
-    // known to be there since the hotel went live, and nothing is held back,
-    // but an incident about nights a ratio explained closes.
-    const worthALook = inWindow.some((r) => {
+    // known to be there since the hotel went live, nothing is held back and
+    // nothing is missing, but an incident about nights a ratio explained closes.
+    const newlyMissing = missing.some((m) => wins || !removedInPms.has(`${m.stayDate}|${m.roomTypeId}`));
+    const worthALook = newlyMissing || (wins && removedInPms.size > 0) || inWindow.some((r) => {
       if (r.ledger.status === "skipped") return true;
       if (r.ledger.price == null) return false;
       const confirmedAtMs = r.ledger.confirmed_at != null ? Date.parse(String(r.ledger.confirmed_at)) : NaN;
@@ -620,6 +867,7 @@ export async function adoptPmsEdits(
 
     const manual = await readOpenManualPrices(supabase, hotelId, window.firstDate, window.lastDate);
     if (!manual) return none;
+    if (wins) await handBackPmsChanges(supabase, hotelId, manual, removedInPms, at);
     plan = planPmsEdits({
       reads: inWindow,
       targets,
@@ -628,13 +876,21 @@ export async function adoptPmsEdits(
       settleMs,
       liveSinceMs,
       sendsZero: opts.sendsZero,
+      missing,
+      removedInPms,
+      mode,
     });
     await recordSharedRatio(supabase, hotelId, pmsType, plan.systematicNights, at);
-    const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length;
+    const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length +
+      plan.removed.length + plan.overwrites.length;
     const applied = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
     const held = plan.heldAtZero.map((r) => `${r.stayDate}|${r.roomTypeId}`);
     const result = { ...applied, heldAtZero: held.length, movedCells: movedCells(plan), holdCells: held };
     logPlan(hotelId, pmsType, plan, result);
+    // After the ledger says what the PMS holds: never before, or a failed
+    // write would leave an overwrite on the log that the push never makes.
+    if (wins) await recordOverwrites(supabase, hotelId, pmsType, plan.overwrites, at);
+    else await watchPmsChanges(supabase, hotelId, pmsType, { changes: plan.edits.length + plan.removed.length, today: opts.today, at });
     return result;
   } catch (e) {
     if (plan) logPlan(hotelId, pmsType, plan, none);
@@ -746,25 +1002,13 @@ function logPreMigration(hotelId: string): PmsEditsResult {
       migration: "99_supabase_migration_push_guardrails_v1.sql",
     }),
   );
-  return {
-    adopted: 0,
-    inStep: 0,
-    landed: 0,
-    closed: 0,
-    heldAtZero: 0,
-    clearedManual: 0,
-    rebased: 0,
-    suppressedRules: 0,
-    retiredPickups: 0,
-    movedCells: [],
-    holdCells: [],
-  };
+  return noResult();
 }
 
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
-  const found =
-    plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.heldAtZero.length + plan.rebased.length;
+  const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.heldAtZero.length +
+    plan.rebased.length + plan.removed.length + plan.overwrites.length;
   if (found + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
@@ -779,6 +1023,8 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       heldAtZero: result.heldAtZero,
       clearedManual: result.clearedManual,
       rebased: result.rebased,
+      removed: result.removed,
+      overwritten: result.overwritten,
       suppressedRules: result.suppressedRules,
       retiredPickups: result.retiredPickups,
       waiting: plan.waiting,

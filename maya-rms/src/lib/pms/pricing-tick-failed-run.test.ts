@@ -261,7 +261,7 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     const publishedBefore = structuredClone(w.tables.published_price);
 
     markNights(w.tables, H, nights, "booking", iso(T0 + 4 * MIN));
-    w.fail((c) => c.table === "base_rate_calendar" && c.columns === "stay_date, room_type_id, price");
+    w.fail((c) => c.table === "base_rate_calendar" && c.columns.startsWith("stay_date, room_type_id, price"));
     const failed = await w.tick(engine, T0 + 5 * MIN);
     w.heal();
     expect(failed.evaluate).toEqual({ error: expect.stringMatching(/Failed to load the hotel's own rates/) });

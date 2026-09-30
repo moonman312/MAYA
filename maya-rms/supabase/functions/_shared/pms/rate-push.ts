@@ -647,15 +647,22 @@ export async function pushRatesForHotel(
   const onRecord =
     candidates.length > 0 || unchanged.length > 0
       ? await loadCalendarNights(supabase, hotelId, firstDate, lastDate)
-      : { present: new Set<string>(), zero: new Set<string>() };
+      : { present: new Set<string>(), zero: new Set<string>(), removedAtMs: new Map<string, number>() };
   const pmsZero = onRecord.zero;
   const zeroBase = new Set([...pmsZero].filter((key) => !manualPrices.has(key)));
   // The last night the PMS returned a rate for on its last read; a calendar
   // row past it is not a rate on record (base-rate-calendar.ts). Null when
   // no read has recorded one: every row counts.
   const returnedThrough = conn?.base_rates_returned_through != null ? String(conn.base_rates_returned_through).slice(0, 10) : null;
+  // A price typed before the PMS removed the night's rate waits with it, as the engine reads it.
+  const typedSinceRemoval = (key: string): boolean => {
+    const manual = manualPrices.get(key);
+    if (!manual) return false;
+    const removedAtMs = onRecord.removedAtMs.get(key);
+    return removedAtMs === undefined || manual.setAtMs > removedAtMs;
+  };
   const noRateOnRecord = (key: string, stayDate: string): boolean =>
-    !manualPrices.has(key) && (!onRecord.present.has(key) || (returnedThrough != null && stayDate > returnedThrough));
+    !typedSinceRemoval(key) && (!onRecord.present.has(key) || (returnedThrough != null && stayDate > returnedThrough));
   const freshAfterMs = Date.now() - pushMaxPriceAgeMs();
   const tickEvaluatedAtMs = opts.evaluatedAt ? Date.parse(opts.evaluatedAt) : NaN;
   // Evaluations on record that may vouch for a price, read once and only when needed.
@@ -1465,7 +1472,9 @@ function finiteOr(ms: number): number {
  * The window's base_rate_calendar rows, by `stay_date|room_type_id`: every
  * night the PMS has a rate on record for (`present`), and of those the ones
  * it has at 0 (`zero`: closed, rates not loaded that far, or a comp night
- * the owner has set to 0 in the PMS themselves). Throws on a failed read:
+ * the owner has set to 0 in the PMS themselves). A night whose rate the PMS
+ * removed after MAYA sent to it (pms_removed_at, pms-edits.ts) has none on
+ * record, and `removedAtMs` says since when. Throws on a failed read:
  * without it there is no telling a closed night from an open one, or a night
  * with a rate from one without. A database without the table has no rate on
  * record for any night.
@@ -1475,34 +1484,47 @@ async function loadCalendarNights(
   hotelId: string,
   firstDate: string,
   lastDate: string,
-): Promise<{ present: Set<string>; zero: Set<string> }> {
+): Promise<{ present: Set<string>; zero: Set<string>; removedAtMs: Map<string, number> }> {
   const present = new Set<string>();
   const zero = new Set<string>();
-  // deno-lint-ignore no-explicit-any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let calRows: any[];
-  try {
-    calRows = await fetchAll(() =>
+  const removedAtMs = new Map<string, number>();
+  const read = (columns: string) =>
+    fetchAll(() =>
       supabase
         .from("base_rate_calendar")
-        .select("stay_date, room_type_id, price")
+        .select(columns)
         .eq("hotel_id", hotelId)
         .gte("stay_date", firstDate)
         .lte("stay_date", lastDate)
         .order("stay_date", { ascending: true })
         .order("room_type_id", { ascending: true }),
     );
+  // deno-lint-ignore no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let calRows: any[];
+  try {
+    try {
+      calRows = await read("stay_date, room_type_id, price, pms_removed_at");
+    } catch (e) {
+      // Before 99_supabase_migration_pms_rate_changes_v1.sql no rate is removed.
+      if (!isMissingColumnError(e)) throw e;
+      calRows = await read("stay_date, room_type_id, price");
+    }
   } catch (e) {
-    if (isMissingRelationError(e)) return { present, zero };
+    if (isMissingRelationError(e)) return { present, zero, removedAtMs };
     throw e;
   }
   for (const r of calRows) {
     if (!r.room_type_id || r.price == null) continue;
     const key = `${r.stay_date}|${r.room_type_id}`;
+    if (r.pms_removed_at != null) {
+      removedAtMs.set(key, Date.parse(String(r.pms_removed_at)));
+      continue;
+    }
     present.add(key);
     if (Number(r.price) === 0) zero.add(key);
   }
-  return { present, zero };
+  return { present, zero, removedAtMs };
 }
 
 /** A logged evaluation that may vouch for prices: when it ran and the nights it priced. */

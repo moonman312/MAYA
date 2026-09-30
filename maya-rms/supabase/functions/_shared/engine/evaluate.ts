@@ -736,20 +736,36 @@ export async function evaluateHotel(
   // go unpriced and every never-sent published row would be removed as if
   // the hotel had no rates, in a run that counted as good.
   const calendarBaseByCell = new Map<string, number>();
+  // Nights whose rate the PMS removed after MAYA sent to them, on a property
+  // that keeps changes made there (pms-edits.ts), and when. Not a rate on
+  // record while it lasts, and a price typed before it waits too: the night
+  // is left unpriced until a read returns a rate, or someone types a price.
+  // Before 99_supabase_migration_pms_rate_changes_v1.sql no night is.
+  const removedInPmsAt = new Map<string, number>();
   if (prices) try {
-    const calRows = await fetchAllRows(() =>
-      filterNights(
-        supabase.from("base_rate_calendar").select("stay_date, room_type_id, price").eq("hotel_id", hotelId),
-        runNights,
-        firstDate,
-        lastDate,
-      )
-        .order("stay_date", { ascending: true })
-        .order("room_type_id", { ascending: true }),
-    );
+    const readCalendar = (columns: string) =>
+      fetchAllRows(() =>
+        filterNights(
+          supabase.from("base_rate_calendar").select(columns).eq("hotel_id", hotelId),
+          runNights,
+          firstDate,
+          lastDate,
+        )
+          .order("stay_date", { ascending: true })
+          .order("room_type_id", { ascending: true }),
+      );
+    let calRows: Record<string, unknown>[];
+    try {
+      calRows = await readCalendar("stay_date, room_type_id, price, pms_removed_at");
+    } catch (e) {
+      if (!isMissingColumnError(e)) throw e;
+      calRows = await readCalendar("stay_date, room_type_id, price");
+    }
     for (const c of calRows) {
       if (!c.room_type_id || c.price == null) continue;
-      calendarBaseByCell.set(`${c.stay_date}|${c.room_type_id}`, Number(c.price));
+      const key = `${c.stay_date}|${c.room_type_id}`;
+      calendarBaseByCell.set(key, Number(c.price));
+      if (c.pms_removed_at != null) removedInPmsAt.set(key, Date.parse(String(c.pms_removed_at)));
     }
   } catch (e) {
     if (!isMissingRelationError(e)) throw new Error(`Failed to load the hotel's own rates: ${readErrorText(e)}`);
@@ -845,9 +861,15 @@ export async function evaluateHotel(
       const key = `${sd}|${rt.id}`;
       // See resolveBase: a typed price wins outright; below it only the
       // property's own rate, and only as far as the PMS last returned it.
-      const calendar = ratesReturnedThrough != null && sd > ratesReturnedThrough ? undefined : calendarBaseByCell.get(key);
+      // A night whose rate the PMS removed has neither, but for a price
+      // typed after the removal (see removedInPmsAt).
+      const removedAt = removedInPmsAt.get(key);
+      const manual = manualByCell.get(key);
+      const calendar =
+        removedAt !== undefined || (ratesReturnedThrough != null && sd > ratesReturnedThrough) ? undefined : calendarBaseByCell.get(key);
+      const manualCounts = manual !== undefined && (removedAt === undefined || Date.parse(manual.set_at) > removedAt);
       const base = resolveBase({
-        manual: manualByCell.get(key)?.price,
+        manual: manualCounts ? manual.price : undefined,
         calendar,
       });
       // A night the hotel has at 0 is left alone unless someone typed a
@@ -2085,7 +2107,11 @@ export async function evaluateHotel(
   pricesPublished = publishedKeys.size;
   // Whatever an earlier run published for a night this run left unpriced is
   // no longer MAYA's price, and must neither show as one nor be pushed.
-  if (unpricedPublished.length > 0) await clearUnpricedCells(supabase, hotelId, unpricedPublished);
+  if (unpricedPublished.length > 0) {
+    await clearUnpricedCells(supabase, hotelId, unpricedPublished, {
+      removedInPms: new Set(unpricedPublished.filter((key) => removedInPmsAt.has(key))),
+    });
+  }
 
   // A Booking Speed rule measuring part of the hotel records its observation
   // on the cells it changes, and only there. Hotel-wide observations go on
