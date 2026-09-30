@@ -56,9 +56,12 @@ export default async function AdminStalledSignupsPage({
   searchParams: Promise<{ hours?: string; abandoned?: string }>;
 }) {
   // Sales reads this too; giving up on a signup stays a platform admin's
-  // (the route refuses anyone else), so sales gets only the email link.
+  // (the route refuses anyone else), so sales gets only the email link. The
+  // code a signup used is a platform admin's too: the database leaves it
+  // blank for anyone else, so the card leaves it out rather than say "no code".
   const session = await requireStaffPage("stalled_signups");
   const canFlag = session.isPlatformAdmin;
+  const canSeeCode = session.isPlatformAdmin;
   const sp = await searchParams;
   const minHours = parseWindow(sp.hours);
   const includeAbandoned = sp.abandoned === "1";
@@ -134,7 +137,7 @@ export default async function AdminStalledSignupsPage({
 
       <div className="space-y-3">
         {rows.map((row) => (
-          <SignupCard key={row.hotel_id} row={row} canFlag={canFlag} />
+          <SignupCard key={row.hotel_id} row={row} canFlag={canFlag} canSeeCode={canSeeCode} />
         ))}
         {rows.length === 0 && (
           <p className="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
@@ -158,7 +161,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
   );
 }
 
-function SignupCard({ row, canFlag }: { row: TriagedSignup; canFlag: boolean }) {
+function SignupCard({ row, canFlag, canSeeCode }: { row: TriagedSignup; canFlag: boolean; canSeeCode: boolean }) {
   const badge = SEVERITY_BADGES[row.severity];
   const rooms = `${row.billed_rooms} room${row.billed_rooms === 1 ? "" : "s"}`;
   const mismatch =
@@ -198,7 +201,7 @@ function SignupCard({ row, canFlag }: { row: TriagedSignup; canFlag: boolean }) 
               row.hotel_name ?? "no property yet",
               rooms + mismatch,
               `${formatUsd(row.monthly_cents)}/mo`,
-              row.signup_code ? `code ${row.signup_code}` : "no code",
+              ...(canSeeCode ? [row.signup_code ? `code ${row.signup_code}` : "no code"] : []),
               row.pms_type ? `${row.pms_type} · ${row.pms_status}` : "no PMS connected",
               `signed up ${formatDate(row.created_at)}`,
               row.last_sign_in_at ? `last seen ${formatDate(row.last_sign_in_at)}` : "never signed in again",

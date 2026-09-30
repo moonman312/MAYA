@@ -128,7 +128,8 @@ vi.mock("@/lib/admin/stalled-signups", async (orig) => ({
       billed_rooms: 12,
       rooms_measured: null,
       monthly_cents: 36000,
-      signup_code: null,
+      // What platform_list_stalled_signups gives each role: the code for a platform admin only.
+      signup_code: state.role === "platform_admin" ? "DRIFTWOOD" : null,
       pms_type: null,
       pms_status: null,
       created_at: "2026-09-01T00:00:00Z",
@@ -288,8 +289,16 @@ describe("PMS Access", () => {
 describe("Stalled Signups", () => {
   const props = { searchParams: Promise.resolve({}) };
 
-  it("gives a platform admin the flag", async () => {
-    expect(await html("platform_admin", () => StalledPage(props))).toContain('data-c="flag-actions"');
+  it("gives a platform admin the flag and the code the signup used", async () => {
+    const out = await html("platform_admin", () => StalledPage(props));
+    expect(out).toContain('data-c="flag-actions"');
+    expect(out).toContain("code DRIFTWOOD");
+  });
+
+  it("never tells sales a signup had no code: the code is left out", async () => {
+    const out = await html("sales", () => StalledPage(props));
+    expect(out).not.toMatch(/no code|code DRIFTWOOD/);
+    expect(out).toContain("12 rooms · $360/mo · no PMS connected");
   });
 
   it("gives sales the email link and no flag", async () => {
