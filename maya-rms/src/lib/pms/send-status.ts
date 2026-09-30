@@ -49,7 +49,7 @@ import {
   retryDecision,
   SEND_IN_PROGRESS_MESSAGE,
 } from "../../../supabase/functions/_shared/pms/push-failure";
-import { NO_RATE_TARGET_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
+import { NO_RATE_TARGET_REASON, PMS_RATE_REMOVED_REASON } from "../../../supabase/functions/_shared/pms/push-guardrails";
 
 /**
  * The systems a price is sent to. Mews is read-only for now (G2, on hold), so
@@ -132,6 +132,10 @@ export function decideSendState(p: {
 }): { state: SendState; retriesLeft: number | null; retryRequested: boolean } {
   const { ledger } = p;
   if (!ledger) return { state: "pending", retriesLeft: null, retryRequested: false };
+  // Not a hold: the PMS lost MAYA's price there, and the next push sends it again ("MAYA's price wins").
+  if (ledger.status === "skipped" && ledger.error === PMS_RATE_REMOVED_REASON) {
+    return { state: "pending", retriesLeft: null, retryRequested: false };
+  }
   if (ledger.status === "skipped") return { state: "skipped", retriesLeft: null, retryRequested: false };
   if (p.publishedPrice == null || ledger.price !== p.publishedPrice) {
     return { state: "pending", retriesLeft: null, retryRequested: false };

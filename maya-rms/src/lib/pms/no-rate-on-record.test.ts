@@ -287,8 +287,10 @@ describe.each(ENGINES)("$name: a night the PMS has no rate for", (engine) => {
     }
     expect(w.sentTo().size).toBe(8);
 
-    // A night MAYA has sent to that the PMS stops quoting keeps its row:
-    // what is there is MAYA's own price, and nothing new goes out for it.
+    // A night MAYA has sent to that the PMS stops quoting before MAYA's send
+    // there is known to have landed keeps its row, and nothing new goes out
+    // for it: a removal counts only over a settled send
+    // (pms-rate-changes.test.ts has the removals themselves).
     w.rated.delete(night(3));
     const sentBefore = w.sends.length;
     const next = await w.tick(engine, T0 + 61 * MIN);
