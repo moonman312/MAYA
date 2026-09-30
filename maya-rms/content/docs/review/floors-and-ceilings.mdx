@@ -57,14 +57,14 @@ There is no settings page that lists floors and ceilings. You meet them in four 
 
 There are three ways a floor or ceiling gets set, and no editor beyond them.
 
-1. **The five questions.** The lowest rate you would take on a dead Tuesday becomes every active room type's floor. The most you would charge becomes the ceiling of each room type whose highest rate read so far fits under it. If you answer while the import is still reading, a room type whose higher rates arrive later can keep that ceiling: check the <Ui>Guardrails</Ui> column once the import is complete, and email us to lift one. Read [The five questions](/docs/review/the-five-questions).
+1. **The five questions.** The lowest rate you would take on a dead Tuesday becomes the floor of every active room type that counts as a room. The most you would charge becomes the ceiling of each such room type whose highest rate read so far fits under it. A type you have unticked as a room (a parking bay, a meeting room), and one nobody has answered for whose name is plainly not a bedroom, keeps its own floor and ceiling, and MAYA sends no price for it unless one of your rules changes it. If you answer while the import is still reading, a room type whose higher rates arrive later can keep that ceiling: check the <Ui>Guardrails</Ui> column once the import is complete, and email us to lift one. Read [The five questions](/docs/review/the-five-questions).
 2. **The import, from your own rates.** Once the first three years are in, and again when the full history is in, MAYA fills in a floor and a ceiling for every room type still at its defaults, using the history numbers in the next section (with the exceptions it lists). This happens without a card. It never overwrites a limit that has already been set.
 3. **A suggestion card.** After <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, the review shows a card for each room type still at a default: "Set a floor for "Standard"?" or "Set a ceiling for "Suite"?". The suggested amount sits in a box labelled <Ui>Amount to set</Ui>. Accept it with the <Ui>Set it to 80</Ui> button, or type your own number first and the button follows it. <Ui>No thanks</Ui> leaves the default. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
 The banner's <Ui>Ask MAYA for a floor</Ui> and <Ui>Ask MAYA for a ceiling</Ui> buttons take you to the <Ui>Rules</Ui> tab, where the suggestions button is.
 
 <Callout kind="not-yet">
-There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, cannot be changed from a screen. Answering the five questions again rewrites every floor (and every ceiling that fits), which is the only way to move a set limit yourself. For anything finer, email us with the room type and the numbers.
+There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, cannot be changed from a screen. Answering the five questions again rewrites every room's floor (and every ceiling that fits), which is the only way to move a set limit yourself. For anything finer, email us with the room type and the numbers.
 </Callout>
 
 ## The numbers MAYA suggests
@@ -115,7 +115,7 @@ The limits apply to you too, with one exception.
 - A rate you change in your property system on a night MAYA had sent to is kept as it is, even outside the limits. Rules that fire on top can move it only as far as the limits, or as far as your price if that is further out. The change log then reads "That would have gone further past your $300.00 ceiling for Suite than the price it started from, so it stopped at $320.00." Read [Rates changed in your PMS](/docs/watch/rates-changed-in-your-pms).
 
 <Callout kind="careful">
-Saving the floor card, the ceiling card or the last card of the five questions again puts your saved floor back on every active room type at once, over any floor set since. Check the <Ui>Guardrails</Ui> column in the <Ui>Rate Simulator</Ui> tab afterwards.
+Saving the floor card, the ceiling card or the last card of the five questions again puts your saved floor back on every active room type that counts as a room at once, over any floor set since. Check the <Ui>Guardrails</Ui> column in the <Ui>Rate Simulator</Ui> tab afterwards.
 </Callout>
 
 <Related>

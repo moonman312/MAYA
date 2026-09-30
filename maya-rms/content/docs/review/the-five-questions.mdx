@@ -67,14 +67,14 @@ If you would rather name the number, press <Ui>I'll just type my floor</Ui>. The
 The first offer is your turnover cost times 1.2, plus 5, rounded up to the next $5. Each step after that is the current offer times 1.15, plus 1, rounded up to the next $5. A $35 turnover cost offers $50, then $60, $70 and $85.
 </Example>
 
-What the answer does: it becomes the floor of every active room type, straight away. A floor is the lowest price MAYA will publish for that room type. The same number is written again once the import's first results are in, so room types the import adds get it too.
+What the answer does: it becomes the floor of every active room type that counts as a room, straight away. A floor is the lowest price MAYA will publish for that room type. The same number is written again once the import's first results are in, so room types the import adds get it too. A type you have unticked as a room (a parking bay, a meeting room, a court), and one nobody has answered for whose name is plainly not a bedroom, keeps the floor it has: the question asks about rooms, and MAYA does not send a price for such a type unless one of your rules changes it.
 
 A room type whose ceiling is already under your answer keeps its own floor, because a floor can't be above the ceiling. Every other room type takes your answer, and the card stays up and names each room type that did not, for example: "Your floor of $200 wasn't saved for Deluxe King: its ceiling is $150, and a floor can't be above the ceiling." Type a lower floor, or skip the question to leave it that way.
 
 When you answer again and a ceiling answer is already saved, a floor at or above it is refused with "Your floor price needs to be below your ceiling price of $300." (your ceiling in place of $300). Nothing is saved and the card stays.
 
 <Callout kind="careful">
-Your answer goes to every room type, the Suite included. If your room types need different floors, answer with your cheapest room type's floor and [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) to raise the others. Once you have answered, the import fills in only ceilings.
+Your answer goes to every room type that counts as a room, the Suite included. If your room types need different floors, answer with your cheapest room type's floor and [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) to raise the others. Once you have answered, the import fills in only ceilings.
 </Callout>
 
 If you skip this question, the import works each room type's floor out from its own rates instead: about 40% of what it usually sells for. It does that only for a room type with at least 30 nights of history. A room type with less, or one whose name or bookings look unlike a bedroom, stays at $1.00. To give it a floor, answer this question or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling).
@@ -106,7 +106,7 @@ Skip it and you get the five booking speed rules as they are. [Your starter rule
 
 The import often builds the starter rules before you reach this card. Answering then swaps them for the ones your answer calls for, as long as nobody has changed them, the property is still in simulation and you are a Revenue Manager or higher. Otherwise your answer is used by <Ui>Get suggestions from my data</Ui>, which offers the same rules as cards. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
-Saving it does one more thing: it writes your saved floor and ceiling answers to your room types again, as if you had answered those questions again. Your floor goes back on every active room type, and your ceiling on every room type whose rates fit under it. The first time through, that repeats what questions 3 and 4 wrote.
+Saving it does one more thing: it writes your saved floor and ceiling answers to your room types again, as if you had answered those questions again. Your floor goes back on every active room type that counts as a room, and your ceiling on every such room type whose rates fit under it. The first time through, that repeats what questions 3 and 4 wrote.
 
 ## Skipping, finishing and answering again
 
@@ -116,10 +116,10 @@ Saving it does one more thing: it writes your saved floor and ceiling answers to
 
 You can reopen the questions any time after your property is connected at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink>. The cards do not show your earlier answers (the name card shows the property's current name). A new answer replaces the old one.
 
-Saving the floor card, the ceiling card or the last card writes both your saved answers again: your floor onto every active room type, and your ceiling onto every room type whose rates fit under it, over whatever limits they had. A room type that cannot take them (its ceiling under the floor, or its floor over the ceiling) keeps the floor and ceiling it had. The floor card names such a room type for your floor, and the ceiling card for your ceiling. When a card writes your other saved answer again, a room type that cannot take that one is not named again.
+Saving the floor card, the ceiling card or the last card writes both your saved answers again: your floor onto every active room type that counts as a room, and your ceiling onto every such room type whose rates fit under it, over whatever limits they had. Types unticked as rooms are left alone. A room type that cannot take them (its ceiling under the floor, or its floor over the ceiling) keeps the floor and ceiling it had. The floor card names such a room type for your floor, and the ceiling card for your ceiling. When a card writes your other saved answer again, a room type that cannot take that one is not named again.
 
 <Callout kind="careful">
-Answering only the ceiling question, or only the last one, also puts your saved floor answer back on every active room type, over any floor set since. That includes a floor you accepted from a suggestion card or one we set for you by email. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
+Answering only the ceiling question, or only the last one, also puts your saved floor answer back on every active room type that counts as a room, over any floor set since. That includes a floor you accepted from a suggestion card or one we set for you by email. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
 </Callout>
 
 If a save fails you see "Couldn't save that" with an invitation to try again. Your earlier answers are unaffected. If your answer was saved but one room type's save failed, the card names it, for example "Your floor wasn't saved for Deluxe King. Try again in a moment."

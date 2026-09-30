@@ -12,6 +12,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
+import { nameIsCertainlyNonRoom, nameLooksLikeNonRoom } from "./room-type-names.ts";
 import {
   computeOccupancyReference,
   computeStarterRules,
@@ -296,47 +297,11 @@ export type RoomTypeStats = {
   median_los: number | null;
 };
 
-// Bookable spaces that aren't sleeping rooms — PMSes model everything as a
-// "room type": event spaces, spas, courts, parking, day-use, retail.
-//
-// Naive keyword matching is a trap here: "Cabana Suite", "Spa Suite",
-// "Poolside King" and "Ballroom Suite" are all real bedrooms at real resorts.
-// So we split the signals in two.
-
-/** Never a sleeping room, whatever else the name says. */
-const NON_ROOM_STRONG =
-  /\b(parking|pickleball|boardroom|banquet|conference|meeting|treatment|massage|storage|locker|kayak|excursion|day\s?-?use|gift\s?shop|deposit|resort\s?fee|service\s?fee|add-?on|misc)\b/i;
-
-/** Suggestive, but only damning when the name has no bedroom noun in it. */
-const NON_ROOM_WEAK =
-  /\b(spa|pool|cabana|golf|tennis|court|event|hall|ballroom|venue|gym|tour|rental|bike|wedding|package|fee)\b/i;
-
-/** If one of these appears, someone sleeps there. */
-const ROOM_NOUN =
-  /\b(rooms?|suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bunks?|penthouses?|lofts?|cottages?|chalets?|casitas?)\b/i;
-
-/**
- * Exported because billing needs the same judgement, not a second copy of it.
- * Every PMS models a pickleball court as a bookable room type, so the count MAYA
- * charges for has to make this distinction as carefully as the review screen
- * does — and from the same rules, or the two would eventually disagree about
- * what a customer owes.
- */
-export function nameLooksLikeNonRoom(name: string): boolean {
-  if (NON_ROOM_STRONG.test(name)) return true;
-  return NON_ROOM_WEAK.test(name) && !ROOM_NOUN.test(name);
-}
-
-/**
- * The stricter half of the same judgement: only the words that are never a
- * bedroom. "Deluxe Pool View" and "Spa Deluxe" trip the weak test — they are
- * real bedrooms at real resorts — and that test is fine for a bill-time
- * exclusion that under-charges us, but not for a default that takes a type
- * out of the engine's occupancy before anyone has looked at it.
- */
-export function nameIsCertainlyNonRoom(name: string): boolean {
-  return NON_ROOM_STRONG.test(name);
-}
+// Whether a room type's name says "nobody sleeps here" lives in
+// room-type-names.ts, so the floor answer and billing can ask without
+// importing the whole analysis. Re-exported here for the callers that always
+// found it in this module.
+export { nameIsCertainlyNonRoom, nameLooksLikeNonRoom } from "./room-type-names.ts";
 
 /**
  * Whether a PostgREST error is "that column isn't there yet".

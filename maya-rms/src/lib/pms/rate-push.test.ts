@@ -773,6 +773,135 @@ describe("pushRatesForHotel guardrails at the moment of sending", () => {
   });
 });
 
+describe("pushRatesForHotel and room types unticked as rooms", () => {
+  // The owner's $110 floor answer once landed on every active type, a $15
+  // parking bay included, and the engine published $110 for the parking.
+  // The floor no longer lands there (project-strategy.ts), and whatever the
+  // engine publishes for a type unticked as a room is not sent unless a rule
+  // of the hotel's names that type under "Change".
+  afterEach(() => vi.restoreAllMocks());
+
+  const PARKING = { id: "rt-parking", hotel_id: "hotel-1", external_room_type_id: "CB-PARK", name: "Parking", is_active: true, floor_price: 110, ceiling_price: 300 };
+  const KING = { id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", name: "King", counts_as_room: true, ...OPEN_BOUNDS };
+  const TARGETS: RateTargetMap = { "CB-KING": "rate-100", "CB-PARK": "rate-900" };
+
+  function hotel(opts: { parking: Row; rules?: Row[]; fault?: Parameters<typeof fakeSupabase>[1] extends { fault?: infer F } | undefined ? F : never }) {
+    return fakeSupabase(
+      {
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: [KING, opts.parking],
+        pricing_rules: opts.rules ?? [],
+        published_price: [
+          { hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, computed_at: JUST_NOW },
+          { hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-parking", price: 110, computed_at: JUST_NOW },
+        ],
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: TARGETS }],
+      },
+      opts.fault ? { fault: opts.fault } : {},
+    );
+  }
+  const ledger = (db: ReturnType<typeof fakeSupabase>) =>
+    (db.tables.rate_updates ?? []).map((r) => ({ rt: r.room_type_id, status: r.status, error: r.error ?? null, attempts: r.attempts, price: r.price }));
+
+  it("holds the parking bay's price back under its own code and sends the King's", async () => {
+    const db = hotel({ parking: { ...PARKING, counts_as_room: false } });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-KING"]);
+    expect(res).toMatchObject({ pushed: true, sent: 1, skippedGuardrail: 1, guardrails: { "guardrail:not_a_room": 1 } });
+    expect(ledger(db)).toEqual(
+      expect.arrayContaining([
+        { rt: "rt-king", status: "sent", error: null, attempts: 1, price: 210 },
+        // Nothing was ever sent to this night: the PMS keeps its own $15.
+        { rt: "rt-parking", status: "skipped", error: "guardrail:not_a_room", attempts: 0, price: 110 },
+      ]),
+    );
+    // Nothing is wrong: the PMS has its own rate for the parking bay, so no
+    // incident is opened for a night MAYA never sent to.
+    expect(db.tables.rate_push_incidents ?? []).toEqual([]);
+  });
+
+  it("files an admin-only incident once MAYA's own price is in the PMS for it and a rule no longer names it", async () => {
+    const db = hotel({ parking: { ...PARKING, counts_as_room: false } });
+    // Sent last week, while a rule named the parking bay under Change.
+    db.tables.rate_updates = [
+      { hotel_id: "hotel-1", pms_type: "cloudbeds", room_type_id: "rt-parking", external_room_type_id: "CB-PARK", stay_date: "2026-08-01", price: 105, status: "sent", attempts: 1, pushed_at: JUST_NOW },
+    ];
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-KING"]);
+    expect(res).toMatchObject({ sent: 1, skippedGuardrail: 1, guardrails: { "guardrail:not_a_room": 1 } });
+    expect(ledger(db)).toEqual(
+      expect.arrayContaining([{ rt: "rt-parking", status: "skipped", error: "guardrail:not_a_room", attempts: 1, price: 110 }]),
+    );
+    expect(db.tables.rate_push_incidents ?? []).toEqual([
+      expect.objectContaining({ cause: "guardrail_not_a_room", admin_only: true, severity: "transient", customer_visible_at: null }),
+    ]);
+  });
+
+  it("sends it once a rule names it under Change, on or paused", async () => {
+    for (const is_active of [true, false]) {
+      const db = hotel({
+        parking: { ...PARKING, counts_as_room: false },
+        rules: [{ id: "rule-1", hotel_id: "hotel-1", is_active, rule_affected_room_type: [{ room_type_id: "rt-parking" }] }],
+      });
+      const { adapter, attempts } = makeAdapter(TARGETS);
+      const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+      expect(attempts.map((a) => a.externalRoomTypeId).sort()).toEqual(["CB-KING", "CB-PARK"]);
+      expect(res).toMatchObject({ sent: 2, skippedGuardrail: 0 });
+    }
+  });
+
+  it("a rule that names only other types does not open the door", async () => {
+    const db = hotel({
+      parking: { ...PARKING, counts_as_room: false },
+      rules: [
+        { id: "rule-1", hotel_id: "hotel-1", is_active: true, rule_affected_room_type: [{ room_type_id: "rt-king" }] },
+        { id: "rule-2", hotel_id: "hotel-2", is_active: true, rule_affected_room_type: [{ room_type_id: "rt-parking" }] },
+      ],
+    });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-KING"]);
+  });
+
+  it("a type nobody has answered for is a room, as it is everywhere else", async () => {
+    const db = hotel({ parking: { ...PARKING, counts_as_room: null } });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId).sort()).toEqual(["CB-KING", "CB-PARK"]);
+    // No unticked type: the rules were not read.
+    expect(db.calls.some((c) => c.table === "pricing_rules")).toBe(false);
+  });
+
+  it("before the counts_as_room migration the types are read again without the column, and every one is a room", async () => {
+    // The column is not there, so no row carries it and the first read fails naming it.
+    const { counts_as_room: _flag, ...king } = KING;
+    const db = hotel({
+      parking: PARKING,
+      fault: (c) => (c.table === "room_types" && callTouchesColumn(c, "counts_as_room") ? missingColumn("room_types", "counts_as_room") : null),
+    });
+    db.tables.room_types = [king, { ...PARKING }];
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(res).toMatchObject({ sent: 2 });
+    expect(attempts.map((a) => a.externalRoomTypeId).sort()).toEqual(["CB-KING", "CB-PARK"]);
+    expect(db.calls.filter((c) => c.table === "room_types" && c.op === "select")).toHaveLength(2);
+    expect(db.calls.some((c) => c.table === "pricing_rules")).toBe(false);
+  });
+
+  it("stops the run when the rules cannot be read, sending nothing rather than guessing", async () => {
+    const db = hotel({
+      parking: { ...PARKING, counts_as_room: false },
+      fault: (c) => (c.table === "pricing_rules" ? { code: "57014", message: "canceling statement due to statement timeout" } : null),
+    });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    await expect(pushRatesForHotel(db.client, "hotel-1", adapter, WIDE)).rejects.toThrow(/statement timeout/);
+    expect(attempts).toEqual([]);
+    expect(db.tables.rate_updates ?? []).toEqual([]);
+  });
+});
+
 describe("pushRatesForHotel keeps the ledger truthful", () => {
   afterEach(() => {
     vi.restoreAllMocks();

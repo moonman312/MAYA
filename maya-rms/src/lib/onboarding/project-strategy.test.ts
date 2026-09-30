@@ -8,9 +8,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   describeGuardrailNotSaved,
   projectStrategyOntoRoomTypes,
+  resetCountsAsRoomLogOnce,
   resetMaxRatesLogOnce,
 } from "../../../supabase/functions/_shared/onboarding/project-strategy";
-import { FakeRpcError, fakeSupabase, missingFunction, type FakeRow } from "../engine/fake-supabase.test";
+import { treatAsRoom } from "../../../supabase/functions/_shared/onboarding/room-type-names";
+import { callTouchesColumn, FakeRpcError, fakeSupabase, missingColumn, missingFunction, type FakeRow } from "../engine/fake-supabase.test";
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -146,6 +148,93 @@ function hotel(settings: { strategy_floor: number | null; strategy_ceiling: numb
     reservations: [] as FakeRow[],
   };
 }
+
+describe("the answers land on rooms only", () => {
+  // The floor question asks about a room. Its answer used to go onto every
+  // active type, so a $15 parking bay was floored at $110, priced at $110 and,
+  // on a live hotel, sent to the PMS at $110.
+  const bounds = (rows: FakeRow[]) => Object.fromEntries(rows.map((r) => [r.id, [Number(r.floor_price), Number(r.ceiling_price)]]));
+
+  it("skips a type the owner unticked as a room, and writes both answers on every room", async () => {
+    const { client, tables } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 110, strategy_ceiling: 400 }, [
+        { id: "rt-king", name: "King", counts_as_room: true },
+        { id: "rt-parking", name: "Parking", counts_as_room: false, floor_price: 1, ceiling_price: 99999.99 },
+        // Unticked by the owner though the name says nothing: their word wins.
+        { id: "rt-slip", name: "Boat Slip", counts_as_room: false },
+      ]),
+    );
+    const notSaved = await projectStrategyOntoRoomTypes(client, "h1");
+    expect(bounds(tables.room_types)).toEqual({
+      "rt-king": [110, 400],
+      "rt-parking": [1, 99999.99],
+      "rt-slip": [1, 99999.99],
+    });
+    // Nothing to report: the answer was never meant for them.
+    expect(notSaved).toEqual([]);
+  });
+
+  it("treats a type nobody has answered for as a room, unless its name is plainly not a bedroom", async () => {
+    const { client, tables } = withFloorCeilingCheck(
+      hotel({ strategy_floor: 110, strategy_ceiling: null }, [
+        { id: "rt-std", name: "Standard", counts_as_room: null },
+        // The soft cases the review asks about are rooms until someone says otherwise.
+        { id: "rt-pool", name: "Deluxe Pool View", counts_as_room: null },
+        { id: "rt-cabana", name: "Cabana", counts_as_room: null },
+        // The words the import would have proposed as non-rooms: a live hotel's sync leaves these null.
+        { id: "rt-parking", name: "Parking", counts_as_room: null },
+        { id: "rt-board", name: "Board Room", display_name: "Boardroom", counts_as_room: null },
+        // The owner's tick beats the name in both directions.
+        { id: "rt-king-parking", name: "King Room with Parking", counts_as_room: true },
+      ]),
+    );
+    await projectStrategyOntoRoomTypes(client, "h1");
+    const got = bounds(tables.room_types);
+    expect(got["rt-std"][0]).toBe(110);
+    expect(got["rt-pool"][0]).toBe(110);
+    expect(got["rt-cabana"][0]).toBe(110);
+    expect(got["rt-king-parking"][0]).toBe(110);
+    expect(got["rt-parking"][0]).toBe(1);
+    expect(got["rt-board"][0]).toBe(1);
+  });
+
+  it("before the counts_as_room migration reads the types again without the column, says so once, and lets the name decide", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    resetCountsAsRoomLogOnce();
+    const seed = hotel({ strategy_floor: 110, strategy_ceiling: null }, [
+      { id: "rt-std", name: "Standard" },
+      { id: "rt-parking", name: "Parking" },
+    ]);
+    const { client, tables, calls } = fakeSupabase(seed, {
+      fault: (c) => (c.table === "room_types" && c.op === "select" && callTouchesColumn(c, "counts_as_room") ? missingColumn("room_types", "counts_as_room") : null),
+    });
+    await projectStrategyOntoRoomTypes(client, "h1");
+    await projectStrategyOntoRoomTypes(client, "h1");
+    expect(bounds(tables.room_types)).toEqual({ "rt-std": [110, 99999.99], "rt-parking": [1, 99999.99] });
+    expect(calls.filter((c) => c.table === "room_types" && c.op === "select")).toHaveLength(4);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0][0])).toContain("99_supabase_migration_room_type_counts_as_room_v1.sql");
+  });
+
+  it("writes nothing when the room types cannot be read", async () => {
+    const { client, tables } = fakeSupabase(hotel({ strategy_floor: 110, strategy_ceiling: null }, [{ id: "rt-std", name: "Standard" }]), {
+      fault: (c) => (c.table === "room_types" && c.op === "select" ? { code: "57014", message: "statement timeout" } : null),
+    });
+    expect(await projectStrategyOntoRoomTypes(client, "h1")).toEqual([]);
+    expect(bounds(tables.room_types)).toEqual({ "rt-std": [1, 99999.99] });
+  });
+
+  it("treatAsRoom: the owner's word, then the strong name test, then a room", () => {
+    expect(treatAsRoom({ counts_as_room: false, name: "King" })).toBe(false);
+    expect(treatAsRoom({ counts_as_room: true, name: "Parking" })).toBe(true);
+    expect(treatAsRoom({ counts_as_room: null, name: "Parking" })).toBe(false);
+    expect(treatAsRoom({ counts_as_room: null, name: "Meeting Room" })).toBe(false);
+    expect(treatAsRoom({ counts_as_room: null, name: "Spa Suite" })).toBe(true);
+    expect(treatAsRoom({ counts_as_room: null, name: "Tennis Court" })).toBe(true);
+    expect(treatAsRoom({ counts_as_room: null, name: "Standard", display_name: "Day-use Standard" })).toBe(false);
+    expect(treatAsRoom({})).toBe(true);
+  });
+});
 
 describe("an answer a room type can't take", () => {
   it("saves the floor everywhere it fits and names the room type whose ceiling is under it", async () => {

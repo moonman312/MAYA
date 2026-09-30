@@ -20,6 +20,18 @@
  *                                  or is not a date at all.
  *   guardrail:inactive_room_type   The room type is switched off in MAYA
  *                                  (room_types.is_active is not true).
+ *   guardrail:not_a_room           The room type is unticked as a room
+ *                                  (room_types.counts_as_room is false: a
+ *                                  parking bay, a court, a meeting room) and
+ *                                  no rule of the hotel's names it as a room
+ *                                  type it changes. The engine publishes a
+ *                                  price for it all the same (its own rate,
+ *                                  held between its floor and ceiling), and
+ *                                  a hotel-wide floor once landed on such
+ *                                  types; nothing is sent to the PMS for a
+ *                                  type the owner never asked MAYA to price.
+ *                                  A rule that ticks it under "Change" is
+ *                                  that ask, and its price goes out.
  *   guardrail:invalid_price        The price is not a finite number above 0.
  *                                  0 is a price only where the night's open
  *                                  manual price is 0: a comp night.
@@ -81,6 +93,7 @@ import { mwsEnv } from "../mews/env.ts";
 export const GUARDRAIL = {
   outsideWindow: "guardrail:outside_window",
   inactiveRoomType: "guardrail:inactive_room_type",
+  notARoom: "guardrail:not_a_room",
   invalidPrice: "guardrail:invalid_price",
   zeroBase: "guardrail:zero_base",
   invalidBounds: "guardrail:invalid_bounds",
@@ -96,6 +109,7 @@ export type GuardrailCode = (typeof GUARDRAIL)[keyof typeof GUARDRAIL];
 export const GUARDRAIL_ORDER: readonly GuardrailCode[] = [
   GUARDRAIL.outsideWindow,
   GUARDRAIL.inactiveRoomType,
+  GUARDRAIL.notARoom,
   GUARDRAIL.invalidPrice,
   GUARDRAIL.zeroBase,
   GUARDRAIL.invalidBounds,
@@ -125,6 +139,14 @@ export type GuardrailRoomType = {
   isActive: unknown;
   floorPrice: unknown;
   ceilingPrice: unknown;
+  /**
+   * room_types.counts_as_room as it is now: false is a type the owner
+   * unticked as a room. Absent or null (nobody has answered, or the column
+   * is not there yet) counts as a room, as it does everywhere else.
+   */
+  countsAsRoom?: boolean | null;
+  /** A rule of the hotel's, on or paused, names this type under "Change". */
+  namedByRule?: boolean;
 };
 
 export type GuardrailInput = {
@@ -161,6 +183,7 @@ export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
     return GUARDRAIL.outsideWindow;
   }
   if (c.roomType.isActive !== true) return GUARDRAIL.inactiveRoomType;
+  if (c.roomType.countsAsRoom === false && c.roomType.namedByRule !== true) return GUARDRAIL.notARoom;
   const manual = typeof c.manualPrice === "number" && Number.isFinite(c.manualPrice) ? c.manualPrice : null;
   if (typeof c.price !== "number" || !Number.isFinite(c.price) || cents(c.price) < 0) return GUARDRAIL.invalidPrice;
   // The engine publishes 0 only for a manual price of 0.

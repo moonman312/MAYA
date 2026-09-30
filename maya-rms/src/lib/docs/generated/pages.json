@@ -115,7 +115,7 @@
   "summary": "Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4782,7 +4782,7 @@
    "Why did MAYA send a night again at the same price?",
    "What is never sent?",
    "Why would a night be held back?",
-   "Does MAYA send prices for room types I switched off?",
+   "Does MAYA send prices for room types I switched off or unticked as rooms?",
    "What happens to a room type I removed from my system?",
    "Does it send the same price to every rate plan?",
    "What happens on a cycle where the read of my bookings failed?",
@@ -6290,7 +6290,7 @@
   "order": 130,
   "title": "Keep a rule away from a room type",
   "summary": "Untick a room type under Apply to room types in the rule builder so the rule neither measures nor changes it, and what to do about a rule that already exists.",
-  "readingTime": 3,
+  "readingTime": 4,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [],
@@ -6366,7 +6366,7 @@
   "summary": "Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {
@@ -6414,7 +6414,7 @@
   "summary": "Untick Counts as a room for a meeting room, spa slot or court on the PMS tab so it no longer counts in sellable occupancy, the calendar's room counts or the room count you are billed for.",
   "readingTime": 3,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-29",
   "pms": [],
   "headings": [
    {

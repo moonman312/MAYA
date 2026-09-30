@@ -1,14 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingColumnError } from "../engine/snapshots.ts";
+import { treatAsRoom } from "./room-type-names.ts";
 
 /**
  * Project hotel-level strategy answers onto the per-room-type guardrails the
  * pricing engine actually clamps against (room_types.floor_price/ceiling_price).
  *
- * Floor applies to every active room type. Ceiling only applies where it
- * exceeds the room type's observed max nightly rate — a hotel-wide ceiling
- * below a suite's real rates would pin its price down, which is worse than
- * no ceiling. Raw answers stay in onboarding_states.questions so this can
- * always re-run (it does: on answer save AND when the import finishes).
+ * Floor applies to every active room type that is a room. Ceiling only
+ * applies where it exceeds the room type's observed max nightly rate — a
+ * hotel-wide ceiling below a suite's real rates would pin its price down,
+ * which is worse than no ceiling. Raw answers stay in
+ * onboarding_states.questions so this can always re-run (it does: on answer
+ * save AND when the import finishes).
+ *
+ * The questions ask about rooms ("the lowest rate you would take for a room
+ * on a dead Tuesday"), so the answers land on rooms only. A type the owner
+ * has unticked as a room (counts_as_room false), or one nobody has answered
+ * for whose name is plainly not a bedroom (parking, boardroom, storage: the
+ * names the import proposes as non-rooms), is left alone. Writing a $110
+ * room floor onto a $15 parking bay priced the parking at $110 and, on a
+ * live hotel, sent that to the PMS. Such a type keeps whatever floor and
+ * ceiling it has. Before the counts_as_room migration the column is not
+ * there; then the name alone decides, as billing does.
  *
  * The database keeps each room type's floor at or under its ceiling and
  * refuses the whole row when an update would break that, so an answer that
@@ -32,12 +45,8 @@ export async function projectStrategyOntoRoomTypes(
   const ceiling = settings.strategy_ceiling != null ? Number(settings.strategy_ceiling) : null;
   if (floor === null && ceiling === null) return notSaved;
 
-  const { data: roomTypes } = await supabase
-    .from("room_types")
-    .select("id, name, display_name, floor_price, ceiling_price")
-    .eq("hotel_id", hotelId)
-    .eq("is_active", true);
-  if (!roomTypes?.length) return notSaved;
+  const roomTypes = (await loadActiveRoomTypes(supabase, hotelId)).filter(treatAsRoom);
+  if (!roomTypes.length) return notSaved;
 
   // Observed max nightly rate per room type. undefined = unknown (a failed
   // read): that type's ceiling is left alone rather than guessed. A type with
@@ -81,7 +90,7 @@ export async function projectStrategyOntoRoomTypes(
       continue;
     }
 
-    const { data: written, error } = await supabase.from("room_types").update(patch).eq("id", rt.id).select("id");
+    const { data: written, error } = await supabase.from("room_types").update(patch).eq("id", String(rt.id)).select("id");
     if (error || !written?.length) {
       const fields: GuardrailNotSaved["fields"] = [];
       if (patch.floor_price !== undefined) fields.push("floor");
@@ -127,6 +136,65 @@ export function describeGuardrailNotSaved(n: GuardrailNotSaved, money: (amount: 
         ? `Your floor and ceiling weren't saved for ${name}. Try again in a moment.`
         : `Your ${n.fields[0] ?? "answer"} wasn't saved for ${name}. Try again in a moment.`;
   }
+}
+
+type ActiveRoomType = {
+  id: unknown;
+  name: unknown;
+  display_name: unknown;
+  floor_price: unknown;
+  ceiling_price: unknown;
+  counts_as_room: boolean | null;
+};
+
+let loggedCountsAsRoomMissing = false;
+
+/** Test hook: forget that the pre-migration line was already logged. */
+export function resetCountsAsRoomLogOnce(): void {
+  loggedCountsAsRoomMissing = false;
+}
+
+/**
+ * The hotel's active room types with their "counts as a room" flag. Before
+ * 99_supabase_migration_room_type_counts_as_room_v1.sql the column is not
+ * there and the select fails naming it; then the rows are read again without
+ * it, flagged null, and the name decides (treatAsRoom). A failed read is an
+ * empty list: nothing is written, as before.
+ */
+async function loadActiveRoomTypes(supabase: SupabaseClient, hotelId: string): Promise<ActiveRoomType[]> {
+  const read = (columns: string) =>
+    supabase.from("room_types").select(columns).eq("hotel_id", hotelId).eq("is_active", true);
+  const first = await read("id, name, display_name, floor_price, ceiling_price, counts_as_room");
+  if (!first.error) return ((first.data ?? []) as unknown as Record<string, unknown>[]).map(withFlag);
+  if (!isMissingColumnError(first.error)) return [];
+  if (!loggedCountsAsRoomMissing) {
+    loggedCountsAsRoomMissing = true;
+    console.warn(
+      JSON.stringify({
+        fn: "projectStrategyOntoRoomTypes",
+        step: "room_types",
+        hotelId,
+        schema: "pre-migration",
+        message:
+          "room_types.counts_as_room does not exist yet; a type's name alone decides whether the floor and ceiling answers land on it. Run 99_supabase_migration_room_type_counts_as_room_v1.sql.",
+        migration: "99_supabase_migration_room_type_counts_as_room_v1.sql",
+      }),
+    );
+  }
+  const again = await read("id, name, display_name, floor_price, ceiling_price");
+  if (again.error) return [];
+  return ((again.data ?? []) as unknown as Record<string, unknown>[]).map(withFlag);
+}
+
+function withFlag(r: Record<string, unknown>): ActiveRoomType {
+  return {
+    id: r.id,
+    name: r.name,
+    display_name: r.display_name,
+    floor_price: r.floor_price,
+    ceiling_price: r.ceiling_price,
+    counts_as_room: typeof r.counts_as_room === "boolean" ? r.counts_as_room : null,
+  };
 }
 
 let loggedMaxRatesMissing = false;

@@ -19,7 +19,7 @@ questions:
   - Why did MAYA send a night again at the same price? {#questions-people-ask/why-did-maya}
   - What is never sent? {#what-is-never-sent/before-every-send}
   - Why would a night be held back? {#what-is-never-sent/before-every-send}
-  - Does MAYA send prices for room types I switched off? {#room-types-you-have-unticked-or-switched-off/counts-as-a}
+  - Does MAYA send prices for room types I switched off or unticked as rooms? {#room-types-you-have-unticked-or-switched-off/counts-as-a}
   - What happens to a room type I removed from my system? {#room-types-you-have-unticked-or-switched-off/a-room-type}
   - Does it send the same price to every rate plan? {#which-rate-is-changed/cloudbeds-maya-writes}
   - What happens on a cycle where the read of my bookings failed? {#when-the-read-of-your-bookings-fails}
@@ -166,7 +166,9 @@ Type 0 for a night and the confirmation reads "Saved. MAYA doesn't send a price 
 
 ## Room types you have unticked or switched off
 
-<Ui>Counts as a room</Ui> on the PMS tab changes what MAYA divides by for occupancy and what you are billed for, not what is sent. A room type you untick there is still priced and sent whenever it has a starting price, such as your rate in your system, a booking or a price you typed. To keep MAYA off a room type, leave it out of every rule's <Ui>Apply to room types</Ui>: it is then sent at your own rate, kept between its floor and ceiling. If your rate is outside them, the floor or ceiling is sent instead. There is no switch that takes a room type out of sending, with one exception.
+<Ui>Counts as a room</Ui> on the PMS tab changes what MAYA divides by for occupancy, what you are billed for, and whether a price is sent for the type. A room type you untick there (a parking bay, a meeting room, a court) is still priced in MAYA whenever it has a starting price, but nothing is sent to your system for it unless one of your rules ticks it under <Ui>Apply to room types</Ui>. Your own rate for it stays as it is. The floor and ceiling answers from setup are not written onto it either. Tick it in a rule, and its price is sent like any other room type's.
+
+A room type that counts as a room is sent whenever it has a starting price, such as your rate in your system, a booking or a price you typed. To keep your rules off such a room type, leave it out of every rule's <Ui>Apply to room types</Ui>: it is then sent at your own rate, kept between its floor and ceiling. If your rate is outside them, the floor or ceiling is sent instead. For a room type that counts as a room there is no switch that takes it out of sending, with one exception.
 
 The exception is a duplicate. A room type the review screen hides as a duplicate is switched off in MAYA, and nothing is sent for it. MAYA hides one at import, or you confirm one there later.
 

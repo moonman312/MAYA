@@ -15,7 +15,7 @@ questions:
   - Can I set a different floor for each room type? {#change-a-floor-or-ceiling-that-is-already-set/the-floor}
   - Can I set a floor for one night or one season? {#where-the-limits-act/standards-ceiling-is}
   - Why is a price over my ceiling or under my floor? {#where-the-limits-act/every-price-your}
-updated: 2026-09-24
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -26,7 +26,7 @@ There is no floor and ceiling editor yet. Setup sets them from your answers and 
 
 Before you set anything, look at what you already have. Setup fills in floors and ceilings for you, so do not assume yours are still at $1.00 and $99,999.99.
 
-Your answers to the floor and ceiling questions go on first. The floor goes to every room type, and the ceiling to each room type whose highest sold rate is at or below it, unless the two clash (see below).
+Your answers to the floor and ceiling questions go on first. The floor goes to every room type that counts as a room, and the ceiling to each such room type whose highest sold rate is at or below it, unless the two clash (see below). A type unticked as a room keeps its own limits.
 
 Then the history import fills any floor still at $1.00, or ceiling still at $99,999.99, from that room type's own past rates. There is no card to accept. The floor is 40% of what the room type typically sells for, rounded to the nearest $5 and never under $10, and needs at least 30 room nights sold for that room type (a room night is one room for one night). The ceiling is 1.5 times the rate it rarely sells above, rounded to the nearest $10, and needs at least 200 room nights sold.
 
@@ -56,10 +56,10 @@ Accepting a suggestion needs Revenue Manager access or higher. Reading your hist
 
 The floor and ceiling questions from setup can be answered again at any time, at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> once your property is connected. They are the same five cards, all skippable. Skip to the floor card, answer it, then the ceiling card, then skip the rest.
 
-- **The floor** you type replaces the floor of every active room type, except where it clashes.
+- **The floor** you type replaces the floor of every active room type that counts as a room, except where it clashes. A type you have unticked as a room, such as a parking bay or a meeting room, is left alone.
 - **The ceiling** you type goes only to room types whose highest sold rate is at or below it, so a property-wide ceiling never pins a suite below what it already sells for. Other room types keep their ceiling.
 - **A clash is skipped, and the card says so.** A room type takes the new numbers only if its floor still ends up at or below its ceiling. If your floor is above a room type's ceiling, or your ceiling is below its floor, that room type keeps the floor and ceiling it had. The card stays up and names it, for example "Your floor of $200 wasn't saved for Deluxe King: its ceiling is $150, and a floor can't be above the ceiling." Type another number, or skip the card to leave it that way.
-- **Your saved answers go on again each time.** Saving the floor card, the ceiling card or the fifth card writes both of your saved answers again, by the same rules. So answering only the ceiling card still puts your saved floor answer, if you gave one, back on every room type. Skipping a card changes nothing.
+- **Your saved answers go on again each time.** Saving the floor card, the ceiling card or the fifth card writes both of your saved answers again, by the same rules. So answering only the ceiling card still puts your saved floor answer, if you gave one, back on every room type that counts as a room. Skipping a card changes nothing.
 
 A card names a skipped room type only for the answer you just gave. When it writes your other saved answer again, a room type that cannot take that one is skipped without being named again. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab afterwards.
 

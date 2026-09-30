@@ -63,6 +63,7 @@ export const PUSH_CAUSES = [
   "zero_rate_unsupported",
   "pms_rates_shared_ratio",
   "awaiting_rate_read",
+  "guardrail_not_a_room",
 ] as const;
 
 export type PushCause = (typeof PUSH_CAUSES)[number];
@@ -290,6 +291,11 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
   },
   guardrail_outside_window: guardrail("the night is outside the pricing window", false),
   guardrail_inactive_room_type: guardrail("the room type is switched off in MAYA", false),
+  // Not a bug: the engine prices every active type, and a type unticked as a
+  // room (parking, a court, a meeting room) gets a price like the rest. It
+  // is sent only when a rule names it under "Change". Until one does, the
+  // PMS keeps its own rate for it.
+  guardrail_not_a_room: guardrail("the room type is not a room and no rule changes it", false),
   guardrail_invalid_price: guardrail("the published price is not a number above 0", true),
   guardrail_zero_base: guardrail("the PMS has the night at 0 and nobody typed a price", false),
   guardrail_invalid_bounds: guardrail("the room type's floor or ceiling is not usable", true),
@@ -368,6 +374,7 @@ function guardrail(why: string, mayaBug: boolean): CatalogEntry {
 const GUARDRAIL_CAUSE: Record<string, PushCause> = {
   [GUARDRAIL.outsideWindow]: "guardrail_outside_window",
   [GUARDRAIL.inactiveRoomType]: "guardrail_inactive_room_type",
+  [GUARDRAIL.notARoom]: "guardrail_not_a_room",
   [GUARDRAIL.invalidPrice]: "guardrail_invalid_price",
   [GUARDRAIL.zeroBase]: "guardrail_zero_base",
   [GUARDRAIL.invalidBounds]: "guardrail_invalid_bounds",

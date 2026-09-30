@@ -429,6 +429,45 @@ async function readLedger(supabase: SupabaseClient, hotelId: string, firstDate: 
   }
 }
 
+/**
+ * The hotel's room types with their "counts as a room" flag. Before
+ * 99_supabase_migration_room_type_counts_as_room_v1.sql the column is not
+ * there and the read fails naming it; then the rows are read again without
+ * it and every type counts as a room, as it did before the flag existed.
+ */
+// deno-lint-ignore no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function readRoomTypes(supabase: SupabaseClient, hotelId: string): Promise<any[]> {
+  const read = (columns: string) =>
+    fetchAll(() => supabase.from("room_types").select(columns).eq("hotel_id", hotelId).order("id", { ascending: true }));
+  try {
+    return await read("id, external_room_type_id, is_active, floor_price, ceiling_price, counts_as_room");
+  } catch (e) {
+    if (!isMissingColumnError(e)) throw e;
+    return await read("id, external_room_type_id, is_active, floor_price, ceiling_price");
+  }
+}
+
+/**
+ * The room types any rule of the hotel's names under "Change", on or paused.
+ * A paused rule's changes stay on the price (pausing freezes, it never
+ * reverts), so a type it names is still one the owner asked MAYA to price.
+ * A failed read throws: taking it as "no rule names anything" would hold
+ * back prices the owner asked for, and taking it as "every rule does" would
+ * send prices nobody asked for.
+ */
+async function readRoomTypesNamedByRules(supabase: SupabaseClient, hotelId: string): Promise<Set<string>> {
+  const rows = await fetchAll(() =>
+    supabase.from("pricing_rules").select("id, rule_affected_room_type ( room_type_id )").eq("hotel_id", hotelId).order("id", { ascending: true }),
+  );
+  const named = new Set<string>();
+  for (const r of rows) {
+    const affected = Array.isArray(r.rule_affected_room_type) ? r.rule_affected_room_type : [];
+    for (const a of affected) if (a?.room_type_id != null) named.add(String(a.room_type_id));
+  }
+  return named;
+}
+
 export async function pushRatesForHotel(
   supabase: SupabaseClient,
   hotelId: string,
@@ -466,14 +505,13 @@ export async function pushRatesForHotel(
 
   // Every room type, active or not: a switched-off type's leftover rows have
   // to be seen to be held back and recorded, not silently dropped.
-  const rtRows = await fetchAll(() =>
-    supabase
-      .from("room_types")
-      .select("id, external_room_type_id, is_active, floor_price, ceiling_price")
-      .eq("hotel_id", hotelId)
-      .order("id", { ascending: true }),
-  );
-  const roomTypeById = new Map<string, { ext: string; isActive: unknown; floorPrice: unknown; ceilingPrice: unknown }>();
+  const rtRows = await readRoomTypes(supabase, hotelId);
+  // A type unticked as a room is sent to only when a rule names it under
+  // "Change" (guardrail:not_a_room); which types any rule names is read once,
+  // and only when such a type has a published price to consider.
+  const anyNonRoom = rtRows.some((r) => r.counts_as_room === false);
+  const namedByRule = anyNonRoom ? await readRoomTypesNamedByRules(supabase, hotelId) : new Set<string>();
+  const roomTypeById = new Map<string, GuardrailRoomType & { ext: string }>();
   for (const r of rtRows) {
     if (!r.id || !r.external_room_type_id) continue;
     roomTypeById.set(String(r.id), {
@@ -481,6 +519,8 @@ export async function pushRatesForHotel(
       isActive: r.is_active,
       floorPrice: r.floor_price,
       ceilingPrice: r.ceiling_price,
+      countsAsRoom: typeof r.counts_as_room === "boolean" ? r.counts_as_room : null,
+      namedByRule: namedByRule.has(String(r.id)),
     });
   }
 
@@ -671,6 +711,17 @@ export async function pushRatesForHotel(
     }
     skippedGuardrail += 1;
     guardrails[code] = (guardrails[code] ?? 0) + 1;
+    // A type unticked as a room that MAYA has never sent to: the PMS has its
+    // own rate for it and nothing is wrong. The ledger says why the night is
+    // held (so the admin ledger and the summary show it) and that is all: no
+    // incident, since one would stay open for as long as the parking bay
+    // exists. Once a rule named it and MAYA's price went out, it is filed
+    // like any other guardrail hold, because that price is still in the PMS.
+    if (code === GUARDRAIL.notARoom && ledgerRowNeverSent(priorRow.get(key))) {
+      const row = skippedLedgerRow(hotelId, adapter.pmsType, cellOf(c), code, priorRow.get(key), nowIso);
+      if (row) rows.push(row);
+      return true;
+    }
     const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "guardrail", message: code });
     run.cells.set(key, { ...cellRef(cell), state: "failing", failure });
     const row = skippedLedgerRow(hotelId, adapter.pmsType, cell, code, priorRow.get(key), nowIso);
