@@ -26,12 +26,21 @@ const state = vi.hoisted(() => ({
   /** can_manage_finances for the person at the browser when the vendor sends them back. */
   stillAllowed: true,
   ssrRpcs: [] as string[],
+  /** Who is signed in at the browser when the vendor sends them back; null is signed out. */
+  browserUserId: "user-1" as string | null,
+  /** Other hotels' rows, for the "already another hotel's" check. */
+  otherHotels: [] as FakeRow[],
+  otherMemberships: [] as FakeRow[],
+  otherConnections: [] as FakeRow[],
+  /** Property IDs stored with other hotels' credentials, by hotel id. */
+  otherStoredProperties: {} as Record<string, string>,
 }));
 
 vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => state.db.client }));
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
+    auth: { getUser: async () => ({ data: { user: state.browserUserId ? { id: state.browserUserId } : null } }) },
     rpc: async (fn: string) => {
       state.ssrRpcs.push(fn);
       return { data: fn === "can_manage_finances" ? state.stillAllowed : null, error: null };
@@ -53,6 +62,7 @@ vi.mock("@/lib/pms/oauth-state", () => ({
     ok: true,
     intent: "hotel",
     hotelId: "hotel-1",
+    userId: "user-1",
     pmsType: "cloudbeds",
     ...(state.from ? { from: state.from } : {}),
     ...(state.support ? { support: true } : {}),
@@ -87,15 +97,19 @@ function property(opts: {
         setup_deferred_at: null,
         data_purged_at: opts.purged ? "2027-03-01T00:00:00.000Z" : null,
       },
+      ...state.otherHotels,
     ],
     pms_marketplace_claims: opts.claimed
       ? [{ token: "tok", hotel_id: "hotel-1", pms_type: "cloudbeds", claimed_by: "user-1", claimed_at: "2026-09-01T00:00:00.000Z" }]
       : [],
-    hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1", status: "active" }],
+    hotel_memberships: [{ hotel_id: "hotel-1", user_id: "user-1", status: "active" }, ...state.otherMemberships],
     hotel_subscriptions: opts.subscription ? [{ hotel_id: "hotel-1", status: opts.subscription }] : [],
-    pms_connections: opts.connection
-      ? [{ hotel_id: "hotel-1", pms_type: "cloudbeds", status: opts.connection, updated_at: "2026-09-01T00:00:00.000Z" }]
-      : [],
+    pms_connections: [
+      ...(opts.connection
+        ? [{ hotel_id: "hotel-1", pms_type: "cloudbeds", status: opts.connection, updated_at: "2026-09-01T00:00:00.000Z" }]
+        : []),
+      ...state.otherConnections,
+    ],
     import_jobs: opts.jobs ?? [],
     onboarding_states: [],
   }, {
@@ -105,6 +119,11 @@ function property(opts: {
       state.rpcs.push({ fn, args: args as Record<string, unknown> });
       if (fn === "pms_secret_get") {
         if (state.secretReadFails) return new FakeRpcError({ message: "vault unavailable" });
+        const hotel = String((args as { p_hotel_id: unknown }).p_hotel_id);
+        if (hotel !== "hotel-1") {
+          const other = state.otherStoredProperties[hotel];
+          return other ? { accessToken: "theirs", propertyId: other } : null;
+        }
         return state.storedProperty ? { accessToken: "old", propertyId: state.storedProperty } : null;
       }
       return null;
@@ -133,6 +152,11 @@ beforeEach(() => {
   state.support = false;
   state.stillAllowed = true;
   state.ssrRpcs = [];
+  state.browserUserId = "user-1";
+  state.otherHotels = [];
+  state.otherMemberships = [];
+  state.otherConnections = [];
+  state.otherStoredProperties = {};
   process.env.CLOUDBEDS_CLIENT_ID = "id";
   process.env.CLOUDBEDS_CLIENT_SECRET = "secret";
   process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
@@ -175,13 +199,25 @@ describe("the reconnect prompt's OAuth callback", () => {
     expect(db.tables.import_jobs).toEqual([]);
   });
 
-  it("connects a hotel with no property on record yet as it always has, with no import", async () => {
+  it("connects a hotel with no property on record yet, binds it to the one property the login reaches, with no import", async () => {
     const db = property({ claimed: false, purged: false, isActive: true, inApp: true });
     await callback();
     expect(db.tables.pms_connections[0].status).toBe("connected");
     // A new grant: rate pushes held for a missing permission or a refused grant go out next tick.
     expect(db.tables.pms_connections[0].reauthorized_at).toBe(db.tables.pms_connections[0].updated_at);
     expect(db.tables.import_jobs).toEqual([]);
+    // Bound now, so a later login for another property is refused (below).
+    expect(storedSecret()).toMatchObject({ propertyId: "320691" });
+  });
+
+  it("leaves a hotel with no property on record unbound when the login is a group's, as the sync then says", async () => {
+    state.properties = [
+      { propertyId: "320690", name: "Sea View Annex" },
+      { propertyId: "320691", name: "Sea View Inn" },
+    ];
+    const db = property({ claimed: false, purged: false, isActive: true, inApp: true });
+    await callback();
+    expect(db.tables.pms_connections[0].status).toBe("connected");
     expect(storedSecret()).not.toHaveProperty("propertyId");
   });
 
@@ -350,10 +386,136 @@ describe("a reconnect MAYA staff started in God Mode", () => {
     expect(storedSecret()).toBeDefined();
   });
 
-  it("asks nothing of a member's reconnect, as before", async () => {
+  it("asks the same of a member's reconnect: still signed in, still allowed", async () => {
     property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
     await callback();
+    expect(state.ssrRpcs).toEqual(["can_manage_finances"]);
+  });
+});
+
+describe("the reconnect link is the person's who started it", () => {
+  // A signed link is good for 15 minutes wherever the browser is sent. Without
+  // the person in it, anyone with a MAYA login and a property with no Cloudbeds
+  // property on record could start a connect and hand the link to a manager
+  // at another hotel to approve, and that hotel's login was stored under the
+  // other property, read every 5 minutes and, once live, sent prices.
+  const live = () => property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+  const nothingStored = (db: ReturnType<typeof property>) => {
+    expect(fetch).not.toHaveBeenCalled();
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections[0]).toMatchObject({ status: "disconnected" });
+    expect(db.tables.pms_connections[0]).not.toHaveProperty("reauthorized_at");
+    expect(db.tables.import_jobs).toEqual([]);
+  };
+
+  it("finishes only for the account that started it: another account is refused before the grant is spent", async () => {
+    state.browserUserId = "user-2";
+    const db = live();
+    const res = await callback();
+    expect(res.status).toBe(403);
+    const text = await res.text();
+    expect(text).toContain("started from a different account");
+    expect(text).not.toContain("—");
+    // Not even asked: the account is wrong before rights come into it.
     expect(state.ssrRpcs).toEqual([]);
+    nothingStored(db);
+  });
+
+  it("refuses a signed-out browser the same way", async () => {
+    state.browserUserId = null;
+    const db = live();
+    const res = await callback();
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("Sign in as the person who started it");
+    nothingStored(db);
+  });
+
+  it("refuses the person who started it once they may no longer reconnect the property", async () => {
+    state.stillAllowed = false;
+    const db = live();
+    const res = await callback();
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain("Reconnecting needs General Manager access or higher on this property.");
+    expect(state.ssrRpcs).toEqual(["can_manage_finances"]);
+    nothingStored(db);
+  });
+
+  it("finishes for the person who started it, still allowed", async () => {
+    const db = live();
+    const res = await callback();
+    expect(res.status).toBe(302);
+    expect(storedSecret()).toMatchObject({ accessToken: "cbat" });
+    expect(db.tables.pms_connections[0].status).toBe("connected");
+  });
+});
+
+describe("a login for a property that is already another MAYA hotel's", () => {
+  // The hotel has no Cloudbeds property on record (checkout's placeholder is
+  // enough), so any login used to be taken and stored under it.
+  const unbound = () => property({ claimed: false, purged: false, isActive: true, inApp: true, connection: "disconnected" });
+  const refused = async (db: ReturnType<typeof property>) => {
+    const res = await callback();
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain("already connected to another property in MAYA");
+    expect(text).not.toContain("Command Center");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections[0]).toMatchObject({ status: "disconnected" });
+    expect(db.tables.import_jobs).toEqual([]);
+  };
+
+  it("is refused when a Marketplace hotel with a member already is that property", async () => {
+    state.otherHotels = [{ id: "hotel-2", name: "Pilot Hotel", external_enterprise_id: "cloudbeds:320691", is_active: true, setup_pending_at: null }];
+    state.otherMemberships = [{ hotel_id: "hotel-2", user_id: "user-9", status: "active" }];
+    await refused(unbound());
+  });
+
+  it("is refused when a hotel connected from inside MAYA keeps that property with its credential", async () => {
+    state.otherHotels = [{ id: "hotel-2", name: "Pilot Hotel", external_enterprise_id: null, is_active: true, setup_pending_at: null }];
+    state.otherConnections = [{ hotel_id: "hotel-2", pms_type: "cloudbeds", status: "connected", updated_at: "2026-09-01T00:00:00.000Z" }];
+    state.otherStoredProperties = { "hotel-2": "320691" };
+    await refused(unbound());
+  });
+
+  it("is refused when any property of a group login is another hotel's", async () => {
+    state.properties = [
+      { propertyId: "320690", name: "Sea View Annex" },
+      { propertyId: "320691", name: "Sea View Inn" },
+    ];
+    state.otherHotels = [{ id: "hotel-2", name: "Annex in MAYA", external_enterprise_id: "cloudbeds:320690", is_active: true, setup_pending_at: null }];
+    state.otherMemberships = [{ hotel_id: "hotel-2", user_id: "user-9", status: "active" }];
+    await refused(unbound());
+  });
+
+  it("is not refused over an unclaimed Marketplace row, which is nobody's yet", async () => {
+    state.otherHotels = [{ id: "hotel-2", name: "Sea View Inn (parked)", external_enterprise_id: "cloudbeds:320691", is_active: false, setup_pending_at: "2026-09-01T00:00:00.000Z" }];
+    const db = unbound();
+    const res = await callback();
+    expect(res.status).toBe(302);
+    expect(storedSecret()).toMatchObject({ propertyId: "320691" });
+    expect(db.tables.pms_connections[0].status).toBe("connected");
+  });
+
+  it("stores nothing when the other hotels cannot be checked", async () => {
+    state.otherHotels = [{ id: "hotel-2", name: "Other", external_enterprise_id: null, is_active: true, setup_pending_at: null }];
+    state.otherConnections = [{ hotel_id: "hotel-2", pms_type: "cloudbeds", status: "connected", updated_at: "2026-09-01T00:00:00.000Z" }];
+    state.secretReadFails = true;
+    const db = unbound();
+    const res = await callback();
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain("We couldn't check this login just now.");
+    expect(storedSecret()).toBeUndefined();
+    expect(db.tables.pms_connections[0]).toMatchObject({ status: "disconnected" });
+  });
+
+  it("a hotel bound to its property is checked against the login as before, and its own property is no clash", async () => {
+    state.storedProperty = "320691";
+    state.otherHotels = [{ id: "hotel-2", name: "Other", external_enterprise_id: "cloudbeds:999999", is_active: true, setup_pending_at: null }];
+    state.otherMemberships = [{ hotel_id: "hotel-2", user_id: "user-9", status: "active" }];
+    const db = unbound();
+    const res = await callback();
+    expect(res.status).toBe(302);
+    expect(db.tables.pms_connections[0].status).toBe("connected");
   });
 });
 

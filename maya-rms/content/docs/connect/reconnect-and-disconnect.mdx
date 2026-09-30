@@ -3,7 +3,7 @@ title: Reconnecting and disconnecting
 summary: What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.
 section: connect
 order: 60
-readingTime: 17
+readingTime: 18
 keywords: [lost its connection, reconnect, Reconnect Cloudbeds, Reconnect Think Reservations, disconnected, disconnect, uninstall, uninstalled, remove MAYA, subscription stopped, unpaid, paused work, typed price while disconnected, Sending to Cloudbeds now, Revenue Manager, My Apps, banner, General Manager, Hotel Admin, prices stopped, not updating, revert, put back, rules lost, history lost, Connected, Pending, Degraded, Error, keys re-entered, different property, permission to update rates, delete data, 180 days, cancel first, sync resumes, next cycle, an hour, which login, wrong hotel, different hotel, group login, several hotels, several properties, Last sync, no banner, still Connected, Connect App, second property, deactivated user, email, connection-down email, emailed, once per outage, Mews keys refused, three reads]
 questions:
   - Who can reconnect MAYA to my property system? {#the-banner-and-who-sees-the-button/when-the-connection}
@@ -110,6 +110,9 @@ MAYA stays with the Cloudbeds property it is connected to, whether you first con
 
 - **A login that reaches this property**: everything carries on. That includes a login that covers a whole group: MAYA keeps reading and pricing this one property.
 - **A login that does not reach it**: the reconnect stops with "This login is for a different property." and nothing changes. The old connection stays exactly as it was, so sign in again with a login that reaches this property.
+- **A property with no Cloudbeds property on record yet** (its first read never ran): a login for a property that is already another MAYA property's stops with "This Cloudbeds login is for a property that is already connected to another property in MAYA, so nothing was changed." Ask that property's General Manager for an invitation instead. A login that reaches exactly one property binds this MAYA property to it from then on.
+
+The reconnect also finishes only for the person who clicked <Ui>Reconnect Cloudbeds</Ui>, signed in to MAYA in the same browser and still a General Manager or Hotel Admin of the property. Anyone else who opens the link sees "This reconnect link was started from a different account." and nothing changes.
 
 If Cloudbeds could not be reached, you see "Cloudbeds didn't answer. Try connecting again in a moment." If MAYA could not check the login, you see "We couldn't check this login just now. Try connecting again in a moment." Either way nothing changed, and you can try again.
 </PmsTab>

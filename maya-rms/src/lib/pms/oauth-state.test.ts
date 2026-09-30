@@ -23,11 +23,25 @@ function handSign(payload: Record<string, unknown>): string {
 }
 
 describe("oauth state", () => {
-  it("hotel intent round-trips", async () => {
+  it("hotel intent round-trips, with the person who started it", async () => {
     const { signState, verifyState } = await mod();
-    const state = signState("hotel-123", "cloudbeds");
+    const state = signState("hotel-123", "cloudbeds", { userId: "user-1" });
     const v = verifyState(state, "cloudbeds");
-    expect(v).toMatchObject({ ok: true, intent: "hotel", hotelId: "hotel-123" });
+    expect(v).toMatchObject({ ok: true, intent: "hotel", hotelId: "hotel-123", userId: "user-1" });
+    expect(() => signState("hotel-123", "cloudbeds", { userId: "" })).toThrow(/person/);
+  });
+
+  it("a hotel state signed without the person, or with the person swapped, does not verify", async () => {
+    const { signState, verifyState } = await mod();
+    // Signed by us before the person was put in: ours, so never a Marketplace grant, and stale.
+    const before = handSign({ intent: "hotel", hotelId: "hotel-123", pmsType: "cloudbeds", nonce: "abc", exp: Date.now() + 60_000 });
+    expect(verifyState(before, "cloudbeds")).toMatchObject({ ok: false, stale: true });
+    expect(verifyState(before, "cloudbeds")).not.toHaveProperty("expired");
+    // The person swapped in the payload: the signature no longer matches.
+    const state = signState("hotel-123", "cloudbeds", { userId: "user-1" });
+    const [payload, sig] = state.split(".");
+    const swapped = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8").replace("user-1", "user-2");
+    expect(verifyState(`${b64url(Buffer.from(swapped, "utf-8"))}.${sig}`, "cloudbeds")).toMatchObject({ ok: false, error: "Signature mismatch" });
   });
 
   it("onboarding intent round-trips", async () => {
@@ -41,12 +55,13 @@ describe("oauth state", () => {
     const { verifyState } = await mod();
     const legacy = handSign({
       hotelId: "hotel-legacy",
+      userId: "user-1",
       pmsType: "cloudbeds",
       nonce: "abc",
       exp: Date.now() + 60_000,
     });
     const v = verifyState(legacy, "cloudbeds");
-    expect(v).toMatchObject({ ok: true, intent: "hotel", hotelId: "hotel-legacy" });
+    expect(v).toMatchObject({ ok: true, intent: "hotel", hotelId: "hotel-legacy", userId: "user-1" });
   });
 
   it("rejects tampered payloads", async () => {
@@ -81,28 +96,28 @@ describe("oauth state", () => {
 
   it("carries a staff console start through to the callback, and nothing else", async () => {
     const { signState, verifyState } = await mod();
-    expect(verifyState(signState("hotel-123", "cloudbeds", "admin"), "cloudbeds")).toMatchObject({ ok: true, from: "admin" });
-    expect(verifyState(signState("hotel-123", "cloudbeds"), "cloudbeds")).not.toHaveProperty("from");
+    expect(verifyState(signState("hotel-123", "cloudbeds", { userId: "u", from: "admin" }), "cloudbeds")).toMatchObject({ ok: true, from: "admin" });
+    expect(verifyState(signState("hotel-123", "cloudbeds", { userId: "u" }), "cloudbeds")).not.toHaveProperty("from");
   });
 
   it("runs a God Mode reconnect out with the window, and says so", async () => {
     const { signState, verifyState } = await mod();
-    const soon = signState("hotel-123", "cloudbeds", "admin", { godModeUntilMs: Date.now() + 60_000 });
+    const soon = signState("hotel-123", "cloudbeds", { userId: "u", from: "admin", godModeUntilMs: Date.now() + 60_000 });
     expect(verifyState(soon, "cloudbeds")).toMatchObject({ ok: true, from: "admin", support: true });
     const payload = JSON.parse(Buffer.from(soon.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8"));
     expect(payload.exp).toBeLessThanOrEqual(Date.now() + 60_000);
 
-    const ended = signState("hotel-123", "cloudbeds", undefined, { godModeUntilMs: Date.now() - 1_000 });
+    const ended = signState("hotel-123", "cloudbeds", { userId: "u", godModeUntilMs: Date.now() - 1_000 });
     expect(verifyState(ended, "cloudbeds")).toMatchObject({ ok: false, expired: true, support: true });
 
     // A member's reconnect is unchanged: 15 minutes, no flag.
-    const member = signState("hotel-123", "cloudbeds");
+    const member = signState("hotel-123", "cloudbeds", { userId: "u" });
     expect(verifyState(member, "cloudbeds")).not.toHaveProperty("support");
   });
 
   it("only calls a state expired when it is ours and too old", async () => {
     const { signState, verifyState } = await mod();
-    const state = signState("hotel-123", "think");
+    const state = signState("hotel-123", "think", { userId: "u" });
     const [, sig] = state.split(".");
     const forged = `${b64url(Buffer.from(JSON.stringify({ hotelId: "h", pmsType: "think", nonce: "n", exp: 1 }), "utf-8"))}.${sig}`;
     expect(verifyState(forged, "think")).not.toHaveProperty("expired");

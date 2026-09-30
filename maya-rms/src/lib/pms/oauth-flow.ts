@@ -11,11 +11,11 @@ import { activeHotelCookieOptions, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
-import { handleMarketplaceConnect, type MarketplaceTokens } from "@/lib/pms/marketplace-connect";
+import { enterpriseKey, handleMarketplaceConnect, type MarketplaceTokens } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { resumeImportAfterReconnect } from "@/lib/pms/eager-import";
-import { storedPropertyId } from "@/lib/pms/stored-property";
+import { hotelsConnectedInsideMaya, storedPropertyId } from "@/lib/pms/stored-property";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
@@ -173,7 +173,7 @@ export async function buildAuthorizeRedirect(
   const state =
     target.kind === "onboarding"
       ? signOnboardingState(user.id, pmsType)
-      : signState(target.hotelId, pmsType, target.from, { godModeUntilMs });
+      : signState(target.hotelId, pmsType, { userId: user.id, from: target.from, godModeUntilMs });
   const redirectUri = pmsCallbackUrl(pmsType);
 
   const url = new URL(registry.authorizeUrl!);
@@ -233,17 +233,34 @@ export async function handleOAuthCallback(
   if (verified != null && !verified.ok && verified.expired) {
     return renderNotice(verified.support ? GOD_MODE_ENDED : "That sign-in link ran out after 15 minutes. Start again from MAYA.");
   }
-  // Started by MAYA staff in God Mode: their window may have ended since the
-  // state was signed, so the person at the browser must still be allowed to
-  // change the property. Asked before the grant is spent.
-  if (
-    verified != null &&
-    verified.ok &&
-    verified.intent === "hotel" &&
-    verified.support &&
-    !(await canReconnectHotel(createSSRClient(cookieStore), verified.hotelId))
-  ) {
-    return renderNotice(GOD_MODE_ENDED, 403);
+  // Ours, from before the person starting it was put in the link. Not a
+  // Marketplace grant, and not finished for whoever holds it.
+  if (verified != null && !verified.ok && verified.stale) {
+    return renderNotice("That link is from before an update to MAYA. Start the reconnect again from MAYA.");
+  }
+  // A reconnect finishes only for the person who started it, and only while
+  // they may still reconnect this property: the link is good for 15 minutes
+  // wherever the browser is sent, so someone at another hotel approving it
+  // would otherwise store their login under this property. For MAYA staff in
+  // God Mode this is also the check that their window has not ended. Asked
+  // before the grant is spent, so nothing about the property is touched.
+  if (verified != null && verified.ok && verified.intent === "hotel") {
+    const ssr = createSSRClient(cookieStore);
+    const {
+      data: { user },
+    } = await ssr.auth.getUser();
+    if (!user || user.id !== verified.userId) {
+      return renderNotice(
+        "This reconnect link was started from a different account. Sign in as the person who started it, or start the reconnect again from MAYA.",
+        403,
+      );
+    }
+    if (!(await canReconnectHotel(ssr, verified.hotelId))) {
+      return renderNotice(
+        verified.support ? GOD_MODE_ENDED : "Reconnecting needs General Manager access or higher on this property.",
+        403,
+      );
+    }
   }
   const isMarketplace = !state || (verified != null && !verified.ok);
   if (verified != null && !verified.ok) {
@@ -522,8 +539,9 @@ function reconnectedRedirect(base: string, hotelId: string): Response {
  * Either way a login for some other property stops here: its bookings must
  * not be read and priced, nor rates sent to it, under this hotel. A group
  * login that reaches the property is fine, and the ID stored with the new
- * tokens says which sibling. A hotel with no property on record yet has
- * nothing to compare against and connects as it always has.
+ * tokens says which sibling. A hotel with no property on record yet is
+ * refused a login for a property that is already another MAYA hotel's, and
+ * is bound to the property when the login reaches exactly one.
  */
 async function boundPropertyForGrant(
   admin: SupabaseClient,
@@ -568,8 +586,6 @@ async function boundPropertyForGrant(
     );
     return { ok: false, message: "We couldn't check this login just now. Try connecting again in a moment." };
   }
-  if (!propertyId) return { ok: true, propertyId: null };
-
   const bare = { accessToken: tokens.accessToken, tokenType: tokens.tokenType, baseUrl: defaultCloudbedsBaseUrl() };
   let reachable: string[];
   try {
@@ -579,10 +595,78 @@ async function boundPropertyForGrant(
     // the owner looking for a login they already used.
     return { ok: false, message: "Cloudbeds didn't answer. Try connecting again in a moment." };
   }
+
+  if (!propertyId) {
+    // No property on record yet (the placeholder checkout makes, or a hotel
+    // whose first sync never ran). Any login would have been taken, so a
+    // property that is already another MAYA hotel's must not be stored
+    // under this one: its bookings would be read and priced, and prices
+    // sent to it, from the wrong property. A login that reaches exactly one
+    // property is bound to it here, so the check holds from now on.
+    try {
+      if (await anyPropertyBelongsElsewhere(admin, hotelId, pmsType, reachable)) {
+        return { ok: false, message: ALREADY_ANOTHER_HOTELS };
+      }
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "handleOAuthCallback",
+          step: "property_elsewhere",
+          hotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      return { ok: false, message: "We couldn't check this login just now. Try connecting again in a moment." };
+    }
+    return { ok: true, propertyId: reachable.length === 1 ? reachable[0] : null };
+  }
+
   if (!reachable.includes(propertyId)) {
     return { ok: false, message: "This login is for a different property." };
   }
   return { ok: true, propertyId };
+}
+
+/** What the person is told when the login they used is for a property another MAYA hotel already is. */
+export const ALREADY_ANOTHER_HOTELS =
+  "This Cloudbeds login is for a property that is already connected to another property in MAYA, so nothing was changed. " +
+  "If that property should be this one, ask its General Manager for an invitation, or email us.";
+
+/**
+ * Whether any of these Cloudbeds properties is already some other MAYA
+ * hotel's: a Marketplace hotel carries its property on its row and counts
+ * once someone is a member of it (an unclaimed parked row is nobody's yet);
+ * a hotel connected from inside MAYA keeps its property with its credential.
+ * Throws when anything cannot be read, so an outage is never "not in MAYA".
+ */
+async function anyPropertyBelongsElsewhere(
+  admin: SupabaseClient,
+  hotelId: string,
+  pmsType: PmsType,
+  propertyIds: string[],
+): Promise<boolean> {
+  if (propertyIds.length === 0) return false;
+  const { data: keyed, error } = await admin
+    .from("hotels")
+    .select("id")
+    .in(
+      "external_enterprise_id",
+      propertyIds.map((p) => enterpriseKey(pmsType, p)),
+    )
+    .neq("id", hotelId);
+  if (error) throw new Error(`hotels: ${error.message}`);
+  for (const h of keyed ?? []) {
+    const { data: members, error: memberErr } = await admin
+      .from("hotel_memberships")
+      .select("user_id")
+      .eq("hotel_id", String(h.id))
+      .limit(1);
+    if (memberErr) throw new Error(`hotel_memberships: ${memberErr.message}`);
+    if ((members ?? []).length > 0) return true;
+  }
+  const inside = await hotelsConnectedInsideMaya(admin, pmsType, propertyIds);
+  for (const hotel of inside.values()) if (hotel.id !== hotelId) return true;
+  return false;
 }
 
 /**

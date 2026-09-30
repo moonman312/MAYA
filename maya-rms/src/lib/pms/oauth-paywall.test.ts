@@ -289,16 +289,18 @@ describe("the reconnect link asks for the rank the Reconnect button does", () =>
     state.platformAdmin = true;
     state.godModeUntil = "2026-09-29T12:30:00.000Z";
     expect((await reconnect()).status).toBe(302);
-    expect(state.signed).toEqual([["hotel-1", "cloudbeds", undefined, { godModeUntilMs: Date.parse("2026-09-29T12:30:00.000Z") }]]);
+    expect(state.signed).toEqual([
+      ["hotel-1", "cloudbeds", { userId: "user-1", from: undefined, godModeUntilMs: Date.parse("2026-09-29T12:30:00.000Z") }],
+    ]);
     expect(state.supportChanges).toEqual([
       expect.objectContaining({ session_id: "gm-1", hotel_id: "hotel-1", table_name: "pms_connections" }),
     ]);
   });
 
-  it("signs a member's reconnect as before, with no window", async () => {
+  it("signs a member's reconnect with the person starting it and no window", async () => {
     state.role = "general_manager";
     expect((await reconnect()).status).toBe(302);
-    expect(state.signed).toEqual([["hotel-1", "cloudbeds", undefined, { godModeUntilMs: undefined }]]);
+    expect(state.signed).toEqual([["hotel-1", "cloudbeds", { userId: "user-1", from: undefined, godModeUntilMs: undefined }]]);
     expect(state.supportChanges).toEqual([]);
   });
 

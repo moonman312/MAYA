@@ -1437,7 +1437,7 @@
   "order": 60,
   "title": "Reconnecting and disconnecting",
   "summary": "What happens when the connection to your property system breaks, who can reconnect it in one click, and how to disconnect on purpose without losing anything.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -8172,7 +8172,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 56,
+  "readingTime": 57,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-29",
   "pms": [

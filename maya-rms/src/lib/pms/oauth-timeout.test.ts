@@ -81,4 +81,18 @@ describe("a sign-in link that ran out", () => {
     await callback("cloudbeds");
     expect(state.marketplace).toBe(1);
   });
+
+  it.each(["think", "cloudbeds"] as const)(
+    "a link of ours signed before the person was put in it says to start again on %s: no code spent, no Marketplace path",
+    async (pms) => {
+      state.verification = { ok: false, error: "State missing userId", stale: true };
+      const res = await callback(pms);
+      expect(res.status).toBe(400);
+      const text = await res.text();
+      expect(text).toContain("Start the reconnect again from MAYA.");
+      expect(text).not.toContain("—");
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(state.marketplace).toBe(0);
+    },
+  );
 });

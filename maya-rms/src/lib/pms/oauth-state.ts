@@ -17,15 +17,26 @@ const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Two intents:
- * - "hotel": admin connecting a PMS to an existing hotel (the original flow).
+ * - "hotel": connecting a PMS to an existing hotel again (the original
+ *   flow). The state carries the hotel AND the person who started it, and
+ *   the callback lets only that person, still allowed to reconnect that
+ *   hotel, finish it. A signed link is good for 15 minutes and goes wherever
+ *   the browser is sent, so without the person in it anyone could start a
+ *   connect for a property of their own and hand the link to someone at
+ *   another hotel to approve, and that hotel's login would be stored under
+ *   the wrong property.
  * - "onboarding": a new user with NO hotel yet — the callback creates the
  *   hotel from PMS data, so state carries the user id instead.
- * Legacy states without an `intent` field verify as "hotel".
+ * Legacy states without an `intent` field verify as "hotel". A hotel state
+ * signed before the person was put in it (none after this deploy is 15
+ * minutes old) does not verify, and the callback says to start again.
  */
 type StatePayload =
   | {
       intent?: "hotel";
       hotelId: string;
+      /** The signed-in person who started the connect. */
+      userId?: string;
       pmsType: string;
       nonce: string;
       exp: number;
@@ -73,27 +84,29 @@ function signPayload(payload: StatePayload): string {
 }
 
 /**
- * `from: "admin"` marks a connect started in the staff console, which is
- * where its callback returns; everyone else lands back on the dashboard.
- * `godModeUntilMs` marks one started by MAYA staff in God Mode: the state
- * runs out no later than their window does, and the callback asks again
- * whether they may still change the property.
+ * `userId` is the signed-in person starting the connect: the callback
+ * finishes it for them alone. `from: "admin"` marks a connect started in the
+ * staff console, which is where its callback returns; everyone else lands
+ * back on the dashboard. `godModeUntilMs` marks one started by MAYA staff in
+ * God Mode: the state runs out no later than their window does, and the
+ * callback asks again whether they may still change the property.
  */
 export function signState(
   hotelId: string,
   pmsType: string,
-  from?: "admin",
-  opts: { godModeUntilMs?: number } = {},
+  opts: { userId: string; from?: "admin"; godModeUntilMs?: number },
 ): string {
+  if (!opts.userId) throw new Error("signState needs the person starting the connect");
   const support = opts.godModeUntilMs != null && Number.isFinite(opts.godModeUntilMs);
   const exp = Date.now() + STATE_TTL_MS;
   return signPayload({
     intent: "hotel",
     hotelId,
+    userId: opts.userId,
     pmsType,
     nonce: randomBytes(16).toString("hex"),
     exp: support ? Math.min(exp, opts.godModeUntilMs as number) : exp,
-    ...(from ? { from } : {}),
+    ...(opts.from ? { from: opts.from } : {}),
     ...(support ? { support: true as const } : {}),
   });
 }
@@ -110,9 +123,17 @@ export function signOnboardingState(userId: string, pmsType: string): string {
 }
 
 export type StateVerification =
-  | { ok: true; intent: "hotel"; hotelId: string; pmsType: string; from?: "admin"; support?: true }
+  | { ok: true; intent: "hotel"; hotelId: string; userId: string; pmsType: string; from?: "admin"; support?: true }
   | { ok: true; intent: "onboarding"; userId: string; pmsType: string }
-  | { ok: false; error: string; expired?: true; support?: true };
+  | {
+      ok: false;
+      error: string;
+      /** Ours, and simply too old. */
+      expired?: true;
+      /** Ours, signed before the person starting it was put in the state. */
+      stale?: true;
+      support?: true;
+    };
 
 export function verifyState(state: string, expectedPmsType: string): StateVerification {
   const parts = state.split(".");
@@ -166,10 +187,16 @@ export function verifyState(state: string, expectedPmsType: string): StateVerifi
   if (typeof payload.hotelId !== "string" || !payload.hotelId) {
     return { ok: false, error: "State missing hotelId" };
   }
+  // Signed by us before the person was put in: never a Marketplace grant, and
+  // never finished for whoever holds it either.
+  if (typeof payload.userId !== "string" || !payload.userId) {
+    return { ok: false, error: "State missing userId", stale: true };
+  }
   return {
     ok: true,
     intent: "hotel",
     hotelId: payload.hotelId,
+    userId: payload.userId,
     pmsType: payload.pmsType,
     ...(payload.from === "admin" ? { from: "admin" as const } : {}),
     ...(payload.support === true ? { support: true as const } : {}),
