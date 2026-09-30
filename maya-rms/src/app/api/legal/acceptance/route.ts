@@ -28,6 +28,7 @@ import {
   TERMS_VERSION,
   type AcceptanceContext,
 } from "@/lib/legal/versions";
+import { loadStaffRole } from "@/lib/admin/staff-session";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -64,11 +65,10 @@ export async function GET() {
     if (await adoptSignupAcceptance(createAdminClient(), user.id)) return notRequired();
   }
 
-  // MHS staff are the provider, not a customer agreeing to its terms.
-  const { data: isPlatformAdmin } = await supabase.rpc("is_platform_admin", {
-    p_user_id: user.id,
-  });
-  if (isPlatformAdmin === true) return notRequired();
+  // MHS staff are the provider, not a customer agreeing to its terms: a
+  // platform admin, a developer or a sales login (staff_role(), or
+  // is_platform_admin before 99_supabase_migration_staff_roles_v1.sql).
+  if ((await loadStaffRole(supabase, user.id)) !== null) return notRequired();
 
   return NextResponse.json(
     { required: true, termsVersion: TERMS_VERSION, privacyVersion: PRIVACY_VERSION },

@@ -20,6 +20,8 @@ const state = vi.hoisted(() => ({
   tables: {} as Record<string, Row[]>,
   user: null as null | { id: string; email?: string; user_metadata?: Record<string, unknown> },
   platformAdmin: false,
+  // What staff_role() answers; "missing" is a database the staff roles migration has not reached.
+  staffRole: null as string | null | "missing",
   adminConfigured: true,
   hotelId: null as string | null,
   readError: null as null | { code?: string; message: string },
@@ -73,6 +75,11 @@ function fakeSupabase() {
     rpc: async (fn: string, args: Row) => {
       state.rpcCalls.push({ fn, args });
       if (fn === "is_platform_admin") return { data: state.platformAdmin, error: null };
+      if (fn === "staff_role") {
+        return state.staffRole === "missing"
+          ? { data: null, error: { code: "PGRST202", message: "Could not find the function public.staff_role" } }
+          : { data: state.staffRole, error: null };
+      }
       if (fn === "record_terms_acceptance_from_signup") {
         if (state.adoptResult) {
           rows("terms_acceptances").push({
@@ -137,6 +144,7 @@ beforeEach(() => {
   state.tables = {};
   state.user = { id: USER, email: "gm@driftwood.example", user_metadata: {} };
   state.platformAdmin = false;
+  state.staffRole = null;
   state.adminConfigured = true;
   state.hotelId = null;
   state.readError = null;
@@ -202,9 +210,24 @@ describe("GET: does this person still have to accept?", () => {
     expect(await required()).toBe(true);
   });
 
-  it("never asks MHS staff", async () => {
+  it("never asks MHS staff: a platform admin, a developer or a sales login", async () => {
+    for (const role of ["platform_admin", "developer", "sales"]) {
+      state.staffRole = role;
+      expect([role, await required()]).toEqual([role, false]);
+    }
+  });
+
+  it("still asks a login with no staff role", async () => {
+    state.staffRole = null;
+    expect(await required()).toBe(true);
+  });
+
+  it("knows a platform admin before the staff roles migration has run", async () => {
+    state.staffRole = "missing";
     state.platformAdmin = true;
     expect(await required()).toBe(false);
+    state.platformAdmin = false;
+    expect(await required()).toBe(true);
   });
 });
 

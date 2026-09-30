@@ -541,7 +541,10 @@ export async function POST(request: Request) {
 /**
  * Whether this user has accepted the Terms in force, as checkout needs to know
  * it. Same steps as the accept screen's GET: a signup whose trigger did not
- * write the row is adopted from its metadata, and MHS staff are not customers.
+ * write the row is adopted from its metadata, and a platform admin is not a
+ * customer. (The accept screen also lets a developer or sales login through,
+ * since the Command Center is not a purchase; one who buys a property here
+ * accepts the Terms like anyone buying one.)
  * "unavailable" is logged here as well as in the lookup, so a checkout that
  * went ahead unchecked can be found.
  */
