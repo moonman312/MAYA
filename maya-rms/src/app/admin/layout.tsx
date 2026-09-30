@@ -1,9 +1,8 @@
 import { AdminTopNav } from "@/components/admin/admin-top-nav";
 import { GodModeBannerSlot } from "@/components/admin/god-mode-banner-slot";
-import { createClient } from "@/utils/supabase/server";
+import { getAdminSession } from "@/lib/admin/admin-session";
 import { isAdminConfigured } from "@/utils/supabase/admin";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -31,23 +30,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     );
   }
 
-  const supabase = createClient(await cookies());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    redirect("/login?next=/admin");
-  }
-  const { data: isAdmin } = await supabase.rpc("is_platform_admin", {
-    p_user_id: user.id,
-  });
-  if (!isAdmin) {
-    redirect("/");
+  // Shared with the page through React's cache: one check per request.
+  const session = await getAdminSession();
+  if (!session.ok) {
+    redirect(session.reason === "signed_out" ? "/login?next=/admin" : "/");
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <AdminTopNav userEmail={user.email ?? ""} />
+      <AdminTopNav userEmail={session.email} />
       <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
       <GodModeBannerSlot isPlatformAdmin />
     </div>

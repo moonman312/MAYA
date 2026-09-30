@@ -1,8 +1,8 @@
-import { requirePlatformAdmin } from "@/lib/admin/require-platform-admin";
+import { getAdminSession } from "@/lib/admin/admin-session";
 import { listPmsSignupGates } from "@/lib/billing/pms-gates";
 import { listPmsStatuses } from "@/lib/pms/registry";
 import { PmsSignupGateToggle } from "@/components/admin/pms-signup-gate-toggle";
-import { cookies } from "next/headers";
+import { createAdminClient } from "@/utils/supabase/admin";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,11 @@ export const dynamic = "force-dynamic";
  * say — without ever becoming a system-wide switch.
  */
 export default async function PmsAccessPage() {
-  const ctx = await requirePlatformAdmin(await cookies());
-  if (!ctx.ok) redirect("/login");
+  // One check, shared with the layout on a full load (see admin-session.ts).
+  const session = await getAdminSession();
+  if (!session.ok) redirect("/login");
 
-  const gates = await listPmsSignupGates(ctx.admin);
+  const gates = await listPmsSignupGates(createAdminClient());
   const pmsList = listPmsStatuses();
   const gateFor = (pmsType: string) => gates.find((g) => g.pmsType === pmsType)?.requiresSignupCode ?? true;
 
