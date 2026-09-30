@@ -1,14 +1,15 @@
 ---
 title: A tour of the app
-summary: One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.
+summary: One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.
 section: start
 order: 50
-readingTime: 10
-keywords: [tour, dashboard, tabs, Calendar tab, Rules tab, Rate Simulator, Change Log, PMS tab, Billing, Team, Sign Out, Property dropdown, banner, amber banner, red banner, where is, where do I find, layout, overview, screen, what am I looking at, first login, home screen, room types, rooms out of service, Counts as a room, day card, colour bar, legend, ADR, ADR 150, banner still showing, wrong property banner, switched property, Mews keys, keys re-entered, am I live]
+readingTime: 11
+keywords: [tour, dashboard, tabs, Calendar tab, Rules tab, Rate Simulator, Change Log, PMS tab, Billing, Team, Sign Out, Property dropdown, banner, amber banner, red banner, where is, where do I find, layout, overview, screen, what am I looking at, first login, home screen, room types, rooms out of service, Counts as a room, day card, colour bar, legend, colour key, key, Settings, gear, ADR, ADR 150, banner still showing, wrong property banner, switched property, Mews keys, keys re-entered, am I live]
 questions:
   - What do I see when I first sign in to MAYA? {#in-plain-words}
   - What are the five tabs for? {#the-five-tabs}
   - Where is the Billing page? {#the-billing-and-team-pages}
+  - What is the gear at the top right? {#the-header/billing-opens-your}
   - Where do I find my room types and rooms out of service? {#pms}
   - What are the banners above the tabs? {#the-banners-in-the-order-they-stack/billing}
   - Where do I type a price for one night? {#calendar/a-month-grid}
@@ -16,20 +17,22 @@ questions:
   - What does the coloured bar on a calendar day mean? {#calendar/a-month-grid}
   - Do the banners change when I switch property? {#the-property-dropdown}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
-MAYA is one page with five tabs: <Ui>Calendar</Ui>, <Ui>Rules</Ui>, <Ui>Rate Simulator</Ui>, <Ui>Change Log</Ui> and <Ui>PMS</Ui>. <Ui>Billing</Ui> and <Ui>Team</Ui> are buttons at the top right. A <Ui>Property</Ui> dropdown sits to the right of the tabs. Banners above the tabs tell you when something needs you, and stay out of the way when nothing does.
+MAYA is one page with five tabs: <Ui>Calendar</Ui>, <Ui>Rules</Ui>, <Ui>Rate Simulator</Ui>, <Ui>Change Log</Ui> and <Ui>PMS</Ui>. A gear for <Ui>Settings</Ui>, and <Ui>Billing</Ui> and <Ui>Team</Ui>, are buttons at the top right. A <Ui>Property</Ui> dropdown sits to the right of the tabs. Banners above the tabs tell you when something needs you, and stay out of the way when nothing does.
 </InPlainWords>
 
 <AppTour />
 
 ## The header
 
-At the top left is the MAYA logo with two short taglines under it. At the top right are four buttons: <Ui off>Help</Ui>, <Ui>Billing</Ui>, <Ui>Team</Ui> and <Ui>Sign Out</Ui>.
+At the top left is the MAYA logo with two short taglines under it. At the top right are five buttons: <Ui off>Help</Ui>, a small gear for <Ui>Settings</Ui>, <Ui>Billing</Ui>, <Ui>Team</Ui> and <Ui>Sign Out</Ui>.
 
 <Ui>Billing</Ui> opens your billing page and <Ui>Team</Ui> opens your team page. Both are for a General Manager or Hotel Admin. Anyone else who opens them sees the page with a short explanation instead of the controls. Each has a <Ui>← Back to MAYA</Ui> link at the top. <Ui>Sign Out</Ui> signs you out and returns you to the sign-in page. <Ui off>Help</Ui> opens the page of these docs about the screen you are on, in a new tab, so nothing you have half filled in is lost.
+
+The gear opens <Ui>Settings</Ui> over the page: what each calendar day shows and which way its colours read, for everyone on the property, and your own text size. Read [Settings](/docs/watch/settings).
 
 ## The five tabs
 
@@ -37,7 +40,7 @@ The tabs sit under the header. <Ui>Calendar</Ui> is the one that opens first whe
 
 ### Calendar
 
-A month grid. Each day is a card showing the day number, that night's sellable occupancy as a percentage, how many rooms are booked out of how many you can sell, the room revenue on the books, and a thin colour bar. The legend under the grid reads <Ui>strong night</Ui>, <Ui>typical night</Ui> and <Ui>weak night</Ui>: the colour compares the night's revenue per room with your own other nights, past nights against past nights and future nights against future nights.
+A month grid. Each day is a card showing the day number, that night's sellable occupancy as a percentage, how many rooms are booked out of how many you can sell, the room revenue on the books, and a thin colour bar. Your property can pick other numbers for each day in <Ui>Settings</Ui>. A small key on the left of the grid reads "Strong night", "Typical night" and "Weak night": the colour compares the night's revenue per room with your own other nights, past nights against past nights and future nights against future nights. The key's <Ui>?</Ui> says so. A property that reversed its colours in Settings sees green for a weak night and red for a strong one, and the key says that instead.
 
 Click a day and the day detail opens: the date, a summary line, and one card per room type with <Ui>Booked</Ui>, <Ui>ADR</Ui> (ADR means average daily rate: that night's room revenue divided by the rooms booked), <Ui>Current price</Ui> and <Ui>Revenue</Ui>. When <Ui>Booked</Ui> reads 0 there is nothing to average, and the ADR line shows a dash. Amounts carry your property's currency sign. Under each room type card is the box where you type a price for that room type on that night. <Ui>Prev</Ui> and <Ui>Next</Ui> step a month at a time, and the month and year dropdowns jump further. Read [The calendar](/docs/watch/the-calendar).
 

@@ -35,7 +35,7 @@
   "start": ["start/how-to-get-started", "start/a-tour-of-the-app", "wrong/start-here", "help/contact-support"],
   "areas": {
     "calendar": "the Calendar tab", "rules": "the Rules tab", "rules.builder": "the rule builder",
-    "simulator": "the Rate Simulator tab", "changelog": "the Change Log tab", "pms": "the PMS tab", "team": "the Team page",
+    "simulator": "the Rate Simulator tab", "changelog": "the Change Log tab", "pms": "the PMS tab", "settings": "Settings", "team": "the Team page",
     "billing": "the Billing page", "review": "the review screens", "questions": "the five questions", "onboarding": "setup",
     "other": "MAYA"
   },

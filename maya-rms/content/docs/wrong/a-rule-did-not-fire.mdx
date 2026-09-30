@@ -27,7 +27,7 @@ A rule fires only when every one of its conditions is true on the room types it 
 
 Two things to check.
 
-**Which room types the rule measures.** The day card's big percentage is sellable occupancy over every room type ticked as a room. A rule reads occupancy over the room types in its own list. If a rule such as "Busy Standard" measures only Standard, and Standard is 75% full while Deluxe and Suite are full, the property reads 85% and the rule reads 75%. The <Ui>Room Types</Ui> column on the <Ui>Rules</Ui> tab shows the list, and "Watches Standard · Changes Suite" when the rule measures one set and changes another.
+**Which room types the rule measures.** The day card's occupancy (its big percentage, unless your property picked another number in Settings) is sellable occupancy over every room type ticked as a room. A rule reads occupancy over the room types in its own list. If a rule such as "Busy Standard" measures only Standard, and Standard is 75% full while Deluxe and Suite are full, the property reads 85% and the rule reads 75%. The <Ui>Room Types</Ui> column on the <Ui>Rules</Ui> tab shows the list, and "Watches Standard · Changes Suite" when the rule measures one set and changes another.
 
 **The comparison is strict.** <Ui>Greater than</Ui> 80 fires at 80.01% and not at 80.00%. <Ui>Less than</Ui> 50 fires at 49.9% and not at 50.00%. To fire at exactly 80% as well, set the threshold to 79.99 (the box takes decimals).
 

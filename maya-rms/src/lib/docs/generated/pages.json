@@ -395,10 +395,10 @@
   "slug": "a-tour-of-the-app",
   "order": 50,
   "title": "A tour of the app",
-  "summary": "One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.",
-  "readingTime": 10,
+  "summary": "One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.",
+  "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -465,6 +465,7 @@
    "What do I see when I first sign in to MAYA?",
    "What are the five tabs for?",
    "Where is the Billing page?",
+   "What is the gear at the top right?",
    "Where do I find my room types and rooms out of service?",
    "What are the banners above the tabs?",
    "Where do I type a price for one night?",
@@ -3730,8 +3731,8 @@
   "slug": "the-calendar",
   "order": 10,
   "title": "The calendar",
-  "summary": "What each day on the Calendar tab shows, what the colours mean, what you see when you click a day, and how fresh the numbers are.",
-  "readingTime": 14,
+  "summary": "What each day on the Calendar tab shows and how your property can change it in Settings, what the colours and the key beside them mean, what you see when you click a day, and how fresh the numbers are.",
+  "readingTime": 15,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -3799,11 +3800,15 @@
   "questions": [
    "What does the calendar show?",
    "What is the big percentage on each day of the calendar?",
+   "Can I change the numbers on each day of the calendar?",
+   "Why does a day on my phone show only one number?",
    "What does \"12/20 rooms\" mean?",
    "What is the dollar figure on each day?",
    "Does the calendar show my own currency?",
    "Is the revenue on the calendar with or without tax, fees and OTA commission? Why does it not match my PMS revenue report?",
    "What do the colours on the calendar mean?",
+   "Where is the colour legend?",
+   "Why is green a weak night on our calendar?",
    "Why does a night's colour not match its dollar figure?",
    "Why are there no weekday headers on the calendar?",
    "How far ahead can I look on the calendar?",
@@ -3824,6 +3829,82 @@
    "Why does tonight already say \"revenue\" instead of \"revenue on the books\"?",
    "Why does a booking add nothing to a night's revenue?",
    "Why does the ADR show a dash on a room type with nothing booked?"
+  ],
+  "faq": []
+ },
+ {
+  "path": "watch/settings",
+  "url": "/docs/watch/settings",
+  "section": "watch",
+  "sectionLabel": "Watching it work",
+  "slug": "settings",
+  "order": 15,
+  "title": "Settings",
+  "summary": "The Settings area, opened from the gear at the top of the dashboard. What each calendar day shows and which way its colours read, chosen once for everyone on the property, and your own text size.",
+  "readingTime": 7,
+  "readingNote": null,
+  "updated": "2026-09-30",
+  "pms": [
+   "cloudbeds",
+   "thinkreservations",
+   "mews"
+  ],
+  "headings": [
+   {
+    "depth": 2,
+    "text": "Where it is",
+    "id": "where-it-is"
+   },
+   {
+    "depth": 2,
+    "text": "Calendar",
+    "id": "calendar"
+   },
+   {
+    "depth": 3,
+    "text": "What each day shows",
+    "id": "what-each-day-shows"
+   },
+   {
+    "depth": 3,
+    "text": "The numbers you can pick",
+    "id": "the-numbers-you-can-pick"
+   },
+   {
+    "depth": 3,
+    "text": "Colours",
+    "id": "colours"
+   },
+   {
+    "depth": 3,
+    "text": "Who can change it",
+    "id": "who-can-change-it"
+   },
+   {
+    "depth": 2,
+    "text": "Display",
+    "id": "display"
+   },
+   {
+    "depth": 3,
+    "text": "Text size",
+    "id": "text-size"
+   }
+  ],
+  "questions": [
+   "Where are the settings?",
+   "How do I change what the calendar shows on each day?",
+   "Can the calendar show ADR, RevPAR or my price instead of occupancy?",
+   "What does \"Price for a room type\" show on the calendar?",
+   "Can I make green mean a night to work on and red a night to leave?",
+   "What does Reversed do to the calendar colours?",
+   "Does changing the calendar change it for everyone on my property?",
+   "Why are the calendar settings greyed out?",
+   "Who can change the calendar settings?",
+   "How do I make the text in MAYA bigger?",
+   "Does my text size follow me to another computer or my phone?",
+   "Does the text size change the docs too?",
+   "Why does Settings say \"Saved on this device only\"?"
   ],
   "faq": []
  },
@@ -4344,7 +4425,7 @@
   "summary": "The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5531,7 +5612,7 @@
   "summary": "The four roles as the app describes them, a table of every action and the lowest role that can do it, what a Viewer or Revenue Manager sees on the pages they cannot use, the one difference between General Manager and Hotel Admin, and what to do when your only Hotel Admin has left.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6450,7 +6531,7 @@
   "summary": "Untick Counts as a room for a meeting room, spa slot or court on the PMS tab so it no longer counts in sellable occupancy, the calendar's room counts or the room count you are billed for.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -7457,7 +7538,7 @@
   "summary": "Why MAYA's occupancy differs from Cloudbeds', what rooms out of order do to it, how it can read over 100%, why it can be tiny on Mews or ThinkReservations, why a room type shows 100 rooms, why the day card and the change log disagree, and how groups and the meeting room count.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-27",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7837,7 +7918,7 @@
   "summary": "Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7953,11 +8034,11 @@
   "faq": [
    {
     "q": "Why is every day amber?",
-    "a": "Colours need something to compare with. Each night's room revenue is divided by the property's room count to give revenue per room, and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The legend under the grid says \"measured by revenue per room, relative to this property's own results\"."
+    "a": "Colours need something to compare with. Each night's room revenue is divided by the property's room count to give revenue per room, and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The ? under the colour key on the left of the calendar says the same: each night's revenue per room, compared with this property's own nights."
    },
    {
     "q": "Why is a busy night red?",
-    "a": "Because the colour is revenue per room, not occupancy. A full night at low rates can earn less per room than a half-full night at high rates. Red is the bottom third of your nights, amber the middle third, green the top third, each side (past, future) ranked on its own. The colour tells you how the night's revenue ranks against your own nights, and nothing else."
+    "a": "Because the colour is revenue per room, not occupancy. A full night at low rates can earn less per room than a half-full night at high rates. Red is the bottom third of your nights, amber the middle third, green the top third, each side (past, future) ranked on its own. A property that reversed its colours in Settings sees green for the bottom third and red for the top. The colour tells you how the night's revenue ranks against your own nights, and nothing else."
    },
    {
     "q": "Why did the colour not change after a booking?",
@@ -7969,7 +8050,7 @@
    },
    {
     "q": "Why does ADR show a dash when nothing is booked?",
-    "a": "The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When Booked reads 0 there is nothing to average, so the line reads \"ADR –\". Look at Current price for the price your rules have set."
+    "a": "The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When Booked reads 0 there is nothing to average, so the line reads \"ADR –\". A calendar day showing ADR, when your property picked it in Settings, reads \"ADR –\" the same way on a night with no room booked. Look at Current price for the price your rules have set."
    },
    {
     "q": "Why does today say \"revenue\" instead of \"revenue on the books\"?",
@@ -8223,7 +8304,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 58,
+  "readingTime": 60,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-30",
   "pms": [
@@ -8266,6 +8347,11 @@
     "depth": 2,
     "text": "The calendar and prices you type",
     "id": "the-calendar-and-prices-you-type"
+   },
+   {
+    "depth": 2,
+    "text": "Settings",
+    "id": "settings"
    },
    {
     "depth": 2,
@@ -8340,9 +8426,9 @@
   "order": 10,
   "title": "Glossary",
   "summary": "Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.",
-  "readingTime": 21,
+  "readingTime": 22,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -8665,7 +8751,7 @@
   "summary": "What MAYA keeps and never keeps, where it is hosted, how long each thing is kept, how your system's access is held and withdrawn, who else handles data, Europe and the GDPR, cookies, how to report a security problem and how we would reach you, and the questions a security review asks.",
   "readingTime": 19,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",

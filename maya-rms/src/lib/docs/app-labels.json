@@ -56,6 +56,8 @@
     "+ Rooms out of service": { "to": "room-types" },
     "Connect your property system": { "to": "connect" },
 
+    "Settings": { "to": "settings" },
+
     "Team": { "to": "team" },
     "Your team": { "to": "team" },
     "On this property": { "to": "team" },
@@ -121,6 +123,7 @@
     "recipes/try-a-rule-before-turning-it-on": { "Room types": null },
     "watch/not-a-fair-comparison": { "Show": { "to": "changelog.corrections" } },
     "billing/*": { "Status": null },
-    "recipes/change-the-room-count-you-pay-for": { "Status": null }
+    "recipes/change-the-room-count-you-pay-for": { "Status": null },
+    "watch/settings": { "Calendar": null }
   }
 }

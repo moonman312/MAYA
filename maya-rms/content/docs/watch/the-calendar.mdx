@@ -1,19 +1,23 @@
 ---
 title: The calendar
-summary: What each day on the Calendar tab shows, what the colours mean, what you see when you click a day, and how fresh the numbers are.
+summary: What each day on the Calendar tab shows and how your property can change it in Settings, what the colours and the key beside them mean, what you see when you click a day, and how fresh the numbers are.
 section: watch
 order: 10
-readingTime: 14
-keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR dash, ADR blank, placeholder, booking with no amount, no rate, updated, live, weekday, how far ahead, 396 nights, 13 months, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent]
+readingTime: 15
+keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR dash, ADR blank, placeholder, booking with no amount, no rate, updated, live, weekday, how far ahead, 396 nights, 13 months, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent, key, colour key, color key, legend, legend moved, left of the calendar, reversed, reversed colours, green means work on it, red means leave it, keep working on it, leave it, big number, small lines, change what the calendar shows, calendar settings, Settings, ADR on the calendar, RevPAR on the calendar, price on the calendar, phone, short numbers, $11k]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What does the calendar show?' {#in-plain-words}
   - 'What is the big percentage on each day of the calendar?' {#one-day-line-by-line/every-day-is}
+  - 'Can I change the numbers on each day of the calendar?' {#one-day-line-by-line/your-property-can}
+  - 'Why does a day on my phone show only one number?' {#one-day-line-by-line/on-a-phone}
   - 'What does "12/20 rooms" mean?' {#one-day-line-by-line/every-day-is}
   - 'What is the dollar figure on each day?' {#one-day-line-by-line/the-revenue-figure}
   - 'Does the calendar show my own currency?' {#click-a-day-the-day-detail/amounts-on-the}
   - 'Is the revenue on the calendar with or without tax, fees and OTA commission? Why does it not match my PMS revenue report?' {#one-day-line-by-line/what-that-rate}
-  - 'What do the colours on the calendar mean?' {#what-the-colours-mean/under-the-grid}
+  - 'What do the colours on the calendar mean?' {#what-the-colours-mean/on-the-left}
+  - 'Where is the colour legend?' {#what-the-colours-mean/on-the-left}
+  - 'Why is green a weak night on our calendar?' {#what-the-colours-mean/your-property-can}
   - 'Why does a night''s colour not match its dollar figure?' {#what-the-colours-mean/nights-inside-a}
   - 'Why are there no weekday headers on the calendar?' {#what-the-calendar-does-not-show}
   - 'How far ahead can I look on the calendar?' {#the-controls}
@@ -38,7 +42,7 @@ updated: 2026-09-30
 ---
 
 <InPlainWords>
-Each day on the calendar shows sellable occupancy for the whole property, rooms booked over rooms you can sell, the room revenue already on the books, and a colour bar that compares the night with your own other nights. Click a day to see every room type's current price and to type a price yourself. The calendar updates on its own as bookings and prices change.
+Each day on the calendar shows sellable occupancy for the whole property, rooms booked over rooms you can sell, the room revenue already on the books, and a colour bar that compares the night with your own other nights. A small key on the left says what each colour means. Your property can pick other numbers for each day, and reverse the colours, in <Ui>Settings</Ui>. Click a day to see every room type's current price and to type a price yourself. The calendar updates on its own as bookings and prices change.
 </InPlainWords>
 
 ## Where it is
@@ -55,13 +59,13 @@ On the right, once the month has loaded, a small line reads "Updated 3:05:12 PM 
 
 ## The grid
 
-The month is laid out seven days wide with Sunday in the first column. There is no row of weekday names above the grid. Count from the left with Sunday first, or click a day: the heading of the day detail names the weekday.
+The month is laid out seven days wide with Sunday in the first column. There is no row of weekday names above the grid. Count from the left with Sunday first, or click a day: the heading of the day detail names the weekday. The colour key sits in a narrow column to the left of the grid, or in one line above it on a narrower screen (see "What the colours mean" below).
 
 While the month loads, or while you switch property, a grey placeholder of the same shape stands in for the grid.
 
 ## One day, line by line
 
-Every day is a button. From top to bottom it shows:
+Every day is a button. From top to bottom it shows, unless your property has changed it in Settings:
 
 | Line | What it is |
 |---|---|
@@ -70,6 +74,10 @@ Every day is a button. From top to bottom it shows:
 | "12/20 rooms" | Rooms booked, then rooms you can sell that night. |
 | The revenue figure, such as "$2.2k" or "€850" | Room revenue on the books for that night, with your currency's sign. From 1,000 it is shortened to thousands with one decimal. Hover it and the label reads "Room revenue (booked nights)". |
 | A thin colour bar | Green, amber or red, comparing the night with your other nights (next section). |
+
+Your property can pick a different big number and up to two different small lines in [Settings](/docs/watch/settings#what-each-day-shows): occupancy, rooms booked, room revenue, ADR, RevPAR, or the price for a room type you pick. A small line for ADR, RevPAR or a price has that word in front, such as "ADR $182". Rest the mouse on any number and its name shows. Everyone on the property sees the same choice.
+
+On a phone the days are narrow, so each shows its big number and colour bar only. A day too narrow for the whole number shows it shorter: "12/20" for rooms booked, and whole thousands from 10,000, such as "$11k". Tap the day for the rest.
 
 Two details behind those numbers matter when you check them against your property system.
 
@@ -101,14 +109,16 @@ Occupancy on the day card can read over 100%. That happens when rooms were sold 
 
 ## What the colours mean
 
-Under the grid a legend names the three colours: "strong night" (green), "typical night" (amber) and "weak night" (red). The legend goes on to say the colour is measured by revenue per room, relative to the property's own results, and that future nights compare against other upcoming nights.
+On the left of the calendar a small key names the three colours: "Strong night" (green), "Typical night" (amber) and "Weak night" (red). The <Ui>?</Ui> under it says the colour compares each night's revenue per room with the property's own nights, and that upcoming nights are compared with other upcoming nights. On a narrower screen, such as a phone, the key is one line above the days.
+
+Your property can reverse the colours in [Settings](/docs/watch/settings#colours). Then green marks a weak night and red a strong one, and the key says so: "Weak night, keep working on it" beside green, "Typical night" beside amber and "Strong night, leave it" beside red. On a narrower screen it leaves off "keep working on it" and "leave it". Amber is a typical night either way, and nights are judged the same way in both. Every property starts with the colours below.
 
 Here is how the colour is set:
 
 - For each night, MAYA adds up the latest rate it has read for each booked room. A booked room with no rate adds nothing.
 - It divides that total by the number of rooms in room types that count as rooms. That is revenue per room.
 - Nights before today are compared only with other past nights. Today and later are compared only with other upcoming nights. Revenue for a future night keeps growing as bookings land, so mixing the two would paint every future night red.
-- Each group is cut into thirds. A night in the bottom third is red, the middle third is amber, and the top third is green.
+- Each group is cut into thirds. A night in the bottom third is red, the middle third is amber, and the top third is green. With reversed colours, the bottom third is green and the top third red.
 - A group needs at least 10 nights to be cut into thirds. With fewer, MAYA uses both groups together, and if that is still under 10 nights every night on that side is amber.
 - Nights inside a closed period you confirmed on the review are left out when the thirds are worked out, but they still get a colour.
 

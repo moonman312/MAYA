@@ -25,7 +25,7 @@ questions:
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -34,11 +34,11 @@ The calendar colours compare each night's room revenue per room with your own ot
 
 ## Why is every day amber?
 
-Colours need something to compare with. Each night's room revenue is divided by the property's room count to give revenue per room, and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The legend under the grid says "measured by revenue per room, relative to this property's own results".
+Colours need something to compare with. Each night's room revenue is divided by the property's room count to give revenue per room, and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The <Ui>?</Ui> under the colour key on the left of the calendar says the same: each night's revenue per room, compared with this property's own nights.
 
 ## Why is a busy night red?
 
-Because the colour is revenue per room, not occupancy. A full night at low rates can earn less per room than a half-full night at high rates. Red is the bottom third of your nights, amber the middle third, green the top third, each side (past, future) ranked on its own. The colour tells you how the night's revenue ranks against your own nights, and nothing else.
+Because the colour is revenue per room, not occupancy. A full night at low rates can earn less per room than a half-full night at high rates. Red is the bottom third of your nights, amber the middle third, green the top third, each side (past, future) ranked on its own. A property that reversed its colours in [Settings](/docs/watch/settings#colours) sees green for the bottom third and red for the top. The colour tells you how the night's revenue ranks against your own nights, and nothing else.
 
 ## Why did the colour not change after a booking?
 
@@ -56,7 +56,7 @@ The change log's bold lines cannot show your currency's symbol yet, and the curr
 
 ## Why does ADR show a dash when nothing is booked?
 
-The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0 there is nothing to average, so the line reads "ADR –". Look at <Ui>Current price</Ui> for the price your rules have set.
+The room type card's ADR (average daily rate: that night's room revenue divided by the rooms booked) needs at least one booking. When <Ui>Booked</Ui> reads 0 there is nothing to average, so the line reads "ADR –". A calendar day showing ADR, when your property picked it in Settings, reads "ADR –" the same way on a night with no room booked. Look at <Ui>Current price</Ui> for the price your rules have set.
 
 ## Why does today say "revenue" instead of "revenue on the books"?
 

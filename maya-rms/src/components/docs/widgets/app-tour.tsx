@@ -1,17 +1,18 @@
 "use client";
 
+import { Settings as SettingsIcon } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 // A drawing of the MAYA dashboard, not a screenshot: made-up property, no
 // real data. Each numbered spot explains one part.
 export const TOUR_PARTS = [
-  { id: "logo", label: "The header", note: "The MAYA logo, top left. Help, Billing, Team and Sign Out sit top right." },
-  { id: "buttons", label: "Help, Billing, Team, Sign Out", note: "Help opens the docs page about the screen you are on. Billing and Team are for a General Manager or Hotel Admin. Sign Out ends your session." },
+  { id: "logo", label: "The header", note: "The MAYA logo, top left. Help, the Settings gear, Billing, Team and Sign Out sit top right." },
+  { id: "buttons", label: "Help, Settings, Billing, Team, Sign Out", note: "Help opens the docs page about the screen you are on. The gear opens Settings: what each calendar day shows, its colours, and your text size. Billing and Team are for a General Manager or Hotel Admin. Sign Out ends your session." },
   { id: "banners", label: "Banners", note: "They appear only when something needs you: billing, a lost connection, the review, or rules that keep adjusting." },
   { id: "tabs", label: "The five tabs", note: "Calendar, Rules, Rate Simulator, Change Log and PMS. Calendar opens first; the tab you are on stays in the address." },
   { id: "property", label: "The Property dropdown", note: "Every property you belong to, in alphabetical order. Your choice is kept." },
-  { id: "day", label: "A day card", note: "The night's sellable occupancy, rooms booked out of rooms you can sell, the revenue on the books and a thin colour bar. Click it to open the day." },
+  { id: "day", label: "A day card", note: "The night's sellable occupancy, rooms booked out of rooms you can sell, the revenue on the books and a thin colour bar, unless your property picked other numbers in Settings. Click it to open the day." },
 ] as const;
 
 type PartId = (typeof TOUR_PARTS)[number]["id"];
@@ -57,11 +58,18 @@ export function AppTourLive() {
             </div>
             <div className="flex items-center gap-1.5">
               <Spot n={at("buttons")} id="buttons" active={active} onShow={setActive} />
-              {["Help", "Billing", "Team", "Sign Out"].map((b) => (
-                <span key={b} className="rounded-md border border-border px-2 py-0.5 text-muted-foreground">
-                  {b}
-                </span>
-              ))}
+              {["Help", "Settings", "Billing", "Team", "Sign Out"].map((b) =>
+                b === "Settings" ? (
+                  <span key={b} className="inline-flex items-center rounded-md border border-border px-1.5 py-0.5 text-muted-foreground">
+                    <SettingsIcon aria-hidden className="size-3" />
+                    <span className="sr-only">Settings</span>
+                  </span>
+                ) : (
+                  <span key={b} className="rounded-md border border-border px-2 py-0.5 text-muted-foreground">
+                    {b}
+                  </span>
+                ),
+              )}
             </div>
           </div>
           {/* tabs */}
@@ -88,11 +96,14 @@ export function AppTourLive() {
           <div className="mt-2 grid grid-cols-7 gap-1">
             {Array.from({ length: 14 }, (_, i) => {
               const pct = [62, 70, 45, 38, 81, 95, 90, 55, 60, 41, 35, 77, 92, 88][i];
+              // The bar ranks the night's revenue per room, not how full it is:
+              // the 90% night here sold cheaply and reads typical.
+              const strength = ["typical", "strong", "weak", "weak", "strong", "strong", "typical", "typical", "typical", "weak", "weak", "typical", "strong", "strong"][i];
               return (
                 <div key={i} className={cn("relative rounded-md border border-border p-1", i === 5 && "border-primary/60 bg-primary/5")}>
                   <p className="font-semibold">{i + 1}</p>
                   <p className="text-muted-foreground">{pct}%</p>
-                  <div className={cn("mt-1 h-1 rounded-full", pct >= 80 ? "bg-primary" : pct >= 50 ? "bg-primary/50" : "bg-muted-foreground/30")} />
+                  <div className={cn("mt-1 h-1 rounded-full", strength === "strong" ? "bg-primary" : strength === "typical" ? "bg-primary/50" : "bg-muted-foreground/30")} />
                   {i === 5 ? (
                     <span className="absolute top-1 right-1">
                       <Spot n={at("day")} id="day" active={active} onShow={setActive} />

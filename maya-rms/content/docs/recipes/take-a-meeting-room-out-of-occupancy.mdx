@@ -12,7 +12,7 @@ questions:
   - Will a room type I untick still be priced? {#in-plain-words}
   - Does unticking a room type change my bill? {#what-changes/your-bill}
   - Why does my occupancy include the spa? {#what-changes/sellable-occupancy}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -37,7 +37,7 @@ Changing it needs Revenue Manager access or higher. The change re-prices every n
 ## What changes
 
 - **Sellable occupancy.** Only ticked types, and types still tagged "needs your answer", are divided by. The Harbour Inn has 20 rooms plus a Meeting Room. With it ticked, 18 booked rooms read as 18 of 21 (86%). Unticked, they read as 18 of 20 (90%).
-- **The calendar.** The day card's "18/20 rooms" and its percentage leave out types tagged "not a room". Revenue on the card still sums every type.
+- **The calendar.** The day card's "18/20 rooms" and its percentage leave out types tagged "not a room", and so do its ADR and RevPAR when your calendar shows them. Revenue on the card still sums every type.
 - **Booking speed.** Bookings for an unticked type are not counted, and it is never measured by a rule.
 - **Sending.** MAYA sends no price to your property system for an unticked type unless one of your rules ticks it under <Ui>Change</Ui>, or you type a price for one of its nights on the calendar (that night is sent as you typed it). Your own rate for the Meeting Room stays as it is there. The floor and ceiling answers from setup are not written onto it either.
 - **Rules.** In the rule builder the type is tagged "not a room" and starts unticked. A rule that ticks it can still change its price, and that price is sent. A rule that measures only unticked types (the Meeting Room alone, say) never fires on occupancy, pickup or booking speed. A booking window condition counts days, not bookings. So a rule whose only condition is booking window still fires and changes the room types it is set to change.
