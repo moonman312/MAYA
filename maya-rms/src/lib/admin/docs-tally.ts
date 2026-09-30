@@ -114,6 +114,7 @@ export function areaLabel(key: string): string {
     simulator: "Rate Simulator",
     changelog: "Change Log",
     pms: "PMS",
+    settings: "Settings",
     team: "Team",
     billing: "Billing",
     review: "Review",
