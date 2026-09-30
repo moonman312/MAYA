@@ -47,6 +47,10 @@ const iso = (ms: number) => new Date(ms).toISOString();
 /** 10:00 in New York on the story's first day. */
 const T0 = Date.parse(`${LOCAL0}T14:00:00Z`);
 
+/** A state row without the failure streak (failed_runs, last_failed_at, last_error), which a failed tick records. */
+const withoutStreak = (state: FakeRow): FakeRow =>
+  Object.fromEntries(Object.entries(state).filter(([k]) => !["failed_runs", "last_failed_at", "last_error"].includes(k)));
+
 const WHOLE_PASS: CadenceConfig = { chunkNights: 132, runMaxNights: 264, tickPassNights: 100_000, passMinTimeMs: 0, passMaxLagMinutes: 120 };
 
 function rule(id: string, name: string, condition: FakeRow, value: number): FakeRow {
@@ -205,7 +209,7 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     expect(w.sends.flat().filter((s) => s.stayDate === night)).toEqual([{ stayDate: night, price: 440 }]);
     expect(w.marked()).toEqual([]);
     // Apart from the failure streak, which the failed tick records.
-    const { failed_runs: _f, last_failed_at: _a, last_error: _e, ...settled } = w.state();
+    const settled = withoutStreak(w.state());
 
     // A booking lands on the night, so it is priced again; the read of typed prices times out.
     w.tables.reservations.push({ id: "f0000000-0000-4000-8000-000000000002", hotel_id: H, external_reservation_id: "e2", stay_date: night, room_type_id: RT, booking_date: LOCAL0, booking_window_days: 5, current_rate: 440, base_rate: 440, created_at: iso(T0 + 9 * MIN) });
@@ -270,7 +274,7 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     await w.tick(engine, T0);
     await w.tick(engine, T0 + 5 * MIN);
     expect(w.priceOf(night)).toBe(150);
-    const { failed_runs: _f, last_failed_at: _a, last_error: _e, ...yesterday } = w.state();
+    const yesterday = withoutStreak(w.state());
     expect(yesterday.pass_date).toBe(LOCAL0);
 
     // Ten past midnight in New York: the new day's pass is due.
