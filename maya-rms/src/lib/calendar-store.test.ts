@@ -380,6 +380,40 @@ describe("getCalendar (Supabase) — sellable occupancy", () => {
     }
   });
 
+  it("shows no price, and no rate there, for a night MAYA sent to past the last night the property system still returns", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
+    try {
+      const { client } = calendarDb({
+        hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+        room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
+        // The hotel deleted its rates from the 21st on; MAYA had sent 165 to the 20th and 22nd.
+        pms_connections: [{ id: "c1", hotel_id: "h1", pms_type: "cloudbeds", status: "connected", base_rates_returned_through: "2026-10-20", updated_at: "2026-10-01T00:00:00Z" }],
+        base_rate_calendar: [
+          { hotel_id: "h1", stay_date: "2026-10-20", room_type_id: "rt1", price: 150 },
+          { hotel_id: "h1", stay_date: "2026-10-22", room_type_id: "rt1", price: 150 },
+          { hotel_id: "h1", stay_date: "2026-10-23", room_type_id: "rt1", price: 150 },
+        ],
+        manual_price: [{ hotel_id: "h1", stay_date: "2026-10-23", room_type_id: "rt1", price: 190, set_at: "2026-10-09T10:00:00Z", cleared_at: null }],
+        published_price: [
+          { hotel_id: "h1", stay_date: "2026-10-20", room_type_id: "rt1", price: 165, base_price: 150 },
+          { hotel_id: "h1", stay_date: "2026-10-22", room_type_id: "rt1", price: 165, base_price: 150 },
+          { hotel_id: "h1", stay_date: "2026-10-23", room_type_id: "rt1", price: 190, base_price: 190 },
+        ],
+      });
+      const month = await getCalendar(2026, 10, client);
+      const cell = (day: number) => month.days[String(day)].room_types[0];
+      expect(cell(22)).toMatchObject({ current_price: null, current_rate: null, base_price: null, no_rate_in_pms: true });
+      // Inside what the system returns: MAYA's price, as ever.
+      expect(cell(20)).toMatchObject({ current_price: 165 });
+      expect(cell(20)).not.toHaveProperty("no_rate_in_pms");
+      // A typed price is priced and sent as typed, wherever the night is.
+      expect(cell(23)).toMatchObject({ current_price: 190 });
+      expect(cell(23)).not.toHaveProperty("no_rate_in_pms");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says which nights MAYA stopped pricing because their rate was removed in the property system", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-10T12:00:00Z"), toFake: ["Date"] });
     try {

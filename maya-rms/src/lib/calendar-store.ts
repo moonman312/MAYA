@@ -892,6 +892,13 @@ async function getCalendarFromDb(
         manual == null &&
         (!ownRates.cells.has(cellKey) ||
           (rateSource.ratesReturnedThrough != null && dateStr > rateSource.ratesReturnedThrough));
+      // Past the last night the system returned a rate for, a price MAYA sent
+      // there earlier is not in the system any more, and MAYA neither prices
+      // nor sends the night (engine/evaluate.ts), so the day shows no price
+      // and says there is no rate, rather than show that old price.
+      const pastReturned =
+        noRateInPms && rateSource.ratesReturnedThrough != null && dateStr > rateSource.ratesReturnedThrough;
+      const shown = pastReturned ? null : published;
       // The property system removed the rate after MAYA sent to the night,
       // and the property keeps changes made there: MAYA prices nothing on it
       // (pms-edits.ts), and a price typed before the removal waits with it.
@@ -910,9 +917,9 @@ async function getCalendarFromDb(
         booked,
         rate: adr == null ? null : Math.round(adr * 100) / 100,
         revenue: Math.round(roomRevenue * 100) / 100,
-        current_price: published?.price ?? null,
-        current_rate: published?.price ?? null,
-        base_price: published?.base ?? null,
+        current_price: shown?.price ?? null,
+        current_rate: shown?.price ?? null,
+        base_price: shown?.base ?? null,
         manual_price: manual,
         ...(noRateInPms ? { no_rate_in_pms: true } : {}),
         ...(rateRemovedInPms ? { rate_removed_in_pms: true } : {}),
