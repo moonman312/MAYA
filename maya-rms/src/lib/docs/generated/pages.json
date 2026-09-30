@@ -4694,7 +4694,7 @@
   "order": 30,
   "title": "How prices reach your property system",
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
-  "readingTime": 24,
+  "readingTime": 25,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
