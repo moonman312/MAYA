@@ -1,5 +1,6 @@
 import { DocsTallyWeekly } from "@/components/admin/docs-tally-panels";
 import { loadTallyWeekly, type WeeklyTally } from "@/lib/admin/docs-tally";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -11,8 +12,9 @@ export const dynamic = "force-dynamic";
 // where, never the question), week by week. Below, what readers chose to send
 // from the helper and the "Was this page useful?" buttons (docs_questions,
 // written by POST /api/docs-ask/feedback; the text is scrubbed before it is
-// stored). The layout already checks platform admin, and RLS lets only
-// platform admins read either table.
+// stored). The page asks for the docs_questions section, and RLS lets only
+// the staff who have it read either table (staff_can_read: platform admins,
+// and developer or sales logins after their code).
 
 const SOURCES = [
   { key: "", label: "Everything" },
@@ -47,6 +49,7 @@ export default async function AdminDocsQuestionsPage({
 }: {
   searchParams: Promise<{ source?: string | string[] }>;
 }) {
+  await requireStaffPage("docs_questions");
   const raw = (await searchParams).source;
   const source = SOURCES.some((s) => s.key === raw) && typeof raw === "string" ? raw : "";
 

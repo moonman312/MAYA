@@ -1,6 +1,7 @@
 import { PmsStatusPill } from "@/components/admin/status-pill";
 import { describeAlertChannel, loadAlertChannel, type AlertChannelLine } from "@/lib/admin/alert-channel";
 import { loadPilotHealth } from "@/lib/admin/pilot-health";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import {
   ageLabel,
   assessProperty,
@@ -66,6 +67,7 @@ function ModePill({ mode }: { mode: PilotHealthRow["mode"] }) {
  * a reload builds it again.
  */
 export default async function PilotHealthPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
+  await requireStaffPage("pilot_health");
   const params = await searchParams;
   const includeTest = params.test === "1";
   const ssr = createClient(await cookies());

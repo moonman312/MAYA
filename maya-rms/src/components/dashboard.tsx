@@ -358,11 +358,14 @@ async function sendRule(url: string, method: "POST" | "PUT" | "DELETE", body?: u
 
 export function Dashboard({
   isPlatformAdmin = false,
+  commandCenter = isPlatformAdmin,
   supportView = null,
   initialSearch = "",
   textSize = null,
 }: {
   isPlatformAdmin?: boolean;
+  /** MAYA staff (a platform admin, a developer or a sales login): show the Command Center link. */
+  commandCenter?: boolean;
   supportView?: SupportView;
   /** The query the page was rendered with: the tab and place a link or a refresh asked for. */
   initialSearch?: string;
@@ -1229,7 +1232,7 @@ export function Dashboard({
               </p>
             </div>
             <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
-              {isPlatformAdmin ? (
+              {commandCenter ? (
                 <a
                   href="/admin"
                   className="w-full cursor-pointer rounded border border-slate-700 px-3 py-2 text-center text-sm text-slate-200 hover:bg-slate-800 sm:w-auto"

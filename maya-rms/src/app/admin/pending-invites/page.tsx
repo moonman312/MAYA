@@ -1,6 +1,7 @@
 import { InviteStatusPill } from "@/components/admin/status-pill";
 import { InviteRowActions } from "@/components/admin/invite-row-actions";
 import { listPendingInvites } from "@/lib/admin/memberships";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -13,6 +14,7 @@ function formatDateTime(iso: string | null): string {
 }
 
 export default async function AdminPendingInvitesPage() {
+  await requireStaffPage("pending_invites");
   const ssr = createClient(await cookies());
   const invites = await listPendingInvites(ssr);
 

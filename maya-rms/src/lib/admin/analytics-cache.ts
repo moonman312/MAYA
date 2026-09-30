@@ -18,14 +18,15 @@ import { loadPushProblemAnalytics, type PushProblemAnalytics } from "./push-prob
  * is older than it, Next hands back the old entry, however old, and works out
  * a new one in the background for the load after.)
  *
- * What is kept is the same for every platform admin: it is read with the
- * service role, keyed only by the slot, the window and the test toggle, and
- * holds no one's session and no one's email (the follow-up list's emails are
- * read fresh on each load). Keys also name the Supabase project, so two
+ * What is kept is the same for every reader: it is read with the service
+ * role, keyed only by the slot, the window and the test toggle, and holds no
+ * one's session and no one's email (the follow-up list's emails are read
+ * fresh on each load). Keys also name the Supabase project, so two
  * deployments that share a data cache never hand each other their numbers.
- * The page checks the caller is a platform admin before it reads any of it
- * (getAdminSession), and the Refresh button (a Server Action that checks
- * again) throws it all away.
+ * The page checks the caller may read analytics before it reads any of it
+ * (requireStaffPage: a platform admin, or a sales login after its code, which
+ * never gets the test toggle), and the Refresh button (a Server Action that
+ * checks for a platform admin again) throws it all away.
  *
  * "Right now" does not depend on the window, so it is kept per toggle only
  * and a date change never recomputes it. A failed read is not kept: it throws,

@@ -10,6 +10,7 @@ import {
   type StallWindow,
   type TriagedSignup,
 } from "@/lib/admin/stalled-signups";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import { formatUsd } from "@/lib/billing/tiers";
 import { createClient } from "@/utils/supabase/server";
 
@@ -54,6 +55,10 @@ export default async function AdminStalledSignupsPage({
 }: {
   searchParams: Promise<{ hours?: string; abandoned?: string }>;
 }) {
+  // Sales reads this too; giving up on a signup stays a platform admin's
+  // (the route refuses anyone else), so sales gets only the email link.
+  const session = await requireStaffPage("stalled_signups");
+  const canFlag = session.isPlatformAdmin;
   const sp = await searchParams;
   const minHours = parseWindow(sp.hours);
   const includeAbandoned = sp.abandoned === "1";
@@ -129,7 +134,7 @@ export default async function AdminStalledSignupsPage({
 
       <div className="space-y-3">
         {rows.map((row) => (
-          <SignupCard key={row.hotel_id} row={row} />
+          <SignupCard key={row.hotel_id} row={row} canFlag={canFlag} />
         ))}
         {rows.length === 0 && (
           <p className="rounded border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">
@@ -153,7 +158,7 @@ function Stat({ label, value, hint }: { label: string; value: string; hint: stri
   );
 }
 
-function SignupCard({ row }: { row: TriagedSignup }) {
+function SignupCard({ row, canFlag }: { row: TriagedSignup; canFlag: boolean }) {
   const badge = SEVERITY_BADGES[row.severity];
   const rooms = `${row.billed_rooms} room${row.billed_rooms === 1 ? "" : "s"}`;
   const mismatch =
@@ -233,11 +238,20 @@ function SignupCard({ row }: { row: TriagedSignup }) {
         </div>
 
         <div className="flex flex-col items-end gap-2">
-          <StalledSignupActions
-            hotelId={row.hotel_id}
-            abandonedAt={row.signup_abandoned_at}
-            email={row.reachable ? row.admin_email : null}
-          />
+          {canFlag ? (
+            <StalledSignupActions
+              hotelId={row.hotel_id}
+              abandonedAt={row.signup_abandoned_at}
+              email={row.reachable ? row.admin_email : null}
+            />
+          ) : row.reachable && row.admin_email ? (
+            <a
+              href={`mailto:${row.admin_email}?subject=${encodeURIComponent("Your MAYA setup")}`}
+              className="rounded border border-sky-500/40 px-2 py-1 text-xs text-sky-300 hover:border-sky-400"
+            >
+              Email them
+            </a>
+          ) : null}
           {row.hotel_name && (
             <Link
               href={`/admin/hotels/${row.hotel_id}`}

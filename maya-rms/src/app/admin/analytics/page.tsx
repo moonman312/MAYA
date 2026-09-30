@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { AnalyticsRangePicker } from "@/components/admin/analytics-range-picker";
 import { AnalyticsRefresh } from "@/components/admin/analytics-refresh";
-import { getAdminSession } from "@/lib/admin/admin-session";
 import { analyticsClock } from "@/lib/admin/analytics-cache";
 import { analyticsHref, analyticsWindow, rangeInWords } from "@/lib/admin/analytics-window";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import {
   AsOf,
   Charts,
@@ -45,9 +44,11 @@ export default async function AnalyticsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; test?: string }>;
 }) {
-  // Before anything is read: the kept numbers are the same for every admin.
-  const session = await getAdminSession();
-  if (!session.ok) redirect("/login");
+  // Before anything is read: the kept numbers are the same for every reader
+  // (a platform admin, or a sales login after its code). They are read with
+  // the service role, so this check is what stands in front of them.
+  const session = await requireStaffPage("analytics");
+  const isAdmin = session.isPlatformAdmin;
 
   // The same clock the kept sections use, so "today" is one day everywhere.
   const { today } = analyticsClock();
@@ -55,7 +56,10 @@ export default async function AnalyticsPage({
   // is_test and excluded — a Stripe test-mode checkout is a real subscription
   // row and would otherwise read as a customer. The toggle is for verifying
   // the panel itself on a deployment whose only data is test data.
-  const { from, to, includeTest } = analyticsWindow(await searchParams, today);
+  // Sales counts customers only; the toggle and Refresh are a platform admin's.
+  const asked = analyticsWindow(await searchParams, today);
+  const { from, to } = asked;
+  const includeTest = isAdmin && asked.includeTest;
   const words = rangeInWords(from, to, today);
   const shown = { from, to, includeTest, words };
   const rangeKey = `${from}:${to}:${includeTest ? 1 : 0}`;
@@ -66,9 +70,11 @@ export default async function AnalyticsPage({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-baseline gap-3">
           <h1 className="text-2xl font-semibold text-slate-100">Analytics</h1>
-          <Link href={analyticsHref(from, to, !includeTest)} className="text-xs text-slate-500 hover:text-slate-300">
-            {includeTest ? "Hide test properties" : "Show test properties"}
-          </Link>
+          {isAdmin ? (
+            <Link href={analyticsHref(from, to, !includeTest)} className="text-xs text-slate-500 hover:text-slate-300">
+              {includeTest ? "Hide test properties" : "Show test properties"}
+            </Link>
+          ) : null}
         </div>
         <div className="flex flex-col items-end gap-2">
           <AnalyticsRangePicker from={from} to={to} includeTest={includeTest} today={today} />
@@ -76,7 +82,7 @@ export default async function AnalyticsPage({
             <Suspense key={`as-of:${rangeKey}`} fallback={null}>
               <AsOf from={from} to={to} includeTest={includeTest} today={today} />
             </Suspense>
-            <AnalyticsRefresh />
+            {isAdmin ? <AnalyticsRefresh /> : null}
           </div>
         </div>
       </div>

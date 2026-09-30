@@ -5,6 +5,7 @@ import {
   type AdminSignupCodeRow,
   type SignupCodeStatus,
 } from "@/lib/admin/signup-codes";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import { formatUsd } from "@/lib/billing/tiers";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
@@ -35,6 +36,7 @@ function formatDate(iso: string | null): string {
 }
 
 export default async function AdminSignupCodesPage() {
+  await requireStaffPage("signup_codes");
   const ssr = createClient(await cookies());
   const codes = await listSignupCodes(ssr);
   const live = codes.filter((c) => c.status === "live").length;

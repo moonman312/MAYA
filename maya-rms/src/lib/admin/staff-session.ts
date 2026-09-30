@@ -72,6 +72,22 @@ export async function loadStaffAccess(ssr: SupabaseClient, userId: string): Prom
   return parseStaffAccess(data);
 }
 
+/**
+ * The caller's staff role, the strongest they hold, or null: staff_role(),
+ * which reads the caller from the verified token. On a database the
+ * migration has not reached yet, is_platform_admin answers. For the app's
+ * own pages (the dashboard's Command Center link, and where a login with no
+ * property goes), never for what a Command Center page shows: that is
+ * getStaffSession's sections.
+ */
+export async function loadStaffRole(ssr: SupabaseClient, userId: string): Promise<StaffRole | null> {
+  const { data, error } = await ssr.rpc("staff_role");
+  if (!error) return isStaffRole(data) ? data : null;
+  if (!isMissingFunction(error)) return null;
+  const { data: isAdmin, error: adminError } = await ssr.rpc("is_platform_admin", { p_user_id: userId });
+  return !adminError && isAdmin === true ? "platform_admin" : null;
+}
+
 /** staff_access()'s jsonb, read defensively: anything unexpected means less access, never more. */
 export function parseStaffAccess(data: unknown): StaffAccess {
   if (!data || typeof data !== "object") return NOBODY;
@@ -103,8 +119,10 @@ function sessionFrom(userId: string, email: string, access: StaffAccess): StaffS
 
 /**
  * For Command Center pages and the admin layout: worked out once per request
- * (React's cache), with getClaims as getAdminSession does, so there is no
- * Auth round trip with signing keys.
+ * (React's cache). The session is read with getClaims, which checks the
+ * access token's signature against the project's published keys instead of
+ * asking the Auth server every time, so there is no Auth round trip with
+ * signing keys; what the person may read is still the database's answer.
  */
 export const getStaffSession = cache(async (): Promise<StaffSession> => {
   const supabase = createClient(await cookies());

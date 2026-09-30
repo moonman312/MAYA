@@ -17,6 +17,10 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
+// Who may open the page is its own test (staff-pages.test.tsx); here, a platform admin.
+vi.mock("@/lib/admin/staff-page", () => ({
+  requireStaffPage: async () => ({ ok: true, role: "platform_admin", sections: ["pilot_health"], isPlatformAdmin: true }),
+}));
 vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
 }));

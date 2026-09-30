@@ -107,6 +107,13 @@ export function staffRoleOf(appRoles: readonly string[] | null | undefined): Sta
   return "none";
 }
 
+/**
+ * The code step: where a developer or sales login goes, before any Command
+ * Center page, until its token is aal2. Outside /admin on purpose, so the
+ * admin layout never sends it to itself.
+ */
+export const STAFF_CODE_PATH = "/admin-code";
+
 /** Whether a role that only reads needs a code from an authenticator app first. Platform admins do not. */
 export function staffRoleNeedsMfa(role: StaffRole): boolean {
   return role !== "platform_admin";

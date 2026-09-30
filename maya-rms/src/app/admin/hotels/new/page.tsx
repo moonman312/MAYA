@@ -1,9 +1,12 @@
 import { CreateHotelWizard } from "@/components/admin/create-hotel-wizard";
+import { requireStaffPage } from "@/lib/admin/staff-page";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default function AdminNewHotelPage() {
+/** Creating a hotel: a platform admin's (POST /api/admin/hotels refuses anyone else). */
+export default async function AdminNewHotelPage() {
+  await requireStaffPage("hotel_create");
   return (
     <div className="space-y-6">
       <div>

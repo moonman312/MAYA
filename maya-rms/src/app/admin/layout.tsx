@@ -1,6 +1,7 @@
 import { AdminTopNav } from "@/components/admin/admin-top-nav";
 import { GodModeBannerSlot } from "@/components/admin/god-mode-banner-slot";
-import { getAdminSession } from "@/lib/admin/admin-session";
+import { staffSessionRedirect } from "@/lib/admin/staff-page";
+import { getStaffSession } from "@/lib/admin/staff-session";
 import { isAdminConfigured } from "@/utils/supabase/admin";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { redirect } from "next/navigation";
@@ -30,17 +31,22 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     );
   }
 
-  // Shared with the page through React's cache: one check per request.
-  const session = await getAdminSession();
+  // MAYA staff only: a platform admin at any sign-in, a developer or sales
+  // login after the code from its authenticator app (the code step is
+  // outside /admin, so this never sends it to itself). Shared with the page
+  // through React's cache: one check per request. Each page also asks for its
+  // own section (requireStaffPage), since a layout cannot see which page it
+  // wraps and is not re-run on every navigation.
+  const session = await getStaffSession();
   if (!session.ok) {
-    redirect(session.reason === "signed_out" ? "/login?next=/admin" : "/");
+    redirect(staffSessionRedirect(session));
   }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <AdminTopNav userEmail={session.email} />
+      <AdminTopNav userEmail={session.email} role={session.role} sections={session.sections} />
       <main className="mx-auto max-w-7xl px-6 py-8">{children}</main>
-      <GodModeBannerSlot isPlatformAdmin />
+      <GodModeBannerSlot isPlatformAdmin={session.isPlatformAdmin} />
     </div>
   );
 }
