@@ -25,19 +25,19 @@ export default async function AdminHotelDetailPage({
 }) {
   const { hotelId } = await params;
   const ssr = createClient(await cookies());
-  const [hotel, memberships, pendingInvites] = await Promise.all([
+  const admin = isAdminConfigured() ? createAdminClient() : null;
+  // Five reads that don't need each other, so one wait instead of three.
+  const [hotel, memberships, pendingInvites, simulationMode, windowDays] = await Promise.all([
     getHotel(ssr, hotelId),
     listHotelMemberships(ssr, hotelId),
     listPendingInvites(ssr, hotelId),
+    // Pricing mode lives in hotel_settings; read with the service-role client
+    // so RLS never hides it from the admin view. Defaults to simulation.
+    admin ? getHotelSimulationMode(admin, hotelId) : Promise.resolve(true),
+    // The window the hotel's last daily pass used (the syncs' switch sets it).
+    admin ? hotelPricingHorizon(admin, hotelId) : Promise.resolve(pricingHorizonDays()),
   ]);
   const pmsStatuses = listPmsStatuses();
-  // Pricing mode lives in hotel_settings; read with the service-role client so
-  // RLS never hides it from the admin view. Defaults to simulation.
-  const simulationMode = isAdminConfigured()
-    ? await getHotelSimulationMode(createAdminClient(), hotelId)
-    : true;
-  // The window the hotel's last daily pass used (the syncs' switch sets it).
-  const windowDays = isAdminConfigured() ? await hotelPricingHorizon(createAdminClient(), hotelId) : pricingHorizonDays();
   if (!hotel) {
     notFound();
   }

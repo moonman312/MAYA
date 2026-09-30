@@ -5,7 +5,7 @@ import { listHotels } from "@/lib/admin/hotels";
 import { listPendingInvites } from "@/lib/admin/memberships";
 import { countSignupCodes } from "@/lib/admin/signup-codes";
 import { testAlertProblem } from "@/lib/admin/test-alert";
-import { listPlatformUsers } from "@/lib/admin/users";
+import { countPlatformUsers } from "@/lib/admin/users";
 import { createClient } from "@/utils/supabase/server";
 import { cookies } from "next/headers";
 import Link from "next/link";
@@ -22,9 +22,9 @@ export default async function AdminOverviewPage() {
     (totals) => ({ totals, error: null }),
     (e: unknown) => ({ totals: null, error: e instanceof Error ? e.message : String(e) }),
   );
-  const [hotels, users, pending, signupCodes, docs] = await Promise.all([
+  const [hotels, userCount, pending, signupCodes, docs] = await Promise.all([
     listHotels(ssr),
-    listPlatformUsers(ssr),
+    countPlatformUsers(ssr),
     listPendingInvites(ssr),
     countSignupCodes(ssr),
     docsTally,
@@ -45,7 +45,8 @@ export default async function AdminOverviewPage() {
   const stats = [
     { label: "Hotels", value: properties.length, href: "/admin/hotels" },
     { label: "PMS connected", value: `${connectedPms} / ${properties.length}`, href: "/admin/hotels" },
-    { label: "Users", value: users.length, href: "/admin/users" },
+    // Null only on a database the speed migration hasn't reached yet.
+    { label: "Users", value: userCount ?? "n/a", href: "/admin/users" },
     {
       label: "Pending invites",
       value: outstandingInvites.length,

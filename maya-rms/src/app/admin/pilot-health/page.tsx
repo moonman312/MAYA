@@ -69,9 +69,9 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
   const params = await searchParams;
   const includeTest = params.test === "1";
   const ssr = createClient(await cookies());
-  const health = await loadPilotHealth(ssr, { includeTest });
   const nowIso = new Date().toISOString();
-  const alerts = await alertChannelLine(ssr, nowIso);
+  // The two reads don't need each other: one wait, not two.
+  const [health, alerts] = await Promise.all([loadPilotHealth(ssr, { includeTest }), alertChannelLine(ssr, nowIso)]);
   const builtAt = `${nowIso.slice(0, 10)} ${nowIso.slice(11, 16)} UTC`;
   const ago = (iso: string | null) => (iso ? `${ageLabel(iso, nowIso)} ago` : "never");
 
