@@ -11,6 +11,9 @@ import type { PilotHealthRow } from "@/lib/admin/pilot-health-assess";
 const state = vi.hoisted(() => ({
   rows: [] as PilotHealthRow[],
   error: null as { code: string; message: string } | null,
+  /** platform_audit_events rows, newest first: what the scheduled syncs said about their alert channel. */
+  auditRows: [] as Record<string, unknown>[],
+  auditError: null as { message: string } | null,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -18,7 +21,15 @@ vi.mock("next/link", () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => <a href={href}>{children}</a>,
 }));
 vi.mock("@/utils/supabase/server", () => ({
-  createClient: () => ({ rpc: async () => ({ data: state.rows, error: state.error }) }),
+  createClient: () => ({
+    rpc: async () => ({ data: state.rows, error: state.error }),
+    from: () => {
+      const q: Record<string, unknown> = {};
+      for (const m of ["select", "in", "order"]) q[m] = () => q;
+      q.limit = async () => ({ data: state.auditRows, error: state.auditError });
+      return q;
+    },
+  }),
 }));
 
 const { default: PilotHealthPage } = await import("./page");
@@ -79,6 +90,15 @@ const asText = (html: string) =>
 beforeEach(() => {
   state.rows = [];
   state.error = null;
+  state.auditRows = [];
+  state.auditError = null;
+});
+
+const channelReport = (fn: string, state_: string, minutes: number, minSeverity = "warn") => ({
+  event_type: "alert.channel",
+  entity_id: fn,
+  detail: { fn, state: state_, min_severity: minSeverity },
+  created_at: minutesAgo(minutes),
 });
 
 describe("the pilot health page", () => {
@@ -210,3 +230,57 @@ describe("the pilot health page", () => {
     expect(text).toContain("No live or simulating properties.");
   });
 });
+
+describe("the alerts line", () => {
+  // The app's own MAYA_ALERT_WEBHOOK says nothing about the functions that
+  // raise the real alerts, so the line reads what those functions reported.
+  it("says not reported when no scheduled sync has said anything", async () => {
+    state.rows = [healthy()];
+    const html = await render();
+    expect(html).toContain('data-alerts="unknown"');
+    expect(asText(html)).toContain("Alerts: not reported.");
+  });
+
+  it("says ready from the newest report, with the severity floor", async () => {
+    state.rows = [healthy()];
+    state.auditRows = [channelReport("cloudbeds-scheduled-sync", "ready", 12), channelReport("think-scheduled-sync", "ready", 240, "critical")];
+    const html = await render();
+    expect(html).toContain('data-alerts="ready"');
+    expect(asText(html)).toContain("Alerts: ready. cloudbeds-scheduled-sync said 12m ago that its alerts have somewhere to go (warnings and critical alerts).");
+  });
+
+  it("says missing when any function has nowhere to send, and names it", async () => {
+    state.rows = [healthy()];
+    state.auditRows = [
+      channelReport("think-scheduled-sync", "ready", 5),
+      channelReport("cloudbeds-scheduled-sync", "missing", 12),
+      {
+        event_type: "alert.channel_test",
+        entity_id: "cloudbeds-scheduled-sync",
+        detail: { fn: "cloudbeds-scheduled-sync", sent: false, reason: "no_webhook_configured", state: "missing" },
+        created_at: minutesAgo(12),
+      },
+    ];
+    const html = await render();
+    expect(html).toContain('data-alerts="missing"');
+    const text = asText(html);
+    expect(text).toContain(
+      "Alerts: missing. cloudbeds-scheduled-sync said 12m ago that MAYA_ALERT_WEBHOOK is not set in the Supabase function secrets, so the alerts it raises are being skipped.",
+    );
+    expect(text).toContain("Last test alert: not sent 12m ago through cloudbeds-scheduled-sync (no_webhook_configured).");
+  });
+
+  it("is shown even when the pilot health function is missing, and survives a failed read", async () => {
+    state.error = { code: "PGRST202", message: "Could not find the function public.platform_pilot_health" };
+    state.auditRows = [channelReport("cloudbeds-scheduled-sync", "ready", 3)];
+    expect(asText(await render())).toContain("Alerts: ready.");
+
+    state.error = null;
+    state.rows = [healthy()];
+    state.auditError = { message: "connection reset" };
+    const text = asText(await render());
+    expect(text).toContain("Alerts: not known.");
+    expect(text).toContain("Looks fine");
+  });
+});
+

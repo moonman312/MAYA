@@ -5,11 +5,12 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 /**
- * POST: send one test message to the alert channel. POST only, so a GET (a
- * prefetch, a crawler, a pasted link) never sends anything. Platform admins
- * only, checked here on the server, and throttled per admin so the button
- * cannot be turned into a way to flood the channel. The webhook address never
- * appears in the answer.
+ * POST: have a scheduled sync function send one test message to the alert
+ * channel, so the test uses the settings real alerts use (test-alert.ts).
+ * POST only, so a GET (a prefetch, a crawler, a pasted link) never sends
+ * anything. Platform admins only, checked here on the server, and throttled
+ * per admin so the button cannot be turned into a way to flood the channel.
+ * The webhook address never appears in the answer.
  */
 export async function POST() {
   const ctx = await requirePlatformAdmin(await cookies());
@@ -26,16 +27,17 @@ export async function POST() {
   if (throttled) return throttled;
 
   const result = await sendTestAlert(ctx.user.email ?? null);
-  if (!result.sent) return NextResponse.json({ ok: false, error: result.error }, { status: 502 });
 
-  // With the admin's own session, so the audit line names who sent it.
+  // With the admin's own session, so the audit line names who asked. The
+  // function's own answer is recorded by the function (alert.channel_test).
   const { error } = await ctx.ssr.rpc("platform_log_event", {
     p_event_type: "alert.test_sent",
     p_entity_type: "alert",
     p_entity_id: "test",
-    p_detail: {},
+    p_detail: { via: result.fn, sent: result.sent },
   });
   if (error) console.error(JSON.stringify({ fn: "testAlert", step: "audit", error: error.message }));
 
-  return NextResponse.json({ ok: true });
+  if (!result.sent) return NextResponse.json({ ok: false, error: result.error, fn: result.fn }, { status: 502 });
+  return NextResponse.json({ ok: true, fn: result.fn, minSeverity: result.minSeverity });
 }

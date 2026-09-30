@@ -21,8 +21,10 @@ describe("TestAlertButton", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("posts once and says it was sent", async () => {
-    const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true }) }) as Response);
+  it("posts once and says which function sent it", async () => {
+    const fetchSpy = vi.fn(
+      async () => ({ ok: true, json: async () => ({ ok: true, fn: "cloudbeds-scheduled-sync", minSeverity: "warn" }) }) as Response,
+    );
     vi.stubGlobal("fetch", fetchSpy);
     const view = render(<TestAlertButton problem={null} />);
     await act(async () => {
@@ -30,7 +32,20 @@ describe("TestAlertButton", () => {
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy).toHaveBeenCalledWith("/api/admin/alerts/test", { method: "POST" });
-    expect(view.container.textContent).toContain("Sent. Check the alert channel for it.");
+    expect(view.container.textContent).toContain("Sent through cloudbeds-scheduled-sync. Check the alert channel for it.");
+    expect(view.container.textContent).not.toContain("critical problems only");
+  });
+
+  it("says when real alerts go out for critical problems only", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, fn: "cloudbeds-scheduled-sync", minSeverity: "critical" }) }) as Response),
+    );
+    const view = render(<TestAlertButton problem={null} />);
+    await act(async () => {
+      fireEvent.click(view.getByRole("button", { name: "Send a test alert" }));
+    });
+    expect(view.container.textContent).toContain("Real alerts go out for critical problems only (MAYA_ALERT_MIN_SEVERITY).");
   });
 
   it("shows the server's reason when it could not send", async () => {

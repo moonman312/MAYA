@@ -1,4 +1,5 @@
 import { PmsStatusPill } from "@/components/admin/status-pill";
+import { describeAlertChannel, loadAlertChannel, type AlertChannelLine } from "@/lib/admin/alert-channel";
 import { loadPilotHealth } from "@/lib/admin/pilot-health";
 import {
   ageLabel,
@@ -21,6 +22,30 @@ const PROBLEM_STYLES: Record<PropertyProblem["severity"], string> = {
   rose: "text-rose-300",
 };
 
+const ALERT_LINE_STYLES: Record<AlertChannelLine["severity"], string> = {
+  emerald: "border-emerald-500/30 bg-emerald-500/10 text-emerald-200",
+  amber: "border-amber-500/30 bg-amber-500/10 text-amber-200",
+  rose: "border-rose-500/30 bg-rose-500/10 text-rose-200",
+};
+
+/**
+ * Whether the scheduled syncs' alerts have anywhere to go, from what those
+ * functions reported (lib/admin/alert-channel.ts), never from the app's own
+ * settings. A failed read says so in the same place rather than failing the page.
+ */
+async function alertChannelLine(ssr: Parameters<typeof loadAlertChannel>[0], nowIso: string): Promise<AlertChannelLine> {
+  try {
+    return describeAlertChannel(await loadAlertChannel(ssr), nowIso);
+  } catch (e) {
+    return {
+      verdict: "unknown",
+      severity: "amber",
+      text: `Alerts: not known. The scheduled syncs' reports could not be read: ${e instanceof Error ? e.message : String(e)}`,
+      test: null,
+    };
+  }
+}
+
 function ModePill({ mode }: { mode: PilotHealthRow["mode"] }) {
   return mode === "live" ? (
     <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">Live</span>
@@ -35,8 +60,10 @@ function ModePill({ mode }: { mode: PilotHealthRow["mode"] }) {
  * platform_pilot_health(). A Live property whose published prices have waited
  * over an hour to be sent has a problem, whatever else reads well. Read-only.
  * Properties with a problem come first,
- * the worse first. Nothing polls: the note under the title says when the
- * page was built, and a reload builds it again.
+ * the worse first. Above the table, one line says whether the scheduled
+ * syncs' alerts have anywhere to go, from what those functions reported.
+ * Nothing polls: the note under the title says when the page was built, and
+ * a reload builds it again.
  */
 export default async function PilotHealthPage({ searchParams }: { searchParams: Promise<{ test?: string }> }) {
   const params = await searchParams;
@@ -44,6 +71,7 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
   const ssr = createClient(await cookies());
   const health = await loadPilotHealth(ssr, { includeTest });
   const nowIso = new Date().toISOString();
+  const alerts = await alertChannelLine(ssr, nowIso);
   const builtAt = `${nowIso.slice(0, 10)} ${nowIso.slice(11, 16)} UTC`;
   const ago = (iso: string | null) => (iso ? `${ageLabel(iso, nowIso)} ago` : "never");
 
@@ -59,6 +87,9 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
       <div className="space-y-6">
         {heading}
         <p className="rounded border border-slate-800 bg-slate-900 px-4 py-3 text-xs text-slate-400">{health.reason}</p>
+        <p className={`rounded border px-4 py-3 text-xs ${ALERT_LINE_STYLES[alerts.severity]}`} data-alerts={alerts.verdict}>
+          {alerts.text}
+        </p>
       </div>
     );
   }
@@ -90,6 +121,11 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
       {health.missing && (
         <p className="rounded border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">{health.missing}</p>
       )}
+
+      <p className={`rounded border px-4 py-3 text-xs ${ALERT_LINE_STYLES[alerts.severity]}`} data-alerts={alerts.verdict}>
+        {alerts.text}
+        {alerts.test ? <span className="block mt-1 opacity-80">{alerts.test}</span> : null}
+      </p>
 
       <div className="overflow-hidden rounded border border-slate-800 bg-slate-900">
         <table className="w-full text-left text-sm">

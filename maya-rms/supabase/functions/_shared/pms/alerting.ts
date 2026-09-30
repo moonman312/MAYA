@@ -41,15 +41,146 @@ function webhookUrl(): string | null {
   return raw && raw.startsWith("https://") ? raw : null;
 }
 
+export type AlertChannelState = "ready" | "missing" | "not_https";
+
 /**
  * Whether alerts have somewhere to go, without ever handing out the address:
  * "ready", "missing" (MAYA_ALERT_WEBHOOK unset), or "not_https" (set, but
  * alerts are never sent in cleartext, so it is ignored).
+ *
+ * The answer is about THIS process's settings. The app and the edge
+ * functions each read their own, so the app's answer says nothing about
+ * whether a real alert, raised inside a scheduled sync, has anywhere to go.
+ * That is why the edge functions report theirs (recordAlertChannel) and the
+ * test alert is sent from an edge function, not the app.
  */
-export function alertChannelState(): "ready" | "missing" | "not_https" {
+export function alertChannelState(): AlertChannelState {
   const raw = readEnv("MAYA_ALERT_WEBHOOK");
   if (!raw) return "missing";
   return webhookUrl() ? "ready" : "not_https";
+}
+
+/** The floor alerts must reach to be sent: MAYA_ALERT_MIN_SEVERITY, warn or critical (the default). */
+export function alertMinSeverity(): AlertSeverity {
+  return readEnv("MAYA_ALERT_MIN_SEVERITY")?.toLowerCase() === "warn" ? "warn" : "critical";
+}
+
+/** The audit event type an edge function reports its alert channel under. */
+export const ALERT_CHANNEL_EVENT = "alert.channel";
+/** The audit event type a test alert sent from an edge function is recorded under. */
+export const ALERT_CHANNEL_TEST_EVENT = "alert.channel_test";
+
+/** A report is written again after this long even when nothing changed, so a stale one can be told from a current one. */
+export const ALERT_CHANNEL_REPORT_EVERY_MS = 6 * 60 * 60 * 1000;
+
+export type AlertChannelReport = {
+  state: AlertChannelState;
+  minSeverity: AlertSeverity;
+};
+
+/** What this process would say about its alert channel. */
+export function alertChannelReport(): AlertChannelReport {
+  return { state: alertChannelState(), minSeverity: alertMinSeverity() };
+}
+
+/**
+ * Say, from inside an edge function, whether its alerts have anywhere to go.
+ *
+ * Written to platform_audit_events as alert.channel, one row per function
+ * name, when the state differs from the last report or the last report is
+ * older than ALERT_CHANNEL_REPORT_EVERY_MS: a few rows a day, not one per
+ * tick. The Pilot health page reads the newest one and shows "alerts: ready"
+ * or "alerts: missing" from what the function said, not from the app's own
+ * settings. Never throws.
+ */
+export async function recordAlertChannel(
+  supabase: SupabaseClient,
+  fn: string,
+  opts: { force?: boolean; nowMs?: number } = {},
+): Promise<{ recorded: boolean; report: AlertChannelReport }> {
+  const report = alertChannelReport();
+  try {
+    if (!opts.force) {
+      const { data: last, error } = await supabase
+        .from("platform_audit_events")
+        .select("created_at, detail")
+        .eq("event_type", ALERT_CHANNEL_EVENT)
+        .eq("entity_id", fn)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (error) throw new Error(error.message);
+      const row = (last ?? [])[0] as { created_at?: unknown; detail?: { state?: unknown; min_severity?: unknown } } | undefined;
+      if (row) {
+        const ageMs = (opts.nowMs ?? Date.now()) - Date.parse(String(row.created_at));
+        const same = row.detail?.state === report.state && row.detail?.min_severity === report.minSeverity;
+        // A clock a little ahead of ours still wrote a current report.
+        if (same && ageMs < ALERT_CHANNEL_REPORT_EVERY_MS) return { recorded: false, report };
+      }
+    }
+    const { error: logErr } = await supabase.rpc("platform_log_event", {
+      p_event_type: ALERT_CHANNEL_EVENT,
+      p_entity_type: "alert_channel",
+      p_entity_id: fn,
+      p_detail: { state: report.state, min_severity: report.minSeverity, fn },
+    });
+    if (logErr) throw new Error(logErr.message);
+    if (report.state !== "ready") {
+      console.error(
+        JSON.stringify({
+          fn,
+          step: "alert_channel",
+          state: report.state,
+          message:
+            report.state === "missing"
+              ? "MAYA_ALERT_WEBHOOK is not set for this function: no alert it raises can be sent anywhere."
+              : "MAYA_ALERT_WEBHOOK is set for this function but is not an https:// address, so no alert it raises is sent.",
+        }),
+      );
+    }
+    return { recorded: true, report };
+  } catch (e) {
+    console.error(JSON.stringify({ fn, step: "alert_channel", error: e instanceof Error ? e.message : String(e) }));
+    return { recorded: false, report };
+  }
+}
+
+export type AlertChannelTest = AlertChannelReport & { sent: boolean; reason?: string };
+
+/**
+ * The test alert, sent from inside an edge function so it uses the same
+ * settings and the same post as a real alert. No severity floor, no dedupe.
+ * The outcome is written to platform_audit_events (alert.channel_test), and
+ * the function's channel report is written again with it, so Pilot health
+ * shows what this function found. Never throws; never returns the address.
+ */
+export async function sendAlertChannelTest(
+  supabase: SupabaseClient,
+  opts: { fn: string; sentBy?: string | null; timeoutMs?: number },
+): Promise<AlertChannelTest> {
+  const text =
+    `🧪 Test alert from the MAYA Command Center, sent through ${opts.fn}${opts.sentBy ? ` by ${opts.sentBy}` : ""}. ` +
+    "If you can read this, real alerts from the scheduled syncs reach this channel.";
+  const posted = await postTestMessage(text, opts.timeoutMs ?? 8000);
+  const { report } = await recordAlertChannel(supabase, opts.fn, { force: true });
+  try {
+    const { error } = await supabase.rpc("platform_log_event", {
+      p_event_type: ALERT_CHANNEL_TEST_EVENT,
+      p_entity_type: "alert_channel",
+      p_entity_id: opts.fn,
+      p_detail: {
+        fn: opts.fn,
+        sent: posted.sent,
+        ...(posted.reason ? { reason: posted.reason } : {}),
+        state: report.state,
+        min_severity: report.minSeverity,
+        ...(opts.sentBy ? { sent_by: opts.sentBy } : {}),
+      },
+    });
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    console.error(JSON.stringify({ fn: opts.fn, step: "alert_channel_test", error: e instanceof Error ? e.message : String(e) }));
+  }
+  return { ...report, sent: posted.sent, ...(posted.reason ? { reason: posted.reason } : {}) };
 }
 
 function postToWebhook(url: string, payload: Record<string, unknown>, timeoutMs: number): Promise<Response> {
@@ -91,9 +222,7 @@ export async function postTestMessage(
  * connection, not a slow sync. Set MAYA_ALERT_MIN_SEVERITY=warn to widen it.
  */
 function severityAllowed(severity: AlertSeverity): boolean {
-  return readEnv("MAYA_ALERT_MIN_SEVERITY")?.toLowerCase() === "warn"
-    ? true
-    : severity === "critical";
+  return alertMinSeverity() === "warn" ? true : severity === "critical";
 }
 
 /**
@@ -109,7 +238,23 @@ export async function raiseAlert(
   alert: Alert,
 ): Promise<{ sent: boolean; reason?: string }> {
   const url = webhookUrl();
-  if (!url) return { sent: false, reason: "no_webhook_configured" };
+  if (!url) {
+    // Said once per alert, so an alert with nowhere to go is at least in the
+    // function's log: before this, it was skipped without a word.
+    console.error(
+      JSON.stringify({
+        fn: "raiseAlert",
+        key: alert.key,
+        severity: alert.severity,
+        ...(alert.hotelId ? { hotelId: alert.hotelId } : {}),
+        title: alert.title,
+        reason: "no_webhook_configured",
+        state: alertChannelState(),
+        message: "This alert has nowhere to go: MAYA_ALERT_WEBHOOK is not an https:// address in this function's settings.",
+      }),
+    );
+    return { sent: false, reason: "no_webhook_configured" };
+  }
   if (!severityAllowed(alert.severity)) return { sent: false, reason: "below_min_severity" };
 
   try {

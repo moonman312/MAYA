@@ -36,6 +36,8 @@ import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
 import { readOutcome, runPricingTick } from "../_shared/pms/pricing-tick.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
+import { recordAlertChannel } from "../_shared/pms/alerting.ts";
+import { handleTestAlertRequest, parseScheduledSyncBody } from "../_shared/pms/alert-test-request.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -76,21 +78,22 @@ Deno.serve(async (req) => {
   const horizonDays = pricingHorizonDays(undefined, Math.min(syncDaysForward(), MEWS_MAX_SYNC_DAYS_FORWARD));
   const passBudget = { remaining: cadenceConfigFromEnv().tickPassNights };
 
-  // Optional single-hotel dispatch: body { hotel_id }.
-  let bodyHotelId: string | null = null;
-  try {
-    const text = await req.text();
-    if (text) {
-      const body = JSON.parse(text) as { hotel_id?: string };
-      if (body?.hotel_id) bodyHotelId = String(body.hotel_id);
-    }
-  } catch {
-    // ignore malformed body; fall back to fleet mode
-  }
+  // The body: a single-hotel dispatch { hotel_id }, or the Command Center's
+  // test alert { action: "test_alert" } (alert-test-request.ts).
+  const body = parseScheduledSyncBody(await req.text().catch(() => ""));
+  const bodyHotelId: string | null = body.hotel_id ?? null;
 
   const supabase = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Answered here, with this function's own alert settings, and nothing else runs.
+  const testAlert = await handleTestAlertRequest(supabase, body, {
+    fn: "mews-scheduled-sync",
+    secretEnv: "MEWS_CRON_SECRET",
+    secretConfigured: Boolean(cronSecret),
+  });
+  if (testAlert) return testAlert;
 
   // How much one invocation takes. Small enough to finish inside the Edge
   // runtime limit with room for the slowest hotel; raise it, or add cron
@@ -108,6 +111,9 @@ Deno.serve(async (req) => {
   // and Hotel Admin (G57). Fleet ticks only: they run every few minutes
   // whatever else is due, and a disconnected property is never claimed below.
   const outageNotices = bodyHotelId ? [] : await sendDueOutageNotices(supabase, "mews");
+  // Whether this function's alerts have anywhere to go, said where Pilot
+  // health can read it (a few rows a day, not one per tick).
+  if (!bodyHotelId) await recordAlertChannel(supabase, "mews-scheduled-sync");
 
   let hotelIds: string[];
   if (bodyHotelId) {

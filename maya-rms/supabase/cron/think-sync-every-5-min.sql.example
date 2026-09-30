@@ -20,7 +20,11 @@
 --                               anyone and says so in this function's log on
 --                               every run. The Cloudbeds sync reads the same one.)
 --    MAYA_ALERT_WEBHOOK         (https:// webhook the alerts go to; without it
---                               nothing leaves MAYA when pricing or sending stops)
+--                               nothing leaves MAYA when pricing or sending stops.
+--                               Each run says in its log and on Pilot health
+--                               whether it is set; the Command Center's
+--                               "Send a test alert" sends through this function)
+--    MAYA_ALERT_MIN_SEVERITY    (warn to send warnings too; unset sends critical only)
 --    Optional: THINK_API_BASE_URL, THINK_TOKEN_URL, THINK_PAGE_SIZE,
 --              MAYA_SYNC_DAYS_BACK, MAYA_SYNC_DAYS_FORWARD,
 --              MAYA_RUN_EVALUATE (default true)
