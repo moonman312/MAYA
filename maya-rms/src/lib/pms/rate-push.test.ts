@@ -785,7 +785,15 @@ describe("pushRatesForHotel and room types unticked as rooms", () => {
   const KING = { id: "rt-king", hotel_id: "hotel-1", external_room_type_id: "CB-KING", name: "King", counts_as_room: true, ...OPEN_BOUNDS };
   const TARGETS: RateTargetMap = { "CB-KING": "rate-100", "CB-PARK": "rate-900" };
 
-  function hotel(opts: { parking: Row; rules?: Row[]; fault?: Parameters<typeof fakeSupabase>[1] extends { fault?: infer F } | undefined ? F : never }) {
+  function hotel(opts: {
+    parking: Row;
+    rules?: Row[];
+    /** Further published prices, on top of the King's and the parking bay's for 1 August. */
+    published?: Row[];
+    /** Open manual prices (hotel-1, not cleared, set an hour ago unless said). */
+    manual?: Row[];
+    fault?: Parameters<typeof fakeSupabase>[1] extends { fault?: infer F } | undefined ? F : never;
+  }) {
     return fakeSupabase(
       {
         hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
@@ -794,7 +802,11 @@ describe("pushRatesForHotel and room types unticked as rooms", () => {
         published_price: [
           { hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-king", price: 210, computed_at: JUST_NOW },
           { hotel_id: "hotel-1", stay_date: "2026-08-01", room_type_id: "rt-parking", price: 110, computed_at: JUST_NOW },
+          ...(opts.published ?? []).map((r) => ({ hotel_id: "hotel-1", computed_at: JUST_NOW, ...r })),
         ],
+        ...(opts.manual
+          ? { manual_price: opts.manual.map((r) => ({ hotel_id: "hotel-1", cleared_at: null, set_at: new Date(Date.now() - 60 * 60_000).toISOString(), ...r })) }
+          : {}),
         pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: TARGETS }],
       },
       opts.fault ? { fault: opts.fault } : {},
@@ -837,6 +849,44 @@ describe("pushRatesForHotel and room types unticked as rooms", () => {
     expect(db.tables.rate_push_incidents ?? []).toEqual([
       expect.objectContaining({ cause: "guardrail_not_a_room", admin_only: true, severity: "transient", customer_visible_at: null }),
     ]);
+  });
+
+  it("sends the price the owner typed for a night of it, and still holds the engine's own price on its other nights", async () => {
+    // The owner typed $25 for the parking bay on 2 August (the engine
+    // publishes a typed price as it is). No rule names the type. Before the
+    // type flag was checked at the send, the typed price went out; it still
+    // does: a typed price is the owner's ask as much as a rule is.
+    const db = hotel({
+      parking: { ...PARKING, counts_as_room: false },
+      published: [{ stay_date: "2026-08-02", room_type_id: "rt-parking", price: 25 }],
+      manual: [{ stay_date: "2026-08-02", room_type_id: "rt-parking", price: 25 }],
+    });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId).sort()).toEqual(["CB-KING", "CB-PARK"]);
+    expect(res).toMatchObject({ pushed: true, sent: 2, skippedGuardrail: 1, guardrails: { "guardrail:not_a_room": 1 } });
+    expect(ledger(db)).toEqual(
+      expect.arrayContaining([
+        { rt: "rt-king", status: "sent", error: null, attempts: 1, price: 210 },
+        // The engine's $110 on 1 August, which nobody asked for, stays held.
+        { rt: "rt-parking", status: "skipped", error: "guardrail:not_a_room", attempts: 0, price: 110 },
+        // The $25 the owner typed for 2 August went.
+        { rt: "rt-parking", status: "sent", error: null, attempts: 1, price: 25 },
+      ]),
+    );
+    expect(db.tables.rate_push_incidents ?? []).toEqual([]);
+  });
+
+  it("a typed price that was cleared no longer opens the door", async () => {
+    const db = hotel({
+      parking: { ...PARKING, counts_as_room: false },
+      published: [{ stay_date: "2026-08-02", room_type_id: "rt-parking", price: 25 }],
+      manual: [{ stay_date: "2026-08-02", room_type_id: "rt-parking", price: 25, cleared_at: JUST_NOW }],
+    });
+    const { adapter, attempts } = makeAdapter(TARGETS);
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(attempts.map((a) => a.externalRoomTypeId)).toEqual(["CB-KING"]);
+    expect(res).toMatchObject({ sent: 1, skippedGuardrail: 2, guardrails: { "guardrail:not_a_room": 2 } });
   });
 
   it("sends it once a rule names it under Change, on or paused", async () => {

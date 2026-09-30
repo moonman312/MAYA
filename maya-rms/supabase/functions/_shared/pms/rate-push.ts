@@ -507,8 +507,9 @@ export async function pushRatesForHotel(
   // to be seen to be held back and recorded, not silently dropped.
   const rtRows = await readRoomTypes(supabase, hotelId);
   // A type unticked as a room is sent to only when a rule names it under
-  // "Change" (guardrail:not_a_room); which types any rule names is read once,
-  // and only when such a type has a published price to consider.
+  // "Change" or a price was typed for the night (guardrail:not_a_room); which
+  // types any rule names is read once, and only when such a type has a
+  // published price to consider.
   const anyNonRoom = rtRows.some((r) => r.counts_as_room === false);
   const namedByRule = anyNonRoom ? await readRoomTypesNamedByRules(supabase, hotelId) : new Set<string>();
   const roomTypeById = new Map<string, GuardrailRoomType & { ext: string }>();
@@ -715,8 +716,9 @@ export async function pushRatesForHotel(
     // own rate for it and nothing is wrong. The ledger says why the night is
     // held (so the admin ledger and the summary show it) and that is all: no
     // incident, since one would stay open for as long as the parking bay
-    // exists. Once a rule named it and MAYA's price went out, it is filed
-    // like any other guardrail hold, because that price is still in the PMS.
+    // exists. Once a rule named it, or a typed price opened the night, and
+    // MAYA's price went out, it is filed like any other guardrail hold,
+    // because that price is still in the PMS.
     if (code === GUARDRAIL.notARoom && ledgerRowNeverSent(priorRow.get(key))) {
       const row = skippedLedgerRow(hotelId, adapter.pmsType, cellOf(c), code, priorRow.get(key), nowIso);
       if (row) rows.push(row);

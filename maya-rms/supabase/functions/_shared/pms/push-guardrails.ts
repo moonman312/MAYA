@@ -22,16 +22,18 @@
  *                                  (room_types.is_active is not true).
  *   guardrail:not_a_room           The room type is unticked as a room
  *                                  (room_types.counts_as_room is false: a
- *                                  parking bay, a court, a meeting room) and
- *                                  no rule of the hotel's names it as a room
- *                                  type it changes. The engine publishes a
- *                                  price for it all the same (its own rate,
+ *                                  parking bay, a court, a meeting room), no
+ *                                  rule of the hotel's names it as a room
+ *                                  type it changes, and nobody has typed a
+ *                                  price for the night. The engine publishes
+ *                                  a price for it all the same (its own rate,
  *                                  held between its floor and ceiling), and
  *                                  a hotel-wide floor once landed on such
  *                                  types; nothing is sent to the PMS for a
  *                                  type the owner never asked MAYA to price.
  *                                  A rule that ticks it under "Change" is
- *                                  that ask, and its price goes out.
+ *                                  that ask, and so is a price typed for the
+ *                                  night (an open manual price): both go out.
  *   guardrail:invalid_price        The price is not a finite number above 0.
  *                                  0 is a price only where the night's open
  *                                  manual price is 0: a comp night.
@@ -183,8 +185,10 @@ export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
     return GUARDRAIL.outsideWindow;
   }
   if (c.roomType.isActive !== true) return GUARDRAIL.inactiveRoomType;
-  if (c.roomType.countsAsRoom === false && c.roomType.namedByRule !== true) return GUARDRAIL.notARoom;
   const manual = typeof c.manualPrice === "number" && Number.isFinite(c.manualPrice) ? c.manualPrice : null;
+  // A price typed for the night is as much the owner's ask as a rule naming
+  // the type: it is sent, as it was before the type flag was checked here.
+  if (c.roomType.countsAsRoom === false && c.roomType.namedByRule !== true && manual == null) return GUARDRAIL.notARoom;
   if (typeof c.price !== "number" || !Number.isFinite(c.price) || cents(c.price) < 0) return GUARDRAIL.invalidPrice;
   // The engine publishes 0 only for a manual price of 0.
   if (cents(c.price) === 0 && !(manual != null && cents(manual) === 0)) return GUARDRAIL.invalidPrice;

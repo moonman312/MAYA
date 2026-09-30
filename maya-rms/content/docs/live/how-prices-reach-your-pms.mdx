@@ -3,7 +3,7 @@ title: How prices reach your property system
 summary: Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
 section: live
 order: 30
-readingTime: 22
+readingTime: 23
 keywords: [pricing run cannot finish, pricing run failed, run stopped, sending, sent, push, when are prices sent, how many nights, 396 nights, 13 months, a year ahead, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, 399 days, price beyond the window, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
 questions:
   - When are prices sent to my property system? {#when-prices-are-sent/every-cycle}
@@ -166,7 +166,7 @@ Type 0 for a night and the confirmation reads "Saved. MAYA doesn't send a price 
 
 ## Room types you have unticked or switched off
 
-<Ui>Counts as a room</Ui> on the PMS tab changes what MAYA divides by for occupancy, what you are billed for, and whether a price is sent for the type. A room type you untick there (a parking bay, a meeting room, a court) is still priced in MAYA whenever it has a starting price, but nothing is sent to your system for it unless one of your rules ticks it under <Ui>Apply to room types</Ui>. Your own rate for it stays as it is. The floor and ceiling answers from setup are not written onto it either. Tick it in a rule, and its price is sent like any other room type's.
+<Ui>Counts as a room</Ui> on the PMS tab changes what MAYA divides by for occupancy, what you are billed for, and whether a price is sent for the type. A room type you untick there (a parking bay, a meeting room, a court) is still priced in MAYA whenever it has a starting price, but nothing is sent to your system for it unless one of your rules ticks it under <Ui>Apply to room types</Ui>, or you type a price for one of its nights. Your own rate for it stays as it is. The floor and ceiling answers from setup are not written onto it either. Tick it in a rule, and its price is sent like any other room type's. Type a price for a night of it on the calendar, and that night is sent as you typed it, with any rule that ticks the type on top; its other nights stay held.
 
 A room type that counts as a room is sent whenever it has a starting price, such as your rate in your system, a booking or a price you typed. To keep your rules off such a room type, leave it out of every rule's <Ui>Apply to room types</Ui>: it is then sent at your own rate, kept between its floor and ceiling. If your rate is outside them, the floor or ceiling is sent instead. For a room type that counts as a room there is no switch that takes it out of sending, with one exception.
 

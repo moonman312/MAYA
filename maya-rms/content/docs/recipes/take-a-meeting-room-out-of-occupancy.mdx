@@ -3,7 +3,7 @@ title: Take a meeting room out of occupancy
 summary: Untick Counts as a room for a meeting room, spa slot or court on the PMS tab so it no longer counts in sellable occupancy, the calendar's room counts or the room count you are billed for.
 section: recipes
 order: 160
-readingTime: 3
+readingTime: 4
 keywords: [meeting room, spa, spa slot, court, pickleball, parking, boardroom, not a room, counts as a room, untick, exclude from occupancy, occupancy wrong, room types, billed for a meeting room, event space, rule never fires, booking window]
 questions:
   - How do I take a meeting room out of occupancy? {#in-plain-words}
@@ -39,7 +39,7 @@ Changing it needs Revenue Manager access or higher. The change re-prices every n
 - **Sellable occupancy.** Only ticked types, and types still tagged "needs your answer", are divided by. The Harbour Inn has 20 rooms plus a Meeting Room. With it ticked, 18 booked rooms read as 18 of 21 (86%). Unticked, they read as 18 of 20 (90%).
 - **The calendar.** The day card's "18/20 rooms" and its percentage leave out types tagged "not a room". Revenue on the card still sums every type.
 - **Booking speed.** Bookings for an unticked type are not counted, and it is never measured by a rule.
-- **Sending.** MAYA sends no price to your property system for an unticked type unless one of your rules ticks it under <Ui>Change</Ui>. Your own rate for the Meeting Room stays as it is there. The floor and ceiling answers from setup are not written onto it either.
+- **Sending.** MAYA sends no price to your property system for an unticked type unless one of your rules ticks it under <Ui>Change</Ui>, or you type a price for one of its nights on the calendar (that night is sent as you typed it). Your own rate for the Meeting Room stays as it is there. The floor and ceiling answers from setup are not written onto it either.
 - **Rules.** In the rule builder the type is tagged "not a room" and starts unticked. A rule that ticks it can still change its price, and that price is sent. A rule that measures only unticked types (the Meeting Room alone, say) never fires on occupancy, pickup or booking speed. A booking window condition counts days, not bookings. So a rule whose only condition is booking window still fires and changes the room types it is set to change.
 - **Your bill.** The room count MAYA measures from your system leaves out unticked types. Lowering the count never lowers your bill on its own: set it on the <Ui>Billing</Ui> page. Read [Change the room count you pay for](/docs/recipes/change-the-room-count-you-pay-for).
 

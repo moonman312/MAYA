@@ -108,7 +108,7 @@ describe("checkPushGuardrails", () => {
     ]);
   });
 
-  it("holds back a type unticked as a room unless a rule names it, and treats an unanswered type as a room", () => {
+  it("holds back a type unticked as a room unless a rule names it or a price was typed for the night, and treats an unanswered type as a room", () => {
     const parking = (over: Partial<GuardrailInput["roomType"]> = {}) =>
       cell({ price: 110, roomType: { isActive: true, floorPrice: 110, ceilingPrice: 300, countsAsRoom: false, ...over } });
     // A $110 room floor landed on the parking bay and the engine priced it there: not sent.
@@ -120,13 +120,21 @@ describe("checkPushGuardrails", () => {
     expect(checkPushGuardrails(parking({ countsAsRoom: null }))).toBeNull();
     expect(checkPushGuardrails(parking({ countsAsRoom: undefined }))).toBeNull();
     expect(checkPushGuardrails(parking({ countsAsRoom: true }))).toBeNull();
-    // A manual price on the parking bay does not send it either: the type, not the price, is the reason.
-    expect(checkPushGuardrails({ ...parking(), manualPrice: 110 })).toBe("guardrail:not_a_room");
+    // A price typed for the night is the owner's ask as much as a rule is: it goes, as typed.
+    expect(checkPushGuardrails({ ...parking(), manualPrice: 110 })).toBeNull();
+    expect(checkPushGuardrails({ ...parking(), price: 20, manualPrice: 20 })).toBeNull();
+    // A rule on top of the typed price, within the type's bounds, goes too.
+    expect(checkPushGuardrails({ ...parking(), price: 130, manualPrice: 120 })).toBeNull();
+    // A manual price that is not a number is no manual price.
+    expect(checkPushGuardrails({ ...parking(), manualPrice: NaN })).toBe("guardrail:not_a_room");
+    expect(checkPushGuardrails({ ...parking(), manualPrice: null })).toBe("guardrail:not_a_room");
     // Structural reasons ahead of it, and it ahead of anything about the price.
     expect(checkPushGuardrails(parking({ isActive: false }))).toBe("guardrail:inactive_room_type");
     expect(checkPushGuardrails({ ...parking(), stayDate: "2026-12-25" })).toBe("guardrail:outside_window");
     expect(checkPushGuardrails({ ...parking(), price: 5 })).toBe("guardrail:not_a_room");
     expect(checkPushGuardrails({ ...parking(), zeroBase: true })).toBe("guardrail:not_a_room");
+    // With the door open, the price is checked as any other: a typed 0 on a PMS that takes no 0 is held for that.
+    expect(checkPushGuardrails({ ...parking(), price: 0, manualPrice: 0 })).toBe("guardrail:zero_rate_unsupported");
   });
 
   it("lets through what the engine publishes for a manual price, under the floor, over the ceiling or a comp night at 0", () => {

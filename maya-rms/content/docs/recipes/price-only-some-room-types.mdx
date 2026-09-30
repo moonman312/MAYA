@@ -41,7 +41,7 @@ At least one room type must be ticked. Leaving none gives "Select at least one r
 
 With the single list, the rule measures and changes the same room types. It measures the ticked types that count as rooms, and it changes every ticked type. So a rule ticked on Suite alone measures Suite's occupancy on its own (The Harbour Inn has 2 Suites, so 1 booked is 50%) and moves Suite's price only.
 
-A chip tagged "not a room" is a type you have unticked as a room on the <Ui>PMS</Ui> tab, such as a Meeting Room. It starts unticked in the builder. Tick it and the rule changes its price, and once you are live that price is sent to your system; leave it out of every rule and MAYA sends nothing for it. A rule never measures it: a court or meeting room has no occupancy to read.
+A chip tagged "not a room" is a type you have unticked as a room on the <Ui>PMS</Ui> tab, such as a Meeting Room. It starts unticked in the builder. Tick it and the rule changes its price, and once you are live that price is sent to your system; leave it out of every rule and MAYA sends nothing for it, apart from a price you type for one of its nights on the calendar, which is sent as you typed it. A rule never measures it: a court or meeting room has no occupancy to read.
 
 If you tick only "not a room" types, the rule has nothing to measure. An occupancy, booking speed or pickup condition then can never be true, so a rule with any of them never fires. Only a rule whose single condition is booking window (the number of days until the stay) still fires, because it counts days, not bookings.
 
