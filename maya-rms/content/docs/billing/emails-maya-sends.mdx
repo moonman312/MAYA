@@ -1,10 +1,10 @@
 ---
 title: Emails MAYA sends
-summary: The five emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
+summary: The seven emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, an email when the connection to your property system has been down about an hour, the day's overwrites under "MAYA's price wins", and a note when something other than MAYA seems to be changing your rates), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.
 section: billing
 order: 50
-readingTime: 12
-keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, account ready, your account is ready, is ready in MAYA, pick up where you left off, welcome email, email when it's ready, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available, password reset email, reset link, forgot password email, connection down, connection lost email, lost its connection, disconnected email, reconnect email, down for an hour, outage, keys refused]
+readingTime: 16
+keywords: [email, emails, invitation email, invite email, room count email, your MAYA plan covers, your subscription starts, renews, isn't connected, nudge, reminder, trial reminder, receipt, invoice email, failed payment email, card expiring, payment confirmed, account ready, your account is ready, is ready in MAYA, pick up where you left off, welcome email, email when it's ready, confirmation email, change log digest, alert email, notification, billing email, change billing email, spam, did not arrive, never got the email, from address, reply-to, invitation link expired, confirm your email, account confirmation, sending address, sender address, which address, allow list, allowlist, whitelist, safe sender, spam filter, junk, IT team, domain, Mews, connect Mews, two minutes, Finish setting up MAYA, not yet available, password reset email, reset link, forgot password email, connection down, connection lost email, lost its connection, disconnected email, reconnect email, down for an hour, outage, keys refused, MAYA overwrote rate changes, overwrites email, daily email, once a day, MAYA's price wins, something other than MAYA seems to be changing rates, another pricing tool email, other tool, rates changed in Cloudbeds email]
 questions:
   - What billing emails will I get? {#emails-that-come-from-stripe}
   - 'What is the "your subscription starts" email?' {#the-nudge-before-a-charge-when-nothing-is-connected/sent-to-a}
@@ -21,15 +21,17 @@ questions:
   - Where does the password reset email come from? {#the-password-reset-email}
   - Will MAYA email me if the connection to my property system breaks? {#the-connection-down-email}
   - Who gets the email when the connection is down? {#the-connection-down-email}
+  - 'What is the "MAYA overwrote rate changes" email?' {#the-overwrites-email}
+  - 'Why did MAYA email me that something other than MAYA seems to be changing rates?' {#the-other-pricing-tool-email}
 pms: [cloudbeds, thinkreservations, mews]
 updated: 2026-09-30
 ---
 
 <InPlainWords>
-MAYA itself sends five emails: the team invitation, a note that your account is ready once you have paid, the room count email, a nudge before your subscription starts or renews if your property system is not connected, and an email to your General Managers and Hotel Admins once the connection to your property system has been down about an hour. Creating an account also brings a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email about prices, rules or the change log.
+MAYA itself sends seven emails: the team invitation, a note that your account is ready once you have paid, the room count email, a nudge before your subscription starts or renews if your property system is not connected, and three to your General Managers and Hotel Admins: once the connection to your property system has been down about an hour, once a day about rates MAYA overwrote under "MAYA's price wins", and once when something other than MAYA seems to be changing your rates. Creating an account also brings a confirmation link from the sign-in service. Anything about money (receipts, failed payments, card expiry, a trial reminder) comes from Stripe, if Stripe's settings send it, to the email address on your billing account. MAYA sends no email when a price changes or a rule fires.
 </InPlainWords>
 
-## The five emails MAYA sends
+## The seven emails MAYA sends
 
 | Email | When | Subject |
 |---|---|---|
@@ -38,8 +40,10 @@ MAYA itself sends five emails: the team invitation, a note that your account is 
 | The room count email | Your property system shows more rooms than you pay for | "Your MAYA plan covers 20 rooms, and your PMS shows 24", with your own numbers |
 | The nudge before a charge | A charge is coming up and your property system is still not connected | "Your MAYA subscription starts" and the date (first charge), or "MAYA renews" and the date, then "and isn't connected to your PMS yet" |
 | The connection-down email | The connection to your property system has read <Ui>Disconnected</Ui> or <Ui>Error</Ui> for about an hour | "MAYA has lost its connection to Cloudbeds at The Harbour Inn", with your system and property |
+| The overwrites email | Your setting is <Ui>MAYA's price wins</Ui>, and on the day just over MAYA sent its price again over rates changed or removed in your system | "MAYA overwrote rate changes in Cloudbeds at The Harbour Inn" |
+| The other pricing tool email | Your setting is <Ui>Keep the change as your price</Ui>, and the changes in your system look like another pricing tool at work | "Something other than MAYA seems to be changing rates in Cloudbeds at The Harbour Inn" |
 
-All five come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
+All seven come from MAYA's own sending address, described under [The sending address](#the-sending-address). Nothing else is sent by MAYA today.
 
 ### The team invitation
 
@@ -89,6 +93,28 @@ Its button, <Ui>Open the PMS tab</Ui>, opens MAYA on that tab, for the property 
 
 It is not sent when your subscription has stopped (cancelled, or unpaid after the bank's retries), because MAYA has paused work on the property anyway. It is not sent when we remove your Mews keys at your request. Read [reconnecting and disconnecting](/docs/connect/reconnect-and-disconnect).
 
+### The overwrites email
+
+Sent only while your setting in <Ui>Settings</Ui> is <Ui>MAYA's price wins</Ui> (Cloudbeds and ThinkReservations). Each time a rate MAYA sent is changed or removed in your system, MAYA sends its own price again ([When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins)). Once a day is over at your property, in its own time zone, one email lists that day's nights. It goes to every General Manager and Hotel Admin on the property, at the address they sign in with. A day with no overwrites sends none, and there is never more than one a day.
+
+Headed "MAYA overwrote rate changes in Cloudbeds" (or ThinkReservations), it says:
+
+- **What happened.** On that day, rates in your system were changed or removed on nights MAYA had sent a price to, and because your setting is "MAYA's price wins", MAYA overwrote each change again with its own price.
+- **Each night once**, with the room type, the rate your system had (or "Removed") and MAYA's price, nearest night first, and how many times that day MAYA sent it again. After 40 nights it says how many more there are, and the <Ui>Change Log</Ui> has every one.
+- **How to set a price by hand**: in MAYA's calendar, not in your system.
+
+Its button, <Ui>Open the calendar</Ui>, opens MAYA's calendar for the property you last had open in MAYA. If you look after more than one property, the email adds a line: if the calendar opens on another property, pick this one in the <Ui>Property</Ui> dropdown.
+
+### The other pricing tool email
+
+Sent while your setting is <Ui>Keep the change as your price</Ui> (as it starts) when the rates changed in your system on nights MAYA sent to look like another pricing tool at work: 20 or more in one read, or changes on 3 or more different days within 7 days ([When something else seems to change your rates](/docs/watch/rates-changed-in-your-pms#when-something-else-seems-to-change-your-rates)). It goes to every General Manager and Hotel Admin, at the address they sign in with, at most once every 7 days. The <Ui>Change Log</Ui> gets the same warning at the same time.
+
+Headed "Something other than MAYA seems to be changing rates in Cloudbeds", it says how many rates in your system were changed on nights MAYA had sent a price to in the last 7 days, that each change is kept as your price so MAYA isn't pricing those nights, and that if you use another pricing tool, you can turn on "MAYA's price wins" in Settings. If you made the changes yourself, there is nothing to do. Its button, <Ui>Open Settings</Ui>, opens Settings at your system's section, for the property you last had open in MAYA, with the same <Ui>Property</Ui> line as the other emails when you look after more than one.
+
+It is not sent if you turn <Ui>MAYA's price wins</Ui> on before it goes out.
+
+Neither of these two is sent when your subscription has stopped.
+
 ## The account confirmation email
 
 When you create an account, you get an email with a link to confirm your address. Opening it signs you in. It comes from the sign-in service MAYA uses, not from MAYA's own emails. If it does not arrive, <Ui>Send the link again</Ui> on the "Check your email" screen sends a new one. [Create an account and sign in](/docs/account/create-an-account-and-sign-in#confirming-your-email) shows that screen and what to do next.
@@ -103,20 +129,20 @@ Stripe, not MAYA, sends everything about money: receipts and invoices, a failed-
 
 ## Emails that do not exist
 
-- **A change log digest or a price alert.** There is no email when a night's price changes. The <Ui>Change Log</Ui> tab is the record.
+- **A change log digest or a price alert.** There is no email when a night's price changes. The <Ui>Change Log</Ui> tab is the record. The one daily email about prices is the overwrites email, and only under <Ui>MAYA's price wins</Ui>.
 - **An email about the <Ui>Rules that keep adjusting</Ui> banner.** The question is asked on the dashboard only.
 - **A trial-ending reminder from MAYA.** Any reminder comes from Stripe, if Stripe's settings send one.
 - **A "your subscription was cancelled" email from MAYA.** The <Ui>Billing</Ui> page shows the status.
 
 ## Changing the billing email
 
-The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. The account ready email goes to the address you sign in with instead, and the connection-down email to the sign-in address of each General Manager and Hotel Admin. Change the billing email in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
+The address that receives invoices, receipts, the room count email and the nudge is the one on your billing account in Stripe. The account ready email goes to the address you sign in with instead, and the connection-down, overwrites and other pricing tool emails to the sign-in address of each General Manager and Hotel Admin. Change the billing email in Stripe's billing portal, opened from <Ui>Update card, receipts & cancellation</Ui> on the <Ui>Billing</Ui> page. Changing it does not change the address you sign in with, which cannot be changed in the app yet.
 
 ## The sending address
 
-MAYA's five emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
+MAYA's seven emails all come from one sending address that we set on our side. It is not shown anywhere in the app. If your IT team wants to allow our emails through a spam filter, [email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20address) and we send the exact address and domain.
 
-In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us. A reply to the account ready email, the nudge before a charge or the connection-down email comes to us.
+In the meantime, two things help. Every subject in the table above contains "MAYA". A reply to the team invitation goes to the person who sent it, not to us. A reply to the account ready email, the nudge before a charge, the connection-down email, the overwrites email or the other pricing tool email comes to us.
 
 The other emails come from elsewhere: anything about money from Stripe, and the account confirmation and password reset emails from the sign-in service. Allow those separately.
 
@@ -129,11 +155,13 @@ The other emails come from elsewhere: anything about money from Stripe, and the 
 - For the account ready email: it went to the address you sign in with, once, soon after you paid. It is only sent in the first day after you pay, so if confirming the payment took longer than that, none comes. You do not need it to carry on: sign in and MAYA takes you to the next step.
 - For the room count email or the nudge: it went to the billing email, which may not be the address you sign in with.
 - For the connection-down email: it goes only to General Managers and Hotel Admins, at the address they sign in with, about an hour after the <Ui>Connection</Ui> card first read <Ui>Disconnected</Ui> or <Ui>Error</Ui>, and only once for that outage. <Ui>Degraded</Ui> sends none. Check the <Ui>PMS</Ui> tab, which is always up to date.
+- For the overwrites email: it goes only under <Ui>MAYA's price wins</Ui>, to General Managers and Hotel Admins, the morning after a day with overwrites (your property's time), at most once a day. The <Ui>Change Log</Ui> lists every overwrite as it happens.
+- For the other pricing tool email: at most once every 7 days, and not while <Ui>MAYA's price wins</Ui> is on. The <Ui>Change Log</Ui> shows the same warning.
 - For a receipt or a Stripe reminder: the same billing email, and it depends on Stripe's settings.
 - Still nothing? [Email us](mailto:info@modern-hospitality-solutions.com?subject=Missing%20email) and say which email and which address.
 
 <Callout kind="not-yet">
-No price or rule alerts by email. No digest. No email preferences screen: the five emails are sent when their moment comes and cannot be switched off individually.
+No price or rule alerts by email. No email preferences screen: the seven emails are sent when their moment comes and cannot be switched off individually.
 </Callout>
 
 <Related>

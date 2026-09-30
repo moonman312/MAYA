@@ -3,7 +3,7 @@ title: What MAYA picks up from your system, and how soon
 summary: Every change you can make in Cloudbeds, ThinkReservations or Mews, whether MAYA picks it up, and how long it takes. Bookings within about five minutes, your own rates within the hour, the whole window once a day, and a short list of things MAYA never reads.
 section: connect
 order: 110
-readingTime: 13
+readingTime: 14
 keywords: [how soon, how long, how quickly, delay, lag, when does MAYA see, picks up, new booking, cancellation, no show, test booking, test reservation, dummy booking, made and cancelled, booked and cancelled, dates changed, early departure, early check-out, checked out early, left early, shortened stay, shorten a stay, moved room, room type changed, rate changed, closed night, rate plan renamed, rate plan deleted, rate plan rebuilt, same percentage, every night, markup, room type added, room type removed, units changed, room count, list of rooms, blocked rooms, allotment, restrictions, taxes, password, time zone changed, currency changed, name changed, revoked keys, keys stopped working, Last sync, five minutes, hourly, once a day, daily, full re-read, not read, never reads, large property, slow, backoff, extended stay, extension, day use, day-use, same-day check-out, comp, house use, $0 booking]
 questions:
   - How soon after a booking in my system does MAYA see it? {#in-plain-words}
@@ -23,7 +23,7 @@ questions:
   - Do day-use (same-day in and out) bookings count in MAYA? {#every-change-and-when-maya-picks-it-up/a-day-use}
   - Why is MAYA slow to pick up changes on a large property? {#when-it-takes-longer/a-large-propertys}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -58,7 +58,8 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 | Move a booking to another room type | Next read. The room's row gets the new room type |
 | Confirm a Confirmation Pending booking | Nothing changes. Both count as booked |
 | Change a rate on a night MAYA has never sent to | Within the hour, and always before MAYA's first send to that night. Your rate becomes the night's starting point |
-| Change a rate on a night MAYA has sent to and confirmed | Within the hour, once MAYA's send is at least 60 minutes old. Kept as "Changed in Cloudbeds" |
+| Change a rate on a night MAYA has sent to and confirmed | Within the hour, once MAYA's send is at least 60 minutes old. Kept as "Changed in Cloudbeds", or with <Ui>MAYA's price wins</Ui> on, sent over with MAYA's price |
+| Remove a rate on a night MAYA has sent to and confirmed | Within the hour, the same way. MAYA stops pricing the night until Cloudbeds has a rate again, or with <Ui>MAYA's price wins</Ui> on, sends its price there again |
 | Change most nights MAYA has sent to by the same percentage (80% or more of them, and 10 at least) | Not kept as yours. It reads as a markup in your system, and MAYA's next price replaces them. Type those prices in MAYA instead |
 | Set a night's rate to 0 (close it) | Within the hour. Your rules leave the night alone unless a price is typed for it in MAYA. So also clear any price you typed for that night in MAYA. Otherwise MAYA may keep your typed price and send it once you are live |
 | Rename, rebuild or delete a rate plan | Within the hour, at the next rates read, or sooner if a send to the old plan fails. MAYA then sends to the new base rate |
@@ -146,7 +147,7 @@ From any system: availability by night, room blocks, out-of-order rooms, allotme
 - **A failing connection** is tried again with a growing wait, up to an hour between tries. Nothing is priced or sent on a cycle where the read failed, so bookings are never priced on stale data.
 - **If your system keeps asking MAYA to slow down**, MAYA waits a minute or two before calling it again, and sends move to a later cycle.
 - **Nights 396 or more days out** (past tonight and the next 395) are neither read for rates nor sent until they enter the window.
-- **A rate you change within an hour of MAYA's send** is not yet kept as yours, and MAYA's next price for that night can write over it. Wait an hour after a send before changing that night's rate by hand, or type the price in MAYA instead. Read [rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
+- **A rate you change within an hour of MAYA's send** is not yet kept as yours (or, with <Ui>MAYA's price wins</Ui> on, sent over), and MAYA's next price for that night can write over it. Wait an hour after a send before changing that night's rate by hand, or type the price in MAYA instead. Read [rates you change in your property system](/docs/watch/rates-changed-in-your-pms).
 
 <Example title="A Tuesday at The Harbour Inn on Cloudbeds">
 At 3:02 PM (US Pacific, the property's clock) a guest books a Standard room for Sat, Nov 14 2026. MAYA's next read, at about 3:06 PM, counts it. At 3:20 PM Priya changes that night's Standard rate in Cloudbeds from $150 to $160. MAYA last sent to that night at 2:10 PM, over an hour earlier, so on the next hourly rates read, by about 4:10 PM, the night shows "Changed in Cloudbeds · $160.00" and is kept. At 4:30 PM the front desk blocks room 204 for a plumber until Friday. MAYA does not see that. Priya records 1 unit of Standard out of service from Tue, Oct 6 2026 to Fri, Oct 9 2026 on the <Ui>PMS</Ui> tab, and sellable occupancy for those nights is right on the next run.

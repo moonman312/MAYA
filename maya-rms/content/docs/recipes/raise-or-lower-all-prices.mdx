@@ -16,7 +16,7 @@ questions:
   - Will a rule that raises every night also raise nights where I typed a price? {#using-more-than-one-way/the-rule-works}
   - How do I take an across-the-board raise off again? {#change-the-percentage-or-take-it-off/to-take-it}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -102,7 +102,7 @@ Change rates in your property system only on nights MAYA has never sent a price 
 
 MAYA reads your rate for each night in the window about once an hour, and again when your property's date changes. On a night it has never sent to, your rate is the starting point, so a night you raised 10% starts 10% higher and your rules work on top. Each night keeps its own rate, so weekends stay above weekdays.
 
-On a night MAYA has already sent to, a change in your system is kept as your own price once MAYA's last send there has landed and is an hour old ("Changed in Cloudbeds" on the calendar). That works for part of the window, not for nearly all of it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has every condition.
+On a night MAYA has already sent to, a change in your system is kept as your own price once MAYA's last send there has landed and is an hour old ("Changed in Cloudbeds" on the calendar), unless your setting is <Ui>MAYA's price wins</Ui>, which sends MAYA's price over it. That works for part of the window, not for nearly all of it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has every condition.
 
 <Callout kind="careful" title="Changing the whole window in your system once you are live">
 If you are live and change 80% or more of the nights MAYA has sent to (10 at least) by one percentage in your system, MAYA reads it as your system's own arithmetic, like prices shown with tax, and keeps none of it. Your new rates stay in your system only until MAYA's price for each night next changes. For the whole window, use the rule above.

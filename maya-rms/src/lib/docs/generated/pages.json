@@ -113,7 +113,7 @@
   "order": 20,
   "title": "Is MAYA right for your property",
   "summary": "Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.",
-  "readingTime": 16,
+  "readingTime": 17,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -1610,9 +1610,9 @@
   "order": 80,
   "title": "MAYA with ThinkReservations, start to finish",
   "summary": "A short checklist for a ThinkReservations property's first weeks with MAYA, in order, with a link to the page that explains each step.",
-  "readingTime": 6,
+  "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "thinkreservations"
   ],
@@ -1804,9 +1804,9 @@
   "order": 110,
   "title": "What MAYA picks up from your system, and how soon",
   "summary": "Every change you can make in Cloudbeds, ThinkReservations or Mews, whether MAYA picks it up, and how long it takes. Bookings within about five minutes, your own rates within the hour, the whole window once a day, and a short list of things MAYA never reads.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1870,7 +1870,7 @@
   "summary": "What Cloudbeds, ThinkReservations and Mews call things, what MAYA calls the same things, and what each one means once it is inside MAYA. Rate plans and rate types, reservations and bookings, room categories and room types, statuses and states.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3732,7 +3732,7 @@
   "order": 10,
   "title": "The calendar",
   "summary": "What each day on the Calendar tab shows and how your property can change it in Settings, what the colours and the key beside them mean, what you see when you click a day, and how fresh the numbers are.",
-  "readingTime": 15,
+  "readingTime": 16,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -3840,8 +3840,8 @@
   "slug": "settings",
   "order": 15,
   "title": "Settings",
-  "summary": "The Settings area, opened from the gear at the top of the dashboard. What each calendar day shows and which way its colours read, chosen once for everyone on the property, and your own text size.",
-  "readingTime": 7,
+  "summary": "The Settings area, opened from the gear at the top of the dashboard. What each calendar day shows and which way its colours read, and what MAYA does when a price it sent is changed in Cloudbeds or ThinkReservations, chosen once for everyone on the property, and your own text size.",
+  "readingTime": 10,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -3882,6 +3882,21 @@
    },
    {
     "depth": 2,
+    "text": "Changes made in your property system",
+    "id": "changes-made-in-your-property-system"
+   },
+   {
+    "depth": 3,
+    "text": "Turning MAYA's price wins on",
+    "id": "turning-mayas-price-wins-on"
+   },
+   {
+    "depth": 3,
+    "text": "Who can change the property system setting",
+    "id": "who-can-change-the-property-system-setting"
+   },
+   {
+    "depth": 2,
     "text": "Display",
     "id": "display"
    },
@@ -3904,7 +3919,11 @@
    "How do I make the text in MAYA bigger?",
    "Does my text size follow me to another computer or my phone?",
    "Does the text size change the docs too?",
-   "Why does Settings say \"Couldn't save your text size\"?"
+   "Why does Settings say \"Couldn't save your text size\"?",
+   "What does \"When a price MAYA sent is changed in Cloudbeds\" mean in Settings?",
+   "How do I stop MAYA keeping rates changed in Cloudbeds as my own prices?",
+   "Why does Settings ask me to replace nights that keep a rate changed in Cloudbeds?",
+   "Why is there no Cloudbeds section in my Settings?"
   ],
   "faq": []
  },
@@ -3917,7 +3936,7 @@
   "order": 20,
   "title": "The change log",
   "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.",
-  "readingTime": 20,
+  "readingTime": 22,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -3993,6 +4012,11 @@
    },
    {
     "depth": 2,
+    "text": "Rates changed in your property system",
+    "id": "rates-changed-in-your-property-system"
+   },
+   {
+    "depth": 2,
     "text": "Prices not reaching your property system",
     "id": "prices-not-reaching-your-property-system"
    },
@@ -4054,7 +4078,9 @@
    "What happens in the change log when I delete a rule?",
    "Why does my revenue pickup rule's sentence talk about bookings?",
    "Why is \"Show the numbers\" under a change an occupancy rule made?",
-   "Why did a problem sending prices take hours to show in the change log?"
+   "Why did a problem sending prices take hours to show in the change log?",
+   "What does \"MAYA sent its price, $165.00, again\" mean in the change log?",
+   "What does \"Something other than MAYA seems to be changing rates\" mean?"
   ],
   "faq": []
  },
@@ -4326,8 +4352,8 @@
   "slug": "rates-changed-in-your-pms",
   "order": 60,
   "title": "Rates you change in your property system",
-  "summary": "What happens when you change a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your change is kept as your price. On any other night it becomes the starting point your rules work from.",
-  "readingTime": 15,
+  "summary": "What happens when you change or remove a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your setting decides. As it starts, your change is kept as your price; with \"MAYA's price wins\", MAYA sends its own price again. On any other night your rate becomes the starting point your rules work from.",
+  "readingTime": 23,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -4343,6 +4369,11 @@
    },
    {
     "depth": 2,
+    "text": "Your setting",
+    "id": "your-setting"
+   },
+   {
+    "depth": 2,
     "text": "When a change counts as yours",
     "id": "when-a-change-counts-as-yours"
    },
@@ -4355,6 +4386,21 @@
     "depth": 2,
     "text": "What you see",
     "id": "what-you-see"
+   },
+   {
+    "depth": 2,
+    "text": "A rate removed in your system",
+    "id": "a-rate-removed-in-your-system"
+   },
+   {
+    "depth": 2,
+    "text": "When MAYA's price wins",
+    "id": "when-mayas-price-wins"
+   },
+   {
+    "depth": 2,
+    "text": "When something else seems to change your rates",
+    "id": "when-something-else-seems-to-change-your-rates"
    },
    {
     "depth": 2,
@@ -4410,7 +4456,13 @@
    "Which rate type does MAYA write to in ThinkReservations?",
    "I mistyped a rate in my system. What does MAYA do with it?",
    "I typed $15 instead of $150 in Cloudbeds. Will the floor catch it?",
-   "How long should I wait after MAYA sends before I change a rate in my system?"
+   "How long should I wait after MAYA sends before I change a rate in my system?",
+   "What does \"MAYA's price wins\" do?",
+   "We run another pricing tool too. How do we stop its rates being kept as our prices?",
+   "I removed a rate in Cloudbeds on a night MAYA had sent to. What happens?",
+   "Why does a night say \"Rate removed in Cloudbeds, so MAYA isn't pricing this night\"?",
+   "Why did I get an email saying MAYA overwrote rate changes?",
+   "Why does the change log say something other than MAYA seems to be changing rates?"
   ],
   "faq": []
  },
@@ -4604,9 +4656,9 @@
   "order": 10,
   "title": "Simulation mode",
   "summary": "Every property starts in simulation. MAYA reads your bookings, runs every rule and writes what it would do to the change log, but sends nothing to your property system until you go live.",
-  "readingTime": 11,
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5506,8 +5558,8 @@
   "slug": "emails-maya-sends",
   "order": 50,
   "title": "Emails MAYA sends",
-  "summary": "The five emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
-  "readingTime": 12,
+  "summary": "The seven emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, an email when the connection to your property system has been down about an hour, the day's overwrites under \"MAYA's price wins\", and a note when something other than MAYA seems to be changing your rates), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
+  "readingTime": 16,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -5518,8 +5570,8 @@
   "headings": [
    {
     "depth": 2,
-    "text": "The five emails MAYA sends",
-    "id": "the-five-emails-maya-sends"
+    "text": "The seven emails MAYA sends",
+    "id": "the-seven-emails-maya-sends"
    },
    {
     "depth": 3,
@@ -5545,6 +5597,16 @@
     "depth": 3,
     "text": "The connection-down email",
     "id": "the-connection-down-email"
+   },
+   {
+    "depth": 3,
+    "text": "The overwrites email",
+    "id": "the-overwrites-email"
+   },
+   {
+    "depth": 3,
+    "text": "The other pricing tool email",
+    "id": "the-other-pricing-tool-email"
    },
    {
     "depth": 2,
@@ -5597,7 +5659,9 @@
    "I use Mews and got a reminder that my system is not connected. What should I do?",
    "Where does the password reset email come from?",
    "Will MAYA email me if the connection to my property system breaks?",
-   "Who gets the email when the connection is down?"
+   "Who gets the email when the connection is down?",
+   "What is the \"MAYA overwrote rate changes\" email?",
+   "Why did MAYA email me that something other than MAYA seems to be changing rates?"
   ],
   "faq": []
  },
@@ -5846,6 +5910,7 @@
   ],
   "questions": [
    "Why did the price change on a night?",
+   "How do I tell why a night's price moved?",
    "How do I find out which rule changed a price?",
    "Where do I see why MAYA changed a price?",
    "What does \"Pricing rule\" mean in the change log?",
@@ -6152,7 +6217,7 @@
   "summary": "One booking window rule moves every night MAYA prices by the same percentage. A rule cannot be limited to a season, so for a stretch of dates, type the new price for each room type with through…, or change your rates in your property system on nights MAYA has not sent a price to yet.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6861,7 +6926,7 @@
   "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. An unpaid subscription is paid and moved for you. When to do it, and what clears the warning.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -7732,7 +7797,7 @@
   "faq": [
    {
     "q": "Why did MAYA overwrite the rate I set in Cloudbeds?",
-    "a": "On a live property, a rate you change in your system is kept as a manual price when all of these hold: the night is one MAYA had already sent to, MAYA's send there was confirmed, the send is at least 60 minutes old, and your rate differs from MAYA's price by more than rounding. The day card then reads \"Changed in Cloudbeds · $180.00\", rules that had already moved the night are paused, and MAYA does not write over it. Read Rates changed in your property system."
+    "a": "On a live property whose setting is Keep the change as your price (as every property starts), a rate you change in your system is kept as a manual price when all of these hold: the night is one MAYA had already sent to, MAYA's send there was confirmed, the send is at least 60 minutes old, and your rate differs from MAYA's price by more than rounding. The day card then reads \"Changed in Cloudbeds · $180.00\", rules that had already moved the night are paused, and MAYA does not write over it. Read Rates changed in your property system."
    },
    {
     "q": "Why did MAYA price a night I closed in my system?",
@@ -8304,7 +8369,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 60,
+  "readingTime": 62,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-09-30",
   "pms": [
@@ -8426,7 +8491,7 @@
   "order": 10,
   "title": "Glossary",
   "summary": "Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.",
-  "readingTime": 22,
+  "readingTime": 23,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [],
@@ -8899,7 +8964,7 @@
   "summary": "The Terms of Service in plain words. Who the agreement is with and where they are based, why every price is yours, who is liable if a price costs you money, uptime and what happens when MAYA is down, who owns your data, fees and refunds in brief, how you hear about changes to MAYA, and how disputes are settled under Wyoming law.",
   "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",

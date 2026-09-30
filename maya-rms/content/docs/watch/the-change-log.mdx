@@ -3,8 +3,8 @@ title: The change log
 summary: Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.
 section: watch
 order: 20
-readingTime: 20
-keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes]
+readingTime: 22
+keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
@@ -39,6 +39,8 @@ questions:
   - 'Why does my revenue pickup rule''s sentence talk about bookings?' {#pickup-count}
   - 'Why is "Show the numbers" under a change an occupancy rule made?' {#a-change-line-by-line/a-fallback}
   - 'Why did a problem sending prices take hours to show in the change log?' {#prices-not-reaching-your-property-system/a-problem-that-often}
+  - 'What does "MAYA sent its price, $165.00, again" mean in the change log?' {#rates-changed-in-your-property-system}
+  - 'What does "Something other than MAYA seems to be changing rates" mean?' {#rates-changed-in-your-property-system/the-warning-that}
 updated: 2026-09-30
 ---
 
@@ -62,7 +64,7 @@ A run that finds nothing to change is counted into a quiet line between the runs
 
 The button in the top right toggles between the two views:
 
-- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, and every answer you gave to a rule that kept adjusting.
+- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, every answer you gave to a rule that kept adjusting, and every item about rates changed in your property system.
 - <Ui>Show Changes Only</Ui> is what the button says once you have opened the full view. The full view adds the quiet lines. Each counts a stretch of runs in a row that changed nothing, with when the first and last of them ran, in small grey type: "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM (4 min ago), nothing needed to change." A stretch of one reads "Prices checked once at Sep 24, 1:55 PM". The line under the oldest change shown starts "Just before that, prices were checked 12 times".
 
 When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Prices not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
@@ -209,6 +211,19 @@ When our staff change something on your property for you, each save is logged as
 
 One item per save, however many things it changed. A rule saved together with nights it covers, such as the days it leaves as they are, is one line: the rule's own change, then how many days. A save of nights alone says what kind of thing changed and how many days, as in "Changed a base rate, 2 days." Items sit where they happened among the runs, at most 20 within the span of the runs on screen. Our staff can only make these changes in a time-limited support mode that records every one, as [Can our staff see your property?](/docs/reference/privacy-security-and-your-data#can-our-staff-see-your-property) explains.
 
+## Rates changed in your property system
+
+On Cloudbeds and ThinkReservations, a rate changed or removed in your system on a night MAYA had sent a price to can bring items of its own, headed "Changed in Cloudbeds" (or "Changed in Think Reservations") with the time MAYA read the change. Which ones depends on your setting, in <Ui>Settings</Ui> under your system's name.
+
+With <Ui>MAYA's price wins</Ui>, each night and room type MAYA sent its price to again is one item, naming the night, the room type, your system's rate and MAYA's price:
+
+- Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again.
+- Fri, Nov 13, Standard: the rate was removed in Cloudbeds. MAYA sent its price, $165.00, again.
+
+The warning that something other than MAYA seems to be changing rates comes with <Ui>Keep the change as your price</Ui>, in an amber box: "Something other than MAYA seems to be changing rates in Cloudbeds: 34 rates changed in the last 7 days on nights MAYA had sent a price to. Each change is kept as your price, so MAYA isn't pricing those nights. If you use another pricing tool, turn on "MAYA's price wins"." Its <Ui>Open the setting</Ui> button opens <Ui>Settings</Ui> at your system's section, and is gone once that setting is on.
+
+These items sit where they happened among the runs, within the span of the runs shown. The newest 50 are listed, and one line under them counts the rest: "And 12 more nights where MAYA sent its price again over a rate changed in Cloudbeds." A change you keep as your price is not an item of its own: it shows in the next run as "The base rate was changed in Cloudbeds to $180.00." (see [Prices people set](#prices-people-set)). [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains when each happens.
+
 ## Prices not reaching your property system
 
 When you are live and a price cannot be delivered, the log carries an amber item headed "Prices not reaching Cloudbeds" (or "Think Reservations"). How soon it appears depends on the cause:
@@ -231,6 +246,7 @@ The item names the cause in one sentence, counts the nights and room types affec
 | Changes per run | The 40 biggest moves, largest first, each measured as the whole move from the night's starting point. A run with more changes shows its 40 biggest, then a line under them such as "And 23 more changes in this run." In a very large run, where more than about 1,000 nights ended at their starting point and not every one was checked for a move back, the count is a minimum and the line reads "And at least 23 more changes in this run." |
 | What counts as a change | A night whose price differs from its starting point by at least one cent, has a rule still on it, or has a price someone set, and a night put back at its starting point. |
 | Problems and answers | Up to 20 problems still happening, and up to 20 that have ended and 20 answers within the span of the runs shown. |
+| Rates changed in your system | The newest 50 items within the span of the runs shown, and a line counting the rest. Kept for 180 days. |
 | Detail behind a change | Kept for 90 days. That is how long <Ui>Show the numbers</Ui> can open for a change. |
 
 How far back 10 changes reach depends on your property: on a busy day perhaps an hour, on a quiet week several days. Older runs are not lost the moment they leave the screen, but there is no way to page back to them in the app.
@@ -261,7 +277,7 @@ Everyone on the property can read the change log, whatever their role.
 <SentenceBuilder />
 
 <Callout kind="not-yet">
-The log cannot be exported, and MAYA does not email it or send notifications when a price changes. You cannot see more than the 10 most recent runs that changed a price, or page back through older ones. To keep a record, open the log and copy what you need.
+The log cannot be exported, and MAYA does not email it or send notifications when a price changes. The only emails near it are about rates changed in your system: the day's overwrites under <Ui>MAYA's price wins</Ui>, and the warning that something else seems to be changing your rates. You cannot see more than the 10 most recent runs that changed a price, or page back through older ones. To keep a record, open the log and copy what you need.
 </Callout>
 
 <Related>

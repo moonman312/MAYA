@@ -3,7 +3,7 @@ title: The calendar
 summary: What each day on the Calendar tab shows and how your property can change it in Settings, what the colours and the key beside them mean, what you see when you click a day, and how fresh the numbers are.
 section: watch
 order: 10
-readingTime: 15
+readingTime: 16
 keywords: [calendar, day card, tax, taxes, including tax, excluding tax, commission, OTA commission, net revenue, gross revenue, fees, extras, revenue does not match, revenue report, UTC, wrong month, next month, opens on next month, percentage, occupancy, rooms booked, revenue on the books, colour, green, amber, orange, red, strong night, weak night, current price, dash, ADR, ADR dash, ADR blank, placeholder, booking with no amount, no rate, updated, live, weekday, how far ahead, 396 nights, 13 months, base price, week view, list view, bookings list, time zone, past night, year list, colour does not match revenue, colour does not match dollar figure, rate changed, Mews not sent, key, colour key, color key, legend, legend moved, left of the calendar, reversed, reversed colours, green means work on it, red means leave it, keep working on it, leave it, big number, small lines, change what the calendar shows, calendar settings, Settings, ADR on the calendar, RevPAR on the calendar, price on the calendar, phone, short numbers, $11k]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -168,7 +168,7 @@ Not counting as a room does not stop a type being priced: the Meeting Room start
 When a manual price is open on a room type for that night, a small amber badge sits beside the room type's name:
 
 - "Manual · $180.00" for a price someone typed in MAYA. Hover it and you see "Set" followed by the date and time it was typed.
-- "Changed in Cloudbeds · $180.00" (or "Changed in Think Reservations · ...") for a rate you changed in your property system on a night MAYA had already sent to. Hover it and you see "Seen" followed by the date and time MAYA read it.
+- "Changed in Cloudbeds · $180.00" (or "Changed in Think Reservations · ...") for a rate you changed in your property system on a night MAYA had already sent to, while your property keeps such changes as its price (as it starts, in <Ui>Settings</Ui>). Hover it and you see "Seen" followed by the date and time MAYA read it. With <Ui>MAYA's price wins</Ui> on, no new change gets this badge.
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
@@ -189,7 +189,7 @@ The badge and the manual price help name your system from your connection, which
 A dash after "Current price" means MAYA has not published a price for that room type on that night. There are four ordinary reasons:
 
 - **The night is beyond the window.** Your rules run on tonight and the next 395 nights (396 nights, about 13 months). A night further out has no price until it enters the window. A manual price you saved further ahead shows with its badge, and is priced once its night enters the window.
-- **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. So is a night your system has no rate for at all, for example one further ahead than you have loaded rates: the card reads "No rate in Cloudbeds for this night yet" under the dash, and the "?" beside it says what to do. Load a rate there and the next hourly read picks it up, or type a price in MAYA. A booking's rate is never a starting point. On Mews, MAYA does not read rates, so a night is priced only once you type a price for it.
+- **The night is closed in your system, or has no rate to start from.** On Cloudbeds and ThinkReservations, a night whose rate in your system is 0, with no manual price typed in MAYA, is left unpriced on purpose. So is a night your system has no rate for at all, for example one further ahead than you have loaded rates: the card reads "No rate in Cloudbeds for this night yet" under the dash, and the "?" beside it says what to do. A night whose rate was removed in your system after MAYA sent to it reads "Rate removed in Cloudbeds, so MAYA isn't pricing this night" instead, while your property keeps changes made there ([A rate removed in your system](/docs/watch/rates-changed-in-your-pms#a-rate-removed-in-your-system)). Load a rate there and the next hourly read picks it up, or type a price in MAYA. A booking's rate is never a starting point. On Mews, MAYA does not read rates, so a night is priced only once you type a price for it.
 - **The night has passed and had no price.** A night that has passed is not priced again. The card keeps the last price the night had before it passed, or a dash if it had none.
 - **No run has happened yet.** A newly connected property shows dashes until its first pricing run.
 

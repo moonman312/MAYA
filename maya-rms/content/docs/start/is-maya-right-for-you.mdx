@@ -3,7 +3,7 @@ title: Is MAYA right for your property
 summary: Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.
 section: start
 order: 20
-readingTime: 16
+readingTime: 17
 keywords: [is MAYA right for me, which PMS, without a PMS, spreadsheet, Excel, channel manager, Booking.com, Expedia, OTA, revenue management, small B&B, 3 rooms, brand new hotel, no history, how much history, years of history, demo, trial, group of properties, currency, time zone, Europe, UK, guest data, support, onboarding call, Opera, Little Hotelier, Guesty, SiteMinder, another revenue tool, other revenue tool, RMS, pricing tool, switching, switch over, run both, two tools, import rules, import history, switch off, old tool, performance report, pace report, pace, is it working, earning more, results, ROI, before and after, compare periods, report, language, languages, English only, Spanish, French, German, Portuguese, Italian, translation, hostel, dorm, beds, per bed, per person, per guest, apartments, campsite, campground, glamping, pitches, cabins, cottages, vacation rental, holiday let, single unit, one unit, yield rules, automatic pricing, built-in pricing, Cloudbeds pricing, switch off before going live, some room types, split room types, only some rooms, suites, 365 days, a year ahead, 13 months, 396 nights, far out, case study, case studies, references, reference hotel, talk to a customer, other hotels using MAYA, reviews]
 questions:
   - Can I use MAYA without a property system, from a spreadsheet? {#without-a-property-system-or-from-a-spreadsheet}
@@ -81,12 +81,14 @@ While MAYA is in simulation, the two can run side by side. MAYA sends nothing in
 
 Running both while you simulate needs no consent from us. If you plan to measure MAYA's results against the old tool's, [email us](mailto:info@modern-hospitality-solutions.com?subject=Comparing%20MAYA) first: the Terms ask for our written consent before a comparative test. [Terms and legal](/docs/reference/terms-and-legal#other-things-people-ask) explains where the line is.
 
-Switch the old tool off before you go live. Once MAYA is live, two tools writing the same base rate work against each other:
+Switch the old tool off before you go live. Once MAYA is live, two tools writing the same base rate work against each other. As every property starts:
 
-- A rate the old tool writes an hour or more after MAYA's send has landed is kept as if you had typed it yourself. The calendar marks it "Changed in Cloudbeds" (or "Changed in Think Reservations"), and your rules treat it as a price you set. The exception is an old tool that moves most nights by the same percentage. MAYA reads that as your system's own rule, keeps none of those rates, and writes over each one with its next price for that night ([read how](/docs/watch/rates-changed-in-your-pms#raising-every-night-by-the-same-percentage)).
+- A rate the old tool writes an hour or more after MAYA's send has landed is kept as if you had typed it yourself. The calendar marks it "Changed in Cloudbeds" (or "Changed in Think Reservations"), and your rules treat it as a price you set. Once many rates change like this, MAYA says so in the change log and by email. The exception is an old tool that moves most nights by the same percentage. MAYA reads that as your system's own rule, keeps none of those rates, and writes over each one with its next price for that night ([read how](/docs/watch/rates-changed-in-your-pms#raising-every-night-by-the-same-percentage)).
 - A rate the old tool writes within that hour can be written over by MAYA's next price for that night.
 
 Either way, you cannot be sure which tool set the price a guest sees. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) has the details.
+
+If the old tool has to keep running, turn on <Ui>MAYA's price wins</Ui> in <Ui>Settings</Ui>. Then no rate the old tool writes on a night MAYA sent to is kept: MAYA sends its own price again on its next run, lists each night in the change log, and emails your General Managers and Hotel Admins once a day. Guests can still see the old tool's rate until MAYA's next send, so switching the old tool off is the surer way. [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins) has the details.
 
 Automatic pricing built into your property system counts too. Any feature inside Cloudbeds or ThinkReservations that changes the base rate by itself, such as automatic pricing or yield rules, is another tool writing the same rate. Leave it on while you simulate if you like, and switch it off before you go live, for the same two reasons.
 

@@ -83,7 +83,7 @@ Read [When a price change comes off](/docs/rules/when-a-change-comes-off) for th
 
 Every night and room type has a base price, and rules are applied on top of it. MAYA takes the first of these that exists:
 
-1. a price a person set for that night: typed in MAYA, or changed in your property system on a night MAYA had already sent to
+1. a price a person set for that night: typed in MAYA, or changed in your property system on a night MAYA had already sent to, while your property keeps such changes as its price (as every property starts)
 2. your own rate for the night, read from your property system
 
 Nothing else. A night with neither is not priced: not the rate a guest paid for it, and not a base saved on an earlier run. A booking taken at one of MAYA's own prices would otherwise come back as the next starting point and climb with every booking. On Mews, your own rates are not read and a rate changed in Mews is never read back, so the base is a price you typed in MAYA, and a Mews night without one is unpriced. Read [Where a night's starting price comes from](/docs/connect/mews#where-a-nights-starting-price-comes-from).

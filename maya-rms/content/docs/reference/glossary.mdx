@@ -3,7 +3,7 @@ title: Glossary
 summary: Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.
 section: reference
 order: 10
-readingTime: 22
+readingTime: 23
 keywords: [glossary, paused, pause, switched off, held rules, what does it mean, definition, terms, words, jargon, meaning of, vocabulary, ADR, average daily rate, RevPAR, revenue per available room, revenue per room, derived rate, derived rate plan, package, Hotel Admin, General Manager, Revenue Manager, Viewer, roles, Connected, Pending, Degraded, Error, Disconnected, connection status, sellable occupancy, booking speed, booking window, pickup, cycle, run, window, floor, ceiling, comp night, manual price, simulation, live, hotel day, usual number, usually get, show the numbers, similar nights, momentum, standard rule, event rule, fired, wait, group block, Mews, no go live button, $1.00 floor, "$99,999.99 ceiling", lead time, STLY, same time last year, comp set, competitive set, pace, pacing, yield rules, yield, length of stay, LOS, minimum stay, revenue management terms]
 questions:
   - What does this word mean? {#in-plain-words}
@@ -58,7 +58,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Change Log** (screen). The tab that shows the 10 most recent pricing runs and, for each change, which rule acted and why. A run happens about every five minutes and quiet runs count toward the 10, so it covers about the last 50 minutes. By default it lists only the runs among them that changed a price. Read [The change log](/docs/watch/the-change-log).
 
-**Changed in Cloudbeds** (screen: Changed in Cloudbeds · $123.00). The badge on a room type card for a rate you changed in your property system on a night MAYA had already sent to. MAYA keeps it like a manual price. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
+**Changed in Cloudbeds** (screen: Changed in Cloudbeds · $123.00). The badge on a room type card for a rate you changed in your property system on a night MAYA had already sent to. MAYA keeps it like a manual price, while your setting is <Ui>Keep the change as your price</Ui>. The same words head a change log item when MAYA sent its price again over such a change. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
 
 **Closed period.** A stretch when the whole property was shut, confirmed on the setup review. Its nights are left out of every comparison. Read [Checking what MAYA found](/docs/review/checking-what-maya-found).
 
@@ -106,6 +106,8 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 ## L to P
 
+**Keep the change as your price** (screen, in Settings). The choice every property starts on for a rate changed or removed in Cloudbeds or ThinkReservations on a night MAYA sent to: a changed rate is kept as your price, and a removed one stops MAYA pricing the night until your system has a rate again. The other choice is <Ui>MAYA's price wins</Ui>. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms#your-setting).
+
 **Last sync** (screen, on the PMS tab). The last time MAYA read your bookings from your property system successfully, about every five minutes on a healthy connection. It says nothing about sending prices. Read [The PMS tab](/docs/watch/the-pms-tab).
 
 **Level.** One of the seven booking speed readings: Stalled, Much Slower Than Normal, Slower Than Normal, Normal, Faster Than Normal, Much Faster Than Normal, Surging. Read [Booking speed](/docs/rules/booking-speed).
@@ -115,6 +117,8 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 **Manual price** (screen: Manual · $123.00). A price you typed for a room type on a night on the Calendar tab. It becomes the night's base price. Once you are live, it is sent as typed to Cloudbeds or ThinkReservations (a night beyond the 396-night window goes when it enters the window). Nothing is sent to Mews yet, and a price of 0 is never sent. Rules already on that night pause for that room type, and rules that fire later stack on top. Read [Setting a price yourself](/docs/watch/setting-a-price-yourself).
 
 **Marketplace.** The Cloudbeds Marketplace, where a Cloudbeds property installs MAYA with <Ui>Connect App</Ui>. Properties that arrive this way get the free trial and can come in as a group. Read [Cloudbeds](/docs/connect/cloudbeds).
+
+**MAYA's price wins** (screen, in Settings). The choice for a property that also runs another pricing tool: a rate changed or removed in Cloudbeds or ThinkReservations on a night MAYA sent to is not kept, and MAYA sends its own price again, logs each night in the change log and emails your General Managers and Hotel Admins at most once a day. Prices typed in MAYA are never replaced. Read [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins).
 
 **Measure / Change** (screen). The two room type lists of a rule that watches one set of room types and prices another, shown when <Ui>Change prices on different room types</Ui> is ticked. Read [Measure one set, change another](/docs/rules/measure-one-set-change-another).
 
@@ -142,7 +146,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Rate Simulator** (screen). The tab where you make up a night and see what your rules would do to it. Nothing there is saved or sent unless you click <Ui>Save This Rule</Ui>, and a rule saved from there arrives switched Off. Read [The Rate Simulator](/docs/rules/the-rate-simulator).
 
-**Revenue Manager** (screen, a role). Day-to-day pricing: rules, typed prices, floors and ceilings, room types and rooms out of service, answering the Rules that keep adjusting banner, setting dates aside, and what the calendar shows in Settings. A Revenue Manager cannot go live, reconnect the property system, see billing or change the team. Read [Roles](/docs/team/roles).
+**Revenue Manager** (screen, a role). Day-to-day pricing: rules, typed prices, floors and ceilings, room types and rooms out of service, answering the Rules that keep adjusting banner, setting dates aside, and what the calendar shows and what MAYA does with rates changed in your property system, in Settings. A Revenue Manager cannot go live, reconnect the property system, see billing or change the team. Read [Roles](/docs/team/roles).
 
 **Revenue on the books** (screen). Room revenue from bookings already made for that night, shown on the calendar day card. Read [The calendar](/docs/watch/the-calendar).
 

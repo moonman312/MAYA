@@ -1,10 +1,10 @@
 ---
 title: Settings
-summary: The Settings area, opened from the gear at the top of the dashboard. What each calendar day shows and which way its colours read, chosen once for everyone on the property, and your own text size.
+summary: The Settings area, opened from the gear at the top of the dashboard. What each calendar day shows and which way its colours read, and what MAYA does when a price it sent is changed in Cloudbeds or ThinkReservations, chosen once for everyone on the property, and your own text size.
 section: watch
 order: 15
-readingTime: 7
-keywords: [settings, gear, cog, preferences, options, customise, customize, calendar settings, what the calendar shows, change the calendar, big number, small line, first small line, second small line, none, metrics, which numbers, ADR, RevPAR, room revenue, rooms booked, occupancy, price for a room type, price on the calendar, show the price, colours, colors, reversed, reverse the colours, invert, invert colours, swap green and red, green means work on it, red means leave it, standard colours, text size, font size, bigger text, larger text, large, larger, make MAYA bigger, zoom, eyesight, hard to read, small text, accessibility, every device, who can change settings, greyed out, read only, Saved, Only a Revenue Manager or above can change these, Couldn't save your text size]
+readingTime: 10
+keywords: [settings, gear, cog, preferences, options, customise, customize, calendar settings, what the calendar shows, change the calendar, big number, small line, first small line, second small line, none, metrics, which numbers, ADR, RevPAR, room revenue, rooms booked, occupancy, price for a room type, price on the calendar, show the price, colours, colors, reversed, reverse the colours, invert, invert colours, swap green and red, green means work on it, red means leave it, standard colours, text size, font size, bigger text, larger text, large, larger, make MAYA bigger, zoom, eyesight, hard to read, small text, accessibility, every device, who can change settings, greyed out, read only, Saved, Only a Revenue Manager or above can change these, Couldn't save your text size, property system setting, Cloudbeds setting, Think Reservations setting, When a price MAYA sent is changed, Keep the change as your price, MAYA's price wins, another pricing tool, PIE, second revenue tool, overwrite, replace them, nights keep a rate changed]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'Where are the settings?' {#where-it-is}
@@ -20,11 +20,15 @@ questions:
   - 'Does my text size follow me to another computer or my phone?' {#text-size}
   - 'Does the text size change the docs too?' {#text-size}
   - 'Why does Settings say "Couldn''t save your text size"?' {#text-size}
+  - 'What does "When a price MAYA sent is changed in Cloudbeds" mean in Settings?' {#changes-made-in-your-property-system}
+  - 'How do I stop MAYA keeping rates changed in Cloudbeds as my own prices?' {#changes-made-in-your-property-system}
+  - 'Why does Settings ask me to replace nights that keep a rate changed in Cloudbeds?' {#turning-mayas-price-wins-on}
+  - 'Why is there no Cloudbeds section in my Settings?' {#changes-made-in-your-property-system/the-section-shows}
 updated: 2026-09-30
 ---
 
 <InPlainWords>
-Settings opens from the gear at the top of the dashboard. Under <Ui>Calendar</Ui> you choose what each day on the calendar shows and which way its colours read, and everyone on your property sees your choice. Under <Ui>Display</Ui> you choose your own text size, and it follows you to any device you sign in on. Every change saves as soon as you make it.
+Settings opens from the gear at the top of the dashboard. Under <Ui>Calendar</Ui> you choose what each day on the calendar shows and which way its colours read, and everyone on your property sees your choice. On Cloudbeds and ThinkReservations, a section named for your system sets what MAYA does when a price it sent is changed there: keep the change as your price, or MAYA's price wins. Under <Ui>Display</Ui> you choose your own text size, and it follows you to any device you sign in on. Every change saves as soon as you make it.
 </InPlainWords>
 
 <OpenInMaya to="settings" words="Open Settings" />
@@ -33,7 +37,7 @@ Settings opens from the gear at the top of the dashboard. Under <Ui>Calendar</Ui
 
 At the top right of the dashboard, between <Ui off>Help</Ui> and <Ui>Billing</Ui>, a small gear button opens <Ui>Settings</Ui>. On a phone it is a button reading <Ui>Settings</Ui> in the column under the MAYA logo. It opens over the dashboard, whichever tab you are on. Close it with the <Ui>×</Ui>, the Esc key, or a click outside it. The <Ui off>Help</Ui> link at its top opens this page.
 
-It has two sections, one after the other. Each says who it is for under its heading, and a short "Saved" appears beside the heading once a change has saved.
+Its sections come one after the other: <Ui>Calendar</Ui>, then one named for your property system (Cloudbeds and ThinkReservations only), then <Ui>Display</Ui>. Each says who it is for under its heading, and a short "Saved" appears beside the heading once a change has saved.
 
 ## Calendar
 
@@ -99,6 +103,34 @@ A Revenue Manager, General Manager or Hotel Admin can change this section. Anyon
 
 When a change cannot be saved, the line beside the heading says why in red, and the list goes back to what was saved.
 
+## Changes made in your property system
+
+This section is named for your property system, <Ui>Cloudbeds</Ui> or <Ui>Think Reservations</Ui>, and reads "For everyone on" and your property's name. It holds one setting, <Ui>When a price MAYA sent is changed in Cloudbeds</Ui> (or your system's name), with two choices:
+
+| Choice | On a night MAYA has sent a price to |
+|---|---|
+| <Ui>Keep the change as your price</Ui> | A rate you change there is kept as your price for that night, and a rate you remove there stops MAYA pricing the night until your system has a rate again. Every property starts on this one. |
+| <Ui>MAYA's price wins</Ui> | Nothing changed or removed there is kept. MAYA sends its own price again, lists each night in the <Ui>Change Log</Ui>, and emails your General Managers and Hotel Admins once a day about them. |
+
+<Ui>MAYA's price wins</Ui> is for a property that also runs another pricing tool, which changes rates in your system on its own. Your system cannot tell MAYA who or what changed a rate, only that it differs from what MAYA sent. A price you type on MAYA's calendar is kept either way. The <Ui>?</Ui> beside the setting says the same in three lines. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms#your-setting) has every detail.
+
+The section shows only on Cloudbeds and ThinkReservations, the systems MAYA reads your rates from. On Mews, or before your system is connected, there is no such section.
+
+### Turning MAYA's price wins on
+
+When no night ahead keeps a rate changed in your system, choosing <Ui>MAYA's price wins</Ui> saves at once.
+
+When some do, nothing is saved yet. A short box opens under the choices, reading for example "3 nights keep a rate changed in Cloudbeds. MAYA will replace them with its prices.", with two buttons:
+
+- <Ui>Replace them</Ui> saves the setting. Each of those nights is handed back to MAYA, as <Ui>Clear</Ui> on the calendar does: the rate kept from your system stops being your price, and the rules it had paused apply again. A night whose rate you removed in your system is priced by MAYA again. MAYA sends its prices to those nights on its next run, within five minutes and usually straight away. Prices typed in MAYA are not touched.
+- <Ui>Cancel</Ui> closes the box and changes nothing.
+
+Only tonight and the nights after it count. Turning <Ui>MAYA's price wins</Ui> off changes nothing that has happened: from then on, a change in your system is kept as your price again.
+
+### Who can change the property system setting
+
+The same people as the calendar: a Revenue Manager, General Manager or Hotel Admin. Anyone else sees the choices greyed out with the line "Only a Revenue Manager or above can change these." A change MAYA support makes in their support mode shows in your change log as "Changed by MAYA support".
+
 ## Display
 
 This section reads "Just for you". What you choose here changes MAYA for you alone, whatever your role.
@@ -115,6 +147,6 @@ A few small details keep their size at <Ui>Larger</Ui>, such as the little day s
 
 <Related>
 - [The calendar](/docs/watch/the-calendar)
+- [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms)
 - [Roles: who can do what](/docs/team/roles)
-- [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service)
 </Related>

@@ -606,7 +606,7 @@
 {"q": "my prices after cancelling", "page": "billing/cancelling-restarting-and-leaving", "anchor": "your-prices-after-you-leave"},
 {"q": "delete my data", "page": "billing/cancelling-restarting-and-leaving", "anchor": "deleting-your-data"},
 {"q": "leave maya", "page": "billing/cancelling-restarting-and-leaving", "anchor": "in-plain-words"},
-{"q": "what emails does maya send", "page": "billing/emails-maya-sends", "anchor": "the-five-emails-maya-sends"},
+{"q": "what emails does maya send", "page": "billing/emails-maya-sends", "anchor": "the-seven-emails-maya-sends"},
 {"q": "no email arrived", "page": "billing/emails-maya-sends", "anchor": "if-an-email-did-not-arrive"},
 {"q": "email went to spam", "page": "billing/emails-maya-sends", "anchor": "if-an-email-did-not-arrive"},
 {"q": "change billing email", "page": "billing/emails-maya-sends", "anchor": "changing-the-billing-email"},

@@ -89,10 +89,11 @@ Nothing is sent to Mews, so no rate moves there, base or derived.
 
 ## Why did MAYA overwrite the rate I set in Cloudbeds?
 
-On a live property, a rate you change in your system is kept as a manual price when all of these hold: the night is one MAYA had already sent to, MAYA's send there was confirmed, the send is at least 60 minutes old, and your rate differs from MAYA's price by more than rounding. The day card then reads "Changed in Cloudbeds · $180.00", rules that had already moved the night are paused, and MAYA does not write over it. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
+On a live property whose setting is <Ui>Keep the change as your price</Ui> (as every property starts), a rate you change in your system is kept as a manual price when all of these hold: the night is one MAYA had already sent to, MAYA's send there was confirmed, the send is at least 60 minutes old, and your rate differs from MAYA's price by more than rounding. The day card then reads "Changed in Cloudbeds · $180.00", rules that had already moved the night are paused, and MAYA does not write over it. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
 
 Your change was written over for one of these reasons:
 
+- **Your setting is <Ui>MAYA's price wins</Ui>.** Then MAYA sends its own price over every change on a night it sent to, on purpose, and the <Ui>Change Log</Ui> lists each one. [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins) explains it, and <Ui>Settings</Ui> is where to change it back.
 - **Within the hour.** You changed it less than 60 minutes after MAYA's send. MAYA reads your rates about once an hour, and again before re-sending a night it last sent to over an hour ago, so a change made inside that hour can be written over when MAYA's own price for the night changes.
 - **A night MAYA had never sent to.** Your rate there is read as the night's starting point, not as a manual price. Your rules work from it, and MAYA sends the result. This is also what happens to every rate you change while simulating.
 - **A ThinkReservations night MAYA had not read back yet.** A send to ThinkReservations counts as confirmed only once MAYA's hourly read finds it. Until then a different rate there is not read as your change.

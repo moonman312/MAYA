@@ -3,7 +3,7 @@ title: Simulation mode
 summary: Every property starts in simulation. MAYA reads your bookings, runs every rule and writes what it would do to the change log, but sends nothing to your property system until you go live.
 section: live
 order: 10
-readingTime: 11
+readingTime: 12
 keywords: [simulation, simulation mode, test mode, sandbox, demo, dry run, try it first, watch for a while, not sent, "Saved (simulation: not sent", would have raised, would have cut, am I live, which mode, mode badge, leave them in simulation, change prices the moment I connect, rates changed before going live, starter rules running, look before you send, nothing sent yet, approve, approval, approve each price, approve prices, sign off, review before sending, check before it goes out, manual approval, confirm each price, turned off in simulation, off before going live, starter rule off sent, no go-live button, button gone, get suggestions in simulation, mews simulation, mews live]
 questions:
   - What is simulation mode? {#what-simulation-is}
@@ -21,7 +21,7 @@ questions:
   - Why has the Turn them on for real button gone? {#how-to-tell-which-mode-you-are-in/the-review-screen}
   - How do I tell whether a Mews property is live? {#mews/a-mews-property}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -54,7 +54,7 @@ There is no separate demo or test property. Simulation is the look before you se
 | Shows the Rules that keep adjusting banner and takes your answer | Yes | Yes |
 | Saves and shows a price you type | Yes | Yes, and sends it |
 | Sends prices to your property system | Never | Every cycle, changed prices only |
-| Keeps a rate you change in your system as a manual price | No. On nights MAYA has never sent to, it becomes the base rate | Yes, on nights MAYA has sent to |
+| Keeps a rate you change in your system as a manual price | No. On nights MAYA has never sent to, it becomes the base rate | Yes, on nights MAYA has sent to, unless your setting is <Ui>MAYA's price wins</Ui> |
 
 ## Can I approve each price before it is sent?
 
@@ -106,7 +106,7 @@ In simulation MAYA reads your own rate for every night in the window (Cloudbeds 
 
 This is true of every night MAYA has never sent to. For a property that has never been live, that is every night.
 
-For a live property the same change on a night MAYA has already sent to is kept as a manual price instead, so your rules start from it rather than overwrite it. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains the difference.
+For a live property the same change on a night MAYA has already sent to is kept as a manual price instead, so your rules start from it rather than overwrite it. With <Ui>MAYA's price wins</Ui> on in Settings, MAYA sends its own price over it instead. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains the difference.
 
 So while simulating, change rates in your system wherever you like. When you go live, MAYA reads your rates once more before its first send, and your rules work from whatever you had at that moment. Going live does not put back a rate you changed while simulating. It builds on it.
 

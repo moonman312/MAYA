@@ -22,7 +22,7 @@ questions:
   - Does a Mews booking with several rooms count once for booking speed? {#booking-statuses-and-states/mews-state-in}
   - Why does the change log say rates when MAYA sends prices? {#mayas-own-words/these-have-no}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -126,6 +126,8 @@ These have no equivalent in your system.
 | <Ui>Rooms out of service</Ui> | Units you take off sale for a stretch in MAYA. Your system's blocks are not read |
 | Manual price, "Manual · $175.00" | A price you typed for a room type on a night |
 | "Changed in Cloudbeds · $175.00" | A rate you changed in your system on a night MAYA had sent to, kept as a manual price. Also "Changed in Think Reservations" |
+| "Rate removed in Cloudbeds" | Your system no longer has a rate for a night MAYA had sent to, so MAYA isn't pricing it until it has one again |
+| <Ui>MAYA's price wins</Ui> | The setting that sends MAYA's price again over a rate changed or removed in your system, instead of keeping it |
 | Simulation | The starting state. Everything runs and is written down. Nothing is sent |
 | Live | After going live. Changed prices are sent every cycle (Cloudbeds and ThinkReservations) |
 | "Prices not reaching Cloudbeds" | A change log item that says your system did not accept a price, and why |
