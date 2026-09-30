@@ -84,6 +84,12 @@ export type PricingState = {
   pass_reprice_seq: number | null;
   full_reprice_seq: number | null;
   last_ok_run_at: string | null;
+  /**
+   * Failed runs in a row before this tick (pricing_run_failed); a run that
+   * prices nights sets it back to 0 when recorded. Null before
+   * 99_supabase_migration_pricing_watchdog_v1.sql gave the state the column.
+   */
+  failed_runs: number | null;
   momentum_nights: string[];
 };
 
@@ -352,6 +358,7 @@ export async function loadPricingWork(
           pass_reprice_seq: num(s.pass_reprice_seq),
           full_reprice_seq: num(s.full_reprice_seq),
           last_ok_run_at: s.last_ok_run_at != null ? String(s.last_ok_run_at) : null,
+          failed_runs: num(s.failed_runs),
           momentum_nights: Array.isArray(s.momentum_nights) ? s.momentum_nights.map((d) => String(d).slice(0, 10)) : [],
         }
       : null,

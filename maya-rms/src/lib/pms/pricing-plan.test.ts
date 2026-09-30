@@ -42,6 +42,7 @@ function state(over: Partial<PricingState> = {}): PricingState {
     pass_reprice_seq: null,
     full_reprice_seq: null,
     last_ok_run_at: null,
+    failed_runs: null,
     momentum_nights: [],
     ...over,
   };

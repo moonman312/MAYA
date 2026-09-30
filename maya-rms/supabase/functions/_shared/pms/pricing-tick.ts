@@ -56,17 +56,19 @@
  * PRICING_FAILURES_BEFORE_ALERT runs have failed in a row or no run of the
  * hotel has priced anything for PRICING_FAILING_ALERT_AFTER_MS (a tick with
  * nothing to price does not count), the alert channel is told
- * (alertPricingFailing), at most once per raiseAlert's window. The database
- * watchdog (pricing_watchdog, 99_supabase_migration_pricing_watchdog_v1.sql)
- * stands outside this function and says nothing for a hotel while this
- * alert is out.
+ * (alertPricingFailing), at most once per raiseAlert's window. The run that
+ * prices nights after failed ones closes the story with one recovery line
+ * (recoverPricingFailing). The database watchdog (pricing_watchdog,
+ * 99_supabase_migration_pricing_watchdog_v1.sql) stands outside this
+ * function and says nothing for a hotel while this alert is out and not
+ * recovered, so the recovery line is what hands the hotel back to it.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CadenceReport, EvaluateOptions } from "../engine/evaluate.ts";
 import { isMissingColumnError } from "../engine/snapshots.ts";
 import { hotelDayStartIso } from "../engine/timezone.ts";
-import { type Alert, raiseAlert } from "./alerting.ts";
+import { type Alert, raiseAlert, raiseRecovery } from "./alerting.ts";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
 import { pmsEditSettleMs } from "./pms-edits.ts";
 import {
@@ -173,6 +175,8 @@ export type PricingTickResult<E> = {
   outOfTime: boolean;
   /** Pricing has been failing long enough to tell the alert channel, and whether it was told. */
   pricingAlert?: { sent: boolean; reason?: string };
+  /** This tick's run priced nights after failed runs, and whether the channel got its recovery line. */
+  pricingRecovery?: { sent: boolean; reason?: string };
   calendarMs: number;
   evalMs: number;
   pushMs: number;
@@ -210,6 +214,8 @@ export async function runPricingTick<E>(
     now?: () => number;
     /** Posts to the alert channel. raiseAlert unless a test swaps it. */
     alert?: typeof raiseAlert;
+    /** Posts the recovery line. raiseRecovery unless a test swaps it. */
+    recover?: typeof raiseRecovery;
   },
 ): Promise<PricingTickResult<E>> {
   const now = deps.now ?? Date.now;
@@ -270,6 +276,8 @@ export async function runPricingTick<E>(
   let lastOkRunAt: string | null | undefined;
   // This tick's run was not recorded (pricing_run_done failed).
   let recordError: string | undefined;
+  // This tick's run priced nights after a streak of failed runs (recoverPricingFailing).
+  let endedStreak: PricedNights<E>["endedStreak"];
   // Nights the push may not take this tick's pricing as proof for (see RatePushOptions.notVouched).
   let notVouched: RatePushOptions["notVouched"];
   if (outOfTime) {
@@ -299,6 +307,7 @@ export async function runPricingTick<E>(
     horizonDays = priced.horizonDays;
     lastOkRunAt = priced.lastOkRunAt;
     recordError = priced.recordError;
+    endedStreak = priced.endedStreak;
   } else {
     evaluate = { skipped: true };
   }
@@ -377,6 +386,14 @@ export async function runPricingTick<E>(
         alert: deps.alert ?? raiseAlert,
       })
     : null;
+  // The run that ends a streak of failed runs tells the channel so, if the
+  // channel heard of the streak (raiseRecovery says nothing otherwise).
+  const pricingRecovery = !failure && endedStreak
+    ? await recoverPricingFailing(supabase, hotelId, endedStreak, {
+        mayStart: now() + ALERT_BUDGET_MS <= opts.pushDeadlineAt,
+        recover: deps.recover ?? raiseRecovery,
+      })
+    : null;
 
   return {
     today: clock?.today ?? null,
@@ -388,6 +405,7 @@ export async function runPricingTick<E>(
     ...("pmsEditsAdopted" in calendar ? { pmsEditsAdopted: calendar.pmsEditsAdopted } : {}),
     outOfTime,
     ...(pricingAlert ? { pricingAlert } : {}),
+    ...(pricingRecovery ? { pricingRecovery } : {}),
     calendarMs: tCalendar - t0,
     evalMs: tEval - tCalendar,
     pushMs: tPush - tEval,
@@ -415,6 +433,11 @@ type PricedNights<E> = {
   lastOkRunAt?: string | null;
   /** The run (or an idle tick's heartbeat) could not be recorded. */
   recordError?: string;
+  /**
+   * This run priced nights and was recorded after `failedRuns` failed runs
+   * in a row (the work list's count before it; the record set it to 0).
+   */
+  endedStreak?: { failedRuns: number; nights: number };
 };
 
 const emptyReport = (): CadenceReport => ({
@@ -594,6 +617,7 @@ async function priceNights<E>(
   cadence.failedNights = report.failedNights.length;
   cadence.again = report.changedNights.length;
   const pricedNights = report.nights.length > 0 ? report.nights : plan.nights;
+  const failedBefore = work.state?.failed_runs ?? 0;
   try {
     const recorded = await recordPricingRun(supabase, hotelId, {
       at: clock.at,
@@ -624,7 +648,42 @@ async function priceNights<E>(
     horizonDays,
     lastOkRunAt: work.state?.last_ok_run_at ?? null,
     ...(cadence.error ? { recordError: cadence.error } : {}),
+    // Recorded, so the database has set the count back to 0: the streak is over.
+    ...(!cadence.error && failedBefore > 0 ? { endedStreak: { failedRuns: failedBefore, nights: pricedNights.length } } : {}),
   };
+}
+
+/**
+ * The run that priced nights after failed ones tells the alert channel, once,
+ * under the same key as alertPricingFailing, so the channel's story closes
+ * and the database watchdog (pricing_watchdog) no longer counts the hotel as
+ * covered by an open alert: a function that then stops ticking altogether is
+ * a new outage, told by the watchdog. raiseRecovery says nothing when the
+ * channel never heard of the streak. Never throws.
+ */
+export async function recoverPricingFailing(
+  supabase: SupabaseClient,
+  hotelId: string,
+  streak: { failedRuns: number; nights: number },
+  opts: { mayStart: boolean; recover: typeof raiseRecovery },
+): Promise<{ sent: boolean; reason?: string }> {
+  try {
+    const told = opts.mayStart
+      ? await opts.recover(supabase, {
+          key: `pricing-failing:${hotelId}`,
+          title: "Pricing is running again",
+          detail:
+            `${streak.failedRuns} run${streak.failedRuns === 1 ? "" : "s"} in a row had failed. ` +
+            `This run priced ${streak.nights} night${streak.nights === 1 ? "" : "s"} and was recorded.`,
+          hotelId,
+        })
+      : { sent: false, reason: "out_of_time" };
+    console.log(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_recovered", failedRuns: streak.failedRuns, nights: streak.nights, recovery: told }));
+    return told;
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_recovered", error: errorText(e, "recovery failed") }));
+    return { sent: false, reason: "send_failed" };
+  }
 }
 
 /** What went wrong with a tick's pricing: the engine stopped, or its run could not be recorded. */

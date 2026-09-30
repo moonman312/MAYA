@@ -18,10 +18,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { evaluateHotel as edgeEvaluateHotel } from "../../../supabase/functions/_shared/engine/evaluate";
 import type { Alert } from "../../../supabase/functions/_shared/pms/alerting";
 import type { CadenceConfig } from "../../../supabase/functions/_shared/pms/pricing-plan";
+import { raiseRecovery } from "../../../supabase/functions/_shared/pms/alerting";
 import {
   alertPricingFailing,
   PRICING_FAILING_ALERT_AFTER_MS,
   PRICING_FAILURES_BEFORE_ALERT,
+  recoverPricingFailing,
   resetCadenceMissingSeen,
   runPricingTick,
 } from "../../../supabase/functions/_shared/pms/pricing-tick";
@@ -133,10 +135,12 @@ function hotel(rules: FakeRow[], extra: Record<string, FakeRow[]> = {}) {
     },
   };
   const alerts: Alert[] = [];
+  const recoveries: { key: string; title: string; detail?: string; hotelId?: string }[] = [];
   return {
     ...fake,
     sends,
     alerts,
+    recoveries,
     /** Make the reads `match` finds fail until `heal`. */
     fail(match: (c: FakeCall) => boolean) {
       failing = (c) => c.op === "select" && match(c);
@@ -169,6 +173,10 @@ function hotel(rules: FakeRow[], extra: Record<string, FakeRow[]> = {}) {
           now: () => atMs,
           alert: async (_s: SupabaseClient, alert: Alert) => {
             alerts.push(alert);
+            return { sent: true };
+          },
+          recover: async (_s: SupabaseClient, r: { key: string; title: string; detail?: string; hotelId?: string }) => {
+            recoveries.push(r);
             return { sent: true };
           },
         },
@@ -328,12 +336,19 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     expect(healed).not.toHaveProperty("pricingAlert");
     expect(w.alerts).toHaveLength(3);
     expect(w.marked()).toEqual([]);
+    // The run that priced again closes the story under the alert's own key.
+    expect(healed.pricingRecovery).toEqual({ sent: true });
+    expect(w.recoveries).toEqual([
+      { key: `pricing-failing:${H}`, title: "Pricing is running again", detail: "4 runs in a row had failed. This run priced 1 night and was recorded.", hotelId: H },
+    ]);
   }, 120_000);
 
-  it("three failed runs in a row are told at once, whatever the clock says, and a run that prices ends the streak", async () => {
+  it("three failed runs in a row are told at once, whatever the clock says, and a run that prices ends the streak with a recovery line", async () => {
     const night = addDays(LOCAL0, 5);
     const w = hotel([rule("b1000000-0000-4000-8000-000000000001", "Any booking", { occupancy_operator: "gt", occupancy_threshold: 0.05 }, 10)]);
-    await w.tick(engine, T0);
+    const first = await w.tick(engine, T0);
+    // No streak to end: nothing is said.
+    expect(first).not.toHaveProperty("pricingRecovery");
     markNights(w.tables, H, [night], "booking", iso(T0 + 1 * MIN));
     expect(Number(w.state().failed_runs)).toBe(0);
 
@@ -358,6 +373,16 @@ describe.each(ENGINES)("$name: a run that fails inside the tick", (engine) => {
     expect(healed).not.toHaveProperty("pricingAlert");
     expect(Number(w.state().failed_runs)).toBe(0);
     expect(w.marked()).toEqual([]);
+    // One recovery line, from the run that priced, naming the streak it ended.
+    expect(healed.pricingRecovery).toEqual({ sent: true });
+    expect(w.recoveries).toEqual([
+      { key: `pricing-failing:${H}`, title: "Pricing is running again", detail: "4 runs in a row had failed. This run priced 1 night and was recorded.", hotelId: H },
+    ]);
+    // The next tick has nothing to price and nothing to recover from.
+    const quiet = await w.tick(engine, T0 + 10 * MIN);
+    expect(quiet.evaluate).toEqual({ idle: true });
+    expect(quiet).not.toHaveProperty("pricingRecovery");
+    expect(w.recoveries).toHaveLength(1);
   }, 120_000);
 });
 
@@ -398,13 +423,25 @@ describe.each(ENGINES)("$name: the alert clock and ticks with nothing to price",
     expect(w.alerts[0].detail).toContain(`No pricing run has priced anything since ${iso(lastPricedAt)}`);
     expect(w.alerts[0].detail).toContain("Failed to load room types");
 
-    // A tick that prices again ends it.
+    // Healed, but an idle tick (no budget for the pass) is not the recovery:
+    // it leaves the count and says nothing, as it priced nothing.
     w.heal();
-    const healed = await w.tick(engine, t1 + 30 * MIN, { passBudget: { remaining: 1000 } });
+    const idle = await w.tick(engine, t1 + 30 * MIN, { passBudget: { remaining: 0 } });
+    expect(idle.evaluate).toEqual({ idle: true });
+    expect(Number(w.state().failed_runs)).toBe(3);
+    expect(idle).not.toHaveProperty("pricingRecovery");
+    expect(w.recoveries).toEqual([]);
+
+    // A tick that prices again ends it, with one recovery line naming the streak.
+    const healed = await w.tick(engine, t1 + 35 * MIN, { passBudget: { remaining: 1000 } });
     expect(healed.evaluate).not.toHaveProperty("error");
     expect(healed).not.toHaveProperty("pricingAlert");
-    expect(priced()).toBe(t1 + 30 * MIN);
+    expect(priced()).toBe(t1 + 35 * MIN);
     expect(Number(w.state().failed_runs)).toBe(0);
+    expect(healed.pricingRecovery).toEqual({ sent: true });
+    expect(w.recoveries).toHaveLength(1);
+    expect(w.recoveries[0]).toMatchObject({ key: `pricing-failing:${H}`, title: "Pricing is running again", hotelId: H });
+    expect(w.recoveries[0].detail).toMatch(/^3 runs in a row had failed\. This run priced \d+ nights and was recorded\.$/);
   }, 120_000);
 });
 
@@ -555,5 +592,39 @@ describe("alertPricingFailing", () => {
     expect(posts[0].url).toBe("https://hooks.example.com/abc");
     expect(posts[0].body).toMatchObject({ severity: "critical", key: `pricing-failing:${H}`, hotelId: H });
     expect(String(posts[0].body.text)).toContain("Pricing keeps failing");
+  });
+});
+
+describe("recoverPricingFailing", () => {
+  it("posts the recovery line through the webhook once the alert went out, records it, and never throws", async () => {
+    process.env.MAYA_ALERT_WEBHOOK = "https://hooks.example.com/abc";
+    const posts: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init?: { body?: string }) => {
+      posts.push(JSON.parse(String(init?.body ?? "{}")));
+      return new Response("ok", { status: 200 });
+    });
+    const streak = { failedRuns: 3, nights: 12 };
+    // The channel never heard of the streak: nothing to recover from, nothing posted.
+    const quiet = fakeSupabase({ platform_audit_events: [] }, { rpc: () => null });
+    expect(await recoverPricingFailing(quiet.client, H, streak, { mayStart: true, recover: raiseRecovery })).toEqual({ sent: false, reason: "nothing_to_recover" });
+    expect(posts).toEqual([]);
+
+    // It did: one line, recorded as alert.recovered under the alert's key, so the watchdog sees the hotel as its own again.
+    const told = fakeSupabase({ platform_audit_events: [{ event_type: "alert.raised", entity_id: `pricing-failing:${H}`, created_at: iso(T0 - 20 * MIN) }] }, { rpc: () => null });
+    expect(await recoverPricingFailing(told.client, H, streak, { mayStart: true, recover: raiseRecovery })).toEqual({ sent: true });
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ severity: "recovered", key: `pricing-failing:${H}`, hotelId: H });
+    expect(String(posts[0].text)).toBe(`🟢 *MAYA recovered* — Pricing is running again\n> 3 runs in a row had failed. This run priced 12 nights and was recorded.\n> hotel \`${H}\``);
+    expect(told.calls.filter((c) => c.table === "rpc:platform_log_event").map((c) => (c.payload as { p_event_type: string; p_entity_id: string }))).toEqual([
+      expect.objectContaining({ p_event_type: "alert.recovered", p_entity_id: `pricing-failing:${H}` }),
+    ]);
+
+    // Out of time before the release: not started; a helper that throws is logged, not thrown.
+    expect(await recoverPricingFailing(told.client, H, streak, { mayStart: false, recover: raiseRecovery })).toEqual({ sent: false, reason: "out_of_time" });
+    const broken = async () => {
+      throw new Error("boom");
+    };
+    expect(await recoverPricingFailing(told.client, H, { failedRuns: 1, nights: 1 }, { mayStart: true, recover: broken })).toEqual({ sent: false, reason: "send_failed" });
+    expect(posts).toHaveLength(1);
   });
 });
