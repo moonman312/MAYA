@@ -243,8 +243,9 @@ begin
       from in_range r
      group by r.day
   ),
-  -- Each hotel's standing on the eve of the window.
-  before_window as (
+  -- Each hotel's standing on the eve of the window, worked out once per hotel
+  -- (materialized, or the planner repeats the lookups for every row).
+  before_window as materialized (
     select ih.hotel_id,
            (select d.entitled and d.status <> 'trialing'
               from public.hotel_metrics_daily d
@@ -253,24 +254,37 @@ begin
                and (p_include_test or not d.is_test)
              order by d.day desc
              limit 1) as last_paying,
-           exists (
-             select 1
+           -- The hotel's first paying day before the window, walked from its
+           -- oldest row on the (hotel_id, day) index, rather than an EXISTS
+           -- the planner turns into a scan of the whole table.
+           coalesce((
+             select true
                from public.hotel_metrics_daily d
               where d.hotel_id = ih.hotel_id
                 and d.day < p_from
                 and (p_include_test or not d.is_test)
                 and d.entitled
-                and d.status <> 'trialing') as ever_paid
+                and d.status <> 'trialing'
+              order by d.day
+              limit 1), false) as ever_paid
       from (select distinct r.hotel_id from in_range r) ih
   ),
-  steps as (
+  -- Each day against the one before it, and whether the hotel had paid on
+  -- any day up to and including it.
+  running as (
     select r.day, r.hotel_id, r.paying,
-           coalesce(lag(r.paying) over w, b.last_paying, false) as prev_paying,
-           b.ever_paid
-             or coalesce(bool_or(r.paying) over (w rows between unbounded preceding and 1 preceding), false) as ever_before
+           lag(r.paying) over w as prev_in_window,
+           bool_or(r.paying) over w as paid_through
       from in_range r
-      join before_window b on b.hotel_id = r.hotel_id
     window w as (partition by r.hotel_id order by r.day)
+  ),
+  steps as (
+    select u.day, u.hotel_id, u.paying,
+           coalesce(u.prev_in_window, b.last_paying, false) as prev_paying,
+           b.ever_paid
+             or coalesce(lag(u.paid_through) over (partition by u.hotel_id order by u.day), false) as ever_before
+      from running u
+      join before_window b on b.hotel_id = u.hotel_id
   ),
   events as (
     select s.day, s.hotel_id, coalesce(h.name, s.hotel_id::text) as name,
