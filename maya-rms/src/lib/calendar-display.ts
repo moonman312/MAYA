@@ -269,6 +269,8 @@ export type ColorKeyEntry = {
   color: DayColor;
   /** "Strong night", "Typical night" or "Weak night". */
   words: string;
+  /** "Strong", "Typical" or "Weak": the key's one line on a phone, where the full words don't fit at a larger text size. */
+  short: string;
   /** A short cue after the words where the colours are reversed. */
   cue: string | null;
 };
@@ -277,15 +279,15 @@ export type ColorKeyEntry = {
 export function colorKey(mode: CalendarColors): ColorKeyEntry[] {
   if (mode === "reversed") {
     return [
-      { color: "green", words: "Weak night", cue: "keep working on it" },
-      { color: "orange", words: "Typical night", cue: null },
-      { color: "red", words: "Strong night", cue: "leave it" },
+      { color: "green", words: "Weak night", short: "Weak", cue: "keep working on it" },
+      { color: "orange", words: "Typical night", short: "Typical", cue: null },
+      { color: "red", words: "Strong night", short: "Strong", cue: "leave it" },
     ];
   }
   return [
-    { color: "green", words: "Strong night", cue: null },
-    { color: "orange", words: "Typical night", cue: null },
-    { color: "red", words: "Weak night", cue: null },
+    { color: "green", words: "Strong night", short: "Strong", cue: null },
+    { color: "orange", words: "Typical night", short: "Typical", cue: null },
+    { color: "red", words: "Weak night", short: "Weak", cue: null },
   ];
 }
 

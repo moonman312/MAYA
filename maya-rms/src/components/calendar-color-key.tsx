@@ -8,8 +8,10 @@ const COLOR_NAME = { green: "Green", orange: "Amber", red: "Red" } as const;
 /**
  * The small key on the left of the calendar: what each colour means in this
  * property's colours. A narrow column beside the grid on a wide screen, one
- * short line above it on a phone, where the reversed colours' cues are left
- * off to fit. How a night gets its colour sits behind the "?".
+ * short line above it on a phone and a tablet ("Strong", "Typical", "Weak",
+ * without the reversed colours' cues), which stays one line at every text
+ * size. Screen readers always hear the full words. How a night gets its
+ * colour sits behind the "?".
  *
  * `mode` null: the month has not loaded yet, so the key holds its place
  * without saying anything it might have to take back.
@@ -26,9 +28,17 @@ export function CalendarColorKey({ mode }: { mode: CalendarColors | null }) {
             <span key={entry.color} className="flex items-center gap-1.5 lg:items-start" data-color={entry.color}>
               <span aria-hidden className={`inline-block h-1 w-4 shrink-0 rounded lg:mt-[0.4rem] ${NIGHT_COLOR_CLASS[entry.color]}`} />
               <span>
-                <span className="sr-only">{COLOR_NAME[entry.color]}: </span>
-                {entry.words}
-                {entry.cue ? <span className="hidden lg:inline">, {entry.cue}</span> : null}
+                <span className="sr-only" data-form="spoken">
+                  {COLOR_NAME[entry.color]}: {entry.words}
+                  {entry.cue ? `, ${entry.cue}` : ""}
+                </span>
+                <span aria-hidden className="lg:hidden" data-form="short">
+                  {entry.short}
+                </span>
+                <span aria-hidden className="hidden lg:inline" data-form="full">
+                  {entry.words}
+                  {entry.cue ? `, ${entry.cue}` : ""}
+                </span>
               </span>
             </span>
           ))

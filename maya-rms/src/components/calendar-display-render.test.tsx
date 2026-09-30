@@ -160,29 +160,51 @@ describe("the colour modes on a day's bar", () => {
 });
 
 describe("the colour key", () => {
+  /** Each entry: its colour, its swatch, what a wide screen shows, what a phone shows, what a screen reader hears. */
   const entries = () =>
     [...screen.getByTestId("calendar-color-key").querySelectorAll("[data-color]")].map((e) => [
       e.getAttribute("data-color"),
       e.querySelector("span[aria-hidden]")!.className.match(/bg-\w+-\d+/)![0],
-      e.textContent,
+      e.querySelector('[data-form="full"]')!.textContent,
+      e.querySelector('[data-form="short"]')!.textContent,
+      e.querySelector('[data-form="spoken"]')!.textContent,
     ]);
 
   it("reads strong green, typical amber, weak red in Standard", () => {
     render(<CalendarColorKey mode="standard" />);
     expect(entries()).toEqual([
-      ["green", "bg-emerald-600", "Green: Strong night"],
-      ["orange", "bg-amber-500", "Amber: Typical night"],
-      ["red", "bg-rose-600", "Red: Weak night"],
+      ["green", "bg-emerald-600", "Strong night", "Strong", "Green: Strong night"],
+      ["orange", "bg-amber-500", "Typical night", "Typical", "Amber: Typical night"],
+      ["red", "bg-rose-600", "Weak night", "Weak", "Red: Weak night"],
     ]);
   });
 
   it("reads the same three words in the swapped colours in Reversed, with a cue on each end", () => {
     render(<CalendarColorKey mode="reversed" />);
     expect(entries()).toEqual([
-      ["green", "bg-emerald-600", "Green: Weak night, keep working on it"],
-      ["orange", "bg-amber-500", "Amber: Typical night"],
-      ["red", "bg-rose-600", "Red: Strong night, leave it"],
+      ["green", "bg-emerald-600", "Weak night, keep working on it", "Weak", "Green: Weak night, keep working on it"],
+      ["orange", "bg-amber-500", "Typical night", "Typical", "Amber: Typical night"],
+      ["red", "bg-rose-600", "Strong night, leave it", "Strong", "Red: Strong night, leave it"],
     ]);
+  });
+
+  it("shows only the short words on a phone, so its line fits at every text size, and the full words from 1024px", () => {
+    for (const mode of ["standard", "reversed"] as const) {
+      render(<CalendarColorKey mode={mode} />);
+      const key = screen.getByTestId("calendar-color-key");
+      for (const short of key.querySelectorAll('[data-form="short"]')) {
+        expect(short.className.split(" ")).toContain("lg:hidden");
+        expect(short.getAttribute("aria-hidden")).toBe("true");
+      }
+      for (const full of key.querySelectorAll('[data-form="full"]')) {
+        expect(full.className.split(" ")).toEqual(expect.arrayContaining(["hidden", "lg:inline"]));
+      }
+      // The phone's line, all three entries: short enough for one line at
+      // Larger on a 375px phone (checked in a browser, with the "?").
+      const phone = [...key.querySelectorAll('[data-form="short"]')].map((e) => e.textContent).join(" ");
+      expect(phone.length).toBeLessThanOrEqual("Strong Typical Weak".length);
+      cleanup();
+    }
   });
 
   it("keeps how a colour is worked out behind the question mark, and never calls it occupancy", () => {
@@ -255,6 +277,26 @@ describe("the calendar tab", () => {
     expect(key.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(key.parentElement!.className).toContain("lg:flex-row");
     expect(document.body.textContent).not.toMatch(/Measured by revenue per room/);
+  });
+
+  it("keeps the room beside the days on a phone in px, so a larger text size never makes the days' numbers smaller", async () => {
+    stub(undefined);
+    render(<Dashboard initialSearch={window.location.search} />);
+    const tenth = await screen.findByRole("button", { name: /^10\b/ });
+    // Every side padding and gap that applies below 640px (no breakpoint
+    // prefix), from the day out to the page: in rem these grow with the text
+    // size and take width from the seven days sharing the phone's screen.
+    const found: string[] = [];
+    for (let el: HTMLElement | null = tenth; el && el !== document.body; el = el.parentElement) {
+      const classes = el.className.split(/\s+/);
+      const column = classes.includes("flex-col");
+      for (const c of classes) {
+        if (/^(p|px|pl|pr)-/.test(c) || (/^gap(-x)?-/.test(c) && !column)) found.push(c);
+      }
+      if (classes.includes("max-w-6xl")) break;
+    }
+    expect(found.length).toBeGreaterThanOrEqual(4);
+    expect(found.filter((c) => !/-\[\d+px\]$|-0$/.test(c))).toEqual([]);
   });
 
   it("reads a calendar with no settings on it as the calendar always was", async () => {

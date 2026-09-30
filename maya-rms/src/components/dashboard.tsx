@@ -124,7 +124,7 @@ function CalendarMonthSkeleton({
 
   return (
     <div
-      className="grid grid-cols-7 gap-1 sm:gap-2"
+      className="grid grid-cols-7 gap-[4px] sm:gap-2"
       aria-busy="true"
       aria-label="Loading calendar"
     >
@@ -1214,7 +1214,7 @@ export function Dashboard({
           </div>
         </div>
       ) : null}
-      <div className="mx-auto max-w-6xl p-3 sm:p-6 md:p-10">
+      <div className="mx-auto max-w-6xl p-[12px] sm:p-6 md:p-10">
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -1352,7 +1352,7 @@ export function Dashboard({
         <ArrivalNote note={arrivalNote} onClose={() => setArrivalNote(null)} />
 
         {tab === "calendar" && (
-          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-2 sm:p-5">
+          <section className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-[8px] sm:p-5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
               <button
                 className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
@@ -1430,7 +1430,8 @@ export function Dashboard({
                 {calendarBusy ? (
                   <CalendarMonthSkeleton year={year} month={month} />
                 ) : calendar ? (
-                  <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                  // px on a phone, like the padding around it: see CalendarDayCell.
+                  <div className="grid grid-cols-7 gap-[4px] sm:gap-2">
                     {Array.from({ length: calendar.first_weekday }).map((_, idx) => (
                       <div key={`empty-${idx}`} />
                     ))}

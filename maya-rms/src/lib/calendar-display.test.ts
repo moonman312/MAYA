@@ -231,17 +231,17 @@ describe("the colours", () => {
 
   it("keys Standard as strong green, typical amber, weak red", () => {
     expect(colorKey("standard")).toEqual([
-      { color: "green", words: "Strong night", cue: null },
-      { color: "orange", words: "Typical night", cue: null },
-      { color: "red", words: "Weak night", cue: null },
+      { color: "green", words: "Strong night", short: "Strong", cue: null },
+      { color: "orange", words: "Typical night", short: "Typical", cue: null },
+      { color: "red", words: "Weak night", short: "Weak", cue: null },
     ]);
   });
 
   it("keys Reversed with the same words in the swapped colours, each with its cue", () => {
     expect(colorKey("reversed")).toEqual([
-      { color: "green", words: "Weak night", cue: "keep working on it" },
-      { color: "orange", words: "Typical night", cue: null },
-      { color: "red", words: "Strong night", cue: "leave it" },
+      { color: "green", words: "Weak night", short: "Weak", cue: "keep working on it" },
+      { color: "orange", words: "Typical night", short: "Typical", cue: null },
+      { color: "red", words: "Strong night", short: "Strong", cue: "leave it" },
     ]);
   });
 

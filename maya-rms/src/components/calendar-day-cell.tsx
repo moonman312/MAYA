@@ -8,7 +8,14 @@ import {
 } from "@/lib/calendar-display";
 import type { CalendarDay } from "@/types/domain";
 
-/** The big number's usual size (1.125rem), smaller only when the day is too narrow to hold it. */
+/**
+ * The big number's usual size (1.125rem), smaller only when the day is too
+ * narrow to hold it. On a phone the seven days share the screen's width, so
+ * the room around them (the page's, the calendar's and each day's side
+ * padding, the gaps between days) is in px there: a larger text size never
+ * takes width away from the days, so their numbers are never smaller than
+ * at the standard size.
+ */
 function fitted(text: string): string {
   return `min(1.125rem, calc(150cqi / ${Math.max(3, text.length)}))`;
 }
@@ -42,7 +49,7 @@ export function CalendarDayCell({
   return (
     <button
       type="button"
-      className={`@container min-w-0 cursor-pointer overflow-hidden rounded border border-slate-700 px-0.5 py-1.5 text-left hover:border-sky-400 sm:p-2 ${
+      className={`@container min-w-0 cursor-pointer overflow-hidden rounded border border-slate-700 px-[2px] py-1.5 text-left hover:border-sky-400 sm:p-2 ${
         selected ? "ring-2 ring-sky-400" : ""
       }`}
       onClick={onSelect}
