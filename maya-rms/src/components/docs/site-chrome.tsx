@@ -6,23 +6,26 @@ import { SignedInOnly } from "./app-links/app-link";
 // to get-maya.com. A signed-in reader gets "Open MAYA"; everyone else gets a
 // quiet "Join the waitlist" and no way into the app.
 
-const linkClass = "text-sm text-muted-foreground transition-colors hover:text-foreground";
+const linkClass = "whitespace-nowrap text-sm text-muted-foreground transition-colors hover:text-foreground";
 
 export function DocsSiteHeader({ current, wide = false }: { current: "docs" | "support"; wide?: boolean }) {
   return (
-    <nav className="fixed top-0 z-50 w-full border-b border-border bg-background/80 px-6 py-5 backdrop-blur-lg" aria-label="MAYA">
+    // The header is one line at every text size, so the page under it (which
+    // starts 4.25rem down) is never covered: on a phone with a larger text
+    // size, Support steps aside to make room.
+    <nav className="@container fixed top-0 z-50 w-full border-b border-border bg-background/80 px-6 py-5 backdrop-blur-lg" aria-label="MAYA">
       <div className={`mx-auto flex items-center justify-between gap-4 ${wide ? "max-w-7xl" : "max-w-5xl"}`}>
         <a href={MARKETING_URL} className="text-lg font-bold tracking-wide text-foreground">
           MAYA
         </a>
         <div className="flex items-center gap-4 sm:gap-6">
-          <Link href="/docs" aria-current={current === "docs" ? "page" : undefined} className={current === "docs" ? "text-sm text-foreground" : linkClass}>
+          <Link href="/docs" aria-current={current === "docs" ? "page" : undefined} className={current === "docs" ? "whitespace-nowrap text-sm text-foreground" : linkClass}>
             Docs
           </Link>
           <Link
             href="/support"
             aria-current={current === "support" ? "page" : undefined}
-            className={current === "support" ? "text-sm text-foreground" : linkClass}
+            className={`${current === "support" ? "whitespace-nowrap text-sm text-foreground" : linkClass} hidden @min-[18rem]:inline`}
           >
             Support
           </Link>
@@ -31,12 +34,12 @@ export function DocsSiteHeader({ current, wide = false }: { current: "docs" | "s
           </a>
           <SignedInOnly
             otherwise={
-              <a href={WAITLIST_URL} className="text-sm font-medium text-primary transition-opacity hover:opacity-80">
+              <a href={WAITLIST_URL} className="whitespace-nowrap text-sm font-medium text-primary transition-opacity hover:opacity-80">
                 Join the waitlist
               </a>
             }
           >
-            <Link href="/" className="text-sm font-medium text-primary transition-opacity hover:opacity-80">
+            <Link href="/" className="whitespace-nowrap text-sm font-medium text-primary transition-opacity hover:opacity-80">
               Open MAYA
             </Link>
           </SignedInOnly>
