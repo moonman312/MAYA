@@ -2,19 +2,38 @@
 
 import { MayaLockup } from "@/components/brand/logo";
 import { TermsConsent } from "@/components/legal/terms-consent";
-import { RESET_PAUSE_MS } from "@/lib/auth-links";
+import {
+  isEmailNotConfirmed,
+  isRateLimited,
+  linkRefusedInUrl,
+  RESEND_COOLDOWN_MS,
+  RESET_PAUSE_MS,
+} from "@/lib/auth-links";
 import { signupAcceptanceMetadata } from "@/lib/legal/versions";
 import { safeNext } from "@/lib/deep-links";
+import { forgetClaimTicket, readClaimTicket, saveClaimTicket } from "@/lib/pms/claim-ticket";
 import { createClient } from "@/utils/supabase/client";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 type Mode = "signin" | "signup" | "forgot";
 
-/** Where a Flow A claim ticket waits out an email-confirmation round trip. */
-const CLAIM_KEY = "maya.marketplace.claim";
+const CONFIRMED = "Your email is confirmed. Sign in to continue.";
+const LINK_USED = "That link has expired or was already used. Try signing in.";
+
+/**
+ * Where the confirmation email's link comes back to. Supabase confirms the
+ * address on its own page first, then sends the browser here with a one-time
+ * code (or with error_code when the link had run out).
+ */
+function confirmationRedirect() {
+  return `${window.location.origin}/login?confirmed=1`;
+}
+
+/** What that return trip can leave in the address. All of it is cleared once read. */
+const LANDING_PARAMS = ["code", "confirmed", "error", "error_code", "error_description"];
 
 /**
  * Where a link into MAYA (/go/...) waits while someone signs in, so it
@@ -63,6 +82,7 @@ export default function LoginPage() {
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [resetSentTo, setResetSentTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const configured = useMemo(() => isSupabaseConfigured(), []);
 
@@ -70,26 +90,80 @@ export default function LoginPage() {
   const [reconnected, setReconnected] = useState(false);
   const [next, setNext] = useState<string | null>(null);
 
+  // "Send the link again", on the check-email screen and after a sign-in that
+  // was refused for an unconfirmed address.
+  const [unconfirmed, setUnconfirmed] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendNote, setResendNote] = useState<{ ok: boolean; text: string } | null>(null);
+  const [coolingDown, setCoolingDown] = useState(false);
+  const coolTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One redemption per code, however many times the effect runs (Strict Mode
+  // runs it twice in development).
+  const redeemed = useRef(false);
+
+  useEffect(
+    () => () => {
+      if (coolTimer.current) clearTimeout(coolTimer.current);
+    },
+    [],
+  );
+
+  /** The confirmation link's code: redeem it, then carry on as a sign-in would. */
+  const redeem = useEffectEvent(
+    async (code: string, claimToken: string | null, going: string | null) => {
+      setLoading(true);
+      try {
+        const { error: exErr } = await createClient().auth.exchangeCodeForSession(code);
+        // The address is confirmed by the time Supabase sends anyone here, so
+        // a code this browser can't redeem (opened on another device, say)
+        // still only needs a password.
+        if (exErr) {
+          setNotice(CONFIRMED);
+          return;
+        }
+        if (!(await finishClaim(claimToken))) return;
+        afterSignIn(claimToken, going);
+      } catch {
+        setNotice(CONFIRMED);
+      } finally {
+        setLoading(false);
+      }
+    },
+  );
+
   useEffect(() => {
-    const q = new URLSearchParams(window.location.search);
+    const url = new URL(window.location.href);
+    const q = url.searchParams;
+
+    // Back from the confirmation email. What it brought is read, then taken
+    // out of the address before any Supabase client is made: the browser
+    // client redeems a code it finds there by itself as it starts, and this
+    // page could then not tell a redeemed code from a refused one. A one-time
+    // link has no business in the history either.
+    const code = q.get("code");
+    const refused = linkRefusedInUrl(url.href);
+    const landed = q.get("confirmed") === "1" || Boolean(code) || refused;
+    if (landed) {
+      for (const key of LANDING_PARAMS) q.delete(key);
+      window.history.replaceState(window.history.state, "", url.pathname + url.search);
+    }
+
     if (q.get("mode") === "signup") setMode("signup");
     // The reset page sends people back here for a fresh link.
     if (q.get("mode") === "forgot") setMode("forgot");
     // Flow A: Cloudbeds sent them here after they connected in the Marketplace.
     // A claim ticket means the property is parked and waiting for an owner; a
     // reconnect means it already has one and just needs signing in.
-    // Survives the round trip through an email confirmation link, which comes
-    // back to /login with no query string — without this the property would be
-    // parked forever and the owner would have no way to reach it.
-    const c = q.get("claim") ?? sessionStorage.getItem(CLAIM_KEY);
+    // The ticket is kept in this browser (claim-ticket.ts) because the
+    // confirmation link comes back to /login without it, often in a new tab.
+    // Without it the property would be parked until it expired, and the owner
+    // would have no way to reach it.
+    const fromUrl = q.get("claim");
+    if (fromUrl) saveClaimTicket(fromUrl);
+    const c = fromUrl ?? readClaimTicket();
     if (c) {
       setClaim(c);
-      setMode(q.get("claim") ? "signup" : "signin");
-      try {
-        sessionStorage.setItem(CLAIM_KEY, c);
-      } catch {
-        // Private browsing: the URL parameter still covers the direct path.
-      }
+      setMode(fromUrl ? "signup" : "signin");
     }
     setReconnected(q.get("reconnected") === "1");
 
@@ -105,7 +179,7 @@ export default function LoginPage() {
         // Private browsing: the URL parameter still covers the direct path.
       }
       // Already signed in (in another tab, say): go straight on.
-      if (fromLink && !c && configured) {
+      if (fromLink && !c && !landed && configured) {
         void createClient()
           .auth.getSession()
           .then(({ data }) => {
@@ -116,19 +190,33 @@ export default function LoginPage() {
           });
       }
     }
+
+    if (landed) {
+      setMode("signin");
+      if (refused) {
+        setNotice(LINK_USED);
+      } else if (code && configured) {
+        if (!redeemed.current) {
+          redeemed.current = true;
+          void redeem(code, c, going);
+        }
+      } else {
+        setNotice(CONFIRMED);
+      }
+    }
   }, [configured]);
 
   /** Where to go once signed in: a claim still wins, then a link, then home. */
-  function afterSignIn() {
-    if (claim) {
+  function afterSignIn(claimToken = claim, going = next) {
+    if (claimToken) {
       router.replace("/onboarding");
       router.refresh();
       return;
     }
-    if (next) {
+    if (going) {
       forgetNext();
       // A full navigation, so /go (a route handler) runs on the server.
-      window.location.assign(next);
+      window.location.assign(going);
       return;
     }
     router.replace("/");
@@ -136,21 +224,21 @@ export default function LoginPage() {
   }
 
   /** Attach the Marketplace property to the account that just authenticated. */
-  async function finishClaim(): Promise<boolean> {
-    if (!claim) return true;
+  async function finishClaim(claimToken = claim): Promise<boolean> {
+    if (!claimToken) return true;
     const res = await fetch("/api/pms/marketplace/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: claim }),
+      body: JSON.stringify({ token: claimToken }),
     });
     if (res.ok) {
-      try {
-        sessionStorage.removeItem(CLAIM_KEY);
-      } catch {
-        // Nothing to clean up if storage was unavailable to begin with.
-      }
+      forgetClaimTicket();
       return true;
     }
+    // Expired, not valid, or someone else's: the ticket can never work, so
+    // this browser stops offering it to every sign-in. A failure that may pass
+    // (5xx, no session yet) keeps it for another go.
+    if (res.status === 400 || res.status === 409) forgetClaimTicket();
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     setError(body.error ?? "Could not finish connecting your property.");
     return false;
@@ -159,15 +247,56 @@ export default function LoginPage() {
   function switchMode(next: Mode) {
     setMode(next);
     setError(null);
+    setNotice(null);
+    setUnconfirmed(false);
+    setResendNote(null);
     setPassword("");
     setConfirm("");
     setAgreed(false);
+  }
+
+  /** Supabase allows one confirmation email a minute per address. */
+  function coolDown() {
+    setCoolingDown(true);
+    if (coolTimer.current) clearTimeout(coolTimer.current);
+    coolTimer.current = setTimeout(() => setCoolingDown(false), RESEND_COOLDOWN_MS);
+  }
+
+  async function sendAgain(address: string) {
+    if (coolingDown || resending) return;
+    setResending(true);
+    setResendNote(null);
+    try {
+      const { error: resendError } = await createClient().auth.resend({
+        type: "signup",
+        email: address,
+        options: { emailRedirectTo: confirmationRedirect() },
+      });
+      if (resendError) {
+        if (isRateLimited(resendError)) {
+          coolDown();
+          setResendNote({ ok: false, text: "Too many emails for now. Wait a minute, then try again." });
+        } else {
+          setResendNote({ ok: false, text: "Could not send the link. Try again in a moment." });
+        }
+        return;
+      }
+      coolDown();
+      setResendNote({ ok: true, text: "Sent. Check your inbox." });
+    } catch {
+      setResendNote({ ok: false, text: "Could not send the link. Try again in a moment." });
+    } finally {
+      setResending(false);
+    }
   }
 
   async function onSignIn(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setNotice(null);
+    setUnconfirmed(false);
+    setResendNote(null);
     try {
       const supabase = createClient();
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -175,7 +304,8 @@ export default function LoginPage() {
         password,
       });
       if (signInError) {
-        setError(signInError.message);
+        if (isEmailNotConfirmed(signInError)) setUnconfirmed(true);
+        else setError(signInError.message);
         return;
       }
       if (!(await finishClaim())) return;
@@ -225,6 +355,7 @@ export default function LoginPage() {
         password,
         options: {
           data: signupAcceptanceMetadata(claim ? "claim" : "signup", navigator.userAgent),
+          emailRedirectTo: confirmationRedirect(),
         },
       });
       if (signUpError) {
@@ -247,6 +378,9 @@ export default function LoginPage() {
         afterSignIn();
         return;
       }
+      // The confirmation email just went out, which starts Supabase's minute.
+      coolDown();
+      setResendNote(null);
       setSentTo(email);
     } finally {
       setLoading(false);
@@ -256,6 +390,29 @@ export default function LoginPage() {
   const inputClass = "w-full rounded bg-slate-950 p-2 text-sm";
   const primaryClass =
     "w-full cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60";
+
+  function sendAgainButton(address: string) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => void sendAgain(address)}
+          disabled={coolingDown || resending || !configured}
+          className="cursor-pointer text-sm text-sky-300 hover:underline disabled:cursor-not-allowed disabled:text-slate-500 disabled:no-underline"
+        >
+          {resending ? "Sending..." : "Send the link again"}
+        </button>
+        {resendNote && (
+          <p
+            role="status"
+            className={`mt-1 text-sm ${resendNote.ok ? "text-emerald-300" : "text-rose-300"}`}
+          >
+            {resendNote.text}
+          </p>
+        )}
+      </>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -286,10 +443,11 @@ export default function LoginPage() {
               <h1 className="text-2xl font-semibold">Check your email</h1>
               <p className="mt-2 text-sm text-slate-300">
                 A confirmation link is on its way to{" "}
-                <span className="font-medium text-slate-100">{sentTo}</span>. Open it, then come
-                back and sign in.
+                <span className="font-medium text-slate-100">{sentTo}</span>. Open it to finish
+                signing up.
                 {claim ? " Your Cloudbeds property is saved and will be waiting." : ""}
               </p>
+              <div className="mt-4">{sendAgainButton(sentTo)}</div>
               <button
                 type="button"
                 onClick={() => {
@@ -314,7 +472,9 @@ export default function LoginPage() {
                 {mode === "forgot"
                   ? "Type the email you sign in with, and we'll send you a link to set a new password."
                   : claim
-                    ? "Your Cloudbeds property is connected. Create your account to finish setting it up."
+                    ? mode === "signin"
+                      ? "Your Cloudbeds property is connected. Sign in to finish setting it up."
+                      : "Your Cloudbeds property is connected. Create your account to finish setting it up."
                     : reconnected
                       ? "Your Cloudbeds connection is active again. Sign in to pick up where you left off."
                       : mode === "signin"
@@ -326,6 +486,15 @@ export default function LoginPage() {
                 <div className="mt-4 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
                   Server configuration is incomplete. Check environment variables for this app.
                 </div>
+              )}
+
+              {notice && (
+                <p
+                  role="status"
+                  className="mt-4 rounded border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-200"
+                >
+                  {notice}
+                </p>
               )}
 
               {mode === "signin" ? (
@@ -418,6 +587,15 @@ export default function LoginPage() {
               )}
 
               {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
+
+              {unconfirmed && mode === "signin" && (
+                <div className="mt-3">
+                  <p className="text-sm text-amber-200">
+                    Confirm your email first. The link is in your inbox.
+                  </p>
+                  <div className="mt-1">{sendAgainButton(email.trim())}</div>
+                </div>
+              )}
 
               <p className="mt-4 text-sm text-slate-400">
                 {mode === "forgot" ? (

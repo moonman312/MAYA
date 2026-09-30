@@ -7,7 +7,7 @@ import { PRIVACY_URL, TERMS_URL } from "@/lib/legal/versions";
 /** The app's own address, for canonical links and the sitemap. */
 export const APP_ORIGIN = "https://maya-rms.com";
 
-export const MARKETING_URL = "https://www.get-maya.com";
+export const MARKETING_URL = "https://get-maya.com";
 export const WAITLIST_URL = `${MARKETING_URL}/#waitlist`;
 export const WHITE_PAPER_URL = `${MARKETING_URL}/philosophy`;
 export { PRIVACY_URL, TERMS_URL };

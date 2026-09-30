@@ -39,10 +39,12 @@ describe("every docs and support page is public", () => {
     expect(isAcceptanceExemptPath(p)).toBe(true);
   });
 
-  it("the helper's index, the sitemap and robots.txt skip the middleware too", () => {
+  it("the helper's index, the sitemap, robots.txt, llms.txt and the share image skip the middleware too", () => {
     const index = fs.readdirSync(path.join(ROOT, "public")).find((f) => /^docs-index\.[0-9a-f]+\.json$/.test(f));
     expect(index).toBeTruthy();
-    for (const p of [`/${index}`, "/sitemap.xml", "/robots.txt"]) expect(matcher.test(p)).toBe(false);
+    for (const p of [`/${index}`, "/sitemap.xml", "/robots.txt", "/llms.txt", "/opengraph-image"]) {
+      expect(matcher.test(p)).toBe(false);
+    }
   });
 
   it.each(["/", "/go/rules.list", "/login", "/account/team", "/onboarding/review", "/admin/docs-questions", "/docsx", "/support/x"])(

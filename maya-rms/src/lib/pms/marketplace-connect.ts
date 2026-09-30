@@ -3,6 +3,7 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { resumeStoppedImport } from "@/lib/pms/eager-import";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
+import { MARKETPLACE_CLAIM_TTL_MS } from "@/lib/pms/claim-ticket";
 import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { hotelsConnectedInsideMaya } from "@/lib/pms/stored-property";
@@ -80,8 +81,6 @@ export const ALREADY_IN_MAYA =
 export function enterpriseKey(pmsType: PmsType, externalPropertyId: string): string {
   return `${pmsType}:${externalPropertyId}`;
 }
-
-const CLAIM_TTL_MS = 24 * 60 * 60 * 1000;
 
 export async function handleMarketplaceConnect(
   pmsType: PmsType,
@@ -401,7 +400,7 @@ export async function handleMarketplaceConnect(
       pms_type: pmsType,
       external_property_id: key,
       property_name: propertyName,
-      expires_at: new Date(Date.now() + CLAIM_TTL_MS).toISOString(),
+      expires_at: new Date(Date.now() + MARKETPLACE_CLAIM_TTL_MS).toISOString(),
     };
     let { error: claimErr } = await admin
       .from("pms_marketplace_claims")

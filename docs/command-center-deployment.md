@@ -69,6 +69,10 @@ Dashboard → Authentication → URL Configuration → **Additional Redirect URL
 - `https://<your-prod-domain>/auth/accept-invite`
 - `http://localhost:3000/auth/reset-password`
 - `https://<your-prod-domain>/auth/reset-password`
+- `http://localhost:3000/login*`
+- `https://<your-prod-domain>/login*`
+
+The `/login*` entries are for the sign-up confirmation link, which comes back to `/login?confirmed=1` (see 3.6).
 
 If one of these isn't allowlisted, Supabase silently strips the redirect and sends the link to the Site URL instead:
 
@@ -107,6 +111,14 @@ Once the Command Center is live and you're only onboarding via invites, Dashboar
 Dashboard → Authentication → Multi-Factor Authentication → **TOTP: on** (enrol and verify both enabled). Nothing else changes for customers: MFA is never asked of them.
 
 God Mode (`99_supabase_migration_god_mode_v1.sql`) is how a platform admin changes a customer's property. A platform admin can open and view any property, but every write to a hotel-owned table (rules, prices, room types, team, settings, the PMS connection, going live) is refused by row level security unless the admin's token is `aal2` and they hold an open window in `support_sessions`. The **GOD MODE** button in the Command Center nav (and on each hotel page) asks for a code from an authenticator app; the first press enrols one with a QR code. A window lasts `god_mode_minutes()` (30) and ends by itself, or from the red banner's **End God Mode**. Entering, leaving and expiring are logged in `platform_audit_events` (`god_mode.started` / `ended` / `expired`); every change made in a window is in `support_changes` and shows in the property's change log as "Changed by MAYA support". With TOTP off in the dashboard, the button reports that authenticator codes are not switched on and God Mode cannot start.
+
+### 3.6 Turn on "Confirm email"
+
+Dashboard → Authentication → Providers → Email → **Confirm email: on**. Run `99_supabase_migration_confirmed_signups_v1.sql` first, so `account.created` counts an account when its address is confirmed rather than when it is typed in.
+
+`/login` passes `emailRedirectTo` = `<origin>/login?confirmed=1` on sign-up and on "Send the link again", so allowlist it (3.1). The default **Confirm signup** template (`{{ .ConfirmationURL }}`) is what the page expects: Supabase confirms the address on its verify page, then sends the browser back with a PKCE `?code=`, which `/login` redeems and then carries on (a waiting Cloudbeds Marketplace claim included). Opened in a browser that didn't sign up, the code can't be redeemed, and the page says the email is confirmed and asks them to sign in. An expired or used link comes back with `error_code`, and the page says so.
+
+Resends are limited per address by Supabase (the button rests for 60 seconds after each send), and all auth emails share the project's email rate limit (Authentication → Rate Limits).
 
 ---
 

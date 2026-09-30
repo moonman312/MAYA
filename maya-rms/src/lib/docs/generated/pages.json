@@ -7,7 +7,7 @@
   "slug": "what-maya-does",
   "order": 10,
   "title": "What MAYA does",
-  "summary": "You write pricing rules in plain words. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
+  "summary": "You build pricing rules from dropdowns, and each one reads back as a plain sentence. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
   "readingTime": 16,
   "readingNote": null,
   "updated": "2026-09-30",
@@ -226,7 +226,7 @@
   "summary": "The whole journey on one page, in the order it happens. Two ways in, then connect, the history import, the review, and going live when you are ready. With Mews we connect it for you, and there is no import or review yet.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -482,10 +482,10 @@
   "slug": "create-an-account-and-sign-in",
   "order": 10,
   "title": "Create an account and sign in",
-  "summary": "The sign-in page at maya-rms.com/login, creating an account with an email and a password of at least 8 characters, confirming your email, resetting a forgotten password, where signing in takes you, the messages after Connect App in Cloudbeds and how to get a new link, using MAYA on a phone or tablet, and the web addresses an office network needs to allow.",
-  "readingTime": 15,
+  "summary": "The sign-in page at maya-rms.com/login, creating an account with an email and a password of at least 8 characters, confirming your email and getting the link again, resetting a forgotten password, where signing in takes you, the messages after Connect App in Cloudbeds and how to get a new link, using MAYA on a phone or tablet, and the web addresses an office network needs to allow.",
+  "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -506,6 +506,21 @@
     "depth": 2,
     "text": "Confirming your email",
     "id": "confirming-your-email"
+   },
+   {
+    "depth": 3,
+    "text": "If the email has not arrived",
+    "id": "if-the-email-has-not-arrived"
+   },
+   {
+    "depth": 3,
+    "text": "If the link has expired or was already used",
+    "id": "if-the-link-has-expired-or-was-already-used"
+   },
+   {
+    "depth": 3,
+    "text": "Coming from the Cloudbeds Marketplace",
+    "id": "coming-from-the-cloudbeds-marketplace"
    },
    {
     "depth": 2,
@@ -589,7 +604,10 @@
    "Which web addresses must our office network allow?",
    "Why did I land on a sign-in page after clicking Connect App in Cloudbeds?",
    "I never got the confirmation email, what now?",
-   "It says my email is not confirmed, what do I do?",
+   "It says \"Confirm your email first\", what do I do?",
+   "How do I get the confirmation link sent again?",
+   "The confirmation link says it has expired or was already used",
+   "I opened the confirmation link on my phone and it asks me to sign in, why?",
    "I clicked Continue to payment on get-maya.com, do I still click Create your account?",
    "I picked Yearly in the price calculator, why does the payment screen show Monthly?",
    "I confirmed my email and my Cloudbeds property is not there, why?",
@@ -614,7 +632,7 @@
   "summary": "The one box every agreement goes through, where it appears, why you agree to the Terms but only acknowledge the Privacy Policy, what MAYA records when you tick it, and what the Terms lines on the payment screen and in the go-live dialog mean.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1065,7 +1083,7 @@
   "summary": "How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds"
   ],
@@ -1536,7 +1554,7 @@
   "summary": "A short checklist for a Cloudbeds property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds"
   ],
@@ -5410,7 +5428,7 @@
   "summary": "The five emails MAYA itself sends (the team invitation, the account ready email after you pay, the room count email, a nudge before a charge when nothing is connected, and an email when the connection to your property system has been down about an hour), the account confirmation email, what comes from Stripe instead, the emails that do not exist, how to change the billing email, and the address the emails come from.",
   "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8004,9 +8022,9 @@
   "order": 90,
   "title": "Account and billing problems",
   "summary": "Sign-in trouble, the connection link, codes, a stuck \"Payment received\" screen, card checks and whether you were charged twice, the room count banner, a paused property, seats, invitations, and a property name, time zone or currency that came in wrong.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8027,6 +8045,11 @@
     "depth": 2,
     "text": "I never got the confirmation email",
     "id": "i-never-got-the-confirmation-email"
+   },
+   {
+    "depth": 2,
+    "text": "The confirmation link says it has expired or was already used",
+    "id": "the-confirmation-link-says-it-has-expired-or-was-already-used"
    },
    {
     "depth": 2,
@@ -8134,6 +8157,7 @@
    "I forgot my password",
    "It says that email already has an account",
    "I never got the confirmation email",
+   "The confirmation link says it has expired or was already used",
    "The Cloudbeds connection link expired",
    "It says that connection has already been claimed",
    "A colleague already signed up for our property, how do I get in?",
@@ -8199,9 +8223,9 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 57,
+  "readingTime": 58,
   "readingNote": "Type a few words of the message to jump to it",
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8489,7 +8513,7 @@
   "summary": "Every number MAYA works by, in one place, grouped by the cycle, the window, rules, booking speed, floors and ceilings, history, the change log, how often you can do things, billing and the connection, each with the page that explains it.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",

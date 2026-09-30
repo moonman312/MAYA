@@ -7,6 +7,8 @@ import { docsPages, getPage, neighbours, readBody } from "@/lib/docs/content";
 import { createAppLinker, type AppLabels } from "@/lib/docs/app-linker.mjs";
 import appLabels from "@/lib/docs/app-labels.json";
 import { SUPPORT_EMAIL } from "@/lib/docs/home";
+import { SHARE_IMAGE } from "@/lib/docs/share";
+import { APP_ORIGIN, MARKETING_URL } from "@/lib/docs/site";
 import { mdxComponents } from "@/components/docs/mdx";
 import { Breadcrumbs } from "@/components/docs/breadcrumbs";
 import { PageMeta } from "@/components/docs/page-meta";
@@ -40,8 +42,9 @@ export async function generateMetadata({ params }: { params: Params }): Promise<
       description: page.summary,
       url: page.url,
       siteName: "MAYA",
+      images: [SHARE_IMAGE],
     },
-    twitter: { card: "summary", title: `${page.title} · MAYA docs`, description: page.summary },
+    twitter: { card: "summary_large_image", title: `${page.title} · MAYA docs`, description: page.summary, images: [SHARE_IMAGE.url] },
   };
 }
 
@@ -60,18 +63,42 @@ export default async function DocsPageRoute({ params }: { params: Params }) {
     },
   });
   const { prev, next } = neighbours(page);
-  const faq =
-    page.faq.length > 0
-      ? {
-          "@context": "https://schema.org",
-          "@type": "FAQPage",
-          mainEntity: page.faq.map((f) => ({
-            "@type": "Question",
-            name: f.q,
-            acceptedAnswer: { "@type": "Answer", text: f.a },
-          })),
-        }
-      : null;
+  const pageUrl = `${APP_ORIGIN}${page.url}`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "TechArticle",
+        headline: page.title,
+        description: page.summary,
+        url: pageUrl,
+        ...(page.updated ? { dateModified: page.updated } : {}),
+        inLanguage: "en",
+        about: { "@type": "SoftwareApplication", name: "MAYA", applicationCategory: "BusinessApplication" },
+        publisher: { "@type": "Organization", name: "Modern Hospitality Solutions LLC", url: MARKETING_URL },
+      },
+      {
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Docs", item: `${APP_ORIGIN}/docs` },
+          { "@type": "ListItem", position: 2, name: page.sectionLabel, item: `${APP_ORIGIN}/docs/${page.section}` },
+          { "@type": "ListItem", position: 3, name: page.title, item: pageUrl },
+        ],
+      },
+      ...(page.faq.length > 0
+        ? [
+            {
+              "@type": "FAQPage",
+              mainEntity: page.faq.map((f) => ({
+                "@type": "Question",
+                name: f.q,
+                acceptedAnswer: { "@type": "Answer", text: f.a },
+              })),
+            },
+          ]
+        : []),
+    ],
+  };
 
   return (
     <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_13.5rem] xl:gap-12">
@@ -106,9 +133,7 @@ export default async function DocsPageRoute({ params }: { params: Params }) {
         </div>
       </aside>
       <AskStarters questions={page.questions.slice(0, 6)} />
-      {faq ? (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faq).replace(/</g, "\\u003c") }} />
-      ) : null}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
     </div>
   );
 }
