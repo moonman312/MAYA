@@ -15,6 +15,14 @@
  * It is the only base the engine has, besides a price someone typed: a night
  * this table has no row for, or one past the last night the PMS returned on
  * its last read (base_rates_returned_through), is not priced and not sent.
+ * A night inside that range which a full read did not return (Cloudbeds
+ * quotes no rate for it any more: rates unloaded for the date, a rate plan
+ * interval that ends) is not a rate on record either: its row is removed
+ * here, when MAYA has never sent to it, so the engine unprices it and the
+ * push holds it rather than send the rate an earlier read stored. The next
+ * read that returns the night captures it again. A night MAYA has sent to
+ * keeps its row whatever the PMS quotes: what is there is MAYA's own price
+ * (the refresh rule below), and pms-edits.ts is what judges those nights.
  *
  * THE REFRESH RULE, and it is the whole safety story: a cell may be captured
  * only while MAYA has never pushed a rate to it. After we push, the PMS is
@@ -87,6 +95,12 @@ export type SeedCalendarResult =
       pmsEditsAdopted: number;
       /** Of `captured`, sent-to nights stored at 0 that the hotel has since loaded a rate for. */
       loadedAfterZeroBase: number;
+      /**
+       * Rows a full read did not return, on nights MAYA has never sent to,
+       * for the room types it targeted: removed, so they are no longer a
+       * rate on record. Always 0 for a span read.
+       */
+      dropped: number;
       days: number;
       /**
        * `stay_date|room_type_id` of every night whose rate in the PMS this
@@ -319,6 +333,50 @@ async function seedWithTargets(
     }
   }
 
+  // A full read is the PMS's whole answer for the window: a stored row it
+  // did not return, for a room type it targeted, on a night MAYA has never
+  // sent to, is a rate the PMS no longer quotes (see the header). Removed,
+  // so the engine unprices the night and the push holds it. A span read
+  // (before a re-send, only ever over sent-to nights) says nothing here.
+  // A room type the read did not target was not asked about, so its rows
+  // stay. Nearest night first, as the writes go.
+  const dropped = new Map<string, string[]>();
+  if (!opts.span) {
+    const targeted = new Set<string>();
+    for (const ext of Object.keys(read.targets)) {
+      const local = localByExternal.get(ext);
+      if (local) targeted.add(local);
+    }
+    for (const s of stored) {
+      const roomTypeId = String(s.room_type_id);
+      const key = `${s.stay_date}|${roomTypeId}`;
+      if (seen.has(key) || pushedCells.has(key) || !targeted.has(roomTypeId)) continue;
+      const dates = dropped.get(roomTypeId) ?? [];
+      dates.push(String(s.stay_date));
+      dropped.set(roomTypeId, dates);
+    }
+  }
+  let droppedCount = 0;
+  for (const [roomTypeId, dates] of dropped) {
+    dates.sort();
+    for (let i = 0; i < dates.length; i += CHUNK) {
+      const chunk = dates.slice(i, i + CHUNK);
+      const { error } = await supabase
+        .from("base_rate_calendar")
+        .delete()
+        .eq("hotel_id", hotelId)
+        .eq("room_type_id", roomTypeId)
+        .in("stay_date", chunk);
+      if (error) {
+        throw new Error(`Failed to remove base rates the PMS no longer has from ${chunk[0]}: ${error.message}`);
+      }
+      droppedCount += chunk.length;
+    }
+  }
+  if (droppedCount > 0) {
+    console.log(JSON.stringify({ fn: "seedBaseRateCalendar", hotelId, step: "no_longer_in_pms", dropped: droppedCount }));
+  }
+
   // A database without the settle columns can't tell a settled send, so nothing there is a hand edit.
   const pmsEdits =
     settleKnown && pushedReads.length > 0
@@ -335,6 +393,7 @@ async function seedWithTargets(
       skippedAlreadyPushed,
       pmsEditsAdopted: pmsEdits?.adopted ?? 0,
       loadedAfterZeroBase,
+      dropped: droppedCount,
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
       holdCells: pmsEdits?.holdCells ?? [],

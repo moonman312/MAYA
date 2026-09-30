@@ -219,31 +219,94 @@ describe.each(ENGINES)("$name: a night the PMS has no rate for", (engine) => {
     expect(new Set(sentLater.map((s) => s.price))).toEqual(new Set([150]));
   }, 120_000);
 
-  it("does not price a row an earlier read stored past the last night the PMS returned", async () => {
-    // A rate on record for night 12 from an earlier read; the PMS now returns
-    // rates through night 9 only, and a leftover published row sits on 12.
+  it("does not price a row an earlier read stored past the last night the PMS returned, and a full read removes it", async () => {
+    // A rate on record for night 12 from an earlier read, never sent to; the
+    // PMS now returns rates through night 9 only, and a leftover published
+    // row sits on 12. A sent-to row past the returned night (night 14) keeps
+    // its row and its published price: MAYA's own price is in the PMS there.
     const w = hotel({
-      base_rate_calendar: [{ hotel_id: H, stay_date: night(12), room_type_id: RT, price: 150, source: "pms", captured_at: `${addDays(LOCAL0, -2)}T12:00:00Z` }],
-      published_price: [{ hotel_id: H, stay_date: night(12), room_type_id: RT, price: 150, base_price: 150, computed_at: `${addDays(LOCAL0, -2)}T12:00:00Z` }],
+      base_rate_calendar: [
+        { hotel_id: H, stay_date: night(12), room_type_id: RT, price: 150, source: "pms", captured_at: `${addDays(LOCAL0, -2)}T12:00:00Z` },
+        { hotel_id: H, stay_date: night(14), room_type_id: RT, price: 150, source: "pms", captured_at: `${addDays(LOCAL0, -2)}T12:00:00Z` },
+      ],
+      published_price: [
+        { hotel_id: H, stay_date: night(12), room_type_id: RT, price: 150, base_price: 150, computed_at: `${addDays(LOCAL0, -2)}T12:00:00Z` },
+        { hotel_id: H, stay_date: night(14), room_type_id: RT, price: 150, base_price: 150, computed_at: `${addDays(LOCAL0, -2)}T12:00:00Z` },
+      ],
+      rate_updates: [
+        { id: "l14", hotel_id: H, pms_type: "cloudbeds", room_type_id: RT, external_room_type_id: "CB-KING", stay_date: night(14), price: 150, status: "sent", attempts: 1, pushed_at: `${addDays(LOCAL0, -2)}T12:00:00Z`, external_rate_id: "base-1" },
+      ],
     });
     for (let n = 0; n < 10; n++) w.rated.add(night(n));
 
     // Before any read has recorded how far the rates go, the stored row counts.
     w.tables.pms_connections[0].base_rates_returned_through = null;
     const res = await w.tick(engine, T0);
-    expect(res.calendar).toMatchObject({ ok: true, returnedThrough: night(9) });
-    // The read that just ran said the rates stop at night 9, but the engine
-    // priced on the row before the stamp was read back... no: the refresh
-    // runs before the engine, so the stamp is already there.
+    // The refresh runs before the engine, so the stamp is there when it
+    // prices; and the full read did not return night 12, so the never-sent
+    // row is no longer a rate on record at all.
+    expect(res.calendar).toMatchObject({ ok: true, returnedThrough: night(9), dropped: 1 });
     expect(w.priceOf(night(12))).toBeNull();
     expect(w.sentTo().has(night(12))).toBe(false);
-    expect(w.tables.base_rate_calendar.some((r) => r.stay_date === night(12))).toBe(true);
+    expect(w.tables.base_rate_calendar.some((r) => r.stay_date === night(12))).toBe(false);
+    // The sent-to night keeps its row and its price, unpriced past the returned night and held by the push.
+    expect(w.tables.base_rate_calendar.some((r) => r.stay_date === night(14))).toBe(true);
+    expect(w.priceOf(night(14))).toBe(150);
+    expect(w.sentTo().has(night(14))).toBe(false);
 
-    // The PMS loads rates out to night 12 again: the row is a rate on record once more.
+    // The PMS loads rates out to night 12 again: captured, a rate on record once more.
     for (let n = 10; n <= 12; n++) w.rated.add(night(n));
-    await w.tick(engine, T0 + 61 * MIN);
+    const later = await w.tick(engine, T0 + 61 * MIN);
+    expect(later.calendar).toMatchObject({ ok: true, captured: 3, dropped: 0 });
     expect(w.connection().base_rates_returned_through).toBe(night(12));
     expect(w.priceOf(night(12))).toBe(150);
     expect(w.sentTo().has(night(12))).toBe(true);
+  }, 120_000);
+
+  it("is unpriced and not sent when the PMS stops quoting it inside the range it returned, and priced again once it comes back", async () => {
+    // Rows an earlier read stored for nights 0..9, never sent to (a leftover
+    // published row sits on one of them); the PMS now quotes every one of
+    // them but 5 and 6. Without the removal, 5 and 6 would be priced on the
+    // stored 150 and sent, the exact rate the hotel no longer has there.
+    const w = hotel({
+      base_rate_calendar: Array.from({ length: 10 }, (_, n) => ({ hotel_id: H, stay_date: night(n), room_type_id: RT, price: 150, source: "pms", captured_at: `${addDays(LOCAL0, -2)}T12:00:00Z` })),
+      published_price: [{ hotel_id: H, stay_date: night(5), room_type_id: RT, price: 150, base_price: 150, computed_at: `${addDays(LOCAL0, -2)}T12:00:00Z` }],
+    });
+    w.tables.pms_connections[0].base_rates_returned_through = night(9);
+    for (let n = 0; n < 10; n++) if (n !== 5 && n !== 6) w.rated.add(night(n));
+
+    const res = await w.tick(engine, T0);
+    expect(res.evaluate).not.toHaveProperty("error");
+    expect(res.calendar).toMatchObject({ ok: true, captured: 0, unchanged: 8, dropped: 2, returnedThrough: night(9) });
+    expect(w.tables.base_rate_calendar.map((r) => r.stay_date).sort()).toEqual([0, 1, 2, 3, 4, 7, 8, 9].map(night));
+    for (const n of [0, 4, 7, 9]) expect(w.priceOf(night(n))).toBe(150);
+    for (const n of [5, 6]) {
+      expect(w.priceOf(night(n))).toBeNull();
+      expect(w.sentTo().has(night(n))).toBe(false);
+      expect(w.ledgerOf(night(n))).toBeNull();
+    }
+    expect(w.sentTo().size).toBe(8);
+
+    // A night MAYA has sent to that the PMS stops quoting keeps its row:
+    // what is there is MAYA's own price, and nothing new goes out for it.
+    w.rated.delete(night(3));
+    const sentBefore = w.sends.length;
+    const next = await w.tick(engine, T0 + 61 * MIN);
+    expect(next.calendar).toMatchObject({ ok: true, dropped: 0 });
+    expect(w.tables.base_rate_calendar.some((r) => r.stay_date === night(3))).toBe(true);
+    expect(w.priceOf(night(3))).toBe(150);
+    expect(w.sends.slice(sentBefore).flat()).toEqual([]);
+
+    // The PMS quotes 5 and 6 again: captured, priced and sent for the first time, at the hotel's rate.
+    w.rated.add(night(5));
+    w.rated.add(night(6));
+    const sentBeforeBack = w.sends.length;
+    const back = await w.tick(engine, T0 + 122 * MIN);
+    expect(back.calendar).toMatchObject({ ok: true, captured: 2, dropped: 0 });
+    for (const n of [5, 6]) expect(w.priceOf(night(n))).toBe(150);
+    expect(w.sends.slice(sentBeforeBack).flat().sort((a, b) => a.stayDate.localeCompare(b.stayDate))).toEqual([
+      { stayDate: night(5), price: 150 },
+      { stayDate: night(6), price: 150 },
+    ]);
   }, 120_000);
 });
