@@ -168,8 +168,23 @@ const AUTHENTICATED_WITHOUT_CHECK: Record<string, string> = {
 };
 
 describe("the migration file", () => {
-  it("is on the list the SQL tests build production's schema from, last", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is on the list the SQL tests build production's schema from, and every file after it closes its own functions to anon", () => {
+    const at = MIGRATION_ORDER.indexOf(MIGRATION);
+    expect(at).toBeGreaterThan(-1);
+    // The lockdown revokes anon on every SECURITY DEFINER function that exists
+    // when it runs. A migration that comes after it has to do that itself for
+    // each function it creates (a trigger function cannot be called directly
+    // and needs no grant). The PGlite test below checks the result on the
+    // whole schema; this one says which file forgot, without PGlite.
+    for (const file of MIGRATION_ORDER.slice(at + 1)) {
+      const sql = readFileSync(resolve(ROOT, file), "utf8").replace(/--.*$/gm, "");
+      const created = [...sql.matchAll(/create (?:or replace )?function public\.(\w+)\s*\(([\s\S]*?)\)\s*returns\s+(\w+)/gi)]
+        .filter((m) => m[3].toLowerCase() !== "trigger")
+        .map((m) => m[1]);
+      for (const fn of new Set(created)) {
+        expect(sql, `${file}: ${fn}`).toMatch(new RegExp(`revoke all on function public\\.${fn}\\([^)]*\\) from public, anon`));
+      }
+    }
   });
 
   it("is one transaction and creates no table, function or policy", () => {

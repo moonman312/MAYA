@@ -117,6 +117,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_pilot_health_v2.sql",
   "99_supabase_migration_non_room_types_v1.sql",
   "99_supabase_migration_definer_lockdown_v1.sql",
+  "99_supabase_migration_command_center_speed_v1.sql",
 ];
 
 type Db = {
