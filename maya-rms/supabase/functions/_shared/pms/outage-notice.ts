@@ -146,7 +146,7 @@ async function logEvent(supabase: SupabaseClient, hotelId: string, detail: Recor
   }
 }
 
-type Recipient = {
+export type Recipient = {
   userId: string;
   email: string;
   /**
@@ -181,8 +181,12 @@ async function withOtherProperties(
   return out;
 }
 
-/** Email addresses of the property's active General Managers and Hotel Admins. */
-async function recipientsFor(
+/**
+ * Email addresses of the property's active General Managers and Hotel Admins.
+ * The emails about rates changed in the PMS go to the same people
+ * (pms-change-notice.ts).
+ */
+export async function recipientsFor(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<Recipient[]> {

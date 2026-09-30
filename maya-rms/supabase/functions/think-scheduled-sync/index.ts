@@ -40,6 +40,7 @@ import {
 import { THINK_SYNC_BUDGET_MS } from "../_shared/think/constants.ts";
 import { recordRoomCount } from "../_shared/billing/room-count.ts";
 import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
+import { sendDuePmsChangeEmails } from "../_shared/pms/pms-change-notice.ts";
 import { recordAlertChannel } from "../_shared/pms/alerting.ts";
 import { handleTestAlertRequest, parseScheduledSyncBody } from "../_shared/pms/alert-test-request.ts";
 
@@ -123,6 +124,10 @@ Deno.serve(async (req) => {
   // and Hotel Admin (G57). Fleet ticks only: they run every few minutes
   // whatever else is due, and a disconnected property is never claimed below.
   const outageNotices = bodyHotelId ? [] : await sendDueOutageNotices(supabase, "think");
+  // Rates changed in Think on nights MAYA sent to: the day's overwrites under
+  // "MAYA's price wins", or the warning that another tool seems to change
+  // them. Fleet ticks only, like the connection email.
+  const pmsChangeEmails = bodyHotelId ? [] : await sendDuePmsChangeEmails(supabase, "think");
   // Whether this function's alerts have anywhere to go, said where Pilot
   // health can read it (a few rows a day, not one per tick).
   if (!bodyHotelId) await recordAlertChannel(supabase, "think-scheduled-sync");
@@ -402,6 +407,8 @@ Deno.serve(async (req) => {
       skippedUnpaid: blocked,
       // Connection-down emails sent (or not, and why) this invocation.
       outageNotices,
+      // Emails about rates changed in the PMS (or not, and why) this invocation.
+      pmsChangeEmails,
       results,
     }),
     { status: 200, headers: { "Content-Type": "application/json" } },
