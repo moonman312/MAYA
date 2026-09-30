@@ -1,7 +1,7 @@
 "use client";
 
 import { RoomCountHelp } from "@/components/room-type-settings";
-import { NIGHT_COLOR_CLASS, colorKey, colorKeyHelp, type CalendarColors } from "@/lib/calendar-display";
+import { NIGHT_COLOR_CLASS, colorKey, colorKeyHelp, type CalendarColors, type CalendarDisplay } from "@/lib/calendar-display";
 
 const COLOR_NAME = { green: "Green", orange: "Amber", red: "Red" } as const;
 
@@ -16,7 +16,14 @@ const COLOR_NAME = { green: "Green", orange: "Amber", red: "Red" } as const;
  * `mode` null: the month has not loaded yet, so the key holds its place
  * without saying anything it might have to take back.
  */
-export function CalendarColorKey({ mode }: { mode: CalendarColors | null }) {
+export function CalendarColorKey({
+  mode,
+  display,
+}: {
+  mode: CalendarColors | null;
+  /** The numbers the days show: the "?" says how the colour differs from a RevPAR on a day. */
+  display?: Pick<CalendarDisplay, "big" | "small">;
+}) {
   return (
     <div
       data-testid="calendar-color-key"
@@ -44,7 +51,7 @@ export function CalendarColorKey({ mode }: { mode: CalendarColors | null }) {
           ))
         : null}
       {mode ? (
-        <RoomCountHelp label="What the colours mean" title="What the colours mean" lines={colorKeyHelp(mode)} docs="calendar-colors" />
+        <RoomCountHelp label="What the colours mean" title="What the colours mean" lines={colorKeyHelp(mode, display)} docs="calendar-colors" />
       ) : null}
     </div>
   );

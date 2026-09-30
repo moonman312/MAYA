@@ -12,6 +12,7 @@ import {
   NIGHT_COLOR_CLASS,
   colorKey,
   colorKeyHelp,
+  COLOR_REVPAR_DIFFERS,
   compactMoney,
   dayAdr,
   daySellableRevpar,
@@ -279,5 +280,14 @@ describe("the colours", () => {
       expect(text).not.toContain("—");
     }
     expect(colorKeyHelp("reversed").join(" ")).toMatch(/green marks the weak nights worth working on, red the strong ones/);
+  });
+
+  it("says the colour can differ from the RevPAR a day shows, only when a day shows RevPAR", () => {
+    const withRevpar = (display: Pick<CalendarDisplay, "big" | "small">) => colorKeyHelp("standard", display).includes(COLOR_REVPAR_DIFFERS);
+    expect(withRevpar({ big: "revpar", small: [] })).toBe(true);
+    expect(withRevpar({ big: "adr", small: ["occupancy", "revpar"] })).toBe(true);
+    expect(withRevpar(DEFAULT_CALENDAR_DISPLAY)).toBe(false);
+    expect(colorKeyHelp("standard")).not.toContain(COLOR_REVPAR_DIFFERS);
+    expect(COLOR_REVPAR_DIFFERS).not.toMatch(/occupancy|—/i);
   });
 });

@@ -219,6 +219,18 @@ describe("the colour key", () => {
     expect(text).not.toMatch(/occupancy/i);
   });
 
+  it("says behind the question mark that the colour can differ from a RevPAR the days show", () => {
+    render(<CalendarColorKey mode="standard" display={{ big: "revpar", small: ["occupancy"] }} />);
+    const key = screen.getByTestId("calendar-color-key");
+    fireEvent.click(within(key).getByRole("button", { name: "What the colours mean" }));
+    expect(key.textContent).toMatch(/so it can differ from the RevPAR shown on a day/);
+    cleanup();
+    render(<CalendarColorKey mode="standard" display={DEFAULT_CALENDAR_DISPLAY} />);
+    const plain = screen.getByTestId("calendar-color-key");
+    fireEvent.click(within(plain).getByRole("button", { name: "What the colours mean" }));
+    expect(plain.textContent).not.toMatch(/RevPAR/);
+  });
+
   it("says nothing until it knows the property's colours", () => {
     render(<CalendarColorKey mode={null} />);
     expect(screen.getByTestId("calendar-color-key").textContent).toBe("");

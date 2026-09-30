@@ -321,13 +321,24 @@ export function colorKey(mode: CalendarColors): ColorKeyEntry[] {
   ];
 }
 
+/**
+ * Said behind the key's "?" when the days show RevPAR: the colour's revenue
+ * per room (calendar-store computeRevpar) counts every room type's revenue
+ * over every room that counts, rooms out of service included, while the
+ * RevPAR on a day (dayRates) counts only the room types that count as rooms
+ * over the rooms you can sell that night.
+ */
+export const COLOR_REVPAR_DIFFERS =
+  "The colour counts every room type's revenue and keeps rooms out of service in, so it can differ from the RevPAR shown on a day.";
+
 /** Behind the key's "?": how a night gets its colour. */
-export function colorKeyHelp(mode: CalendarColors): string[] {
+export function colorKeyHelp(mode: CalendarColors, display?: Pick<CalendarDisplay, "big" | "small">): string[] {
   const lines = [
     "Each night's colour compares its revenue per room with this property's own nights.",
     "Upcoming nights are compared with other upcoming nights, and past nights with past nights.",
     "A full night can still be a weak one if its rooms sold for less than usual.",
   ];
+  if (display && (display.big === "revpar" || display.small.includes("revpar"))) lines.push(COLOR_REVPAR_DIFFERS);
   if (mode === "reversed") {
     lines.push("Your property has reversed colours in Settings: green marks the weak nights worth working on, red the strong ones.");
   }

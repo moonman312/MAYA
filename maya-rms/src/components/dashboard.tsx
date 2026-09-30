@@ -1425,7 +1425,7 @@ export function Dashboard({
             </div>
 
             <div className="flex flex-col gap-3 lg:flex-row lg:gap-4">
-              <CalendarColorKey mode={keyMode} />
+              <CalendarColorKey mode={keyMode} display={calendarDisplay} />
               <div className="min-w-0 flex-1">
                 {calendarBusy ? (
                   <CalendarMonthSkeleton year={year} month={month} />
