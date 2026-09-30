@@ -23,7 +23,7 @@ questions:
   - Do day-use (same-day in and out) bookings count in MAYA? {#every-change-and-when-maya-picks-it-up/a-day-use}
   - Why is MAYA slow to pick up changes on a large property? {#when-it-takes-longer/a-large-propertys}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-29
 ---
 
 <InPlainWords>
@@ -50,6 +50,9 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 |---|---|
 | Make a booking | Next read. A booking waiting in the unassigned list counts too |
 | Cancel a booking, or mark it no-show | Next read. Its nights come off the count |
+| Take a room off a booking that holds several, or cancel one of its rooms | Next read. That room's nights come off the count. The booking's other rooms stay as they were |
+| Add a room to a booking | Next read. The new room is counted. The rooms already counted are not counted again, and the booking is still one booking for booking speed |
+| Delete a booking | At the daily re-read, so up to a day later. A deleted booking is no longer in what Cloudbeds returns, so MAYA asks Cloudbeds for it by its number. Once Cloudbeds answers that it has no such booking, its nights from today on come off the count. Nights already past stay in your history |
 | Change a booking's dates | Next read. New nights are added and dropped nights removed |
 | A guest checks out early (stay shortened) | Next read, once Cloudbeds shows the shorter stay. The nights it no longer covers count as free rooms again. If the booking still shows the old check-out date, MAYA still counts those nights as booked |
 | Move a booking to another room type | Next read. The room's row gets the new room type |

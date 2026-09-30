@@ -35,7 +35,7 @@ An amber banner reading "MAYA has lost its connection to Cloudbeds" means your s
 
 ## It says "MAYA has lost its connection to Cloudbeds"
 
-Your system no longer accepts MAYA's connection. The usual causes: the app was uninstalled or disabled in your system, the connection was revoked there, or your system answered MAYA's calls with a refusal.
+Your system no longer accepts MAYA's connection. The usual causes: the app was uninstalled or disabled in your system, the connection was revoked there, or your system kept refusing MAYA's sign-in.
 
 The banner shows when the connection reads Error or Disconnected. Here is what stops: reading bookings, running rules and sending prices, all of it. Disconnected stays that way until someone reconnects. Error does not have to: MAYA keeps trying on its own, waiting longer after each failed try (twice as long each time, up to an hour between tries). The first try that works turns the card back to Connected, and reading, pricing and sending carry on by themselves, including any prices that were held back. If your system goes on refusing, the card stays at Error until someone reconnects. What stays: the rates already in your system (MAYA reverts nothing), your rules, your history, your room type answers and your manual prices. A price you type meanwhile is saved, and the line under the price box tells the two apart: "Saved. It will be sent once you reconnect." on Disconnected, and "Saved. Cloudbeds isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as it answers." on Error.
 
@@ -77,7 +77,9 @@ Reading still works, so no connection banner appears. Instead the change log sho
 
 ## Why did MAYA disconnect after my Cloudbeds subscription changed?
 
-When Cloudbeds answers MAYA's calls with a refusal, or with its wording for an app that is no longer connected, MAYA marks the connection disconnected and shows the banner. A change to your Cloudbeds subscription or apps can cause that. Reconnect as above. If a change to your Cloudbeds login stops the connection, the same banner appears and <Ui>Reconnect Cloudbeds</Ui> fixes it.
+When Cloudbeds answers with its wording for an app that is no longer connected, MAYA marks the connection disconnected at once and shows the banner. A change to your Cloudbeds subscription or apps can cause that. Reconnect as above. If a change to your Cloudbeds login stops the connection, the same banner appears and <Ui>Reconnect Cloudbeds</Ui> fixes it.
+
+One refused read does not disconnect you. When Cloudbeds refuses a read, MAYA renews its sign-in and asks once more, and carries on if that works. The connection is marked disconnected only when Cloudbeds refuses the renewed sign-in too, or when the sign-in could not be renewed and three reads in a row were refused. An error page that does not come from Cloudbeds itself, such as a security filter in front of it, counts as Cloudbeds being down: that read fails, MAYA tries again later, and the connection stays Connected.
 
 ## ThinkReservations lost its connection, how would I tell?
 

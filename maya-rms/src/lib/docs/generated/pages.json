@@ -1786,7 +1786,7 @@
   "summary": "Every change you can make in Cloudbeds, ThinkReservations or Mews, whether MAYA picks it up, and how long it takes. Bookings within about five minutes, your own rates within the hour, the whole window once a day, and a short list of things MAYA never reads.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-29",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4807,7 +4807,7 @@
   "order": 40,
   "title": "When your property system does not accept a price",
   "summary": "What the \"Prices not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-09-29",
   "pms": [
@@ -7753,7 +7753,7 @@
    },
    {
     "q": "Why did MAYA disconnect after my Cloudbeds subscription changed?",
-    "a": "When Cloudbeds answers MAYA's calls with a refusal, or with its wording for an app that is no longer connected, MAYA marks the connection disconnected and shows the banner. A change to your Cloudbeds subscription or apps can cause that. Reconnect as above. If a change to your Cloudbeds login stops the connection, the same banner appears and Reconnect Cloudbeds fixes it."
+    "a": "When Cloudbeds answers with its wording for an app that is no longer connected, MAYA marks the connection disconnected at once and shows the banner. A change to your Cloudbeds subscription or apps can cause that. Reconnect as above. If a change to your Cloudbeds login stops the connection, the same banner appears and Reconnect Cloudbeds fixes it."
    },
    {
     "q": "ThinkReservations lost its connection, how would I tell?",

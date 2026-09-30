@@ -3,7 +3,7 @@ title: When your property system does not accept a price
 summary: What the "Prices not reaching Cloudbeds" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.
 section: live
 order: 40
-readingTime: 17
+readingTime: 18
 keywords: [rates not reaching cloudbeds, prices not reaching cloudbeds, rates not reaching think reservations, prices not reaching think reservations, not reaching, refused, rejected, didn't accept, couldn't tell why, never confirmed, not responding, slow down, throttled, rate limit, rate rule, minimum rate, maximum rate, follows another rate plan, derived, derived only, no base rate, can't find the rate, deleted or replaced, night that had already begun, time zone, tonight's price not reaching, after midnight, price of 0, permission to update rates, stopped accepting, reconnect, still happening, resolved, ended, show tries, retries, how many retries, will it fix itself, do I need to do anything, pms down, cloudbeds down, outage, is this a maya problem, match my cloudbeds minimum, floor to match, ceiling to match, change the floor for one room type, minimum rate in cloudbeds, lower the minimum]
 questions:
   - 'What is "Prices not reaching Cloudbeds"?' {#in-plain-words}
@@ -28,7 +28,7 @@ updated: 2026-09-29
 ---
 
 <InPlainWords>
-If a price does not land for a reason that usually clears on its own, MAYA sends it again every cycle, up to 10 times at one price, then once a day. If the reason needs you, such as a rate rule, the night is held and tried again after a day, when its price changes, or (for a connection or permission problem) after a reconnect. A missing base rate is different: MAYA looks for one again every cycle, so the night usually goes out on the cycle after you add it. You are told in the change log, in an item headed "Prices not reaching Cloudbeds", straight away for a cause that needs you, otherwise after 2 hours and 5 tries. Each item names the cause and, when there is something for you to do, says what.
+If a price does not land for a reason that usually clears on its own, MAYA sends it again every cycle, up to 10 times at one price, then once a day. If the reason needs you, such as a rate rule, the night is held and tried again after a day, when its price changes, or (for a connection or permission problem) after a reconnect. A missing base rate is different: MAYA looks for one again every cycle, so the night usually goes out on the cycle after you add it. You are told in the change log, in an item headed "Prices not reaching Cloudbeds", straight away for a cause that needs you, otherwise after 2 hours and 5 tries. Nights whose first price is waiting for a read of your own rates are reported after an hour. Each item names the cause and, when there is something for you to do, says what.
 </InPlainWords>
 
 ## Where you see a problem
@@ -47,7 +47,7 @@ An item has four parts, and a fifth you can open.
 4. **What to do**, one line, shown only while the problem is ongoing and only for causes where there is something for you to do: "Check the rate limits for this room type in Cloudbeds."
 5. **<Ui>Show 12 tries</Ui>** opens the list of tries behind it, oldest first, one line per group that went the same way: "12 tries, Sep 17, 10:05 AM to 10:50 AM, 6 nights: Cloudbeds refused them". Hover a line to read your system's own words. When every line is a check MAYA made without reaching your system, the button reads <Ui>Show 12 checks</Ui>. A footer such as "3 other tries not shown" means more tries were counted than listed.
 
-The words at the end of a try line say how it went: "Cloudbeds refused them", "Cloudbeds accepted them, then rejected them", "Cloudbeds never confirmed them", "Nothing to send to in Cloudbeds", "Couldn't read the rates in Cloudbeds", "MAYA held them back", or "Went through".
+The words at the end of a try line say how it went: "Cloudbeds refused them", "Cloudbeds accepted them, then rejected them", "Cloudbeds never confirmed them", "Nothing to send to in Cloudbeds", "Couldn't read the rates in Cloudbeds", "Waiting to read your rates in Cloudbeds", "MAYA held them back", or "Went through".
 
 Room types are named in the cause: "Deluxe rates", "Deluxe and Suite rates", or "rates for 3 room types". When MAYA could not name them it says "some rates" or "some room types".
 
@@ -68,6 +68,7 @@ The sentences below are exactly what the change log says, with Cloudbeds and the
 | Cloudbeds isn't responding, so Deluxe rates haven't updated yet. | Your system is down, timing out or answering with an error page. | Nothing. MAYA retries every cycle. If it lasts, check with your system's own status page or support. |
 | Cloudbeds took Deluxe rates but never confirmed it saved them. | Cloudbeds accepted the price but 45 minutes later still had not applied it, or a send was interrupted before your system answered. MAYA treats it as not applied and sends again. | Nothing. |
 | MAYA doesn't send a price of 0 to Cloudbeds, so Deluxe rates set to 0 in MAYA weren't changed there. | A night typed as 0 in MAYA (a comp night). MAYA does not send 0. | "If the night is meant to be free, set it to 0 in Cloudbeds yourself." The item closes once your system has the night at 0. |
+| MAYA couldn't read your current rates in Cloudbeds, so its first prices for Deluxe haven't been sent. | The first price sent to a night replaces your rate there, so it waits until MAYA has read that rate. The read has not worked for an hour. Nights MAYA has sent to before are not affected. | "Check that this room type has a base rate in Cloudbeds with rates loaded for the nights ahead. MAYA sends its prices once it has read them." The nights go out on the first cycle whose read works. |
 | Cloudbeds didn't accept Deluxe rates, and MAYA couldn't tell why. | Your system refused with words that are not on MAYA's list. MAYA retries quietly. | Hover the try line to read your system's exact words. If they name a setting, change it. If not, [email us](mailto:info@modern-hospitality-solutions.com?subject=Rates%20not%20reaching%20my%20PMS) the sentence and the words. |
 
 <Callout kind="good-to-know" title="How a refusal gets its cause">
