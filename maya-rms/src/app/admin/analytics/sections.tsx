@@ -23,8 +23,8 @@ import { formatUsd } from "@/lib/billing/tiers";
 /**
  * The analytics page, one section at a time. Each is its own async component
  * so the page can wrap it in its own Suspense boundary: the shell shows at
- * once and each section fills in when its numbers arrive, from the five
- * minute cache when they are there (analytics-cache.ts). A section that fails
+ * once and each section fills in when its numbers arrive, kept for the
+ * current five minutes when they are there (analytics-cache.ts). A section that fails
  * says so in place and never takes the others down.
  */
 
@@ -112,8 +112,12 @@ export function EventTablesSkeleton() {
 
 // ── As of ───────────────────────────────────────────────────────────────────
 
-/** When the oldest of the page's numbers was worked out: the kept ones can be up to five minutes old. */
-export async function AsOf({ from, to, includeTest }: Omit<Window, "words">) {
+/**
+ * When the oldest of the page's numbers was worked out: kept ones are at most
+ * five minutes old. The date shows too when that was not today, for a page
+ * left open overnight.
+ */
+export async function AsOf({ from, to, includeTest, today }: Omit<Window, "words"> & { today: string }) {
   const stamps = await Promise.allSettled([
     analyticsNow(includeTest),
     analyticsRange(from, to, includeTest),
@@ -124,7 +128,7 @@ export async function AsOf({ from, to, includeTest }: Omit<Window, "words">) {
   if (times.length === 0) return null;
   return (
     <span className="text-xs text-slate-500">
-      as of <LocalTime iso={times[0]} />
+      as of <LocalTime iso={times[0]} serverToday={today} />
     </span>
   );
 }

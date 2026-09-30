@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { AnalyticsRangePicker } from "@/components/admin/analytics-range-picker";
 import { AnalyticsRefresh } from "@/components/admin/analytics-refresh";
 import { getAdminSession } from "@/lib/admin/admin-session";
-import { refreshTodaySnapshotLater } from "@/lib/admin/analytics-cache";
+import { analyticsClock } from "@/lib/admin/analytics-cache";
 import { analyticsHref, analyticsWindow, rangeInWords } from "@/lib/admin/analytics-window";
 import {
   AsOf,
@@ -34,8 +34,8 @@ export const dynamic = "force-dynamic";
  * to-do list.
  *
  * The heading and the date picker show at once; every section below sits in
- * its own Suspense boundary and fills in when its numbers are ready, from the
- * five-minute cache when they are there (lib/admin/analytics-cache.ts). The
+ * its own Suspense boundary and fills in when its numbers are ready, kept for
+ * the current five minutes when they are there (lib/admin/analytics-cache.ts). The
  * sections that depend on the window are keyed by it, so a new window shows
  * their placeholders straight away; "right now" is keyed by the test toggle
  * only and stays put while the dates change.
@@ -49,7 +49,8 @@ export default async function AnalyticsPage({
   const session = await getAdminSession();
   if (!session.ok) redirect("/login");
 
-  const today = new Date().toISOString().slice(0, 10);
+  // The same clock the kept sections use, so "today" is one day everywhere.
+  const { today } = analyticsClock();
   // Sandbox properties, e2e fixtures and walkthrough signups are flagged
   // is_test and excluded — a Stripe test-mode checkout is a real subscription
   // row and would otherwise read as a customer. The toggle is for verifying
@@ -59,9 +60,6 @@ export default async function AnalyticsPage({
   const shown = { from, to, includeTest, words };
   const rangeKey = `${from}:${to}:${includeTest ? 1 : 0}`;
   const nowKey = includeTest ? "with-test" : "without-test";
-
-  // Today's point on the chart: written after this response has gone.
-  if (to >= today) refreshTodaySnapshotLater(today);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-6 py-8">
@@ -76,7 +74,7 @@ export default async function AnalyticsPage({
           <AnalyticsRangePicker from={from} to={to} includeTest={includeTest} today={today} />
           <div className="flex items-center gap-3">
             <Suspense key={`as-of:${rangeKey}`} fallback={null}>
-              <AsOf from={from} to={to} includeTest={includeTest} />
+              <AsOf from={from} to={to} includeTest={includeTest} today={today} />
             </Suspense>
             <AnalyticsRefresh />
           </div>
