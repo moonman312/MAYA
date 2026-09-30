@@ -35,7 +35,7 @@ export default async function PmsAccessPage() {
         <h1 className="text-2xl font-semibold text-slate-100">PMS Access</h1>
         {canChange ? (
           <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Turning one of these off lets anyone sign up and connect that PMS with no code — a
+            Turning one of these off lets anyone sign up and connect that PMS with no code. A
             discount or trial code is still honoured either way if they have one. Every integration
             starts gated; nothing changes here until you flip one.
           </p>

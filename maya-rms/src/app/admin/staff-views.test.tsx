@@ -275,6 +275,12 @@ describe("PMS Access", () => {
     expect(state.gatesClient).toBe("service");
   });
 
+  it("says what the switches do with no em dash", async () => {
+    const out = await html("platform_admin", () => PmsAccessPage());
+    expect(out).toContain("Turning one of these off lets anyone sign up and connect that PMS with no code.");
+    expect(out).not.toContain("—");
+  });
+
   it("gives a developer the gates in words, read under his own session, with no switch", async () => {
     const out = await html("developer", () => PmsAccessPage());
     expect(out).not.toContain("gate-toggle");
