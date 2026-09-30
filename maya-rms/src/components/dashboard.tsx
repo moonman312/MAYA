@@ -8,6 +8,7 @@ import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
 import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
 import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-editor";
+import { NoRateLine } from "@/components/no-rate-help";
 import { useCalendarLive } from "@/lib/use-calendar-live";
 import { track } from "@/lib/analytics/track";
 import { PropertySelect } from "@/components/property-select";
@@ -1474,6 +1475,11 @@ export function Dashboard({
                                   ? `${currencySymbol}${(rt.current_rate ?? rt.current_price)!.toFixed(2)}`
                                   : "–"}
                               </p>
+                              {rt.no_rate_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
+                                <NoRateLine
+                                  pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
+                                />
+                              ) : null}
                               <p className="text-sm text-slate-300">
                                 Revenue {currencySymbol}{rt.revenue.toFixed(2)}
                               </p>
