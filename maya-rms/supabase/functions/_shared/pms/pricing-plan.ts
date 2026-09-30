@@ -428,6 +428,29 @@ export async function recordPricingRun(
 }
 
 /**
+ * One more failed run of the hotel, counted in the database
+ * (pricing_run_failed, 99_supabase_migration_pricing_watchdog_v1.sql): the
+ * number failed in a row, this one included. A run that prices nights sets
+ * it back to 0 when it is recorded; an idle tick leaves it. Null when the
+ * database cannot count (before that migration, or the call failed), which
+ * is logged and leaves the alert to its clock. Never throws.
+ */
+export async function noteFailedRun(supabase: SupabaseClient, hotelId: string, error: string): Promise<number | null> {
+  try {
+    const { data, error: rpcError } = await supabase.rpc("pricing_run_failed", { p_hotel_id: hotelId, p_error: error.slice(0, 300) });
+    if (rpcError) {
+      if (isMissingFunction(rpcError)) return null;
+      throw new Error(rpcError.message);
+    }
+    const n = Number(data);
+    return Number.isFinite(n) ? n : null;
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "noteFailedRun", hotelId, error: e instanceof Error ? e.message : String(e) }));
+    return null;
+  }
+}
+
+/**
  * Nights the push should not vouch for yet, after this tick: a change to them
  * has waited longer than `maxAgeMs` unpriced, or today's pass has not reached
  * them and the hotel's date changed longer ago than the pass may lag.

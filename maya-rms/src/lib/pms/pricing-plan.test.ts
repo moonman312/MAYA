@@ -457,7 +457,10 @@ describe("runPricingTick with the pricing cadence", () => {
     expect(r.evaluate).toEqual({ error: "engine down" });
     expect(r.passWorkLeft).toBe(true);
     expect(d.tables.pricing_dirty_nights.map((x) => x.stay_date)).toEqual(["2026-10-03"]);
-    expect(d.tables.hotel_pricing_state ?? []).toEqual([]);
+    // The only thing recorded is the failure itself (pricing_run_failed).
+    expect(d.tables.hotel_pricing_state ?? []).toEqual([
+      expect.objectContaining({ hotel_id: HOTEL, failed_runs: 1, last_error: "evaluate: engine down", last_ok_run_at: null, pass_date: null, pass_cursor: null }),
+    ]);
   });
 
   it("nothing is priced after a failed read, and the first good read after midnight starts the day's pass", async () => {

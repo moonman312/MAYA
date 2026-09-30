@@ -136,6 +136,9 @@ function emptyState(hotelId: string): FakeRow {
     last_ok_run_at: null,
     momentum_nights: [],
     ms_per_night: null,
+    failed_runs: 0,
+    last_failed_at: null,
+    last_error: null,
   };
 }
 
@@ -238,6 +241,8 @@ export function pricingRunDone(args: Record<string, unknown>, tables: Tables): F
   ].sort();
   const lastOk = state.last_ok_run_at ? Date.parse(String(state.last_ok_run_at)) : NaN;
   if (!(lastOk >= atMs)) state.last_ok_run_at = at;
+  // A run that priced nights ends the failure streak; an idle heartbeat leaves it.
+  if (!run.idle) state.failed_runs = 0;
   if (run.ms_per_night != null) {
     const v = Number(run.ms_per_night);
     state.ms_per_night = state.ms_per_night == null ? v : Math.round((Number(state.ms_per_night) * 0.8 + v * 0.2) * 1000) / 1000;
@@ -257,6 +262,21 @@ export function pricingRunDone(args: Record<string, unknown>, tables: Tables): F
   return { cleared, kept, pass_moved: moved };
 }
 
+/** pricing_run_failed (99_supabase_migration_pricing_watchdog_v1.sql): one more failed run, the count in a row. */
+export function pricingRunFailed(args: Record<string, unknown>, tables: Tables): number {
+  const hotel = String(args.p_hotel_id);
+  const states = (tables.hotel_pricing_state ??= []);
+  let state = states.find((s) => s.hotel_id === hotel);
+  if (!state) {
+    state = emptyState(hotel);
+    states.push(state);
+  }
+  state.failed_runs = Number(state.failed_runs ?? 0) + 1;
+  state.last_failed_at = new Date().toISOString();
+  state.last_error = String(args.p_error ?? "").slice(0, 300);
+  return Number(state.failed_runs);
+}
+
 /** For fakeSupabase's rpc option: the cadence functions, undefined for anything else. */
 export function cadenceRpc(fn: string, args: unknown, tables: Tables): unknown {
   const a = args as Record<string, unknown>;
@@ -267,6 +287,8 @@ export function cadenceRpc(fn: string, args: unknown, tables: Tables): unknown {
       return pricingWork(a, tables);
     case "pricing_run_done":
       return pricingRunDone(a, tables);
+    case "pricing_run_failed":
+      return pricingRunFailed(a, tables);
     case "request_full_reprice":
       markHotel(tables, String(a.p_hotel_id), new Date().toISOString());
       return null;
