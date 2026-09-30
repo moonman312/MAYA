@@ -28,7 +28,10 @@ export function timeLeftWords(msLeft: number): string {
  * for the signed-in platform admin: that it covers every property, how long is
  * left, and the way out. Only ever rendered for a platform admin: the server
  * decides that in GodModeBannerSlot, so nobody else loads or asks anything.
- * For the admin it asks /api/admin/god-mode on each page and shows nothing
+ * For the admin it asks /api/admin/god-mode when it first shows, when the God
+ * Mode button says the window changed, when the tab comes back into view, and
+ * on a page change once the last answer is a minute old (not on every click:
+ * each ask is a second server call beside the page's own). It shows nothing
  * while no window is open.
  *
  * The time left counts down from the window's expires_at, which is the
@@ -36,6 +39,9 @@ export function timeLeftWords(msLeft: number): string {
  * page, so nothing on screen still believes it can change the property.
  */
 const reloadPage = () => window.location.reload();
+
+/** A page change asks again only when the last answer is older than this. */
+export const GOD_MODE_RECHECK_MS = 60_000;
 
 export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } = {}) {
   const pathname = usePathname();
@@ -47,7 +53,10 @@ export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } =
   const [ending, setEnding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const askedAt = useRef(0);
+
   const load = useCallback(async () => {
+    askedAt.current = Date.now();
     try {
       const res = await fetch("/api/admin/god-mode", { cache: "no-store" });
       if (!res.ok) return;
@@ -66,8 +75,24 @@ export function GodModeBanner({ reload = reloadPage }: { reload?: () => void } =
 
   useEffect(() => {
     if (exempt) return;
+    if (askedAt.current && Date.now() - askedAt.current < GOD_MODE_RECHECK_MS) return;
     void load();
   }, [exempt, pathname, load]);
+
+  // A window opened or closed in another tab shows here when this tab is looked at again.
+  useEffect(() => {
+    if (exempt) return;
+    const onBack = () => {
+      // Coming back fires both events; one ask covers them.
+      if (document.visibilityState === "visible" && Date.now() - askedAt.current > 2_000) void load();
+    };
+    window.addEventListener("focus", onBack);
+    document.addEventListener("visibilitychange", onBack);
+    return () => {
+      window.removeEventListener("focus", onBack);
+      document.removeEventListener("visibilitychange", onBack);
+    };
+  }, [exempt, load]);
 
   useEffect(() => {
     const onChanged = () => void load();

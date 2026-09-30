@@ -185,3 +185,40 @@ describe("timeLeftWords", () => {
     expect(timeLeftWords(0)).toBe("less than a minute left");
   });
 });
+
+describe("how often the banner asks", () => {
+  it("asks again on a page change only once the last answer is a minute old", async () => {
+    nav.pathname = "/admin";
+    const { rerender } = render(<GodModeBanner />);
+    await settle();
+    expect(calls).toHaveLength(1);
+
+    nav.pathname = "/admin/hotels";
+    rerender(<GodModeBanner />);
+    await settle();
+    expect(calls).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+    nav.pathname = "/admin/analytics";
+    rerender(<GodModeBanner />);
+    await settle();
+    expect(calls).toHaveLength(2);
+  });
+
+  it("asks again when the tab is looked at again, once for both events", async () => {
+    render(<GodModeBanner />);
+    await settle();
+    expect(calls).toHaveLength(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await settle();
+    expect(calls).toHaveLength(2);
+  });
+});
