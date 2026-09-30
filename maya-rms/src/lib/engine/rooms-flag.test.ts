@@ -5,7 +5,7 @@
  * that lists it as AFFECTED keeps pricing it. null means unclassified and
  * counts, so an unmigrated or fresh import behaves exactly as before.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateStarterRules } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 import { createRule } from "../rules-store";
 import { loadBookingSpeedContext } from "./booking-speed-provider";
@@ -15,6 +15,15 @@ import { scaleRpc } from "./scale-rpc-model.test";
 
 const EVAL_TS = "2026-09-16T12:00:00Z";
 const D0 = "2026-09-16";
+
+// The engine purges snapshots older than its retention window by the real
+// clock, so without this the stories below stop finding their own snapshots
+// once D0 falls out of the window. Only Date is faked; timers stay real.
+beforeAll(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(EVAL_TS));
+});
+afterAll(() => vi.useRealTimers());
 
 function roomType(id: string, name: string, total_rooms: number, counts_as_room: boolean | null): FakeRow {
   return {
