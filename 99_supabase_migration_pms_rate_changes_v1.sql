@@ -30,7 +30,9 @@
 --      rate was changed or removed, the PMS's rate, null when removed, and
 --      MAYA's price), and one per warning that something other than MAYA
 --      seems to be changing rates ('other_tool', with how many rates changed
---      in the last 7 days). emailed_at says the email about it went out.
+--      in the last 7 days). emailed_at says it has been dealt with: its email
+--      went out, or none was owed (the property stopped paying, or turned
+--      "MAYA's price wins" on before a warning went out).
 --      A property's members read their own; only the service role writes.
 --   4. pms_change_watch: one row per property the scheduled syncs keep for
 --      the two emails. change_days counts the changes found on each of the
@@ -144,7 +146,7 @@ create index if not exists idx_pms_change_notices_unemailed
 comment on table public.pms_change_notices is
   'Change log items about rates changed in the property system: an overwrite (MAYA sent its price again over a '
   'rate changed or removed there, pms_rate null when removed) or a warning that something other than MAYA seems '
-  'to be changing rates. emailed_at: the email about it went out.';
+  'to be changing rates. emailed_at: dealt with, its email sent or none owed.';
 
 alter table public.pms_change_notices enable row level security;
 
