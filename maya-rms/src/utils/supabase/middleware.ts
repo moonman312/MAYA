@@ -27,7 +27,14 @@ export async function updateSession(request: NextRequest) {
   // decides who may see what (every page and route checks for itself).
   // getClaims verifies the token against the project's published keys instead
   // of asking the Auth server on every request and every client navigation;
-  // with a shared-secret project it asks the server, as getUser did.
-  await supabase.auth.getClaims();
+  // with a shared-secret project it asks the server, as getUser did. Unlike
+  // getUser it throws on some broken tokens (an expired one behind a cookie
+  // that says otherwise); a broken cookie is the page's to turn away, not a
+  // reason to fail the request here.
+  try {
+    await supabase.auth.getClaims();
+  } catch {
+    // Signed out, as far as anything downstream can tell.
+  }
   return response;
 }

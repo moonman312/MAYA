@@ -24,7 +24,9 @@ export type AdminSession =
  */
 export const getAdminSession = cache(async (): Promise<AdminSession> => {
   const supabase = createClient(await cookies());
-  const { data, error } = await supabase.auth.getClaims();
+  // getClaims throws, rather than answering with an error, on some broken
+  // tokens (an expired one behind a cookie that says otherwise): signed out.
+  const { data, error } = await supabase.auth.getClaims().catch((e: unknown) => ({ data: null, error: e }));
   const claims = data?.claims;
   const userId = typeof claims?.sub === "string" ? claims.sub : null;
   if (error || !userId) return { ok: false, reason: "signed_out" };

@@ -10,6 +10,7 @@ const fake = vi.hoisted(() => ({
   claimsError: null as { message: string } | null,
   isAdmin: true as unknown,
   rpcError: null as { message: string } | null,
+  claimsThrows: false,
   calls: [] as string[],
 }));
 
@@ -18,7 +19,11 @@ vi.mock("react", async (orig) => ({ ...(await orig<typeof import("react")>()), c
 vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: {
-      getClaims: async () => (fake.calls.push("getClaims"), { data: fake.claims ? { claims: fake.claims } : null, error: fake.claimsError }),
+      getClaims: async () => {
+        fake.calls.push("getClaims");
+        if (fake.claimsThrows) throw new Error("JWT has expired");
+        return { data: fake.claims ? { claims: fake.claims } : null, error: fake.claimsError };
+      },
       getUser: async () => {
         fake.calls.push("getUser");
         throw new Error("getUser is an Auth round trip");
@@ -35,6 +40,7 @@ beforeEach(() => {
   fake.claimsError = null;
   fake.isAdmin = true;
   fake.rpcError = null;
+  fake.claimsThrows = false;
   fake.calls = [];
 });
 
@@ -49,6 +55,12 @@ describe("getAdminSession", () => {
     fake.claimsError = { message: "Invalid JWT signature" };
     expect(await getAdminSession()).toEqual({ ok: false, reason: "signed_out" });
     expect(fake.calls).toEqual(["getClaims"]);
+  });
+
+  it("says signed out, not a failed page, when getClaims throws on a broken token", async () => {
+    fake.claims = null;
+    fake.claimsThrows = true;
+    expect(await getAdminSession()).toEqual({ ok: false, reason: "signed_out" });
   });
 
   it("turns away anyone the database doesn't call a platform admin, and a failed check", async () => {
