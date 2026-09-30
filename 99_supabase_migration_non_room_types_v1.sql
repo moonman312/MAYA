@@ -37,6 +37,13 @@
 --    own rate for such a type, so nothing is waiting to be sent. Same
 --    columns, same check (platform admin or the service role), same grants.
 --
+-- 3. A notice per room type unticked as a room that MAYA has already sent a
+--    rate to for a night from today on (rate_updates: sent, or tried at
+--    least once), with the hotel, the nights and the last rate sent. The hold
+--    keeps every further send for such a type back, so a rate MAYA sent
+--    before this stays in the property system until somebody sets it back
+--    there by hand: this names them. Reads only.
+--
 -- What an owner may notice: a parking bay, court or meeting room that was
 -- shown at the room floor in the Rate Simulator goes back to its own rate on
 -- the next pricing run. Nothing is sent to the property system for it.
@@ -296,6 +303,42 @@ comment on function public.platform_pilot_health(boolean) is
 
 revoke all on function public.platform_pilot_health(boolean) from public, anon;
 grant execute on function public.platform_pilot_health(boolean) to authenticated, service_role;
+
+-- 3. What this file cannot put right: a rate MAYA already sent to the property
+--    system for a type unticked as a room (the room floor on a parking bay,
+--    say). The hold from here on keeps every further send for that type back,
+--    so the rate MAYA sent stays in the property system until a person sets
+--    it back. One notice per such type, for the person running this file to
+--    check in the property system and set by hand. Reads only; nothing
+--    changes.
+do $$
+declare
+  r record;
+  n integer := 0;
+begin
+  for r in
+    select h.name as hotel_name, rt.hotel_id, rt.id, coalesce(rt.display_name, rt.name, '') as type_name,
+           ru.pms_type,
+           count(*) as nights,
+           min(ru.stay_date) as first_night,
+           max(ru.stay_date) as last_night,
+           max(ru.pushed_at) as last_sent_at,
+           (array_agg(ru.price order by ru.pushed_at desc nulls last))[1] as last_price
+      from public.rate_updates ru
+      join public.room_types rt on rt.id = ru.room_type_id
+      join public.hotels h on h.id = rt.hotel_id
+     where rt.counts_as_room = false
+       and ru.stay_date >= current_date
+       and (ru.status = 'sent' or ru.attempts >= 1)
+     group by h.name, rt.hotel_id, rt.id, rt.display_name, rt.name, ru.pms_type
+     order by h.name, type_name
+  loop
+    raise notice 'non_room_types_v1: MAYA has sent a rate to "%" (%, not a room, %) for % night(s) from % to %, last % at %: check its rate in the property system and set it back by hand',
+      r.type_name, r.hotel_name, r.pms_type, r.nights, r.first_night, r.last_night, r.last_price, r.last_sent_at;
+    n := n + 1;
+  end loop;
+  raise notice 'non_room_types_v1: % room type(s) unticked as rooms hold a rate MAYA sent, for nights from today on', n;
+end $$;
 
 commit;
 

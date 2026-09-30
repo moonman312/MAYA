@@ -26,7 +26,7 @@ const MIGRATION_ORDER: string[] = (() => {
 
 type Db = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
-  exec: (sql: string) => Promise<unknown>;
+  exec: (sql: string, options?: { onNotice?: (notice: { message?: string }) => void }) => Promise<unknown>;
   close: () => Promise<void>;
 };
 
@@ -271,5 +271,38 @@ describe.skipIf(!PGLITE_DIR)("the non-room types migration in PGlite", () => {
       )
     )[0];
     expect(grants).toEqual({ anon: false, authenticated: true, service_role: true });
+  });
+
+  it("names each type unticked as a room that MAYA has already sent a rate to, for a person to set back by hand", async () => {
+    // Live Inn's parking bay got the $110 room floor sent to it last week for
+    // two nights ahead, and a third night's send is still in the past. The
+    // hold keeps every further send back, so that $110 stays in Cloudbeds
+    // until somebody changes it there: the file has to say so.
+    await asService(() =>
+      db.exec(`
+        insert into public.rate_updates (hotel_id, pms_type, room_type_id, stay_date, price, status, attempts, error, pushed_at) values
+          ('${LIVE}', 'cloudbeds', '${LIVE_PARKING}', '${night(7)}', 110, 'sent', 1, null, now() - interval '7 days'),
+          ('${LIVE}', 'cloudbeds', '${LIVE_PARKING}', '${night(8)}', 105, 'sent', 1, null, now() - interval '6 days'),
+          ('${LIVE}', 'cloudbeds', '${LIVE_PARKING}', '${night(-3)}', 110, 'sent', 1, null, now() - interval '9 days'),
+          -- A held night MAYA never sent to says nothing about what is in Cloudbeds.
+          ('${LIVE}', 'cloudbeds', '${LIVE_PARKING}', '${night(9)}', 110, 'skipped', 0, 'guardrail:not_a_room', now() - interval '1 hour')
+        on conflict (hotel_id, room_type_id, stay_date) do update set price = excluded.price, status = excluded.status, attempts = excluded.attempts, error = excluded.error, pushed_at = excluded.pushed_at;
+      `),
+    );
+    const notices: string[] = [];
+    await db.exec(fileSql(MIGRATION), { onNotice: (n) => notices.push(String(n.message ?? "")) });
+    const named = notices.filter((n) => n.includes("MAYA has sent a rate to"));
+    expect(named).toHaveLength(1);
+    // The type, the hotel, the nights from today on, and the rate sent last.
+    expect(named[0]).toContain('"Parking" (Live Inn, not a room, cloudbeds)');
+    expect(named[0]).toContain(`2 night(s) from ${night(7)} to ${night(8)}`);
+    expect(named[0]).toContain("last 105.00");
+    expect(named[0]).toContain("set it back by hand");
+    expect(notices.some((n) => n.includes("1 room type(s) unticked as rooms hold a rate MAYA sent"))).toBe(true);
+    // Rooms, and types never sent to, are not named.
+    expect(notices.some((n) => n.includes('"King"'))).toBe(false);
+    expect(notices.some((n) => n.includes("Answered Inn"))).toBe(false);
+    // Reads only: a third run changed nothing.
+    expect((await cleared()).length).toBe(3);
   });
 });
