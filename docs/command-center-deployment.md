@@ -110,9 +110,9 @@ Once the Command Center is live and you're only onboarding via invites, Dashboar
 
 Dashboard → Authentication → Multi-Factor Authentication → **TOTP: on** (enrol and verify both enabled). Nothing else changes for customers: MFA is never asked of them.
 
-The Developer and Sales staff roles (`99_supabase_migration_staff_roles_v1.sql`) read nothing in the Command Center's database functions and tables until their token is `aal2`, so with TOTP off they can never read anything there. What each role reads, and how to set one, is in `maya-rms/docs/staff-roles.md`.
+The Developer and Sales staff roles (`99_supabase_migration_staff_roles_v1.sql`) read nothing in the Command Center's database functions and tables until their token is `aal2`, so with TOTP off they can never read anything there. The app sends a developer or sales login to the code step, `/admin-code`, before any Command Center page: the first visit enrols an authenticator with a QR code (the same setup the God Mode button uses), and every later sign-in asks for a code. What each role sees, and how to set one, is in `maya-rms/docs/staff-roles.md`.
 
-God Mode (`99_supabase_migration_god_mode_v1.sql`) is how a platform admin changes a customer's property. A platform admin can open and view any property, but every write to a hotel-owned table (rules, prices, room types, team, settings, the PMS connection, going live) is refused by row level security unless the admin's token is `aal2` and they hold an open window in `support_sessions`. The **GOD MODE** button in the Command Center nav (and on each hotel page) asks for a code from an authenticator app; the first press enrols one with a QR code. A window lasts `god_mode_minutes()` (30) and ends by itself, or from the red banner's **End God Mode**. Entering, leaving and expiring are logged in `platform_audit_events` (`god_mode.started` / `ended` / `expired`); every change made in a window is in `support_changes` and shows in the property's change log as "Changed by MAYA support". With TOTP off in the dashboard, the button reports that authenticator codes are not switched on and God Mode cannot start.
+God Mode (`99_supabase_migration_god_mode_v1.sql`) is how a platform admin changes a customer's property. A platform admin can open and view any property, but every write to a hotel-owned table (rules, prices, room types, team, settings, the PMS connection, going live) is refused by row level security unless the admin's token is `aal2` and they hold an open window in `support_sessions`. The **GOD MODE** button in the Command Center nav (and on each hotel page), shown to platform admins only, asks for a code from an authenticator app; the first press enrols one with a QR code. A window lasts `god_mode_minutes()` (30) and ends by itself, or from the red banner's **End God Mode**. Entering, leaving and expiring are logged in `platform_audit_events` (`god_mode.started` / `ended` / `expired`); every change made in a window is in `support_changes` and shows in the property's change log as "Changed by MAYA support". With TOTP off in the dashboard, the button reports that authenticator codes are not switched on and God Mode cannot start.
 
 ### 3.6 Turn on "Confirm email"
 
@@ -143,7 +143,7 @@ select public.is_platform_admin('<paste-uuid>');
 
 Sign into the app and navigate to `/admin`. If the RLS bypass and env vars are wired correctly you'll see the Command Center dashboard.
 
-To make someone a Developer or Sales login, or another platform admin, use `platform_set_staff_role` (see `maya-rms/docs/staff-roles.md`). It needs God Mode, logs every change, and never removes the last platform admin.
+To make someone a Developer or Sales login, or another platform admin, turn on God Mode and set their **Staff role** on Command Center > Users (None, Developer, Sales or Platform admin), or call `platform_set_staff_role` from the SQL editor (see `maya-rms/docs/staff-roles.md`). Either way it needs God Mode (or the service role), logs every change, and never removes the last platform admin.
 
 ---
 
@@ -159,7 +159,9 @@ Run through this once end-to-end on staging (or your dev DB with a real email yo
 - [ ] Log out, log back in as the invited user. You see only the new hotel; property-select is scoped.
 - [ ] Log out. On `/login`, click "Forgot password?" and enter the invited user's email. The reset email arrives. Open its link (in a different browser too, if the template uses the token hash from 3.3), land on `/auth/reset-password`, set a new password, and get redirected to `/`.
 - [ ] From an incognito platform-admin session, `/admin/hotels/[hotelId]` shows the accepted user in Members with role `hotel_admin`, and the pending invite row is gone (or marked `accepted` on the Pending Invites page).
-- [ ] `/admin/users` shows the new user. Toggling `platform_admin` grants/revokes correctly.
+- [ ] `/admin/users` shows the new user. With God Mode on, setting their Staff role to Platform admin and back to None grants and revokes it; setting the last platform admin to None is refused with a message.
+- [ ] Set a test login to Developer. Signed in as it, `/admin` goes to `/admin-code`; after the code, the nav shows only Overview, Hotels, Pilot health, Users, PMS Access and Docs Questions, and a hotel's page has no buttons or switches.
+- [ ] Set it to Sales. After the code, the nav shows only Overview, Hotels, Analytics, Pilot health, Stalled Signups and Docs Questions, and a real hotel's page shows its business numbers.
 - [ ] `/admin/pending-invites` — create another pending invite from a hotel detail page, then Resend and Revoke buttons both work.
 - [ ] `/pms/mews/test` still works from a normal user's session (existing UI wasn't touched).
 
@@ -215,5 +217,6 @@ The /admin UI will render a "not configured" banner until `v2` is reapplied.
 - `src/app/api/admin/hotels/[hotelId]/memberships/[membershipId]/route.ts` — PATCH / DELETE
 - `src/app/api/admin/pending-invites/[pendingId]/route.ts` — POST resend / DELETE revoke
 - `src/app/api/admin/pms/mews/test/route.ts` — POST test (wizard-only, no hotel id)
-- `src/app/api/admin/users/[userId]/platform-admin/route.ts` — PUT / DELETE grant/revoke
-- `src/components/admin/{admin-top-nav,status-pill,platform-admin-toggle,invite-row-actions,hotel-pms-card,hotel-memberships-card,create-hotel-wizard}.tsx` — UI
+- `src/app/api/admin/users/[userId]/platform-admin/route.ts` — PUT / DELETE grant/revoke platform_admin alone
+- `src/app/api/admin/users/[userId]/staff-role/route.ts` — PUT a staff role (the Users page's picker)
+- `src/components/admin/{admin-top-nav,status-pill,staff-role-picker,invite-row-actions,hotel-pms-card,hotel-memberships-card,create-hotel-wizard}.tsx` — UI

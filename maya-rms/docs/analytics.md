@@ -61,7 +61,8 @@ time, for a platform admin or Sales, the same way `platform_list_stalled_signups
 does.
 
 **Test properties.** Everything excludes `hotels.is_test` by default (the
-panel's "including test properties" link flips it). The flag is copied onto
+panel's "including test properties" link flips it for a platform admin; a
+Sales login gets no link and always counts customers only). The flag is copied onto
 each event, so a deleted test hotel stays excluded. Account-level events, which
 have no hotel, use the `+suffix` email convention the panel already used, and
 MAYA staff are never customers: an event with no hotel whose person holds a
@@ -394,11 +395,12 @@ SQL would mean a second copy of the brackets, which is how the two would drift.
 
 ## How the page loads
 
-The frame (the heading, the date picker, Refresh) shows at once and each
-section fills in when its numbers arrive. Sections are kept for the current
-five minutes of the clock (`lib/admin/analytics-cache.ts`: 14:00 to 14:05 UTC,
-then 14:05 to 14:10, and so on), the same for every platform admin, keyed by
-the window and the test toggle; "right now" is keyed by the toggle only, so a
+The frame (the heading, the date picker, and Refresh for a platform admin)
+shows at once and each section fills in when its numbers arrive. Sections are
+kept for the current five minutes of the clock (`lib/admin/analytics-cache.ts`:
+14:00 to 14:05 UTC, then 14:05 to 14:10, and so on), the same for every reader
+(a platform admin, or a Sales login after its code), keyed by the window and
+the test toggle; "right now" is keyed by the toggle only, so a
 date change never recomputes it. The first load in each five minutes works
 the numbers out while it waits, so the server never sends numbers more than
 five minutes old. "as of" beside Refresh is when the oldest number on screen

@@ -279,7 +279,7 @@ The runbook above proves the DB layer is complete. Everything below is UI + serv
 | PR 2 (server foundation) | Adds `platform_invite_user`, `platform_set_membership_role`, `platform_remove_membership`, `platform_list_users`, `platform_list_hotel_users` RPCs. Adds `src/utils/supabase/admin.ts` + `requirePlatformAdmin` helper. Step 5 (invite curl) becomes a server-action call. |
 | PR 3 (read-only /admin) | Replaces "hunt for hotel_id" — `/admin/hotels` shows every hotel; `/admin/hotels/[id]` shows the connection status and membership roster. |
 | PR 4 (write paths + wizard) | Replaces steps 1–5 with a single multi-step form at `/admin/hotels/new`. Test-connection runs inline. Invite email fires on submit. `/auth/accept-invite` handles the customer's landing page (password set). |
-| PR 5 (users + pending invites + polish) | `/admin/users` lets you grant/revoke `platform_admin` from the UI instead of `insert into app_roles`. `/admin/pending-invites` lets you resend/revoke invites without SQL. |
+| PR 5 (users + pending invites + polish) | `/admin/users` lets you set each login's staff role (None, Developer, Sales or Platform admin) from the UI, in God Mode, instead of `insert into app_roles`. `/admin/pending-invites` lets you resend/revoke invites without SQL. |
 
 ### Not blocking but worth deciding early
 
