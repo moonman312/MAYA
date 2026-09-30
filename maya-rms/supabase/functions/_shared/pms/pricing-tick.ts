@@ -45,11 +45,20 @@
  * priced them. A tick with nothing to price writes its heartbeat and prices
  * nothing. MAYA_PRICING_CADENCE=every_tick prices the whole window, as before;
  * so does a database without the cadence migration, at no more than 60 nights.
+ *
+ * A run that fails publishes nothing and clears nothing: the engine stops
+ * before it publishes when a read it prices from fails (anything but a table,
+ * column or function no migration has created yet), its nights stay marked
+ * and the pass stays where it was, so the next tick prices them again, and
+ * the push holds them meanwhile. Once no run of the hotel has finished for
+ * PRICING_FAILING_ALERT_AFTER_MS and this tick's failed too, the alert
+ * channel is told (alertPricingFailing), at most once per raiseAlert's window.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CadenceReport, EvaluateOptions } from "../engine/evaluate.ts";
 import { hotelDayStartIso } from "../engine/timezone.ts";
+import { type Alert, raiseAlert } from "./alerting.ts";
 import { ensureBaseRateCalendar, type EnsureCalendarResult } from "./base-rate-calendar.ts";
 import { pmsEditSettleMs } from "./pms-edits.ts";
 import {
@@ -67,6 +76,7 @@ import {
   type PricingWork,
 } from "./pricing-plan.ts";
 import { type HotelClock, lastNightOf, readHotelClock } from "./pricing-window.ts";
+import { ALERT_BUDGET_MS } from "./push-incidents.ts";
 import { pushMaxPriceAgeMs } from "./push-guardrails.ts";
 import { pushRatesForHotel, type PmsRatePushAdapter, type RatePushOptions, type RatePushSummary } from "./rate-push.ts";
 
@@ -93,6 +103,13 @@ let cadenceMissingSeen = false;
 export function resetCadenceMissingSeen(): void {
   cadenceMissingSeen = false;
 }
+
+/**
+ * How long a hotel may go without a pricing run that finished before a
+ * failed run is worth a person's attention: three of the five-minute runs.
+ * One failed read is put right by the next run and says nothing.
+ */
+export const PRICING_FAILING_ALERT_AFTER_MS = 15 * 60_000;
 
 export type TickSkip =
   | { skipped: "no_credentials" | "out_of_time" | "disabled" | "sync_failed" | "sync_incomplete" }
@@ -143,6 +160,8 @@ export type PricingTickResult<E> = {
   pmsEditsAdopted?: number;
   /** Too little time was left to evaluate; the caller releases the hotel due again soon. */
   outOfTime: boolean;
+  /** Pricing has been failing long enough to tell the alert channel, and whether it was told. */
+  pricingAlert?: { sent: boolean; reason?: string };
   calendarMs: number;
   evalMs: number;
   pushMs: number;
@@ -178,6 +197,8 @@ export async function runPricingTick<E>(
   deps: {
     evaluate: EvaluateFn<E>;
     now?: () => number;
+    /** Posts to the alert channel. raiseAlert unless a test swaps it. */
+    alert?: typeof raiseAlert;
   },
 ): Promise<PricingTickResult<E>> {
   const now = deps.now ?? Date.now;
@@ -234,6 +255,10 @@ export async function runPricingTick<E>(
   let evaluatedAt: string | undefined;
   let cadence: TickCadence | undefined;
   let passWorkLeft = false;
+  // The hotel's last run that finished, where the work list said (undefined: not read).
+  let lastOkRunAt: string | null | undefined;
+  // This tick's run was not recorded (pricing_run_done failed).
+  let recordError: string | undefined;
   // Nights the push may not take this tick's pricing as proof for (see RatePushOptions.notVouched).
   let notVouched: RatePushOptions["notVouched"];
   if (outOfTime) {
@@ -261,6 +286,8 @@ export async function runPricingTick<E>(
     passWorkLeft = priced.passWorkLeft;
     notVouched = priced.notVouched;
     horizonDays = priced.horizonDays;
+    lastOkRunAt = priced.lastOkRunAt;
+    recordError = priced.recordError;
   } else {
     evaluate = { skipped: true };
   }
@@ -326,6 +353,18 @@ export async function runPricingTick<E>(
   }
   const tPush = now();
 
+  // After the push, so telling someone never takes time from sending, and
+  // only while the alert's own timeout still fits before the release.
+  const failure = pricingFailure(evaluate, recordError);
+  const pricingAlert = failure
+    ? await alertPricingFailing(supabase, hotelId, failure, {
+        lastOkRunAt,
+        nowMs: t0,
+        mayStart: now() + ALERT_BUDGET_MS <= opts.pushDeadlineAt,
+        alert: deps.alert ?? raiseAlert,
+      })
+    : null;
+
   return {
     today: clock?.today ?? null,
     calendar,
@@ -335,6 +374,7 @@ export async function runPricingTick<E>(
     push,
     ...("pmsEditsAdopted" in calendar ? { pmsEditsAdopted: calendar.pmsEditsAdopted } : {}),
     outOfTime,
+    ...(pricingAlert ? { pricingAlert } : {}),
     calendarMs: tCalendar - t0,
     evalMs: tEval - tCalendar,
     pushMs: tPush - tEval,
@@ -358,6 +398,10 @@ type PricedNights<E> = {
   notVouched?: RatePushOptions["notVouched"];
   /** The window actually priced (shorter before the cadence migration). */
   horizonDays: number;
+  /** When a run of the hotel last finished, from the work list; undefined when that was not read. */
+  lastOkRunAt?: string | null;
+  /** The run (or an idle tick's heartbeat) could not be recorded. */
+  recordError?: string;
 };
 
 const emptyReport = (): CadenceReport => ({
@@ -505,6 +549,8 @@ async function priceNights<E>(
       passWorkLeft,
       notVouched: notVouchedAfter(true),
       horizonDays,
+      lastOkRunAt: work.state?.last_ok_run_at ?? null,
+      ...(cadence.error ? { recordError: cadence.error } : {}),
     };
   }
 
@@ -528,6 +574,7 @@ async function priceNights<E>(
       passWorkLeft: true,
       notVouched: notVouchedAfter(false),
       horizonDays,
+      lastOkRunAt: work.state?.last_ok_run_at ?? null,
     };
   }
 
@@ -555,7 +602,97 @@ async function priceNights<E>(
     cadence.error = errorText(e, "pricing run not recorded");
     console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_run_done", error: cadence.error }));
   }
-  return { evaluate, vouchedAt: clock.at, cadence, passWorkLeft, notVouched: notVouchedAfter(true), horizonDays };
+  return {
+    evaluate,
+    vouchedAt: clock.at,
+    cadence,
+    passWorkLeft,
+    notVouched: notVouchedAfter(true),
+    horizonDays,
+    lastOkRunAt: work.state?.last_ok_run_at ?? null,
+    ...(cadence.error ? { recordError: cadence.error } : {}),
+  };
+}
+
+/** What went wrong with a tick's pricing: the engine stopped, or its run could not be recorded. */
+type PricingFailure = { step: "evaluate" | "record"; error: string };
+
+/**
+ * What went wrong with this tick's pricing, if anything: the engine's error
+ * (it published nothing), or the run that could not be recorded (its nights
+ * stay marked and the pass does not move). Not a work list that could not be
+ * read: the whole window was priced instead.
+ */
+function pricingFailure(evaluate: PricingTickResult<unknown>["evaluate"], recordError: string | undefined): PricingFailure | null {
+  if ("error" in evaluate) return { step: "evaluate", error: evaluate.error };
+  return recordError ? { step: "record", error: recordError } : null;
+}
+
+/**
+ * Tell the alert channel that a hotel's pricing keeps failing: this tick's
+ * run failed, and no run of the hotel has finished for
+ * PRICING_FAILING_ALERT_AFTER_MS (or ever). The last run that finished is
+ * the work list's (hotel_pricing_state.last_ok_run_at, which every recorded
+ * run moves, idle ones included); where the list has none, or was not read,
+ * the newest row of the run log, unless it is the record that failed (the
+ * run log has the engine's own heartbeat, which says nothing about the
+ * record). When neither has one, or neither can be read, nobody can say how
+ * long it has been and the alert goes out: a database that answers nothing
+ * is the failure that lasts. Never throws. Returns null when it is too soon
+ * to say.
+ */
+export async function alertPricingFailing(
+  supabase: SupabaseClient,
+  hotelId: string,
+  failure: PricingFailure,
+  opts: {
+    lastOkRunAt: string | null | undefined;
+    nowMs: number;
+    /** Whether the alert's timeout still fits in the tick. */
+    mayStart: boolean;
+    alert: typeof raiseAlert;
+  },
+): Promise<{ sent: boolean; reason?: string } | null> {
+  try {
+    const lastOk = opts.lastOkRunAt || (failure.step === "evaluate" ? await lastRunLogged(supabase, hotelId) : null);
+    const lastOkMs = lastOk ? Date.parse(lastOk) : NaN;
+    if (Number.isFinite(lastOkMs) && opts.nowMs - lastOkMs < PRICING_FAILING_ALERT_AFTER_MS) return null;
+    const since = Number.isFinite(lastOkMs)
+      ? `No pricing run has finished since ${new Date(lastOkMs).toISOString()} (${Math.round((opts.nowMs - lastOkMs) / 60_000)} minutes).`
+      : "No pricing run has finished for this hotel.";
+    const what =
+      failure.step === "evaluate"
+        ? "The latest run stopped before it published anything, so no new price is published or sent until a run finishes."
+        : "The latest run priced its nights but could not be recorded, so the same nights are priced again and the daily pass does not move on.";
+    console.error(
+      JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_failing", failed: failure.step, lastOkRunAt: lastOk ?? null, error: failure.error }),
+    );
+    if (!opts.mayStart) return { sent: false, reason: "out_of_time" };
+    const alert: Alert = {
+      severity: "critical",
+      key: `pricing-failing:${hotelId}`,
+      title: "Pricing keeps failing",
+      detail: `${since} ${what} Error: ${failure.error}`,
+      hotelId,
+    };
+    return await opts.alert(supabase, alert);
+  } catch (e) {
+    console.error(JSON.stringify({ fn: "runPricingTick", hotelId, step: "pricing_failing_alert", error: errorText(e, "alert failed") }));
+    return { sent: false, reason: "send_failed" };
+  }
+}
+
+/** The newest run on the hotel's run log (a heartbeat is written by every run that finishes), or null. */
+async function lastRunLogged(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("evaluation_run_log")
+    .select("evaluated_at")
+    .eq("hotel_id", hotelId)
+    .order("evaluated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data?.evaluated_at) return null;
+  return String(data.evaluated_at);
 }
 
 /** Whether the base under this tick was read from the PMS just now, or within the refresh interval. */
