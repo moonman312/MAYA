@@ -3,7 +3,7 @@ title: Messages you might see, explained
 summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
 section: wrong
 order: 100
-readingTime: 57
+readingTime: 58
 readingNote: Type a few words of the message to jump to it
 keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the window didn't open, the days could not be checked, we weren't able to calculate, 0 prices will be affected, turn it on, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
 questions:
@@ -27,7 +27,7 @@ questions:
   - What does "X days will be affected by this rule" mean? {#rules-and-the-rule-builder/turn-on-busy}
   - What does "This rule changed in another tab" mean? {#rules-and-the-rule-builder/this-rule-changed}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -45,13 +45,21 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Welcome back."**: the ordinary sign-in intro.
 - **"Set a password and you're on your way. Your property comes next."**: the create-account intro. After the account, you pay, then connect.
 - **"Your Cloudbeds property is connected. Create your account to finish setting it up."**: you arrived from the Cloudbeds Marketplace. Create an account, or sign in to attach the property to an account you already have.
+- **"Your Cloudbeds property is connected. Sign in to finish setting it up."**: the same, on the sign-in form. Signing in attaches the property to your account.
 - **"Your Cloudbeds connection is active again. Sign in to pick up where you left off."**: you pressed <Ui>Connect App</Ui> in the Marketplace for a property that came through the Marketplace and already has an owner. Sign in; everything is as you left it. (A property connected from inside MAYA lands on its <Ui>PMS</Ui> tab with "Reconnected." instead.) [Connection lost](/docs/wrong/connection-lost)
 - **"Passwords don't match."**: retype both password fields.
 - **"That email already has an account. Sign in instead."**: the card has switched to sign-in mode. [Account and billing problems](/docs/wrong/account-and-billing-problems)
 - **"Invalid login credentials"**: wrong email or password. Passwords are at least 8 characters. Forgotten it? Click <Ui>Forgot password?</Ui>. [Account and billing problems](/docs/wrong/account-and-billing-problems)
-- **"Check your email"**: after creating an account, a confirmation link is on its way. Open it, then come back and sign in. **"Your Cloudbeds property is saved and will be waiting."** means the Marketplace property is kept for you meanwhile.
+- **"Check your email"** with **"A confirmation link is on its way to"** your address and **"Open it to finish signing up."**: your account is made. Open the link in the email and you are signed in. **"Your Cloudbeds property is saved and will be waiting."** means the Marketplace property is kept for you meanwhile, in that browser, for 24 hours from <Ui>Connect App</Ui>. [Create an account and sign in](/docs/account/create-an-account-and-sign-in#confirming-your-email)
+- **"Confirm your email first. The link is in your inbox."**: you signed in before opening the confirmation link. Open it, or click <Ui>Send the link again</Ui> for a new one. [If the email has not arrived](/docs/account/create-an-account-and-sign-in#if-the-email-has-not-arrived)
+- **"Send the link again"**: sends a new confirmation link. It is greyed out for a minute after each email. Only the newest link works.
+- **"Sent. Check your inbox."**: the new confirmation link is on its way.
+- **"Too many emails for now. Wait a minute, then try again."**: links were asked for too quickly. Wait until <Ui>Send the link again</Ui> is no longer greyed out, then click it.
+- **"Could not send the link. Try again in a moment."**: the confirmation email did not go. Click <Ui>Send the link again</Ui> once more.
+- **"Your email is confirmed. Sign in to continue."**: you opened the confirmation link in a different browser or on another device, so it could not sign you in there. Sign in with your email and password.
+- **"That link has expired or was already used. Try signing in."**: a confirmation link works once and only for a while. If you opened it before, you are confirmed, so sign in. If not, signing in offers <Ui>Send the link again</Ui>. [If the link has expired](/docs/account/create-an-account-and-sign-in#if-the-link-has-expired-or-was-already-used)
 - **"Check your email"** with **"If name@yourhotel.com has a MAYA account, a link to set a new password is on its way. Open it in this browser. The link works once."**: you asked for a reset. The words are the same whether or not the address has an account. No email after a few minutes? Check spam. [Reset your password](/docs/recipes/reset-your-password)
-- **"Sending..."**: the reset link is being asked for. It takes a moment.
+- **"Sending..."**: the reset link, or a new confirmation link, is being asked for. It takes a moment.
 - **"Back to sign in"**: returns you to the card after either "Check your email" message.
 - **"Set a new password"** with **"Choose a new password for"** your address: the page the reset link opens. Type the new password twice and press <Ui>Save new password</Ui>.
 - **"Checking your link…"**: the reset link is being checked. Wait a moment.
