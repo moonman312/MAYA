@@ -174,6 +174,12 @@ export type ConditionFormRow = {
    * Choosing another level clears it, and the form derives the compare.
    */
   booking_speed_operator?: BookingSpeedRuleOperator;
+  /**
+   * The builder filled this row in itself (farOutCutGuardRow), and shows a
+   * "?" saying why. Cleared when the row's metric is changed. Never saved:
+   * the draft carries the condition, not who typed it.
+   */
+  prefilled?: "far_out_cut";
 };
 
 const SYM: Record<"gt" | "lt", string> = { gt: ">", lt: "<" };
@@ -194,6 +200,91 @@ export function newConditionRow(
     booking_speed_cooldown_days: partial?.booking_speed_cooldown_days ?? DEFAULT_BOOKING_SPEED_WAIT_DAYS,
     pickup_cooldown_days: partial?.pickup_cooldown_days ?? null,
     ...(partial?.booking_speed_operator ? { booking_speed_operator: partial.booking_speed_operator } : {}),
+    ...(partial?.prefilled ? { prefilled: partial.prefilled } : {}),
+  };
+}
+
+/* ── A cut on low pickup with nothing to keep it near ─────────── */
+
+/**
+ * The shape the audit proved cuts every quiet far-out night again each wait
+ * (A4; Jake, 2026-09-29): "Decrease the rate", a pickup count "Less than" a
+ * number, and no days-before-arrival condition. A far-out night with no
+ * bookings yet always counts as low pickup, so such a rule reaches every
+ * night of the 396-night window, and cuts each one again whenever its wait
+ * is over. Two guards, both in the owner's sight: the builder fills a
+ * days-before-arrival row in the moment the form takes this shape
+ * (farOutCutGuardRow, removable, never added on save), and the activation
+ * popup says how many nights the rule reaches and that the cut repeats
+ * (farOutCutFacts; farOutCutLines in rule-activation-client.ts). Rules
+ * already saved are left as they are.
+ */
+export const FAR_OUT_CUT_GUARD_DAYS = 60;
+
+/** True for a saved condition and direction of that shape. */
+export function isFarOutCut(
+  condition: Pick<RuleCondition, "pickup_operator" | "dta_operator" | "dta_threshold_days"> | null | undefined,
+  direction: string | null | undefined,
+): boolean {
+  if (direction !== "decrease" || condition?.pickup_operator !== "lt") return false;
+  return !(condition.dta_operator && condition.dta_threshold_days != null);
+}
+
+/**
+ * True the moment the builder's rows take that shape: a pickup row on "Less
+ * than" and no booking window row at all (one with an empty threshold is
+ * still a row the owner can see and fill in).
+ */
+export function rowsAreFarOutCut(rows: readonly ConditionFormRow[], direction: string): boolean {
+  if (direction !== "decrease") return false;
+  const pickup = rows.find((r) => r.metric === "pickup");
+  return pickup?.operator === "lt" && !rows.some((r) => r.metric === "booking_window");
+}
+
+/** The row the builder fills in: within FAR_OUT_CUT_GUARD_DAYS days of arrival, marked as filled in. */
+export function farOutCutGuardRow(): ConditionFormRow {
+  return newConditionRow("booking_window", { operator: "lt", value: String(FAR_OUT_CUT_GUARD_DAYS), prefilled: "far_out_cut" });
+}
+
+/** The "?" beside the row the builder filled in. */
+export const FAR_OUT_CUT_GUARD_HELP: { label: string; title: string; lines: string[] } = {
+  label: "Why this condition was added",
+  title: "Filled in for you",
+  lines: [
+    `A cut on low pickup with no booking window reaches every night ahead, and a far-out night with no bookings yet always counts as quiet, so it would cut each of them again every time its wait is over. Within ${FAR_OUT_CUT_GUARD_DAYS} days of arrival keeps the cuts to the nights that need them. Change the number, or remove the row.`,
+  ],
+};
+
+/** What the popup says about a rule of that shape, from its saved condition. */
+export type FarOutCutFacts = {
+  threshold: number;
+  windowDays: number;
+  metric: PickupMetric;
+  /** The wait the rule really keeps between two cuts on a night (eventRuleWaitDays). */
+  waitDays: number;
+};
+
+/**
+ * The facts for a rule of that shape, or null for any other. The wait is
+ * the one the engine keeps: the pickup wait, never less than the window for
+ * a count on low pickup, or the booking speed wait when that is longer.
+ */
+export function farOutCutFacts(condition: RuleCondition | null | undefined, direction: string | null | undefined): FarOutCutFacts | null {
+  if (!condition || !isFarOutCut(condition, direction)) return null;
+  const windowDays = Number(condition.pickup_window_days ?? 3);
+  const waitDays = eventRuleWaitDays({
+    hasBookingSpeed: !!condition.booking_speed_operator,
+    cooldownDays: condition.booking_speed_cooldown_days ?? null,
+    hasPickup: true,
+    pickupWindowDays: windowDays,
+    pickupCooldownDays: condition.pickup_cooldown_days ?? null,
+    pickupLow: pickupCountsLow(condition.pickup_operator, condition.pickup_threshold),
+  });
+  return {
+    threshold: Number(condition.pickup_threshold ?? 0),
+    windowDays,
+    metric: condition.pickup_metric ?? "room_nights",
+    waitDays,
   };
 }
 

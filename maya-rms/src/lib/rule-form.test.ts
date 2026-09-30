@@ -4,14 +4,20 @@ import type { EngineRule, RuleCondition } from "@/types/domain";
 import {
   BOOKING_SPEED_WAIT_OPTIONS,
   DEFAULT_BOOKING_SPEED_WAIT_DAYS,
+  FAR_OUT_CUT_GUARD_DAYS,
+  FAR_OUT_CUT_GUARD_HELP,
   PICKUP_WAIT_SAME_AS_WINDOW_LABEL,
   RULE_FIRES_HELP,
   bookingSpeedOwnWait,
   bookingSpeedSetsWait,
   bookingSpeedWaitLabel,
+  builderDraft,
   conditionRowsToRuleCondition,
   directionalBookingSpeedOperator,
   eventRuleWaitDays,
+  farOutCutFacts,
+  farOutCutGuardRow,
+  isFarOutCut,
   isRuleConditionEmpty,
   newConditionRow,
   pickupCountsLow,
@@ -19,6 +25,7 @@ import {
   pickupSetsWait,
   RATE_AMOUNT_BOTH,
   RATE_AMOUNT_MISSING,
+  rowsAreFarOutCut,
   ruleActionError,
   ruleActionFromAmounts,
   ruleConditionForInsert,
@@ -364,5 +371,77 @@ describe("what the rules table says a fire is", () => {
     expect(words).toContain("more than once");
     expect(words).not.toContain("\u2014");
     expect(words).not.toMatch(/[<>]/);
+  });
+});
+
+describe("a cut on low pickup with nothing to keep it near (A4)", () => {
+  const pickupLow = newConditionRow("pickup", { operator: "lt", value: "1", pickup_window_days: 7 });
+  const low: RuleCondition = { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 7, pickup_metric: "room_nights" };
+
+  it("is a cut, a pickup row on Less than, and no booking window row", () => {
+    expect(rowsAreFarOutCut([pickupLow], "decrease")).toBe(true);
+    expect(rowsAreFarOutCut([pickupLow, newConditionRow("occupancy")], "decrease")).toBe(true);
+    expect(rowsAreFarOutCut([pickupLow], "increase")).toBe(false);
+    expect(rowsAreFarOutCut([pickupLow], "")).toBe(false);
+    expect(rowsAreFarOutCut([newConditionRow("pickup", { operator: "gt", value: "1" })], "decrease")).toBe(false);
+    // A booking window row the owner has not filled in yet is still a row on screen.
+    expect(rowsAreFarOutCut([pickupLow, newConditionRow("booking_window", { value: "" })], "decrease")).toBe(false);
+    expect(rowsAreFarOutCut([newConditionRow("occupancy", { operator: "lt", value: "30" })], "decrease")).toBe(false);
+    expect(isFarOutCut(low, "decrease")).toBe(true);
+    expect(isFarOutCut(low, "increase")).toBe(false);
+    expect(isFarOutCut({ ...low, dta_operator: "lt", dta_threshold_days: 60 }, "decrease")).toBe(false);
+    expect(isFarOutCut({ ...low, dta_operator: "gt", dta_threshold_days: 0 }, "decrease")).toBe(false);
+    expect(isFarOutCut({ ...low, pickup_operator: "gt" }, "decrease")).toBe(false);
+    expect(isFarOutCut(null, "decrease")).toBe(false);
+  });
+
+  it("the row the builder fills in is within 60 days of arrival, marked as filled in, and saves as that condition alone", () => {
+    const row = farOutCutGuardRow();
+    expect(FAR_OUT_CUT_GUARD_DAYS).toBe(60);
+    expect(row).toMatchObject({ metric: "booking_window", operator: "lt", value: "60", prefilled: "far_out_cut" });
+    expect(conditionRowsToRuleCondition([pickupLow, row])).toMatchObject({ pickup_operator: "lt", pickup_threshold: 1, dta_operator: "lt", dta_threshold_days: 60 });
+    // Who filled the row in is not saved.
+    expect(Object.keys(conditionRowsToRuleCondition([row]))).toEqual(["dta_operator", "dta_threshold_days"]);
+    // Any other row starts as the owner's.
+    expect(newConditionRow("booking_window")).not.toHaveProperty("prefilled");
+  });
+
+  it("saving never adds it: the draft is exactly the rows", () => {
+    const values = { name: "Quiet", rows: [pickupLow], direction: "decrease" as const, percent: "4", dollars: "", selected: ["a"], split: false, changeIds: [], undo: true };
+    const built = builderDraft(values, [{ id: "a", name: "Standard", counts_as_room: true }]);
+    if ("error" in built) throw new Error(built.error);
+    const condition = built.draft.condition as RuleCondition;
+    expect(condition.pickup_operator).toBe("lt");
+    expect(condition).not.toHaveProperty("dta_operator");
+    expect(isFarOutCut(condition, "decrease")).toBe(true);
+  });
+
+  it("the popup's facts: the threshold, window and unit, and the wait the engine keeps", () => {
+    expect(farOutCutFacts(low, "decrease")).toEqual({ threshold: 1, windowDays: 7, metric: "room_nights", waitDays: 7 });
+    // A shorter wait chosen: low pickup holds it to the window. A longer one is kept.
+    expect(farOutCutFacts({ ...low, pickup_cooldown_days: 1 }, "decrease")?.waitDays).toBe(7);
+    expect(farOutCutFacts({ ...low, pickup_cooldown_days: 14 }, "decrease")?.waitDays).toBe(14);
+    // With a booking speed row too, the longer of the two.
+    const both: RuleCondition = { ...low, booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 30, booking_speed_cooldown_days: 14 };
+    expect(farOutCutFacts(both, "decrease")?.waitDays).toBe(14);
+    expect(farOutCutFacts({ ...low, pickup_metric: "revenue", pickup_threshold: 500, pickup_window_days: 1 }, "decrease")).toEqual({
+      threshold: 500,
+      windowDays: 1,
+      metric: "revenue",
+      waitDays: 1,
+    });
+    expect(farOutCutFacts(low, "increase")).toBeNull();
+    expect(farOutCutFacts({ ...low, dta_operator: "lt", dta_threshold_days: 60 }, "decrease")).toBeNull();
+    expect(farOutCutFacts({ ...low, pickup_operator: "gt" }, "decrease")).toBeNull();
+    expect(farOutCutFacts(null, "decrease")).toBeNull();
+  });
+
+  it("the ? says why, in plain words", () => {
+    const words = [FAR_OUT_CUT_GUARD_HELP.label, FAR_OUT_CUT_GUARD_HELP.title, ...FAR_OUT_CUT_GUARD_HELP.lines].join(" ");
+    expect(words).toContain("every night ahead");
+    expect(words).toContain("60 days of arrival");
+    expect(words).toContain("remove the row");
+    expect(words).not.toContain("\u2014");
+    expect(words).not.toMatch(/MAYA (learns|knows|thinks)/);
   });
 });
