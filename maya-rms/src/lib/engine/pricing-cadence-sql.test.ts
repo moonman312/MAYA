@@ -122,6 +122,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_read_failures_v1.sql",
   "99_supabase_migration_pricing_watchdog_v1.sql",
   "99_supabase_migration_command_center_speed_v1.sql",
+  "99_supabase_migration_display_settings_v1.sql",
 ];
 
 /**
