@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, nameLooksLikeNonRoom } from "../onboarding/analysis.ts";
+import { roomTypeLabel, roomTypeNames } from "../pms/room-type-label.ts";
 
 /**
  * How long a property has to fix its own room count before MAYA does it.
@@ -110,9 +111,10 @@ export async function measureRooms(
   const excluded: RoomExclusion[] = [];
   for (const rt of data) {
     const rooms = Number(rt.total_rooms) || 0;
-    // Both names are checked: PMSes vary in which one carries the useful label,
-    // and "Pickleball Court" appearing in either is enough.
-    const label = String(rt.display_name || rt.name || "");
+    // The full name is the one the owner reads (room-type-label.ts); the
+    // name test reads both, since PMSes differ in which one carries the
+    // telling word, and "Pickleball Court" in either is enough.
+    const label = roomTypeLabel(rt);
     if (rt.counts_as_room === false) {
       excluded.push({ name: label, rooms, source: rt.counts_as_room_set_by ? "owner" : "heuristic" });
     } else if (rt.counts_as_room === true) billable += rooms;
@@ -121,7 +123,7 @@ export async function measureRooms(
     // it. It stays out until someone does.
     else if (rt.counts_as_room === null) excluded.push({ name: label, rooms, source: "heuristic" });
     // Absent (not null) only on the no-flag select below: the name decides.
-    else if (nameLooksLikeNonRoom(label)) excluded.push({ name: label, rooms, source: "heuristic" });
+    else if (roomTypeNames(rt).some(nameLooksLikeNonRoom)) excluded.push({ name: label, rooms, source: "heuristic" });
     else billable += rooms;
   }
 

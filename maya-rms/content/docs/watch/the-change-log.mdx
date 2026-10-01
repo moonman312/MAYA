@@ -8,6 +8,8 @@ keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booki
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
+  - 'What does "Deluxe is no longer in Cloudbeds" mean in the change log?' {#your-property-changed-in-cloudbeds}
+  - 'Why does the change log say my time zone changed?' {#your-property-changed-in-cloudbeds}
   - 'What is a "pricing run"?' {#what-a-pricing-run-is/a-pricing-run}
   - 'How do I see only the changes in the change log?' {#the-two-views}
   - 'How far back does the change log go?' {#how-far-back-the-log-goes}
@@ -301,6 +303,17 @@ With <Ui>MAYA's price wins</Ui>, each night and room type MAYA sends its price t
 The warning that something other than MAYA seems to be changing rates comes with <Ui>Keep the change as your price</Ui>, in an amber box: "Something other than MAYA seems to be changing rates in Cloudbeds: 34 rates changed in the last 7 days on nights MAYA had sent a price to. Each change is kept as your price, so MAYA isn't pricing those nights. If you use another pricing tool, turn on "MAYA's price wins"." Its <Ui>Open the setting</Ui> button opens <Ui>Settings</Ui> at your system's section, and is gone once that setting is on.
 
 These items sit where they happened among the runs, within the span of the runs shown. Every warning is listed, and the newest 50 of MAYA's overwrites. One line under them counts the overwrites left out, without checking each one: "And 12 more times MAYA's price was due to go out again over a rate changed in Cloudbeds." A change you keep as your price is not an item of its own: it shows in the next run as "The base rate was changed in Cloudbeds to $180.00." (see [Prices people set](#prices-people-set)). [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) explains when each happens.
+
+## Your property changed in Cloudbeds
+
+On Cloudbeds, MAYA's daily read of your property can bring items of its own, under the same "Changed in Cloudbeds" heading with the time MAYA read the change. Each names the room type in full, or the time zone or currency before and after:
+
+- Deluxe is no longer in Cloudbeds. MAYA stopped pricing it, and its rooms no longer count toward your occupancy or your bill.
+- Deluxe is back in Cloudbeds. MAYA prices it again, and its rooms count toward your occupancy and your bill.
+- Your time zone changed from America/Denver to America/Chicago, to match Cloudbeds. Tonight and every rule's dates follow it.
+- Your currency changed from USD to CAD, to match Cloudbeds. Amounts in MAYA are now in CAD; nothing was converted. (Only while your property is in simulation.)
+
+These sit where they happened among the runs, within the span of the runs shown. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service#room-types-added-removed-or-resized-in-your-system) and [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays#which-time-zone) have the detail.
 
 ## Prices not reaching your property system
 

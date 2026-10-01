@@ -20,6 +20,7 @@ export function SimulationModeToggle({
   pmsType,
   pmsStatus,
   windowDays,
+  sendingOn,
 }: {
   hotelId: string;
   simulationMode: boolean;
@@ -29,6 +30,8 @@ export function SimulationModeToggle({
   pmsStatus: string | null;
   /** Nights the push sends (pricingHorizonDays). */
   windowDays: number;
+  /** Whether sending to that system is switched on (sendingSwitchOn); left out, taken as on. */
+  sendingOn?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -110,6 +113,7 @@ export function SimulationModeToggle({
         pmsType={pmsType}
         connected={pmsConnected(pmsType, pmsStatus)}
         windowDays={windowDays}
+        sendingOn={sendingOn}
         busy={pending}
         onConfirm={() => void toggle()}
         onCancel={() => setConfirming(false)}

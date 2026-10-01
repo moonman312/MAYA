@@ -262,7 +262,8 @@ describe("an answer a room type can't take", () => {
     const { client, tables } = withFloorCeilingCheck(
       hotel({ strategy_floor: null, strategy_ceiling: 300 }, [
         { id: "rt-std", name: "Standard" },
-        { id: "rt-suite", name: "Suite", display_name: "Garden Suite", floor_price: 350 },
+        // The full name, never a short code a PMS keeps beside it.
+        { id: "rt-suite", name: "Garden Suite", display_name: "GS", floor_price: 350 },
       ]),
     );
     const notSaved = await projectStrategyOntoRoomTypes(client, "h1");

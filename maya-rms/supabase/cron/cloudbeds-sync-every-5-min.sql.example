@@ -15,10 +15,14 @@
 --    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
 --    CLOUDBEDS_CRON_SECRET      (same value as vault `cloudbeds_cron_secret`)
 --    CLOUDBEDS_CLIENT_ID / CLOUDBEDS_CLIENT_SECRET   (for token refresh)
---    MAYA_PUSH_RATES            (true to send prices to Live hotels. Unset, or
---                               any value other than true, sends nothing to
---                               anyone and says so in this function's log on
---                               every run. The Think sync reads the same one.)
+--    MAYA_PUSH_RATES_CLOUDBEDS  (true to send prices to Live hotels on Cloudbeds.
+--                               While it is not set, MAYA_PUSH_RATES decides
+--                               instead, as it did before each system had its
+--                               own switch. Unset, or any value other than true,
+--                               sends nothing to anyone and says so in this
+--                               function's log on every run. Pilot health shows
+--                               "Sending: Cloudbeds on/off" and the setting read.
+--                               It never turns sending on for ThinkReservations.)
 --    MAYA_ALERT_WEBHOOK         (https:// webhook the alerts go to; without it
 --                               nothing leaves MAYA when pricing or sending stops.
 --                               Each run says in its log and on Pilot health

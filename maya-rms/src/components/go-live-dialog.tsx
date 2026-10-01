@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
 import { PMS_SENDS_PRICES, pmsLabel } from "@/lib/price-mode";
 
@@ -17,9 +17,12 @@ import { PMS_SENDS_PRICES, pmsLabel } from "@/lib/price-mode";
  * the sync cycle, about every 5 minutes, writing over the rate those nights
  * have in the PMS, and after that sends a night again when its price changes.
  * Only Cloudbeds and Think have a rate push; for anything else the dialog
- * says nothing is sent. Nor is anything sent without a connection the sync
- * picks up (none, disconnected, or pending payment), and the admin switch,
- * which can see the connection, says so. The owner's confirm names the
+ * says nothing is sent. Each has its own sending switch (audit A25), and
+ * ThinkReservations' starts off: while a system's switch is off
+ * (`sendingOn` false, from what its sync last reported), the dialog says
+ * going live sends nothing yet. Nor is anything sent without a connection
+ * the sync picks up (none, disconnected, or pending payment), and the admin
+ * switch, which can see the connection, says so. The owner's confirm names the
  * property it takes live, and the call carries that property's id, so a tab
  * left on one property never takes another live.
  */
@@ -55,6 +58,8 @@ export function goLiveCopy(p: {
   windowDays: number | null;
   connected?: boolean;
   propertyName?: string | null;
+  /** Whether sending to that system is switched on (simulation-strip.ts sendingSwitchOn); left out, taken as on. */
+  sendingOn?: boolean;
 }): {
   title: string;
   lines: string[];
@@ -73,6 +78,16 @@ export function goLiveCopy(p: {
     return {
       title: goLive,
       lines: [`MAYA doesn't send prices to ${pms} yet, so nothing is sent. The hotel only shows as live.`],
+    };
+  }
+  // A system MAYA sends to whose switch is off (ThinkReservations until MAYA switches it on).
+  if (p.sendingOn === false && p.pmsType && PMS_WITH_RATE_PUSH.has(p.pmsType)) {
+    return {
+      title: goLive,
+      lines: [
+        `Sending to ${pms} isn't on yet, so nothing is sent until MAYA switches it on. Your prices wait until then.`,
+        `Once it's on, each price MAYA sends replaces that night's rate in ${pms}, and a night is sent again whenever its price changes.`,
+      ],
     };
   }
   const nights = p.windowDays != null && p.windowDays > 0 ? ` for the next ${p.windowDays} nights` : "";
@@ -121,10 +136,11 @@ export async function requestGoLive(hotelId?: string | null): Promise<string | n
  * button rather than left to Terms accepted weeks earlier, possibly by someone
  * else. A line, not a checkbox: the dialog is the one extra click.
  */
-export function GoLiveConfirmation({ pmsType = null }: { pmsType?: string | null }) {
+export function GoLiveConfirmation({ pmsType = null, sendingOn }: { pmsType?: string | null; sendingOn?: boolean }) {
   return (
     <p className="mt-2 text-[0.6875rem] leading-relaxed text-slate-400">
-      Going live sends MAYA&apos;s prices to {pmsLabel(pmsType)} automatically. You&apos;re confirming you&apos;ve
+      Going live sends MAYA&apos;s prices to {pmsLabel(pmsType)} automatically
+      {sendingOn === false && pmsType && PMS_WITH_RATE_PUSH.has(pmsType) ? " once sending is on" : ""}. You&apos;re confirming you&apos;ve
       reviewed your rules and limits (
       <a
         href={TERMS_URL}
@@ -139,12 +155,63 @@ export function GoLiveConfirmation({ pmsType = null }: { pmsType?: string | null
   );
 }
 
+/**
+ * The confirm's count of nights whose own rate in the PMS sits outside a
+ * room type's floor or ceiling, or null when there are none to mention (Jake,
+ * 2026-09-30, audit A21). Going live sends those nights at the limit with no
+ * rule behind it. Exported for tests.
+ */
+export function outsideLimitsLine(nights: number | null | undefined): string | null {
+  if (nights == null || !Number.isFinite(nights) || nights <= 0) return null;
+  const n = Math.floor(nights);
+  return n === 1
+    ? "1 night has a rate outside your floor or ceiling; MAYA will move it inside when it sends."
+    : `${n.toLocaleString("en-US")} nights have a rate outside your floor or ceiling; MAYA will move them inside when it sends.`;
+}
+
+/**
+ * outsideLimitsLine for the property on screen, read when the confirm opens
+ * (GET /api/property/outside-limits). Only where MAYA sends prices and a
+ * connection is there to send them; nothing shows while it reads or when the
+ * count can't be had, and the confirm never waits on it.
+ */
+export function OutsideLimitsLine({
+  hotelId,
+  pmsType,
+  connected,
+}: {
+  hotelId: string | null | undefined;
+  pmsType: string | null;
+  connected?: boolean;
+}) {
+  const [nights, setNights] = useState<number | null>(null);
+  const sends = connected !== false && (pmsType == null || PMS_WITH_RATE_PUSH.has(pmsType));
+  useEffect(() => {
+    if (!sends) return;
+    let alive = true;
+    const query = hotelId ? `?hotelId=${encodeURIComponent(hotelId)}` : "";
+    fetch(`/api/property/outside-limits${query}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { nights?: unknown } | null) => {
+        if (alive) setNights(typeof body?.nights === "number" ? body.nights : null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [hotelId, sends]);
+  const line = sends ? outsideLimitsLine(nights) : null;
+  if (!line) return null;
+  return <p className="mt-3 text-sm leading-relaxed text-amber-200">{line}</p>;
+}
+
 export function GoLiveDialog({
   open,
   pmsType,
   connected,
   windowDays,
   propertyName = null,
+  sendingOn,
   busy = false,
   error = null,
   onConfirm,
@@ -160,6 +227,8 @@ export function GoLiveDialog({
   windowDays: number | null;
   /** The property being taken live, named in the title; null leaves it out. */
   propertyName?: string | null;
+  /** Whether sending to that system is switched on; left out, taken as on. */
+  sendingOn?: boolean;
   busy?: boolean;
   error?: string | null;
   onConfirm: () => void;
@@ -181,7 +250,7 @@ export function GoLiveDialog({
   }, [open, busy, onCancel]);
 
   if (!open) return null;
-  const copy = goLiveCopy({ pmsType, windowDays, connected, propertyName });
+  const copy = goLiveCopy({ pmsType, windowDays, connected, propertyName, sendingOn });
 
   return (
     <div

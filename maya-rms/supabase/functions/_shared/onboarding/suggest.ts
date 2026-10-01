@@ -424,8 +424,16 @@ export function computeGuardrailSuggestions(
 
 /* ── Initial (first-run) guardrails ──────────────────────────── */
 
-/** Same shape as a refresh reads: the median now rides on GuardrailState. */
-export type InitialGuardrailInput = GuardrailState;
+/**
+ * Same shape as a refresh reads (the median rides on GuardrailState), plus
+ * whether the owner removed the floor or ceiling on the review: a removed
+ * limit sits at its "never set" value but is never filled again
+ * (limit-removals.ts).
+ */
+export type InitialGuardrailInput = GuardrailState & {
+  floor_removed?: boolean;
+  ceiling_removed?: boolean;
+};
 
 export type InitialGuardrail = {
   room_type_id: string;
@@ -437,8 +445,9 @@ export type InitialGuardrail = {
  * First-run gap-filling: data-derived floors and ceilings for room types
  * still at schema defaults AFTER the strategy answers were projected.
  * Room types whose guardrails were set by a human (or by strategy answers)
- * are untouched; suspect room types are skipped — no point fitting
- * guardrails to something the same analysis says is probably not a room.
+ * are untouched, and so is a limit the owner removed on the review; suspect
+ * room types are skipped — no point fitting guardrails to something the same
+ * analysis says is probably not a room.
  * The numbers themselves come from dataFloorFor and dataCeilingFor, the
  * same ones a refresh suggests.
  */
@@ -458,13 +467,13 @@ export function computeInitialGuardrails(
     // rather than propose a patch that can never land: the room type keeps
     // no cap, but at least doesn't waste a doomed write pretending it tried.
     let newCeiling: number | null = null;
-    const dataCeiling = ceilingUnset(rt.ceiling_price) ? dataCeilingFor(rt) : null;
+    const dataCeiling = !rt.ceiling_removed && ceilingUnset(rt.ceiling_price) ? dataCeilingFor(rt) : null;
     if (dataCeiling != null && dataCeiling > rt.floor_price) {
       newCeiling = dataCeiling;
       out.push({ room_type_id: rt.room_type_id, field: "ceiling_price", value: newCeiling });
     }
 
-    const floor = rt.floor_price <= FLOOR_UNSET_MAX ? dataFloorFor(rt) : null;
+    const floor = !rt.floor_removed && rt.floor_price <= FLOOR_UNSET_MAX ? dataFloorFor(rt) : null;
     if (floor != null) {
       const effectiveCeiling =
         newCeiling ?? (!ceilingUnset(rt.ceiling_price) ? rt.ceiling_price : null);

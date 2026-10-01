@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
+import { RoomTypeName } from "@/components/room-type-name";
 import type { HelpPanel } from "@/lib/deep-links";
 
 /**
@@ -202,6 +203,7 @@ export const ROOM_TYPES_HELP = {
   lines: [
     ...COUNTS_AS_ROOM_HELP.lines,
     'A type tagged "needs your answer" is one nobody has ticked or unticked yet. Until you answer, it counts in occupancy but not in your bill.',
+    "Tick one while you're in simulation and it joins the starter rules you haven't edited.",
   ],
 };
 
@@ -436,7 +438,7 @@ function RoomTypeRow({
     <div className="space-y-2 px-4 py-3" data-deeplink={`pms.room-type:${rt.id}`}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
-          <span className={`text-sm font-medium ${counting ? "text-slate-200" : "text-slate-400"}`}>{rt.name}</span>
+          <RoomTypeName name={rt.name} className={`text-sm font-medium ${counting ? "text-slate-200" : "text-slate-400"}`} />
           <span className="ml-2 text-xs text-slate-500">
             {rt.total_rooms} unit{rt.total_rooms === 1 ? "" : "s"}
           </span>

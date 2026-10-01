@@ -101,9 +101,9 @@ describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
   const code = sql.replace(/--.*$/gm, "");
 
-  it("is the newest file on the list the SQL tests build production's schema from", () => {
+  it("is on the list the SQL tests build production's schema from, right after the simulation history file", () => {
     expect(MIGRATION_ORDER).toContain(MIGRATION);
-    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_simulation_history_v1.sql"));
+    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBe(MIGRATION_ORDER.indexOf("99_supabase_migration_simulation_history_v1.sql") + 1);
   });
 
   it("is one transaction, keeps row level security on and never grants anon anything", () => {

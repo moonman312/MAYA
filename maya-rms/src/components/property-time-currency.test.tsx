@@ -6,7 +6,7 @@
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { currencyLabel, PropertyTimeAndCurrency } from "./property-time-currency";
+import { CLOUDBEDS_DAILY_LINE, currencyLabel, PropertyTimeAndCurrency } from "./property-time-currency";
 
 afterEach(cleanup);
 
@@ -45,6 +45,18 @@ describe("PropertyTimeAndCurrency", () => {
       "UTC is what a property gets when its time zone wasn't read from its system. If yours is different, send us a message and we'll correct it.",
     );
     expect(view.container.textContent).not.toContain("US dollars");
+  });
+
+  it("says in its \"?\" that a Cloudbeds property's are checked once a day, and only there", async () => {
+    const { fireEvent } = await import("@testing-library/react");
+    const view = render(<PropertyTimeAndCurrency timezone="America/Chicago" currency="USD" pmsType="cloudbeds" />);
+    fireEvent.click(screen.getByRole("button", { name: "About the time zone and currency" }));
+    expect(view.container.textContent).toContain(CLOUDBEDS_DAILY_LINE);
+    cleanup();
+    const think = render(<PropertyTimeAndCurrency timezone="America/Chicago" currency="USD" pmsType="think" />);
+    fireEvent.click(screen.getByRole("button", { name: "About the time zone and currency" }));
+    expect(think.container.textContent).toContain("can't be changed here");
+    expect(think.container.textContent).not.toContain(CLOUDBEDS_DAILY_LINE);
   });
 
   it("uses no em dashes", () => {

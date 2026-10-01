@@ -36,7 +36,7 @@ questions:
   - My property name, time zone or currency came in wrong {#my-property-name-time-zone-or-currency-came-in-wrong}
   - How do I reopen the questions to change my property name? {#my-property-name-time-zone-or-currency-came-in-wrong}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -149,7 +149,7 @@ If MAYA is counting something that is not a guest room, untick it under <Ui>Room
 
 The subscription is not paying. Nothing is read, priced or sent until it is. Three cases, and what the banner says after "Your rules no longer run on a schedule and nothing is sent to your PMS." tells them apart:
 
-- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and save the new card as your default. MAYA pays the open invoice with it straight away and moves the subscription onto it, and the subscription restarts where it left off. If the status still reads "Unpaid" a few minutes later, the new card was declined too. Save a different card as your default, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Still%20unpaid).
+- "Update your card and the subscription restarts where it left off." The last payments failed and the bank's retries ran out. Press <Ui>Restart MAYA</Ui>, then <Ui>Update card, receipts & cancellation</Ui>, and save the new card as your default. MAYA moves the subscription onto it and pays the open invoice with it straight away, and the subscription restarts where it left off. If the status still reads "Unpaid" a few minutes later, the new card was declined too, or the subscription is on a different card of its own, which MAYA never moves ([Moving to another card](/docs/billing/cards-payments-and-invoices#moving-to-another-card)). Save a different card as your default, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Still%20unpaid).
 - "Your subscription was cancelled, so starting again means a new one. Restart below whenever you're ready." Press <Ui>Restart your subscription</Ui> on the billing page. A new subscription starts on the same pricing; the old code cannot be reused.
 - "Your subscription is on hold. Email us and we'll get it running again." The status reads "Paused": the subscription is on hold in Stripe. There is no restart button, because a second subscription beside it would bill you twice. The dashboard banner's button reads <Ui>Email us</Ui> and opens an email to us. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Paused%20subscription) and we get it running again.
 
@@ -189,7 +189,7 @@ You cannot demote or remove the last Hotel Admin, or a property could end up wit
 
 ## My property name, time zone or currency came in wrong
 
-The name, time zone and currency are read from your property system when you connect, and only once. The name you can fix: the first of the optional onboarding questions asks "Did we get your property's name right?", and whatever you type there wins.
+The name, time zone and currency are read from your property system when you connect. On Cloudbeds the time zone is read again once a day and followed, and so is the currency while you are in simulation, so one that came in wrong is put right by the next daily read once it is right in Cloudbeds. The name is read only once, and you can fix it: the first of the optional onboarding questions asks "Did we get your property's name right?", and whatever you type there wins.
 
 To reopen the questions any time after connecting, go to <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink>. Type the name and press <Ui>Looks right</Ui>. Then press <Ui>Skip the rest →</Ui>, so your floors and ceilings stay as they are. Read [The five questions](/docs/review/the-five-questions).
 

@@ -32,6 +32,18 @@ export type FunctionAlertReport = {
   source: "secrets" | "vault";
 };
 
+/**
+ * What a sending sync last said about its sending switch (push-switch.ts):
+ * on or off, the setting that decided, and when. Kept apart from the alert
+ * channel report, because a test alert's report says nothing about sending.
+ */
+export type FunctionSendingReport = {
+  fn: string;
+  on: boolean;
+  setting: string | null;
+  reportedAt: string;
+};
+
 export type AlertTestRecord = {
   fn: string;
   at: string;
@@ -43,6 +55,8 @@ export type AlertTestRecord = {
 export type AlertChannelFacts = {
   reports: FunctionAlertReport[];
   lastTest: AlertTestRecord | null;
+  /** The newest sending report per sending sync. Absent from facts built before it existed. */
+  sending?: FunctionSendingReport[];
 };
 
 const READ_LIMIT = 60;
@@ -67,11 +81,20 @@ type AuditRow = { event_type: unknown; entity_id: unknown; detail: unknown; crea
 /** The newest report per function and the newest test, out of the rows newest first. */
 export function alertChannelFacts(rows: AuditRow[]): AlertChannelFacts {
   const reports = new Map<string, FunctionAlertReport>();
+  const sending = new Map<string, FunctionSendingReport>();
   let lastTest: AlertTestRecord | null = null;
   for (const r of rows) {
     const detail = (r.detail ?? {}) as Record<string, unknown>;
     const fn = String(r.entity_id ?? detail.fn ?? "");
     if (!fn) continue;
+    if (r.event_type === ALERT_CHANNEL_EVENT && typeof detail.sending === "boolean" && !sending.has(fn)) {
+      sending.set(fn, {
+        fn,
+        on: detail.sending,
+        setting: typeof detail.sending_setting === "string" ? detail.sending_setting : null,
+        reportedAt: String(r.created_at),
+      });
+    }
     if (r.event_type === ALERT_CHANNEL_EVENT) {
       if (reports.has(fn)) continue;
       const state = detail.state;
@@ -93,7 +116,34 @@ export function alertChannelFacts(rows: AuditRow[]): AlertChannelFacts {
       };
     }
   }
-  return { reports: [...reports.values()].sort((a, b) => a.fn.localeCompare(b.fn)), lastTest };
+  return {
+    reports: [...reports.values()].sort((a, b) => a.fn.localeCompare(b.fn)),
+    lastTest,
+    sending: [...sending.values()].sort((a, b) => a.fn.localeCompare(b.fn)),
+  };
+}
+
+/** The system each sending sync sends to. */
+const SENDS_TO: Record<string, string> = {
+  "cloudbeds-scheduled-sync": "Cloudbeds",
+  "think-scheduled-sync": "ThinkReservations",
+};
+
+/**
+ * One line saying which systems prices are sent to, from what each sending
+ * sync last reported: "Sending: Cloudbeds on (MAYA_PUSH_RATES_CLOUDBEDS).
+ * ThinkReservations off (MAYA_PUSH_RATES_THINK)." Each system has its own
+ * switch (push-switch.ts); Mews is never sent to. Null when no sync has said.
+ */
+export function describeSending(facts: AlertChannelFacts, nowIso: string): string | null {
+  const known = (facts.sending ?? []).filter((r) => SENDS_TO[r.fn]);
+  if (known.length === 0) return null;
+  const parts = known.map((r) => {
+    const stale = Date.parse(nowIso) - Date.parse(r.reportedAt) > ALERT_REPORT_STALE_MS;
+    const setting = r.setting ? ` (${r.setting})` : "";
+    return `${SENDS_TO[r.fn]} ${r.on ? "on" : "off"}${setting}${stale ? `, said ${ageLabel(r.reportedAt, nowIso)} ago` : ""}.`;
+  });
+  return `Sending: ${parts.join(" ")}`;
 }
 
 export type AlertChannelLine = {

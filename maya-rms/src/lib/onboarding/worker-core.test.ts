@@ -160,6 +160,8 @@ type PropertyWorld = {
   connection?: Record<string, unknown> | null;
   claim?: Record<string, unknown> | null;
   subscription?: Record<string, unknown> | null;
+  /** hotel_settings: whether the property is live (simulation_mode false). */
+  settings?: Record<string, unknown> | null;
 };
 
 /** A lease touch carries nothing but the lease itself. */
@@ -276,6 +278,7 @@ function makeSupabaseStub(
         if (name === "pms_connections") return { data: connectionRow, error: null };
         if (name === "pms_marketplace_claims") return { data: claimRow, error: null };
         if (name === "hotel_subscriptions") return { data: world.subscription ?? null, error: null };
+        if (name === "hotel_settings") return { data: world.settings ?? null, error: null };
         return { data: null };
       },
       upsert: async (rows: unknown) => {
@@ -574,6 +577,30 @@ describe("processJob", () => {
     // The PMS still owns naming and inventory.
     expect(row.name).toBe("King");
     expect(row.total_rooms).toBe(10);
+  });
+});
+
+describe("discover on a live property (audit A21)", () => {
+  const withParking = (adapter: MockAdapter): MockAdapter => ({
+    ...adapter,
+    fetchRoomTypes: async () => [
+      { external_room_type_id: "RT1", name: "King", display_name: "King", total_rooms: 10 },
+      { external_room_type_id: "RT9", name: "Parking Bay", display_name: "Parking Bay", total_rooms: 30 },
+    ],
+  });
+  const switchedOff = (supabase: ReturnType<typeof makeSupabaseStub>) =>
+    supabase.updates.filter((u) => u.table === "room_types" && u.patch.counts_as_room === false);
+
+  it("switches no room type off once the property is live: the review asks instead", async () => {
+    const supabase = makeSupabaseStub(undefined, undefined, { settings: { simulation_mode: false } });
+    await processJob(supabase, makeJob(), makeDeps(withParking(makeAdapter(new Map([[0, [[]]]])))), 60_000);
+    expect(switchedOff(supabase)).toEqual([]);
+  });
+
+  it("still proposes the parking bay as not a room while the property simulates", async () => {
+    const supabase = makeSupabaseStub(undefined, undefined, { settings: { simulation_mode: true } });
+    await processJob(supabase, makeJob(), makeDeps(withParking(makeAdapter(new Map([[0, [[]]]])))), 60_000);
+    expect(switchedOff(supabase)).toHaveLength(1);
   });
 });
 

@@ -186,3 +186,44 @@ describe("GET /api/changelog with rates changed in the property system", () => {
     expect(body.some((i) => i.has_changes === true)).toBe(true);
   });
 });
+
+describe("GET /api/changelog with what a read changed about the property itself", () => {
+  const change = (id: string, foundAt: string, over: Row): Row => ({
+    id, hotel_id: HOTEL, pms_type: "cloudbeds", found_at: foundAt, room_type_id: null, room_type_name: null,
+    before_value: null, after_value: null, ...over,
+  });
+
+  it("puts a room type switched off and the time zone change where they were found, under the property system", async () => {
+    state.client = seed({
+      pms_property_changes: [
+        change("p1", "2026-10-05T09:00:00Z", { kind: "room_type_removed", room_type_id: "rt-2", room_type_name: "Harbour Double Deluxe" }),
+        change("p2", "2026-10-05T08:30:00Z", { kind: "timezone", before_value: "UTC", after_value: "America/Chicago" }),
+        // Before the oldest run the log covers: not in it.
+        change("p0", "2026-10-05T07:00:00Z", { kind: "timezone", before_value: "UTC", after_value: "America/Denver" }),
+      ],
+    }).client;
+    const res = await GET();
+    const body = (await res.json()) as Record<string, unknown>[];
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    const order = body.map((i) => (i.kind === "pms_change" ? `${i.change}:${i.id}` : i.kind ?? "run"));
+    expect(order).toEqual(["room_type_removed:property:p1", "timezone:property:p2", "run"]);
+    expect(body[0]).toMatchObject({
+      pms: "Cloudbeds",
+      room_type: "Harbour Double Deluxe",
+      title:
+        "Harbour Double Deluxe is no longer in Cloudbeds. MAYA stopped pricing it, and its rooms no longer count toward your occupancy or your bill.",
+    });
+    expect(body[1]).toMatchObject({
+      title: "Your time zone changed from UTC to America/Chicago, to match Cloudbeds. Tonight and every rule's dates follow it.",
+    });
+  });
+
+  it("shows none, and still the log, on a database without the table", async () => {
+    state.client = seed({}, { missing: ["pms_property_changes"] }).client;
+    const res = await GET();
+    const body = (await res.json()) as Record<string, unknown>[];
+    expect(res.status, JSON.stringify(body)).toBe(200);
+    expect(body.some((i) => i.kind === "pms_change")).toBe(false);
+    expect(body.some((i) => i.has_changes === true)).toBe(true);
+  });
+});

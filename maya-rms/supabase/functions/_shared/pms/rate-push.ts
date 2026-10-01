@@ -8,8 +8,10 @@
  * Safety:
  *   • Gate 1 — hotel_settings.simulation_mode must be FALSE (Live). Sim hotels
  *     compute + display prices but never write to the PMS.
- *   • Gate 2 — the caller (Edge function) only invokes this when MAYA_PUSH_RATES
- *     is enabled, so deploying the code changes nothing until you opt in.
+ *   • Gate 2 — the caller (Edge function) only invokes this when its system's
+ *     own switch is on (push-switch.ts: MAYA_PUSH_RATES_CLOUDBEDS, falling back
+ *     to MAYA_PUSH_RATES; MAYA_PUSH_RATES_THINK, off until set), so deploying
+ *     the code changes nothing until you opt in, one system at a time.
  *   • Idempotency — a cell is skipped when the ledger already recorded a 'sent'
  *     push at the same price, to the rate its room type maps to now, so we
  *     never spam unchanged rates. A sent cell whose target has moved (or that
@@ -73,6 +75,7 @@ import {
   ledgerRowNeverSent,
   NO_RATE_TARGET_REASON,
   pushMaxPriceAgeMs,
+  readRoomTypesNamedByRules,
 } from "./push-guardrails.ts";
 import {
   AWAITING_RATE_READ_REASON,
@@ -446,26 +449,6 @@ async function readRoomTypes(supabase: SupabaseClient, hotelId: string): Promise
     if (!isMissingColumnError(e)) throw e;
     return await read("id, external_room_type_id, is_active, floor_price, ceiling_price");
   }
-}
-
-/**
- * The room types any rule of the hotel's names under "Change", on or paused.
- * A paused rule's changes stay on the price (pausing freezes, it never
- * reverts), so a type it names is still one the owner asked MAYA to price.
- * A failed read throws: taking it as "no rule names anything" would hold
- * back prices the owner asked for, and taking it as "every rule does" would
- * send prices nobody asked for.
- */
-async function readRoomTypesNamedByRules(supabase: SupabaseClient, hotelId: string): Promise<Set<string>> {
-  const rows = await fetchAll(() =>
-    supabase.from("pricing_rules").select("id, rule_affected_room_type ( room_type_id )").eq("hotel_id", hotelId).order("id", { ascending: true }),
-  );
-  const named = new Set<string>();
-  for (const r of rows) {
-    const affected = Array.isArray(r.rule_affected_room_type) ? r.rule_affected_room_type : [];
-    for (const a of affected) if (a?.room_type_id != null) named.add(String(a.room_type_id));
-  }
-  return named;
 }
 
 export async function pushRatesForHotel(

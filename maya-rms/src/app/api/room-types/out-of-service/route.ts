@@ -24,6 +24,7 @@ import { recordIfSupport } from "@/lib/admin/god-mode";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { isPreMigration, scheduleReprice } from "../reprice";
+import { roomTypeLabel } from "../../../../../supabase/functions/_shared/pms/room-type-label";
 
 export const maxDuration = 300;
 
@@ -202,7 +203,7 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (rtErr) throw rtErr;
     if (!roomType) return bad("That room type isn't on this property.");
-    const name = String(roomType.display_name || roomType.name || "");
+    const name = roomTypeLabel(roomType);
     const total = Number(roomType.total_rooms) || 0;
     if (units > total) {
       return bad(`${name} has ${total} room${total === 1 ? "" : "s"}, so you can't block more than that.`);

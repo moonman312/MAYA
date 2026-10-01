@@ -17,6 +17,8 @@ import type { AdminHotelUserRow, AdminPendingInviteRow } from "@/lib/admin/types
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { pricingHorizonDays } from "@/lib/pms/pricing-window";
 import { listPmsStatuses } from "@/lib/pms/registry";
+import { loadSendingSwitch } from "@/lib/pms/sending-switch";
+import { sendingSwitchOn } from "@/lib/simulation-strip";
 import { hotelToday } from "@/lib/simulator";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
@@ -71,6 +73,8 @@ export default async function AdminHotelDetailPage({
     notFound();
   }
   const simulationMode = adminSimulationMode ?? hotel.simulation_mode ?? true;
+  // Whether that system's sending switch is on, for what the Live switch's confirm says.
+  const sendingOn = admin ? sendingSwitchOn(hotel.pms_type, await loadSendingSwitch(admin, hotel.pms_type)) : undefined;
   const rooms = roomsOf(hotel);
   const range = businessWindow(nights, hotelToday(hotel.timezone));
 
@@ -195,6 +199,7 @@ export default async function AdminHotelDetailPage({
                 pmsType={hotel.pms_type}
                 pmsStatus={hotel.pms_status}
                 windowDays={windowDays}
+                sendingOn={sendingOn}
               />
               <HotelTestToggle hotelId={hotel.id} isTest={hotel.is_test === true} />
             </div>

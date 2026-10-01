@@ -25,7 +25,7 @@ import {
   parseScheduledSyncBody,
   TEST_ALERT_ACTION,
 } from "../../../supabase/functions/_shared/pms/alert-test-request";
-import { alertChannelFacts, describeAlertChannel } from "@/lib/admin/alert-channel";
+import { alertChannelFacts, describeAlertChannel, describeSending } from "@/lib/admin/alert-channel";
 import { fakeSupabase, type FakeRow } from "../engine/fake-supabase.test";
 
 /**
@@ -134,6 +134,34 @@ describe("recordAlertChannel", () => {
     // A failed read never throws and never fails the tick.
     const broken = fakeSupabase({ platform_audit_events: [] }, { fault: (c) => (c.table === "platform_audit_events" ? { message: "timeout" } : null) });
     expect(await recordAlertChannel(broken.client, "cloudbeds-scheduled-sync")).toMatchObject({ recorded: false, report: { state: "ready" } });
+  });
+});
+
+describe("a sending sync's switch, reported with the alert channel", () => {
+  it("is written with the report, and a change of switch is reported at once", async () => {
+    const made = db();
+    const on = { on: true, setting: "MAYA_PUSH_RATES" };
+    expect(await recordAlertChannel(made.client, "cloudbeds-scheduled-sync", { sending: on })).toMatchObject({ recorded: true });
+    expect(await recordAlertChannel(made.client, "cloudbeds-scheduled-sync", { sending: on })).toMatchObject({ recorded: false });
+    // Its own switch is set now: the setting that decides changed.
+    expect(
+      await recordAlertChannel(made.client, "cloudbeds-scheduled-sync", { sending: { on: true, setting: "MAYA_PUSH_RATES_CLOUDBEDS" } }),
+    ).toMatchObject({ recorded: true });
+    expect(
+      await recordAlertChannel(made.client, "cloudbeds-scheduled-sync", { sending: { on: false, setting: "MAYA_PUSH_RATES_CLOUDBEDS" } }),
+    ).toMatchObject({ recorded: true });
+    expect(events(made).map((e) => [(e.detail as FakeRow).sending, (e.detail as FakeRow).sending_setting])).toEqual([
+      [true, "MAYA_PUSH_RATES"],
+      [true, "MAYA_PUSH_RATES_CLOUDBEDS"],
+      [false, "MAYA_PUSH_RATES_CLOUDBEDS"],
+    ]);
+    const facts = alertChannelFacts(newestFirst(made));
+    expect(describeSending(facts, new Date().toISOString())).toBe("Sending: Cloudbeds off (MAYA_PUSH_RATES_CLOUDBEDS).");
+  });
+
+  it("says nothing about sending when no sending sync has reported it", () => {
+    expect(describeSending({ reports: [], lastTest: null }, NOW)).toBeNull();
+    expect(describeSending(alertChannelFacts([]), NOW)).toBeNull();
   });
 });
 

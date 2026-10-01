@@ -21,6 +21,7 @@ let statusCalls = 0;
 let roomTypes: unknown[] = [];
 let roomTypePatches: unknown[] = [];
 let findings: unknown[] = [];
+let limitPosts: unknown[] = [];
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -34,7 +35,18 @@ beforeEach(() => {
   roomTypes = [];
   roomTypePatches = [];
   findings = [];
+  limitPosts = [];
   vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+    if (url === "/api/room-types/limits") {
+      const body = JSON.parse(String(init?.body)) as { roomTypeId: string; limit: string };
+      limitPosts.push(body);
+      const rt = roomTypes.find((t) => (t as { id: string }).id === body.roomTypeId) as Record<string, unknown>;
+      return json({
+        ok: true,
+        floor_price: body.limit === "floor" ? 1 : rt.floor_price,
+        ceiling_price: body.limit === "ceiling" ? 99999.99 : rt.ceiling_price,
+      });
+    }
     if (url === "/api/onboarding/findings") return json({ findings });
     // An answer that doesn't save, with no words of its own.
     if (url.startsWith("/api/onboarding/findings/")) return new Response("", { status: 500 });
@@ -182,6 +194,44 @@ describe("the room count strip", () => {
     expect(pool.checked).toBe(true);
     expect(screen.queryByText("needs your answer")).toBeNull();
     expect(screen.getByText(/^We're counting 3 room types as rooms/)).not.toBeNull();
+  });
+});
+
+describe("the floors and ceilings (audit A21)", () => {
+  beforeEach(() => {
+    statusReply = { connected: true, hotelId: "h1", simulationMode: true, currency: "EUR" };
+    roomTypes = [
+      { id: "rt-king", name: "Harbour King", total_rooms: 5, counts_as_room: true, floor_price: 150, ceiling_price: 780 },
+      { id: "rt-twin", name: "Garden Twin", total_rooms: 8, counts_as_room: true, floor_price: 1, ceiling_price: 520.5 },
+      { id: "rt-park", name: "Parking Bay", total_rooms: 30, counts_as_room: false, floor_price: 1, ceiling_price: 99999.99 },
+    ];
+  });
+
+  it("lists each one set, in the property's currency, and not a room type with none", async () => {
+    render(<ReviewFindings />);
+    await screen.findByText("Your floors and ceilings");
+    expect(screen.getByRole("button", { name: "Remove the floor for Harbour King" }).parentElement?.textContent).toContain("Floor €150");
+    expect(screen.getByRole("button", { name: "Remove the ceiling for Harbour King" }).parentElement?.textContent).toContain("Ceiling €780");
+    expect(screen.getByRole("button", { name: "Remove the ceiling for Garden Twin" }).parentElement?.textContent).toContain("Ceiling €520.50");
+    expect(screen.queryByRole("button", { name: "Remove the floor for Garden Twin" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Parking Bay/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "What floors and ceilings do" }));
+    expect(screen.getByText("Remove one and that room type has no limit there.")).not.toBeNull();
+  });
+
+  it("takes one off in one click, back to no limit", async () => {
+    render(<ReviewFindings />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove the floor for Harbour King" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Remove the floor for Harbour King" })).toBeNull());
+    expect(limitPosts).toEqual([{ hotelId: "h1", roomTypeId: "rt-king", limit: "floor" }]);
+    expect(screen.getByRole("button", { name: "Remove the ceiling for Harbour King" })).not.toBeNull();
+  });
+
+  it("is not there when nothing is set", async () => {
+    roomTypes = roomTypes.map((t) => ({ ...(t as object), floor_price: 1, ceiling_price: 99999.99 }));
+    render(<ReviewFindings />);
+    await screen.findByLabelText("Harbour King counts as a room");
+    expect(screen.queryByText("Your floors and ceilings")).toBeNull();
   });
 });
 

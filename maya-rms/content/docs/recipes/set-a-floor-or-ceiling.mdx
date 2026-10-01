@@ -1,25 +1,26 @@
 ---
 title: Set or change a floor or ceiling
-summary: Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.
+summary: Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the review or the Rate Simulator tab first. There is no editor, but the review removes one in a click. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.
 section: recipes
 order: 150
-readingTime: 8
-keywords: [floor, ceiling, minimum price, maximum price, guardrails, guardrails column, set a floor, change a floor, change a ceiling, where do I set floors, already set, set during setup, check my limits, get suggestions from my data, set it to, amount to set, $1, $99999, default floor, lowest price, highest price, limits, floor not applied, floor did not change, ceiling did not change, floor above ceiling, ceiling below floor, room nights, 30 room nights, 200 room nights, not enough history, still $99999 after import, price above ceiling, price below floor, over my ceiling, under my floor, kept rate, changed in Cloudbeds, comp night]
+readingTime: 9
+keywords: [floor, ceiling, remove a floor, remove a ceiling, take a limit off, your floors and ceilings, minimum price, maximum price, guardrails, guardrails column, set a floor, change a floor, change a ceiling, where do I set floors, already set, set during setup, check my limits, get suggestions from my data, set it to, amount to set, $1, $99999, default floor, lowest price, highest price, limits, floor not applied, floor did not change, ceiling did not change, floor above ceiling, ceiling below floor, room nights, 30 room nights, 200 room nights, not enough history, still $99999 after import, price above ceiling, price below floor, over my ceiling, under my floor, kept rate, changed in Cloudbeds, comp night]
 questions:
   - Where do I set floors and ceilings? {#in-plain-words}
   - Did setup already set my floors and ceilings? {#check-what-you-have-first/before-you-set}
   - How do I change a floor or ceiling that is already set? {#change-a-floor-or-ceiling-that-is-already-set/the-floor-and}
+  - How do I remove a floor or ceiling? {#remove-one}
   - Why is my ceiling $99,999.99? {#check-what-you-have-first/a-limit-stays}
   - Why is my floor $1.00? {#check-what-you-have-first/a-limit-stays}
   - Why did my new floor not change one room type? {#change-a-floor-or-ceiling-that-is-already-set/a-clash-is}
   - Can I set a different floor for each room type? {#change-a-floor-or-ceiling-that-is-already-set/the-floor}
   - Can I set a floor for one night or one season? {#where-the-limits-act/standards-ceiling-is}
   - Why is a price over my ceiling or under my floor? {#where-the-limits-act/every-price-your}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
-There is no floor and ceiling editor yet. Setup sets them from your answers and your own past rates: check them in the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. A limit still at $1.00 or $99,999.99 can be set from a <Ui>Get suggestions from my data</Ui> card. To change one already set, answer the floor and ceiling questions again, or email us the numbers. On Cloudbeds, <Ui>Import from PIE</Ui> sets each room type's from PIE's price limits.
+There is no floor and ceiling editor yet. Setup sets them from your answers and your own past rates: check them on the review, under "Your floors and ceilings", or in the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. The review's × removes one. A limit still at $1.00 or $99,999.99 can be set from a <Ui>Get suggestions from my data</Ui> card. To change one already set, answer the floor and ceiling questions again, or email us the numbers. On Cloudbeds, <Ui>Import from PIE</Ui> sets each room type's from PIE's price limits.
 </InPlainWords>
 
 ## Check what you have first
@@ -28,9 +29,13 @@ Before you set anything, look at what you already have. Setup fills in floors an
 
 Your answers to the floor and ceiling questions go on first. The floor goes to every room type that counts as a room, and the ceiling to each such room type whose highest sold rate is at or below it, unless the two clash (see below). A type unticked as a room keeps its own limits.
 
-Then the history import fills any floor still at $1.00, or ceiling still at $99,999.99, from that room type's own past rates. There is no card to accept. The floor is 40% of what the room type typically sells for, rounded to the nearest $5 and never under $10, and needs at least 30 room nights sold for that room type (a room night is one room for one night). The ceiling is 1.5 times the rate it rarely sells above, rounded to the nearest $10, and needs at least 200 room nights sold.
+Then the history import fills any floor still at $1.00, or ceiling still at $99,999.99, from that room type's own past rates, while your property is in simulation, except one you removed on the review. There is no card to accept; the review lists each one with a remove. The floor is 40% of what the room type typically sells for, rounded to the nearest $5 and never under $10, and needs at least 30 room nights sold for that room type (a room night is one room for one night). The ceiling is 1.5 times the rate it rarely sells above, rounded to the nearest $10, and needs at least 200 room nights sold.
 
-A limit stays at the default when the room type had sold too few room nights, or looked like it might not be a room. A ceiling needs far more room nights than a floor, and a room type with few rooms gets there more slowly. At The Harbour Inn, Standard has 12 rooms and reaches 200 room nights after about 17 full nights. Suite has 2 rooms and needs at least 100. So a room type can have a floor and still carry the $99,999.99 ceiling. To see yours, open the <Ui>Rate Simulator</Ui> tab and read the <Ui>Guardrails</Ui> column. It shows the floor and ceiling of every room type that counts as a room.
+A limit stays at the default when the room type had sold too few room nights, or looked like it might not be a room. A ceiling needs far more room nights than a floor, and a room type with few rooms gets there more slowly. At The Harbour Inn, Standard has 12 rooms and reaches 200 room nights after about 17 full nights. Suite has 2 rooms and needs at least 100. So a room type can have a floor and still carry the $99,999.99 ceiling. To see yours, open the review at <AppLink to="review">maya-rms.com/onboarding/review</AppLink> (the box "Your floors and ceilings" lists every one that is set), or the <Ui>Rate Simulator</Ui> tab's <Ui>Guardrails</Ui> column, which shows the floor and ceiling of every room type that counts as a room.
+
+## Remove one
+
+On the review's second screen, "Your floors and ceilings" has a × beside each floor and ceiling. Click it and that limit is gone at once: the floor goes back to $1.00, or the ceiling to $99,999.99, and that room type is held back by nothing there. There is no confirm. It needs a Revenue Manager or higher. A limit you remove stays removed: the import never fills it again, from your answers or your rates, even if it is still reading older years when you click. Removing cannot set a different number: to do that, or to set a removed one again, use the steps below. Read [Checking what MAYA found](/docs/review/checking-what-maya-found#your-floors-and-ceilings).
 
 <OpenInMaya to="floors" words="See your floors and ceilings" />
 

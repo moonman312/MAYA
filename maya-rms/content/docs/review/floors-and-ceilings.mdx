@@ -1,10 +1,10 @@
 ---
 title: Floors and ceilings
-summary: What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), the numbers MAYA uses, and what they mean for prices you type.
+summary: What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), where you see and remove them, the numbers MAYA uses, and what they mean for prices you type.
 section: review
 order: 60
-readingTime: 11
-keywords: [floor, ceiling, yen, JPY, won, KRW, rupiah, IDR, dong, VND, rates over 99999, capped at 99999, stuck at 99,999.99, rates read so far, ceiling pinned, suite stuck at ceiling, lift a ceiling, meeting room floor, unticked room type limits, 200 nights, could a price reach 99999, no floor card, floors and ceilings, guardrails, limits, lowest price, highest price, $1.00, 99999, 99,999.99, default floor, default ceiling, still MAYA's default, set a floor, set a ceiling, set it to, amount to set, where do I set the floor, change the floor, edit ceiling, floor per night, weekend floor, seasonal floor, went past your ceiling, dropped under your floor, stopped there, below this room type's floor, above this room type's ceiling, comp night, price of 0, floor above ceiling, 40% of median, 1.5 times, ask MAYA for a floor, ask MAYA for a ceiling]
+readingTime: 13
+keywords: [floor, ceiling, remove a floor, remove a ceiling, your floors and ceilings, review list, no limit, rate outside the floor, yen, JPY, won, KRW, rupiah, IDR, dong, VND, rates over 99999, capped at 99999, stuck at 99,999.99, rates read so far, ceiling pinned, suite stuck at ceiling, lift a ceiling, meeting room floor, unticked room type limits, 200 nights, could a price reach 99999, no floor card, floors and ceilings, guardrails, limits, lowest price, highest price, $1.00, 99999, 99,999.99, default floor, default ceiling, still MAYA's default, set a floor, set a ceiling, set it to, amount to set, where do I set the floor, change the floor, edit ceiling, floor per night, weekend floor, seasonal floor, went past your ceiling, dropped under your floor, stopped there, below this room type's floor, above this room type's ceiling, comp night, price of 0, floor above ceiling, 40% of median, 1.5 times, ask MAYA for a floor, ask MAYA for a ceiling]
 questions:
   - Where did my floors and ceilings come from? {#where-they-are-set/the-five-questions}
   - Where do I set a floor or a ceiling? {#where-they-are-set/the-five-questions}
@@ -18,12 +18,14 @@ questions:
   - Why did the price stop at my ceiling? {#what-they-do/a-nights-price}
   - Could a price really climb to $99,999.99? {#where-they-show}
   - My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will the default ceiling cap them? {#when-your-rates-are-above-the-default-ceiling}
+  - How do I remove a floor or ceiling the import set? {#on-the-review}
+  - Did the import set limits on my property after it went live? {#where-they-are-set/the-import-from}
   - Why does a room type I confirmed as a room have no floor or ceiling? {#the-numbers-maya-suggests/floor-40-of}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
-A floor is the lowest price MAYA will publish for a room type, and a ceiling is the highest. Each night's price is held between them, and a price you type outside them is refused. Every room type starts at 1.00 and 99,999.99 in your property's currency, which stop nothing in most currencies. If a room type sells above 99,999.99 (in yen or rupiah, say), set a real ceiling before you go live. Real ones come from your answers to the five questions, from your own rates during the import, or from a suggestion card you accept or change.
+A floor is the lowest price MAYA will publish for a room type, and a ceiling is the highest. Each night's price is held between them, and a price you type outside them is refused. Every room type starts at 1.00 and 99,999.99 in your property's currency, which stop nothing in the currencies MAYA works in. Real ones come from your answers to the five questions, from your own rates during the import, or from a suggestion card you accept or change. The review lists every one, with a × to remove it.
 </InPlainWords>
 
 ## What they do
@@ -44,21 +46,31 @@ The other way: Standard at $150 with an $80 floor. Slow-date rescue cuts 15% fou
 
 ## Where they show
 
-There is no settings page that lists floors and ceilings. You meet them in four places:
+There is no settings page for floors and ceilings. You meet them in five places:
 
+- The review screen, under "Your floors and ceilings", with a remove beside each (next section).
 - The <Ui>Rate Simulator</Ui> tab's room table has a <Ui>Guardrails</Ui> column showing each room type's floor and ceiling. Only room types ticked as rooms are listed there. For an unticked type, [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) to check its limits.
 - The <Ui>Change Log</Ui> tab, in the sentences above.
 - The <Ui>Rules that keep adjusting</Ui> banner, in a line like "If it keeps cutting, the price can fall to your $80.00 floor for Standard." When the limit is still the default, the line reads "Your ceiling for Suite is still MAYA's $99,999.99 default, so the price can climb that far." with a "?" beside it.
 - The manual price editor, when a price you type is outside them.
+- The go-live confirm, which counts the nights whose own rate in your system sits outside them. Read [Going live](/docs/live/going-live#the-nights-outside-your-limits).
 
 <OpenInMaya to="floors" words="See your floors and ceilings" />
 
+## On the review
+
+The second screen of the review, at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>, has a box headed "Your floors and ceilings" under the room count strip. It lists every active room type that has a floor or a ceiling, with "Floor $150" and "Ceiling $780" in your currency and a × beside each. A room type with neither is not listed.
+
+The × removes that one limit at once, with no confirm: a floor goes back to $1.00 and a ceiling to $99,999.99, which hold nothing back. It needs a Revenue Manager or higher. A removed limit stays removed: the import never fills it again, from your answers or your rates, including the import's last pass if you remove it while older years are still being read. It is the only way to take a limit off from a screen, and it cannot set a new number: to set one, or set a removed one again, answer the five questions again, accept a suggestion card, or import PIE's price limits on Cloudbeds. Read [Checking what MAYA found](/docs/review/checking-what-maya-found#your-floors-and-ceilings).
+
+Check them before you go live. On a night where no rule fires, MAYA sends your own rate, but a rate under the floor goes out at the floor and one over the ceiling at the ceiling.
+
 ## Where they are set
 
-There are three ways a floor or ceiling gets set, a fourth on Cloudbeds for properties coming from PIE, and no editor beyond them.
+There are three ways a floor or ceiling gets set, a fourth on Cloudbeds for properties coming from PIE, and no editor beyond them. Any of them can be removed on the review.
 
-1. **The five questions.** The lowest rate you would take on a dead Tuesday becomes the floor of every active room type that counts as a room. The most you would charge becomes the ceiling of each such room type whose highest rate read so far fits under it. A type you have unticked as a room (a parking bay, a meeting room), and one nobody has answered for whose name is plainly not a bedroom, keeps its own floor and ceiling, and MAYA sends no price for it unless one of your rules changes it or you type a price for one of its nights. If you answer while the import is still reading, a room type whose higher rates arrive later can keep that ceiling: check the <Ui>Guardrails</Ui> column once the import is complete, and email us to lift one. Read [The five questions](/docs/review/the-five-questions).
-2. **The import, from your own rates.** Once the first three years are in, and again when the full history is in, MAYA fills in a floor and a ceiling for every room type still at its defaults, using the history numbers in the next section (with the exceptions it lists). This happens without a card. It never overwrites a limit that has already been set.
+1. **The five questions.** The lowest rate you would take on a dead Tuesday becomes the floor of every active room type that counts as a room. The most you would charge becomes the ceiling of each such room type whose highest rate read so far fits under it. A type you have unticked as a room (a parking bay, a meeting room), and one nobody has answered for whose name is plainly not a bedroom (a "Parking Bay", but not a "King Room with Parking"), keeps its own floor and ceiling, and MAYA sends no price for it unless one of your rules changes it or you type a price for one of its nights. If you answer while the import is still reading, a room type whose higher rates arrive later can keep that ceiling: check the <Ui>Guardrails</Ui> column once the import is complete, and email us to lift one. Read [The five questions](/docs/review/the-five-questions).
+2. **The import, from your own rates.** Once the first three years are in, and again when the full history is in, MAYA fills in a floor and a ceiling for every room type still at its defaults, using the history numbers in the next section (with the exceptions it lists). This happens without a card, and the review lists each one with a remove. It never overwrites a limit that has already been set, and never fills one you removed on the review; the same goes for your answers, which a later import puts on again only where you have not removed them. Only while your property is in simulation: once it is live, an import writes no floor or ceiling at all, from your answers or from your rates.
 3. **A suggestion card.** After <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, the review shows a card for each room type still at a default: "Set a floor for "Standard"?" or "Set a ceiling for "Suite"?". The suggested amount sits in a box labelled <Ui>Amount to set</Ui>. Accept it with the <Ui>Set it to 80</Ui> button, or type your own number first and the button follows it. <Ui>No thanks</Ui> leaves the default. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
 4. **PIE's price limits** (Cloudbeds). <Ui>Import from PIE</Ui> on the <Ui>Rules</Ui> tab reads a screenshot of PIE's page. Each room type with a row of its own in PIE's <Ui>PRICE LIMITS BY ACCOMMODATION TYPE</Ui> gets that MIN and MAX as its floor and ceiling, and every other room type gets PIE's <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui>. They are listed ticked, and you can untick any. Unlike the import from your own rates, these replace limits already set. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie#floors-and-ceilings).
@@ -66,7 +78,7 @@ There are three ways a floor or ceiling gets set, a fourth on Cloudbeds for prop
 The banner's <Ui>Ask MAYA for a floor</Ui> and <Ui>Ask MAYA for a ceiling</Ui> buttons take you to the <Ui>Rules</Ui> tab, where the suggestions button is.
 
 <Callout kind="not-yet">
-There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, cannot be changed from a screen. Answering the five questions again rewrites every room's floor (and every ceiling that fits), which is the only way to move a set limit yourself, apart from importing PIE's price limits on Cloudbeds. For anything finer, email us with the room type and the numbers.
+There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, can be removed on the review, but not changed to another number from a screen. Answering the five questions again rewrites every room's floor (and every ceiling that fits), which is the only way to move a set limit yourself, apart from importing PIE's price limits on Cloudbeds. For anything finer, email us with the room type and the numbers.
 </Callout>
 
 ## The numbers MAYA suggests
@@ -100,13 +112,13 @@ The rationale on a card tells you which line it came from: "You said the lowest 
 - A floor must be above 0.
 - A ceiling must be at least the floor. A card that would break this is refused with an error. The five questions check it too: a ceiling answer at or under your floor answer is refused, and nothing is saved. An answer that one room type's own floor or ceiling rules out is saved on every other room type, and the card names the room type that kept its number and says why. Read [The five questions](/docs/review/the-five-questions).
 - One floor and one ceiling per room type. Not per night, per season, per weekday or for weekends.
-- Amounts are in your property's currency, to two decimal places. The defaults are plain numbers in your currency too: 1.00 and 99,999.99, whatever the currency.
+- Amounts are in your property's currency, to two decimal places. The defaults are plain numbers in your currency too: 1.00 and 99,999.99, whatever the currency. MAYA works only in currencies with two decimal places and prices in the same range as US dollars. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays#currency).
 
 ## When your rates are above the default ceiling
 
-In most currencies the default ceiling stops nothing. In a currency where a room sells for more than 99,999.99, such as yen, won, rupiah or dong, it does. Until a room type has a real ceiling, any price your base rate and rules reach above 99,999.99 is published at 99,999.99, even when your own rate for the night is higher. A price you type above it is refused. So before you go live, give every room type a real ceiling: answer the ceiling question in the five questions, accept a suggestion card, or [email us](mailto:info@modern-hospitality-solutions.com?subject=Ceiling%20in%20my%20currency) with the numbers. The import sets one from your own rates for a room type with 200 nights of history or more.
+They cannot be on a property you connect yourself. MAYA connects only properties whose system uses a currency like the US dollar, euro or pound, where no night costs anywhere near 99,999.99, so the default ceiling stops nothing. A property in yen, won, rupiah, dong or any other currency outside that list is stopped when it connects. Read [Time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays#currency).
 
-In those currencies, only a ceiling of exactly 99,999.99 counts as the default, for the import and for suggestion cards. Any other ceiling, even 99,999 or 150,000, counts as one you set: the import leaves it alone and no card offers another. Check the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab once the import is complete.
+The rule underneath holds whatever the currency: until a room type has a real ceiling, any price your base rate and rules reach above 99,999.99 is published at 99,999.99, and a price you type above it is refused. Only a ceiling of exactly 99,999.99 counts as the default, for the import and for suggestion cards. Any other ceiling, even 99,999, counts as one you set: the import leaves it alone and no card offers another.
 
 ## Prices you type
 

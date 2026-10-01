@@ -13,17 +13,29 @@ import { SUPPORT_EMAIL } from "@/lib/docs/home";
  * the read fails or comes back empty. So nothing here says they came from the
  * system. A UTC time zone is almost never a real property's, so it carries a
  * plain line saying what those values mean and how to get them corrected.
+ *
+ * On Cloudbeds both are read again once a day (property-changes.ts): a new
+ * time zone is followed, and a new currency only while the property is in
+ * simulation. The "?" says so on a Cloudbeds property.
  */
 
-const HELP = {
-  label: "About the time zone and currency",
-  title: "Time zone and currency",
-  lines: [
-    "These are saved for this property and can't be changed here. Send us a message to change either.",
-    "Tonight means tonight in this time zone, for your rules and for the prices sent to your system.",
-    "Amounts across MAYA are in this currency. Nothing is converted.",
-  ],
-};
+const HELP_LINES = [
+  "These are saved for this property and can't be changed here. Send us a message to change either.",
+  "Tonight means tonight in this time zone, for your rules and for the prices sent to your system.",
+  "Amounts across MAYA are in this currency. Nothing is converted.",
+];
+
+/** The "?" line a Cloudbeds property adds: what the daily read does. */
+export const CLOUDBEDS_DAILY_LINE =
+  "MAYA checks both against Cloudbeds once a day and follows a new time zone. A new currency is followed only while you're in simulation.";
+
+function help(pmsType: string | null | undefined) {
+  return {
+    label: "About the time zone and currency",
+    title: "Time zone and currency",
+    lines: pmsType === "cloudbeds" ? [...HELP_LINES, CLOUDBEDS_DAILY_LINE] : HELP_LINES,
+  };
+}
 
 /** "EUR (€)", "USD ($)", or the code alone where it is its own symbol. Exported for tests. */
 export function currencyLabel(code: string | null): string {
@@ -35,16 +47,19 @@ export function currencyLabel(code: string | null): string {
 export function PropertyTimeAndCurrency({
   timezone,
   currency,
+  pmsType = null,
 }: {
   timezone: string | null;
   currency: string | null;
+  /** The connected system; Cloudbeds' "?" says both are checked once a day. */
+  pmsType?: string | null;
 }) {
   const bothDefaults = timezone === "UTC" && currency === "USD";
   return (
     <div className="space-y-2 rounded border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-center gap-2 text-xs text-slate-500">
         Time zone and currency
-        <RoomCountHelp {...HELP} />
+        <RoomCountHelp {...help(pmsType)} />
       </div>
       <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
         <dt className="text-slate-500">Time zone</dt>

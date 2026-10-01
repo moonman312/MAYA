@@ -522,3 +522,26 @@ describe("signing in before confirming", () => {
     expect(screen.queryByRole("button", { name: "Send the link again" })).toBeNull();
   });
 });
+
+describe("a Cloudbeds group with properties in a currency MAYA doesn't price in yet", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it("says how many were left out, under the claim line", async () => {
+    open("/login?claim=ticket-1&currencySkipped=2");
+    await settle();
+    expect(screen.getByText("Your Cloudbeds property is connected. Create your account to finish setting it up.")).toBeTruthy();
+    expect(screen.getByText("2 of your properties use a currency MAYA doesn't price in yet, so they weren't connected.")).toBeTruthy();
+  });
+
+  it("says it for one, and nothing for a count that isn't one", async () => {
+    open("/login?reconnected=1&currencySkipped=1");
+    await settle();
+    expect(screen.getByText("1 of your properties uses a currency MAYA doesn't price in yet, so it wasn't connected.")).toBeTruthy();
+    cleanup();
+    open("/login?claim=ticket-1&currencySkipped=lots");
+    await settle();
+    expect(document.body.textContent).not.toContain("doesn't price in yet");
+  });
+});

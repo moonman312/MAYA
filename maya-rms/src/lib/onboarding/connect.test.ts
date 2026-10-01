@@ -12,6 +12,9 @@ const state = vi.hoisted(() => ({
   failures: {} as Record<string, string>,
   hotelUpdates: 0,
   discoverThrows: null as Error | null,
+  currency: "USD" as string | null,
+  writes: [] as string[],
+  rpcs: [] as Array<{ fn: string; args: Record<string, unknown> }>,
 }));
 
 vi.mock("@/utils/supabase/server", () => ({
@@ -31,7 +34,7 @@ vi.mock("@/lib/pms/onboarding-adapter", () => ({
       return {
         name: "Driftwood",
         timezone: "UTC",
-        currency: "USD",
+        currency: state.currency,
         externalPropertyId: "prop-1",
       };
     },
@@ -48,6 +51,7 @@ function fakeAdmin() {
     from: (table: string) => ({
       update: () => ({
         eq: () => {
+          state.writes.push(`${table}.update`);
           // hotels is updated twice: adoption first, activation last.
           const key =
             table === "hotels"
@@ -63,10 +67,19 @@ function fakeAdmin() {
           };
         },
       }),
-      insert: () => ({ select: () => ({ single: async () => outcome(`${table}.insert`) }) }),
-      upsert: async () => outcome(`${table}.upsert`),
+      insert: () => {
+        state.writes.push(`${table}.insert`);
+        return { select: () => ({ single: async () => outcome(`${table}.insert`) }) };
+      },
+      upsert: async () => {
+        state.writes.push(`${table}.upsert`);
+        return outcome(`${table}.upsert`);
+      },
     }),
-    rpc: async (fn: string) => outcome(`rpc.${fn}`),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      state.rpcs.push({ fn, args });
+      return outcome(`rpc.${fn}`);
+    },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
 }
@@ -93,6 +106,9 @@ beforeEach(() => {
   state.failures = {};
   state.hotelUpdates = 0;
   state.discoverThrows = null;
+  state.currency = "USD";
+  state.writes = [];
+  state.rpcs = [];
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -120,6 +136,39 @@ describe("a database failure mid-connect", () => {
     expect(body).not.toContain(DRIVER_TEXT);
     expect(body).not.toContain("does not exist");
     expect(errors.mock.calls.flat().join("\n")).toContain(DRIVER_TEXT);
+  });
+});
+
+describe("a property in a currency MAYA doesn't price in yet (audits A20, A58)", () => {
+  it("is stopped with a plain line before anything is written, and the refusal is counted", async () => {
+    state.currency = "KRW";
+    const res = await connect();
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("Your property's system uses KRW. MAYA doesn't price in KRW yet, so nothing was set up or imported.");
+    expect(body).toContain("Reply to your receipt and we'll sort out your payment.");
+    expect(body).not.toContain("Try again");
+    expect(body).not.toContain("—");
+    // Never half set up: no row adopted, no credential, connection or import.
+    expect(state.writes).toEqual([]);
+    expect(state.rpcs.map((r) => r.fn)).toEqual(["product_event_emit"]);
+    expect(state.rpcs[0].args).toMatchObject({
+      p_event: "pms.currency_refused",
+      p_hotel_id: "hotel-1",
+      p_user_id: "user-1",
+      // Paid at checkout: the database also posts it to #maya-signups.
+      p_properties: { currency: "KRW", via: "onboarding_oauth", paid: true },
+      p_pms_type: "mews",
+      p_pms_property_id: "prop-1",
+    });
+  });
+
+  it.each(["USD", "eur", "GBP", "CAD", "AUD", "NZD", "CHF", null])("lets %s through", async (currency) => {
+    state.currency = currency;
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://maya.test";
+    const res = await connect();
+    expect(res.status).toBe(302);
+    expect(state.rpcs.some((r) => r.fn === "product_event_emit")).toBe(false);
   });
 });
 

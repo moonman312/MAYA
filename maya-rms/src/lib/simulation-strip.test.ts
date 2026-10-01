@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { liveHelp, liveTitle, pickConnection, propertyMode, simulationHelp, simulationStripText, WHO_CAN_GO_LIVE } from "./simulation-strip";
+import { liveHelp, liveTitle, pickConnection, propertyMode, sendingSwitchOn, simulationHelp, simulationStripText, WHO_CAN_GO_LIVE } from "./simulation-strip";
 
 const cloudbeds = [{ pms_type: "cloudbeds", status: "connected" }];
 const mode = (o: Partial<Parameters<typeof propertyMode>[0]> = {}) =>
@@ -73,5 +73,40 @@ describe("pickConnection", () => {
       ])?.pms_type,
     ).toBe("cloudbeds");
     expect(pickConnection([])).toBeNull();
+  });
+});
+
+describe("a system whose sending is switched off (audit A25)", () => {
+  const think = (sendingSwitch: boolean | null | undefined) =>
+    propertyMode({
+      simulationMode: true,
+      connections: [{ pms_type: "think", status: "connected" }],
+      memberRole: "general_manager",
+      windowDays: 60,
+      sendingSwitch,
+    });
+
+  it("reads ThinkReservations as off until its sync says it is on, and Cloudbeds as on until it says off", () => {
+    expect(sendingSwitchOn("think", null)).toBe(false);
+    expect(sendingSwitchOn("think", true)).toBe(true);
+    expect(sendingSwitchOn("cloudbeds", null)).toBe(true);
+    expect(sendingSwitchOn("cloudbeds", false)).toBe(false);
+    expect(sendingSwitchOn("mews", true)).toBe(false);
+    expect(sendingSwitchOn(null, true)).toBe(false);
+    expect(think(null)).toMatchObject({ sendsPrices: true, sendingOn: false, canGoLive: true });
+    expect(think(true)).toMatchObject({ sendingOn: true });
+  });
+
+  it("says so in the strip's ?, on the Live tag and in its ?", () => {
+    const off = think(null);
+    expect(simulationHelp(off).lines[1]).toBe(
+      "Sending to Think Reservations isn't on yet, so going live sends nothing until MAYA switches it on. To go back to simulation, email us.",
+    );
+    expect(simulationHelp(think(true)).lines[1]).toBe("Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us.");
+    const live = { ...off, mode: "live" as const };
+    expect(liveTitle(live)).toBe("Sending to Think Reservations isn't on yet.");
+    expect(liveHelp(live)?.lines).toEqual(["Sending to Think Reservations isn't on yet, so nothing goes to it. Your prices wait until MAYA switches it on."]);
+    const liveOn = { ...think(true), mode: "live" as const };
+    expect(liveHelp(liveOn)).toBeNull();
   });
 });

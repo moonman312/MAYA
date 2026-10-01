@@ -3,7 +3,7 @@ title: What MAYA picks up from your system, and how soon
 summary: Every change you can make in Cloudbeds, ThinkReservations or Mews, whether MAYA picks it up, and how long it takes. Bookings within about five minutes, your own rates within the hour, the whole window once a day, and a short list of things MAYA never reads.
 section: connect
 order: 110
-readingTime: 14
+readingTime: 15
 keywords: [how soon, how long, how quickly, delay, lag, when does MAYA see, picks up, new booking, cancellation, no show, test booking, test reservation, dummy booking, made and cancelled, booked and cancelled, dates changed, early departure, early check-out, checked out early, left early, shortened stay, shorten a stay, moved room, room type changed, rate changed, closed night, rate plan renamed, rate plan deleted, rate plan rebuilt, same percentage, every night, markup, room type added, room type removed, units changed, room count, list of rooms, blocked rooms, allotment, restrictions, taxes, password, time zone changed, currency changed, name changed, revoked keys, keys stopped working, Last sync, five minutes, hourly, once a day, daily, full re-read, not read, never reads, large property, slow, backoff, extended stay, extension, day use, day-use, same-day check-out, comp, house use, $0 booking]
 questions:
   - How soon after a booking in my system does MAYA see it? {#in-plain-words}
@@ -18,16 +18,16 @@ questions:
   - Does MAYA pick up a new room type I add? {#every-change-and-when-maya-picks-it-up/cloudbeds-you-do}
   - What happens when I change a room type's number of rooms? {#every-change-and-when-maya-picks-it-up/cloudbeds-you-do}
   - Does MAYA pick up blocked rooms or allotments from my system? {#things-maya-never-reads}
-  - Does MAYA re-read my time zone or property name? {#things-maya-never-reads}
+  - Does MAYA re-read my time zone or property name? {#things-maya-never-reads/from-any-system}
   - What does MAYA never read from my system? {#things-maya-never-reads}
   - Do day-use (same-day in and out) bookings count in MAYA? {#every-change-and-when-maya-picks-it-up/a-day-use}
   - Why is MAYA slow to pick up changes on a large property? {#when-it-takes-longer/a-large-propertys}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
-MAYA reads your bookings about every five minutes, your own rates about once an hour (Cloudbeds and ThinkReservations), and the whole booking window once a day. A new booking, a cancellation, a date change or a room move shows in MAYA on the next read. A rate you change in your system is read within the hour. Blocked rooms, allotments and restrictions are not read at all, and property details are read once, when you connect, and never again (on Mews, we set them with you).
+MAYA reads your bookings about every five minutes, your own rates about once an hour (Cloudbeds and ThinkReservations), and the whole booking window once a day. A new booking, a cancellation, a date change or a room move shows in MAYA on the next read. A rate you change in your system is read within the hour. Blocked rooms, allotments and restrictions are not read at all. Your property's name is read once, when you connect. On Cloudbeds the time zone and currency are checked again once a day; on ThinkReservations they are read once, when you connect; on Mews we set them with you.
 </InPlainWords>
 
 Three clocks set how soon a change in your system reaches MAYA. This page names them, then lists every change you can make and which clock it rides on. Where a system is different, its tab says so.
@@ -64,14 +64,16 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 | Set a night's rate to 0 (close it) | Within the hour. Your rules leave the night alone unless a price is typed for it in MAYA. So also clear any price you typed for that night in MAYA. Otherwise MAYA may keep your typed price and send it once you are live |
 | Rename, rebuild or delete a rate plan | Within the hour, at the next rates read, or sooner if a send to the old plan fails. MAYA then sends to the new base rate |
 | Add a room type | Next read, ticked as a room. Untick <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab if nobody sleeps there. Set its floor and ceiling |
-| Remove a room type | Never removed in MAYA. It keeps its past stays and still counts as a room with its last number of units, in occupancy and in your bill, so untick <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab. Its prices cannot be sent, and nights that enter the window later have no Cloudbeds rate to start from. Email us to switch it off |
+| Remove a room type | At the next full read, once a day. MAYA switches it off: it is no longer priced and its units leave occupancy and your bill, and the change log says "Deluxe is no longer in Cloudbeds." Nothing is deleted; its past stays remain. Until then its prices cannot be sent. If it comes back in Cloudbeds, it comes back on in MAYA at the next read |
 | Change a room type's number of units | Next read |
 | Block a room, mark it out of order, or hold an allotment | Not read. Record it under <Ui>Rooms out of service</Ui> in MAYA |
 | Change restrictions, minimum stays, closed to arrival | Not read, never written |
 | Change taxes and fees | Nothing. Once a day MAYA asks Cloudbeds for them, because Cloudbeds requires it, and keeps and uses none of it |
 | Uninstall MAYA | Usually within seconds. Otherwise on the next read |
 | Change your Cloudbeds password | It may end the connection. If a banner appears, a General Manager or Hotel Admin reconnects in one click |
-| Change the property's time zone, currency or name | Not read after connect. Email us |
+| Change the property's time zone | At the next full read, once a day. MAYA follows it, and the change log says "Your time zone changed from America/Denver to America/Chicago, to match Cloudbeds." |
+| Change the property's currency | At the next full read, once a day. While you are in simulation MAYA follows it and the change log says so, with nothing converted. Once you are live MAYA keeps the currency it has, and our team is alerted |
+| Change the property's name | Not read after connect. Email us |
 </PmsTab>
 <PmsTab pms="thinkreservations">
 | You do this in ThinkReservations | MAYA picks it up |
@@ -139,7 +141,7 @@ To test without moving any price, book a night more than 395 nights ahead and ca
 
 ## Things MAYA never reads
 
-From any system: availability by night, room blocks, out-of-order rooms, allotments, restrictions, minimum stays, closed-to-arrival flags and closed-to-departure flags. Guest details that come with a booking are dropped before anything is saved. It reads your property's name, time zone and currency once at connect and never again (on Mews, we set them with you). Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
+From any system: availability by night, room blocks, out-of-order rooms, allotments, restrictions, minimum stays, closed-to-arrival flags and closed-to-departure flags. Guest details that come with a booking are dropped before anything is saved. Your property's name is read once, at connect, and never again. The time zone and currency depend on your system. On Cloudbeds they are checked once a day: MAYA follows a new time zone, and a new currency only while you are in simulation, so a property that connected before its time zone could be read, and started on UTC, is put right by the next daily read. On ThinkReservations they are read once, at connect. On Mews we set them with you. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).
 
 ## When it takes longer
 
@@ -154,7 +156,7 @@ At 3:02 PM (US Pacific, the property's clock) a guest books a Standard room for 
 </Example>
 
 <Callout kind="not-yet" title="Not yet">
-There is no button to read your system right now. The cycle runs on its own about every five minutes. Blocks, allotments and restrictions are not read from any system. Time zone, currency and name are read once. Mews rates and Mews room counts are never read.
+There is no button to read your system right now. The cycle runs on its own about every five minutes. Blocks, allotments and restrictions are not read from any system. The name is read once, and so are the time zone and currency on ThinkReservations. Mews rates and Mews room counts are never read.
 </Callout>
 
 <Related>

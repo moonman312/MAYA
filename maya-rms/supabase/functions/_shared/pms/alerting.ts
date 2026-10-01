@@ -78,6 +78,9 @@ export type AlertChannelReport = {
   minSeverity: AlertSeverity;
 };
 
+/** A sending sync's switch: on or off, and the setting that decided (push-switch.ts). */
+export type SendingReport = { on: boolean; setting: string };
+
 /** What this process would say about its alert channel. */
 export function alertChannelReport(): AlertChannelReport {
   return { state: alertChannelState(), minSeverity: alertMinSeverity() };
@@ -92,11 +95,15 @@ export function alertChannelReport(): AlertChannelReport {
  * tick. The Pilot health page reads the newest one and shows "alerts: ready"
  * or "alerts: missing" from what the function said, not from the app's own
  * settings. Never throws.
+ *
+ * A sync that sends prices also says whether its sending switch is on, and
+ * which setting decided (push-switch.ts), so Pilot health can say which
+ * systems are being sent to. A change of switch is reported straight away.
  */
 export async function recordAlertChannel(
   supabase: SupabaseClient,
   fn: string,
-  opts: { force?: boolean; nowMs?: number } = {},
+  opts: { force?: boolean; nowMs?: number; sending?: SendingReport } = {},
 ): Promise<{ recorded: boolean; report: AlertChannelReport }> {
   const report = alertChannelReport();
   try {
@@ -109,10 +116,16 @@ export async function recordAlertChannel(
         .order("created_at", { ascending: false })
         .limit(1);
       if (error) throw new Error(error.message);
-      const row = (last ?? [])[0] as { created_at?: unknown; detail?: { state?: unknown; min_severity?: unknown } } | undefined;
+      const row = (last ?? [])[0] as
+        | { created_at?: unknown; detail?: { state?: unknown; min_severity?: unknown; sending?: unknown; sending_setting?: unknown } }
+        | undefined;
       if (row) {
         const ageMs = (opts.nowMs ?? Date.now()) - Date.parse(String(row.created_at));
-        const same = row.detail?.state === report.state && row.detail?.min_severity === report.minSeverity;
+        const same =
+          row.detail?.state === report.state &&
+          row.detail?.min_severity === report.minSeverity &&
+          (!opts.sending ||
+            (row.detail?.sending === opts.sending.on && row.detail?.sending_setting === opts.sending.setting));
         // A clock a little ahead of ours still wrote a current report.
         if (same && ageMs < ALERT_CHANNEL_REPORT_EVERY_MS) return { recorded: false, report };
       }
@@ -121,7 +134,12 @@ export async function recordAlertChannel(
       p_event_type: ALERT_CHANNEL_EVENT,
       p_entity_type: "alert_channel",
       p_entity_id: fn,
-      p_detail: { state: report.state, min_severity: report.minSeverity, fn },
+      p_detail: {
+        state: report.state,
+        min_severity: report.minSeverity,
+        fn,
+        ...(opts.sending ? { sending: opts.sending.on, sending_setting: opts.sending.setting } : {}),
+      },
     });
     if (logErr) throw new Error(logErr.message);
     if (report.state !== "ready") {

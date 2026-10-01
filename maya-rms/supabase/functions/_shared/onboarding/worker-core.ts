@@ -50,7 +50,7 @@ import type {
   AdapterReservationRow,
   OnboardingPmsAdapter,
 } from "../pms/onboarding-adapter.ts";
-import { proposeCountsAsRoom } from "./analysis.ts";
+import { hotelIsLive, proposeCountsAsRoom } from "./analysis.ts";
 import { isPaidLiveHotel } from "../billing/entitlement.ts";
 import { raiseAlert, type Alert } from "../pms/alerting.ts";
 import { deleteNightsOutside } from "../pms/stale-nights.ts";
@@ -1063,15 +1063,12 @@ async function runDiscover(
     // from the upsert for the same reason is_active is kept out of it: the
     // review strip shows this guess and the owner's answer has to survive
     // every later re-import. A first import may propose non-rooms because
-    // the strip is about to show them unticked; a refresh of a live hotel is
-    // a sync as far as the heuristic is concerned — its guesses stay
-    // advisory and the findings ask instead.
-    await proposeCountsAsRoom(
-      supabase,
-      job.hotel_id,
-      rtRows,
-      job.stats.mode === "refresh" ? "sync" : "import",
-    );
+    // the strip is about to show them unticked; a refresh, and any import of
+    // a property that is live (hotelIsLive), is a sync as far as the
+    // heuristic is concerned — its guesses stay advisory and the findings
+    // ask instead, so no room type is switched off under live prices.
+    const advisory = job.stats.mode === "refresh" || (await hotelIsLive(supabase, job.hotel_id));
+    await proposeCountsAsRoom(supabase, job.hotel_id, rtRows, advisory ? "sync" : "import");
   }
 
   job.phase = "sync_current";

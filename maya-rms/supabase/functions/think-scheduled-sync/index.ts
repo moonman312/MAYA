@@ -25,7 +25,7 @@ import { evaluateHotel } from "../_shared/engine/index.ts";
 import type { PmsRatePushAdapter } from "../_shared/pms/rate-push.ts";
 import { type PricingTickResult, readOutcome, runPricingTick, type TickSkip } from "../_shared/pms/pricing-tick.ts";
 import { pricingHorizonDays } from "../_shared/pms/pricing-window.ts";
-import { pushRatesEnabled as readPushSwitchOnce } from "../_shared/pms/push-switch.ts";
+import { pushRatesEnabled as readPushSwitchOnce, pushSwitchSource } from "../_shared/pms/push-switch.ts";
 import { cadenceConfigFromEnv } from "../_shared/pms/pricing-plan.ts";
 import { resolveOAuthCredentials } from "../_shared/pms/oauth-credentials.ts";
 import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
@@ -86,10 +86,12 @@ Deno.serve(async (req) => {
   const horizonDays = pricingHorizonDays();
   const passBudget = { remaining: cadenceConfigFromEnv().tickPassNights };
   // Outbound rate push is OFF unless explicitly enabled, and even then only
-  // fires for hotels in LIVE mode (gated inside pushRatesForHotel). A value
-  // that is neither true nor false, or none at all, is off and says so in
-  // the log (push-switch.ts).
-  const pushRatesEnabled = readPushSwitchOnce(Deno.env.get("MAYA_PUSH_RATES"), "think-scheduled-sync");
+  // fires for hotels in LIVE mode (gated inside pushRatesForHotel).
+  // ThinkReservations has its own switch, MAYA_PUSH_RATES_THINK, off until
+  // set; the shared MAYA_PUSH_RATES does not turn it on. A value that is
+  // neither true nor false, or none at all, is off and says so in the log
+  // (push-switch.ts).
+  const pushRatesEnabled = readPushSwitchOnce("think", (name) => Deno.env.get(name), "think-scheduled-sync");
 
   // The body: a single-hotel dispatch { hotel_id }, or the Command Center's
   // test alert { action: "test_alert" } (alert-test-request.ts).
@@ -130,7 +132,11 @@ Deno.serve(async (req) => {
   const pmsChangeEmails = bodyHotelId ? [] : await sendDuePmsChangeEmails(supabase, "think");
   // Whether this function's alerts have anywhere to go, said where Pilot
   // health can read it (a few rows a day, not one per tick).
-  if (!bodyHotelId) await recordAlertChannel(supabase, "think-scheduled-sync");
+  if (!bodyHotelId) {
+    await recordAlertChannel(supabase, "think-scheduled-sync", {
+      sending: { on: pushRatesEnabled, setting: pushSwitchSource("think", (name) => Deno.env.get(name)).setting },
+    });
+  }
 
   let hotelIds: string[];
   if (bodyHotelId) {

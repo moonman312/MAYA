@@ -12,7 +12,10 @@
  * ones where they ended (changelog-push-problems.ts). Rates changed in the
  * property system on nights MAYA sent to sit where they were found: each
  * overwrite under "MAYA's price wins", and the warning that something else
- * seems to be changing rates (changelog-pms-changes.ts).
+ * seems to be changing rates (changelog-pms-changes.ts). So do the changes a
+ * read of the property system made to the property itself: a room type it no
+ * longer lists switched off (or back on), and the time zone or currency
+ * changed to its own (changelog-property-changes.ts).
  *
  * Every price change is worded for the mode the property was in at its run's
  * time (hotel_mode_history, src/lib/price-mode.ts): a simulated run says what
@@ -74,6 +77,12 @@ import {
 } from "@/lib/changelog-push-problems";
 import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildPmsChanges, MAX_PMS_CHANGES, MAX_PMS_WARNINGS, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
+import {
+  buildPropertyChanges,
+  MAX_PROPERTY_CHANGES,
+  PROPERTY_CHANGE_COLUMNS,
+  type PropertyChangeRow,
+} from "@/lib/changelog-property-changes";
 import { CHANGELOG_OLDER_HEADER, justAfter } from "@/lib/changelog-paging";
 import { buildChangelog } from "@/lib/demo-data";
 import { newestAuditAt, priorRowsFor } from "@/lib/changelog-prior-rows";
@@ -633,6 +642,10 @@ async function modeSwitchItems(
 }
 
 /**
+ * What changed in the property system, within the history shown: rates
+ * changed on nights MAYA sent to (below), and what a read changed about the
+ * property itself (loadPropertyChanges).
+ *
  * Rates changed in the property system on nights MAYA sent to, within the
  * history shown: MAYA's overwrites and the warning that something else seems
  * to be changing rates (changelog-pms-changes.ts). Read under the caller's
@@ -642,6 +655,58 @@ async function modeSwitchItems(
  * was sent only when the send ledger shows it (overwriteSendState).
  */
 async function loadPmsChanges(
+  supabase: SupabaseClient,
+  hotelId: string,
+  lookups: ChangelogLookups,
+  since: string | null,
+  sendContext: SendContext,
+  through: string | null,
+): Promise<ChangelogPmsChange[]> {
+  const [rates, property] = await Promise.all([
+    loadRateChanges(supabase, hotelId, lookups, since, sendContext, through),
+    loadPropertyChanges(supabase, hotelId, since, through),
+  ]);
+  return [...rates, ...property];
+}
+
+/**
+ * What a read of the property system changed about the property itself,
+ * within the history shown: room types switched off because the system no
+ * longer lists them (or back on), and the time zone or currency changed to
+ * the system's (changelog-property-changes.ts). Read under the caller's
+ * session. Never fails the change log, and a database without the table yet
+ * has nothing to show.
+ */
+async function loadPropertyChanges(
+  supabase: SupabaseClient,
+  hotelId: string,
+  since: string | null,
+  through: string | null,
+): Promise<ChangelogPmsChange[]> {
+  try {
+    let query = supabase
+      .from("pms_property_changes")
+      .select(PROPERTY_CHANGE_COLUMNS)
+      .eq("hotel_id", hotelId)
+      .order("found_at", { ascending: false })
+      .limit(MAX_PROPERTY_CHANGES);
+    if (since) query = query.gte("found_at", since);
+    if (through) query = query.lt("found_at", justAfter(through));
+    const { data, error } = await query;
+    if (error) {
+      if (isMissingRelationError(error)) return [];
+      throw error;
+    }
+    return buildPropertyChanges((data ?? []) as unknown as PropertyChangeRow[]);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
+    console.error(JSON.stringify({ fn: "api/changelog", step: "property_changes", hotelId, error: message.slice(0, 300) }));
+    return [];
+  }
+}
+
+/** Rates changed in the property system (pms_change_notices); see loadPmsChanges. */
+async function loadRateChanges(
   supabase: SupabaseClient,
   hotelId: string,
   lookups: ChangelogLookups,

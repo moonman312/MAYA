@@ -3,7 +3,7 @@ title: ThinkReservations
 summary: How to connect ThinkReservations from inside MAYA, what MAYA reads there, which rate type it sends prices to, how a send is checked, and what is different about room counts and disconnects.
 section: connect
 order: 30
-readingTime: 15
+readingTime: 16
 keywords: [ThinkReservations, Think Reservations, Think, connect, access code, paid without a code, any code, reconnect, which login, wrong hotel, other hotel, another hotel, Last sync stopped, booking speed, seasons, Best Available, BAR, rate type, standard, derived, non-refundable, package, units, occupancy wrong, unit count, room count, rooms per room type, list of rooms, inactive room, not a room, not included in occupancy, sold online, zero rooms, bill, billing room count, accepted, applied, read back, an hour, group, several hotels, covers properties, one property per login, permission to update rates, write permission, disconnect, banner, Error, request log, No recent activity, password, link ran out, sign-in link ran out, start again from MAYA, link expired, 15 minutes, Return to Command Center, average]
 questions:
   - How do I connect ThinkReservations to MAYA? {#connecting/there-is-one}
@@ -29,7 +29,7 @@ questions:
   - How do I stop using MAYA with ThinkReservations? {#disconnecting-and-reconnecting/thinkreservations-does-not}
   - It says the sign-in link ran out after 15 minutes, what now? {#connecting/3-sign-in}
 pms: [thinkreservations]
-updated: 2026-09-28
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -53,11 +53,13 @@ There is one way in. You create your MAYA account, pay, and then connect. ThinkR
 **Sign in on ThinkReservations' website and approve.** MAYA asks ThinkReservations for permission to read your bookings, rooms, rates and availability, to write rates, and to stay connected without asking you to sign in again. It does not ask for guest details. Finish within 15 minutes. If it takes longer, you land on a page that says "That sign-in link ran out after 15 minutes. Start again from MAYA." with an <Ui>Open MAYA</Ui> link. Nothing is wrong and nothing was set up: go back to the connect screen and start again.
 </Step>
 <Step>
-**You are brought back to MAYA.** MAYA names the property from ThinkReservations, reads its time zone and currency, and starts the history import. If a property with that name already exists on MAYA, a "(2)" is added. You can rename it in the questions step. Read [the history import](/docs/review/the-history-import).
+**You are brought back to MAYA.** MAYA names the property from ThinkReservations, reads its time zone and currency, and starts the history import. A property whose currency MAYA doesn't price in yet stops here instead, with "Your property's system uses KRW. MAYA doesn't price in KRW yet, so nothing was set up or imported. Email us and we'll tell you when it does." (with its code), and nothing is set up. [Which currencies MAYA works in](/docs/reference/time-weekends-currency-and-holidays#currency) has the list. If a property with that name already exists on MAYA, a "(2)" is added. You can rename it in the questions step. Read [the history import](/docs/review/the-history-import).
 </Step>
 </Steps>
 
 Every property starts in simulation. Nothing is sent to ThinkReservations until you go live. Read [simulation mode](/docs/live/simulation-mode).
+
+Sending to ThinkReservations also has its own switch on MAYA's side, apart from Cloudbeds', and it starts off. Until MAYA switches it on, a live property is priced as usual but nothing is sent. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Sending%20to%20ThinkReservations) to ask whether it is on for you.
 
 <Callout kind="good-to-know" title="One permission MAYA asks for but does not use">
 The list ThinkReservations shows you includes reading availability. MAYA asks for it but makes no availability call today. It never reads how many rooms are free on a night, and it never changes availability. Read [what MAYA reads and writes](/docs/connect/what-maya-reads-and-writes).

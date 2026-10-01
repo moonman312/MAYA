@@ -32,7 +32,9 @@ export type CloudbedsTokenRefresh = {
 /** Row shapes match the shared `room_types` / `reservations` tables (same as Mews). */
 export type CloudbedsParsedRoomType = {
   external_room_type_id: string;
+  /** roomTypeName, the full name. */
   name: string;
+  /** The same full name. Never roomTypeNameShort (etl.ts parseCloudbedsRoomTypes). */
   display_name: string | null;
   total_rooms: number;
 };

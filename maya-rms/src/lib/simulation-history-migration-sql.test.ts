@@ -93,9 +93,10 @@ describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
   const code = sql.replace(/--.*$/gm, "");
 
-  it("is the newest file on the list the SQL tests build production's schema from", () => {
+  it("is on the list the SQL tests build production's schema from, right after the second signups feed file", () => {
     expect(MIGRATION_ORDER).toContain(MIGRATION);
     expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_staff_roles_v1.sql"));
+    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBe(MIGRATION_ORDER.indexOf("99_supabase_migration_signups_feed_v2.sql") + 1);
   });
 
   it("says in its header that the owner's go-live names them and the Command Center's switch names nobody", () => {

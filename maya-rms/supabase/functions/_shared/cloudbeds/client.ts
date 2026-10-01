@@ -316,8 +316,71 @@ export async function cloudbedsDiscoverPropertyId(
   return null;
 }
 
-/** Every property this grant can see. One entry = a property account; more = a group. */
-export type CloudbedsPropertySummary = { propertyId: string; name: string | null };
+/**
+ * Every property this grant can see. One entry = a property account; more = a group.
+ *
+ * getHotels is also where Cloudbeds keeps a property's time zone: each entry
+ * has `propertyTimezone`, and getHotelDetails has none (see
+ * cloudbedsGetHotelDetails). Both are null when the entry leaves them out.
+ */
+export type CloudbedsPropertySummary = {
+  propertyId: string;
+  name: string | null;
+  timezone?: string | null;
+  currency?: string | null;
+};
+
+/**
+ * An IANA time zone the runtime knows, as Cloudbeds spells it, or null.
+ * Anything else, an empty string or a made-up name, is no answer: a hotel's
+ * time zone decides which night "tonight" is, so a value nothing can compute
+ * with must never be stored over one that works.
+ *
+ * Cloudbeds' own name is kept, trimmed, and only its case is mended where it
+ * differs from the runtime's name by case alone ("america/chicago" reads as
+ * "America/Chicago"). The runtime's name is not used otherwise: V8 resolves
+ * to ICU's older aliases (Asia/Kolkata to Asia/Calcutta, Europe/Kyiv to
+ * Europe/Kiev), so it would store deprecated names. Whether two spellings
+ * are the same zone is sameTimeZone's to say (pms/property-changes.ts), so
+ * an alias never reads as a change.
+ */
+export function cloudbedsTimeZone(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const zone = raw.trim();
+  if (!zone) return null;
+  let resolved: string;
+  try {
+    resolved = new Intl.DateTimeFormat("en-US", { timeZone: zone }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+  return resolved && resolved.toLowerCase() === zone.toLowerCase() ? resolved : zone;
+}
+
+/**
+ * The ISO code in any of the shapes Cloudbeds uses for a property's currency:
+ * an object `{ currencyCode }` (getHotelDetails), an array of them (getHotels),
+ * or a plain code. Trimmed and upper case; null when there is none.
+ */
+export function cloudbedsCurrencyCode(raw: unknown): string | null {
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  const value =
+    first && typeof first === "object"
+      ? (first as JsonRecord).currencyCode ?? (first as JsonRecord).code
+      : first;
+  if (typeof value !== "string") return null;
+  const code = value.trim().toUpperCase();
+  return code ? code : null;
+}
+
+function summaryOf(h: JsonRecord): CloudbedsPropertySummary {
+  return {
+    propertyId: String(h.propertyID ?? h.property_id ?? h.id ?? ""),
+    name: h.propertyName != null ? String(h.propertyName) : null,
+    timezone: cloudbedsTimeZone(h.propertyTimezone),
+    currency: cloudbedsCurrencyCode(h.propertyCurrency),
+  };
+}
 
 /**
  * List the properties a grant covers.
@@ -349,12 +412,7 @@ export async function cloudbedsListPropertiesOrThrow(
   const res = await cloudbedsGet({ ...creds, propertyId: "" }, "getHotels", {});
   const arr = res.data;
   if (!Array.isArray(arr)) return [];
-  return (arr as JsonRecord[])
-    .map((h) => ({
-      propertyId: String(h.propertyID ?? h.property_id ?? h.id ?? ""),
-      name: h.propertyName != null ? String(h.propertyName) : null,
-    }))
-    .filter((p) => p.propertyId !== "");
+  return (arr as JsonRecord[]).map(summaryOf).filter((p) => p.propertyId !== "");
 }
 
 export type CloudbedsPropertyDetails = {
@@ -365,10 +423,24 @@ export type CloudbedsPropertyDetails = {
 };
 
 /**
- * getHotelDetails → property name / timezone / currency, used by onboarding to
- * create the hotel record so the user doesn't have to type anything.
- * ⚠ VERIFY field names against the live response: propertyName,
- * propertyTimezone, propertyCurrency (currency may nest as {currencyCode}).
+ * The property's name, time zone and currency, as Cloudbeds documents them
+ * (API reference, v1.2 and v1.3 alike):
+ *
+ *   getHotelDetails  data.propertyName, and data.propertyCurrency, an object
+ *                    { currencyCode, currencySymbol, currencyPosition, ... }.
+ *                    It has NO time zone field at all.
+ *   getHotels        data[].propertyTimezone, a string such as
+ *                    "America/Chicago", and data[].propertyCurrency, an array
+ *                    of { currencyCode, ... }. Filtered to this property with
+ *                    propertyIDs.
+ *
+ * This used to read the time zone off getHotelDetails (propertyTimezone,
+ * timezone, timeZone), found none on every property, and every connect saved
+ * UTC. So the time zone now comes from getHotels, from the entry whose
+ * propertyID is this property's (never another one's on a group grant), and
+ * the currency from getHotelDetails, then getHotels. A getHotels call that
+ * fails leaves the time zone null rather than failing the details: callers
+ * never store a null over a value they have.
  */
 export async function cloudbedsGetHotelDetails(
   creds: CloudbedsResolvedCredentials,
@@ -376,33 +448,136 @@ export async function cloudbedsGetHotelDetails(
   const res = await cloudbedsGet(creds, "getHotelDetails", {
     propertyID: creds.propertyId,
   });
-  const data = (res.data && typeof res.data === "object" ? res.data : res) as JsonRecord;
+  const data = (res.data && typeof res.data === "object" && !Array.isArray(res.data) ? res.data : res) as JsonRecord;
 
-  const name = data.propertyName ?? data.hotelName ?? data.name;
-  const timezone = data.propertyTimezone ?? data.timezone ?? data.timeZone;
-  const currencyRaw = data.propertyCurrency ?? data.currency ?? data.currencyCode;
-  const currency =
-    currencyRaw && typeof currencyRaw === "object"
-      ? (currencyRaw as JsonRecord).currencyCode ?? (currencyRaw as JsonRecord).code
-      : currencyRaw;
+  let listed: CloudbedsPropertySummary | null = null;
+  try {
+    const hotels = await cloudbedsGet(creds, "getHotels", { propertyIDs: creds.propertyId });
+    const arr = Array.isArray(hotels.data) ? (hotels.data as JsonRecord[]) : [];
+    listed = arr.map(summaryOf).find((p) => p.propertyId === String(creds.propertyId)) ?? null;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        fn: "cloudbedsGetHotelDetails",
+        step: "getHotels",
+        propertyId: creds.propertyId,
+        error: errorText(error),
+        note: "no time zone this time; nothing stored is changed",
+      }),
+    );
+  }
 
+  const name = data.propertyName ?? data.hotelName ?? data.name ?? listed?.name;
   return {
     externalPropertyId: creds.propertyId,
     name: typeof name === "string" && name ? name : null,
-    timezone: typeof timezone === "string" && timezone ? timezone : null,
-    currency: typeof currency === "string" && currency ? currency.toUpperCase() : null,
+    // getHotels is where Cloudbeds documents it; the others are kept in case
+    // a host ever answers getHotelDetails with one.
+    timezone:
+      listed?.timezone ??
+      cloudbedsTimeZone(data.propertyTimezone ?? data.timezone ?? data.timeZone),
+    currency:
+      cloudbedsCurrencyCode(data.propertyCurrency ?? data.currency ?? data.currencyCode) ??
+      listed?.currency ??
+      null,
   };
 }
 
 export type CloudbedsRoomType = JsonRecord;
 
-/** getRoomTypes → data[] of room types for the property. */
+/**
+ * getRoomTypes pages: `pageSize` defaults to 20 in Cloudbeds' reference, so a
+ * property with more types than that was only ever read in part. Asked for
+ * 100 at a time; this many pages at most.
+ */
+export const CLOUDBEDS_ROOM_TYPES_PAGE_SIZE = 100;
+const ROOM_TYPE_PAGE_GUARD = 20;
+
+export type CloudbedsRoomTypeList = {
+  roomTypes: CloudbedsRoomType[];
+  /**
+   * True only when the read went to the end of the list: an empty page came
+   * back after the rows (or the `total` the answer gave was reached), and
+   * every page was well formed. A short page is not taken as the end, since
+   * a host may cap pageSize at its own number. A list that is not complete
+   * proves nothing about a type missing from it, so nothing is ever removed
+   * on one (sync-hotel.ts).
+   */
+  complete: boolean;
+};
+
+/**
+ * Every room type of the property, a page at a time, and whether that is all
+ * of them. Types another property owns (a group grant's answer) are left out.
+ * It reads on until a page comes back empty, which costs one more call than
+ * stopping at a short page, so a host that pages by 20 or 50 whatever
+ * pageSize says is read to the end too. The first page failing throws, as
+ * any failed read does; a later page failing (a host that refuses a page
+ * past the end, say) keeps what was read and calls the list not complete.
+ */
+export async function cloudbedsListRoomTypes(
+  creds: CloudbedsResolvedCredentials,
+): Promise<CloudbedsRoomTypeList> {
+  const byId = new Map<string, CloudbedsRoomType>();
+  const noId: CloudbedsRoomType[] = [];
+  let complete = false;
+  for (let pageNumber = 1; pageNumber <= ROOM_TYPE_PAGE_GUARD; pageNumber++) {
+    let res: JsonRecord;
+    try {
+      res = await cloudbedsGet(creds, "getRoomTypes", {
+        propertyID: creds.propertyId,
+        pageNumber,
+        pageSize: CLOUDBEDS_ROOM_TYPES_PAGE_SIZE,
+      });
+    } catch (e) {
+      if (pageNumber === 1) throw e;
+      console.error(
+        JSON.stringify({
+          fn: "cloudbedsListRoomTypes",
+          propertyId: creds.propertyId,
+          pageNumber,
+          read: byId.size + noId.length,
+          error: e instanceof Error ? e.message : String(e),
+          complete: false,
+        }),
+      );
+      break;
+    }
+    if (!Array.isArray(res.data)) break;
+    const page = res.data as CloudbedsRoomType[];
+    const total = typeof res.total === "number" ? res.total : null;
+    if (page.length === 0) {
+      complete = total == null || byId.size + noId.length >= total;
+      break;
+    }
+    let added = 0;
+    for (const rt of page) {
+      const owner = rt.propertyID ?? rt.propertyId;
+      if (owner != null && String(owner) !== "" && String(owner) !== String(creds.propertyId)) continue;
+      const id = rt.roomTypeID ?? rt.roomTypeId ?? rt.id;
+      if (id == null || String(id) === "") {
+        noId.push(rt);
+        continue;
+      }
+      if (!byId.has(String(id))) added += 1;
+      byId.set(String(id), rt);
+    }
+    if (total != null && byId.size + noId.length >= total) {
+      complete = true;
+      break;
+    }
+    // A page that brought nothing new: the host answers every page with the
+    // same rows, so there is no more to read and no telling what was missed.
+    if (added === 0) break;
+  }
+  return { roomTypes: [...byId.values(), ...noId], complete };
+}
+
+/** getRoomTypes → every room type of the property (cloudbedsListRoomTypes). */
 export async function cloudbedsGetRoomTypes(
   creds: CloudbedsResolvedCredentials,
 ): Promise<CloudbedsRoomType[]> {
-  const res = await cloudbedsGet(creds, "getRoomTypes", { propertyID: creds.propertyId });
-  const data = res.data;
-  return Array.isArray(data) ? (data as CloudbedsRoomType[]) : [];
+  return (await cloudbedsListRoomTypes(creds)).roomTypes;
 }
 
 export type CloudbedsReservation = JsonRecord;

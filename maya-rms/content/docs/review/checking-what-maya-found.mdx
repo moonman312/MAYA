@@ -1,10 +1,10 @@
 ---
 title: Checking what MAYA found
-summary: The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.
+summary: The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, your floors and ceilings, and how to come back later.
 section: review
 order: 40
-readingTime: 14
-keywords: [review, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, only a revenue manager or above can finish the review, couldn't finish the review, go to my dashboard, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, different years, same closure every year, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, needs your answer, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
+readingTime: 15
+keywords: [review, your floors and ceilings, remove a floor, remove a ceiling, limits on the review, hide duplicate room type, hide it, keep it, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, only a revenue manager or above can finish the review, couldn't finish the review, go to my dashboard, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, different years, same closure every year, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, needs your answer, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
 questions:
   - What does "Is X actually a room?" mean? {#is-x-actually-a-room/property-systems-list}
   - What does "Were you closed" do if I confirm it? {#were-you-closed-/confirm}
@@ -15,16 +15,18 @@ questions:
   - What does "Some stays have a $0 rate" mean? {#some-stays-have-a-0-rate}
   - What does "Some old stays reference deleted room types" mean? {#some-old-stays-reference-deleted-room-types}
   - What is the room count strip? {#the-room-count-strip/the-strip-reads}
+  - Where do I see the floors and ceilings the import set? {#your-floors-and-ceilings}
+  - How do I remove a floor or ceiling during setup? {#your-floors-and-ceilings}
   - Can I skip the review and come back later? {#coming-back-and-changing-an-answer/you-can-leave}
   - What is the blue banner on my dashboard that links to the review? {#the-banner-on-your-dashboard}
   - I answered a review card wrong. Can I change it? {#coming-back-and-changing-an-answer/you-can-leave}
   - Where is the "?" help on the review? {#how-you-get-here}
   - Who can answer the review cards? {#how-you-get-here}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
-The review is two short screens, and the first checks your data: closures, room types that may not be rooms, duplicate room types, rates that look like typos, stays with no rate, and stays that point at deleted room types. Answer a card to confirm or dismiss it, or skip it and come back later. Only one card reports something already done for you: hiding an empty duplicate room type. You can undo it on the card. The second screen has the room count strip (where room types that are certainly not bedrooms arrive unticked), your starter rules and the go-live button.
+The review is two short screens, and the first checks your data: closures, room types that may not be rooms, duplicate room types, rates that look like typos, stays with no rate, and stays that point at deleted room types. Answer a card to confirm or dismiss it, or skip it and come back later. Only one card reports something already done for you: hiding an empty duplicate room type. You can undo it on the card. The second screen has the room count strip (where room types that are certainly not bedrooms arrive unticked), your floors and ceilings with a remove beside each, your starter rules and the go-live button.
 </InPlainWords>
 
 ## How you get here
@@ -84,7 +86,7 @@ Two active room types shared the same name once punctuation and capitals are ign
 
 Buttons: <Ui>Good call</Ui> keeps it hidden. <Ui>Undo</Ui> makes the type active again.
 
-After a <Ui>Get suggestions from my data</Ui> run the empty duplicate is only proposed, and nothing is hidden until you confirm.
+After a <Ui>Get suggestions from my data</Ui> run, and on any import of a property that is already live, the empty duplicate is only proposed. The card then asks "Hide duplicate room type "Standard"?", with <Ui>Hide it</Ui> and <Ui>Keep it</Ui>, and nothing is hidden until you press <Ui>Hide it</Ui>.
 
 <Callout kind="careful">
 Once you have pressed <Ui>Good call</Ui> there is no button to bring the type back, and a later read of your system does not reactivate it. If you need it back, email us.
@@ -112,16 +114,17 @@ Some stay nights point at room types your property system no longer has. They st
 
 ## Screen two: recommendations and the finish
 
-The second screen is headed "Recommendations from your data". The heading's small print promises rules and guardrails your history supports. On a first import there are no cards here: the starter rules and your floors and ceilings are built for you (below), and the box reads "No new recommendations this time." Suggestion cards appear on this screen only after <Ui>Get suggestions from my data</Ui>. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
+The second screen is headed "Recommendations from your data". The heading's small print promises rules and guardrails your history supports. On a first import there are no cards here: the starter rules and your floors and ceilings are built for you (both listed below), and the box reads "No new recommendations this time." Suggestion cards appear on this screen only after <Ui>Get suggestions from my data</Ui>. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
 When nothing at all is waiting, the box reads "Nothing left to review" and says your data looks clean. Under it, in small text, "N items already handled" counts the cards you have answered.
 
 Then, in order:
 
 1. **The room count strip** (next section).
-2. **Your starter rules**, in a box headed "While you were here, we built your first pricing rules", with the <Ui>Turn them on for real</Ui> button for a General Manager or Hotel Admin (anyone else sees who can go live in its place). The box lists the starter rules your import built, and it stays after anyone on your team runs <Ui>Get suggestions from my data</Ui>. Read [Your starter rules](/docs/review/your-starter-rules) and [Going live](/docs/live/going-live).
-3. **On a Cloudbeds property**, the line "Have rules in PIE? Import from PIE". The link opens the <Ui>Rules</Ui> tab with <Ui>Import from PIE</Ui> open, to bring your PIE rules and price limits across from a screenshot. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie).
-4. <Ui>Finish</Ui>, to go to your dashboard. It marks the review as done, and opens the dashboard only once that is saved. It reads "Finishing up…" while it works. Finishing needs a Revenue Manager or higher. Below that you stay on the review and see "Only a Revenue Manager or above can finish the review." with a <Ui>Go to my dashboard</Ui> link beside it. The review is not marked done and the banner stays. If the save fails you stay on the review and see "Couldn't finish the review. Try again." Press <Ui>Finish</Ui> again. If it reads "Your review couldn't be marked as finished. Reload the page and try again.", reload first.
+2. **Your floors and ceilings**, when any room type has one (see below).
+3. **Your starter rules**, in a box headed "While you were here, we built your first pricing rules", with the <Ui>Turn them on for real</Ui> button for a General Manager or Hotel Admin (anyone else sees who can go live in its place). The box lists the starter rules your import built, and it stays after anyone on your team runs <Ui>Get suggestions from my data</Ui>. Read [Your starter rules](/docs/review/your-starter-rules) and [Going live](/docs/live/going-live).
+4. **On a Cloudbeds property**, the line "Have rules in PIE? Import from PIE". The link opens the <Ui>Rules</Ui> tab with <Ui>Import from PIE</Ui> open, to bring your PIE rules and price limits across from a screenshot. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie).
+5. <Ui>Finish</Ui>, to go to your dashboard. It marks the review as done, and opens the dashboard only once that is saved. It reads "Finishing up…" while it works. Finishing needs a Revenue Manager or higher. Below that you stay on the review and see "Only a Revenue Manager or above can finish the review." with a <Ui>Go to my dashboard</Ui> link beside it. The review is not marked done and the banner stays. If the save fails you stay on the review and see "Couldn't finish the review. Try again." Press <Ui>Finish</Ui> again. If it reads "Your review couldn't be marked as finished. Reload the page and try again.", reload first.
 
 You do not have to press <Ui>Finish</Ui>. Close the page whenever you like and everything you answered is kept.
 
@@ -134,11 +137,24 @@ Ticked types are what MAYA divides by for sellable occupancy, and what it counts
 - Room types whose name is certainly not a bedroom (parking, boardroom, meeting, treatment and the like) arrive unticked, as MAYA's proposal. Tick one to say it is a room.
 - A type nobody has answered for yet shows unticked with a "needs your answer" tag, the same as on the <Ui>PMS</Ui> tab. A name that only might not be a bedroom (a "Pool Cabana", a "Spa Deluxe") starts this way. It is left out of your bill and out of the count in the question, and it still counts in occupancy. Tick it if guests sleep there and it joins your bill. If they do not, tick it and untick it again: it is then answered as not a room.
 - A tick saves at once. There is no confirm, and nothing here holds up <Ui>Finish</Ui>.
+- A type you tick while your property is in simulation joins the starter rules you have not edited, to measure and to change. Read [Your starter rules](/docs/review/your-starter-rules#which-room-types-which-days).
 - Ticking or unticking needs a Revenue Manager or higher. Below that you see "This needs Revenue Manager access or higher on this property." On a live property a change re-prices every night of the window from the next cycle, nearest nights first.
 - Thirty changes in ten minutes is the limit, per person. The same thirty also cover prices you type or clear by hand and rooms you take out of service in those ten minutes. Past it you see "That's a lot of room-type changes at once. Give it a minute and try again."
 - If a tick fails to save it snaps back and you see "That didn't save" with an invitation to try again.
 
-The "?" beside the strip is the only "?" on the review. It opens the same panel as the <Ui>?</Ui> beside <Ui>Room types</Ui> on the <Ui>PMS</Ui> tab: titled "What counts as a room", it says the same as this section and ends with what the "needs your answer" tag means.
+The "?" beside the strip opens the same panel as the <Ui>?</Ui> beside <Ui>Room types</Ui> on the <Ui>PMS</Ui> tab: titled "What counts as a room", it says the same as this section, says what the "needs your answer" tag means, and ends "Tick one while you're in simulation and it joins the starter rules you haven't edited."
+
+## Your floors and ceilings
+
+Under the strip, a box headed "Your floors and ceilings" lists every room type that has a floor or a ceiling, one line each: its name, then "Floor $150" and "Ceiling $780" in your property's currency, each with a small × beside it. A room type with neither is not listed, and with none at all the box is not there. Your answers to the five questions and your own rates during the import set them (read [Floors and ceilings](/docs/review/floors-and-ceilings#where-they-are-set)).
+
+- The × removes that limit in one click, with no confirm: the floor goes back to $1.00, or the ceiling to $99,999.99, which hold nothing back. The line updates at once. The import never fills a removed limit again, even if it is still reading older years.
+- Removing needs a Revenue Manager or higher. Below that you see "This needs Revenue Manager access or higher on this property."
+- It counts towards the same thirty changes in ten minutes as ticks on the strip. Past it you see "That's a lot of changes at once. Give it a minute and try again."
+- If it fails, you see the reason, or "That didn't save. Try again."
+- The "?" beside the heading says what floors and ceilings do and that removing one leaves that room type with no limit there.
+
+Going live sends a price no lower than a room type's floor and no higher than its ceiling, even on a night whose own rate in your system sits outside them, so the go-live confirm counts those nights. Read [Going live](/docs/live/going-live).
 
 ## The banner on your dashboard
 

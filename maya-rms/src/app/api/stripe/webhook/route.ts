@@ -19,7 +19,7 @@ import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activat
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { recordFirstPayment } from "@/lib/billing/first-paid";
-import { defaultCardChanged, payUnpaidAfterCardUpdate } from "@/lib/billing/unpaid-recovery";
+import { defaultCardChanged, followNewDefaultCard, previousDefaultCard } from "@/lib/billing/card-change";
 import { sendAccountReadyOnce } from "@/lib/billing/account-ready";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -245,23 +245,34 @@ export async function POST(request: Request) {
     }
 
     if (event.type === "customer.updated") {
-      // An owner whose subscription went unpaid is told to update their card,
-      // and that the subscription restarts where it left off. Stripe does not
-      // retry an unpaid subscription's invoice by itself, so the new default
-      // card is what pays it (lib/billing/unpaid-recovery.ts). Every other
-      // customer change (email, address, tax id) is not our concern.
+      // The owner saved a new default card in the billing portal. Checkout
+      // put the old card on each subscription itself, which outranks the
+      // default, so without this the bank's retries (and the next renewal)
+      // keep charging the old card. Subscriptions on the old default card move
+      // to the new one, ones on a different card of their own stay put, and an
+      // overdue invoice is paid with the new card at once
+      // (lib/billing/card-change.ts). Every other customer change (email,
+      // address, tax id) is not our concern.
       if (!defaultCardChanged(event.data.previous_attributes)) {
         return NextResponse.json({ received: true, ignored: "no_card_change" });
       }
       const customerId = (event.data.object as Stripe.Customer).id;
-      const recovery = await payUnpaidAfterCardUpdate(admin, stripe, customerId);
-      if (!recovery.attempted) return NextResponse.json({ received: true, unpaid: recovery.reason });
+      const change = await followNewDefaultCard(admin, stripe, customerId, {
+        previousCard: previousDefaultCard(event.data.previous_attributes),
+        eventId: event.id,
+      });
+      if (!change.acted) return NextResponse.json({ received: true, cardChange: change.reason });
       // Declines are acknowledged like everything else: redelivering this
-      // event would only ask the same bank the same question.
+      // event would only ask the same bank the same question. An invoice paid
+      // in the meantime (Stripe's retry won the race) counts as paid; notPaid
+      // is declines only, and refused is Stripe saying no to the invoice.
       return NextResponse.json({
         received: true,
-        paid: recovery.attempts.filter((a) => a.outcome === "paid").length,
-        notPaid: recovery.attempts.filter((a) => a.outcome !== "paid").length,
+        moved: change.moved.length,
+        kept: change.kept.length,
+        paid: change.attempts.filter((a) => a.outcome === "paid" || a.outcome === "already_paid").length,
+        notPaid: change.attempts.filter((a) => a.outcome === "declined").length,
+        refused: change.attempts.filter((a) => a.outcome === "refused").length,
       });
     }
 

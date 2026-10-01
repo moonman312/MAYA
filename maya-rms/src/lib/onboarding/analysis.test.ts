@@ -4,6 +4,7 @@ import {
   findClosedPeriods,
   findDuplicateRoomTypes,
   findRateOutliers,
+  findRoomLikeNonRooms,
   findSuspectRoomTypes,
   nameIsCertainlyNonRoom,
   nameLooksLikeNonRoom,
@@ -483,12 +484,47 @@ describe("the name heuristic, in two strengths", () => {
     },
   );
 
-  it.each(["Parking Bay", "Pickleball Court", "Boardroom", "Conference Room B", "Resort Fee"])(
+  it.each(["Parking Bay", "Pickleball Court", "Boardroom", "Conference Room B", "Resort Fee", "Meeting Room", "Storage Room"])(
     "%j is certainly not a room",
     (name) => {
       expect(nameIsCertainlyNonRoom(name)).toBe(true);
     },
   );
+
+  it.each(["King Room with Parking", "Queen - Free Parking Included", "Studio with Storage", "Conference Suite", "Twin Bedroom, Parking"])(
+    "%j has a bedroom word, which wins: the owner is asked, nothing is switched off",
+    (name) => {
+      // Audit A22 (Jake, 2026-09-30). The bare "room" is not a bedroom word:
+      // "Meeting Room" has it too. The name still trips the review's question.
+      expect(nameIsCertainlyNonRoom(name)).toBe(false);
+      expect(nameLooksLikeNonRoom(name)).toBe(true);
+    },
+  );
+});
+
+describe("findRoomLikeNonRooms: a nightly rate like the rooms' wins over the name", () => {
+  const stats = [
+    rt({ room_type_id: "rt-king", name: "Deluxe King", median_rate: 200, row_count: 900 }),
+    rt({ room_type_id: "rt-queen", name: "Garden Queen", median_rate: 160, row_count: 700 }),
+    rt({ room_type_id: "rt-exec", name: "Executive Conference Room", median_rate: 210, row_count: 40 }),
+    rt({ room_type_id: "rt-bay", name: "Parking Bay", median_rate: 20, row_count: 300 }),
+    rt({ room_type_id: "rt-hall", name: "Banquet Hall", median_rate: 2500, row_count: 12 }),
+    rt({ room_type_id: "rt-few", name: "Storage Unit", median_rate: 190, row_count: 2 }),
+  ];
+
+  it("names only the never-a-bedroom names whose rate sits within three times of the rooms' usual rate", () => {
+    // Rooms' usual: the median of 200 and 160. A parking bay at 20 and a hall
+    // at 2,500 read as what their names say; two stays are too few to speak.
+    expect(findRoomLikeNonRooms(stats)).toEqual(["rt-exec"]);
+  });
+
+  it("names nothing when no bedroom-named type has a rate to compare with", () => {
+    expect(findRoomLikeNonRooms(stats.filter((s) => !["rt-king", "rt-queen"].includes(s.room_type_id)))).toEqual([]);
+  });
+
+  it("leaves out a type that is not active", () => {
+    expect(findRoomLikeNonRooms(stats.map((s) => (s.room_type_id === "rt-exec" ? { ...s, is_active: false } : s)))).toEqual([]);
+  });
 });
 
 /** Records the counts_as_room writes proposeCountsAsRoom makes. */
@@ -520,6 +556,7 @@ describe("proposeCountsAsRoom", () => {
     { external_room_type_id: "king", name: "King Room" },
     { external_room_type_id: "parking", name: "Parking Bay" },
     { external_room_type_id: "poolview", name: "Deluxe Pool View" },
+    { external_room_type_id: "kingpark", name: "King Room with Parking" },
   ];
   const writtenAs = (writes: { value: unknown; ids: unknown[] }[], value: boolean) =>
     writes.filter((w) => w.value === value).flatMap((w) => w.ids);
@@ -529,9 +566,10 @@ describe("proposeCountsAsRoom", () => {
     const r = await proposeCountsAsRoom(client, "hotel-1", rows, "import");
     expect(writtenAs(writes, true)).toEqual(["king"]);
     expect(writtenAs(writes, false)).toEqual(["parking"]);
-    // "Deluxe Pool View" is a bedroom at plenty of resorts: null keeps it
-    // counting, and the review screen asks about it as a finding instead.
-    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 1, leftUnclassified: 1 });
+    // "Deluxe Pool View" is a bedroom at plenty of resorts, and "King Room
+    // with Parking" is a king room: null keeps both counting, and the review
+    // screen asks about them as findings instead.
+    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 1, leftUnclassified: 2 });
   });
 
   it("on a steady-state sync, never writes false — the heuristic is advisory on a live hotel", async () => {
@@ -543,7 +581,7 @@ describe("proposeCountsAsRoom", () => {
     const r = await proposeCountsAsRoom(client, "hotel-1", rows, "sync");
     expect(writtenAs(writes, true)).toEqual(["king"]);
     expect(writtenAs(writes, false)).toEqual([]);
-    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 0, leftUnclassified: 2 });
+    expect(r).toEqual({ proposedRooms: 1, proposedNonRooms: 0, leftUnclassified: 3 });
     expect(String(log.mock.calls[0]?.[0])).toContain("parking");
     log.mockRestore();
   });

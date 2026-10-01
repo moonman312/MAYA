@@ -12,7 +12,7 @@ const client = vi.hoisted(() => {
       this.name = "CloudbedsHttpError";
     }
   }
-  return {
+  const c = {
     CloudbedsHttpError,
     setCloudbedsRequestLogger: vi.fn(),
     cloudbedsDiscoverPropertyId: vi.fn(async () => "prop-1"),
@@ -29,6 +29,23 @@ const client = vi.hoisted(() => {
     // The wire format, unmocked in spirit: a sync that persists its own
     // watermark goes incremental on the next run and formats it with this.
     cloudbedsTimestamp: (d: Date) => d.toISOString().slice(0, 19).replace("T", " "),
+  };
+  return {
+    ...c,
+    // The paged list the sync reads, built from cloudbedsGetRoomTypes so a test that stubs that still steers it.
+    cloudbedsListRoomTypes: vi.fn(async (creds: unknown) => ({
+      roomTypes: await (c.cloudbedsGetRoomTypes as (x: unknown) => Promise<Record<string, unknown>[]>)(creds),
+      complete: true,
+    })),
+    // The daily details read: no time zone or currency, so nothing changes.
+    cloudbedsGetHotelDetails: vi.fn(
+      async (): Promise<{ externalPropertyId: string; name: string | null; timezone: string | null; currency: string | null }> => ({
+        externalPropertyId: "prop-1",
+        name: null,
+        timezone: null,
+        currency: null,
+      }),
+    ),
   };
 });
 
@@ -214,7 +231,15 @@ function makeSupabaseStub(seed: ResRow[] = [], syncState: ResRow = {}) {
     return chain;
   }
 
-  return { from: table, reservations, roomTypeUpserts, connUpdates, connection } as unknown as SupabaseClient & {
+  // The database functions the sync calls, recorded; each answers with no rows.
+  const rpcCalls: { fn: string; args: ResRow }[] = [];
+  const rpc = async (fn: string, args: ResRow) => {
+    rpcCalls.push({ fn, args });
+    return { data: [], error: null };
+  };
+
+  return { from: table, rpc, rpcCalls, reservations, roomTypeUpserts, connUpdates, connection } as unknown as SupabaseClient & {
+    rpcCalls: { fn: string; args: ResRow }[];
     reservations: ResRow[];
     roomTypeUpserts: ResRow[];
     connUpdates: ResRow[];
@@ -740,6 +765,96 @@ describe("incremental pulls", () => {
     // The next run is the full sweep, which checkpoints instead of starting over.
     expect(rateDetailsQueries()[0].modifiedFrom).toBeUndefined();
     expect(supabase.reservations.length).toBeGreaterThanOrEqual(rowsAfterFirst);
+  });
+});
+
+describe("room types and the property's details", () => {
+  const reconcileCalls = (supabase: { rpcCalls: { fn: string; args: Record<string, unknown> }[] }) =>
+    supabase.rpcCalls.filter((c) => c.fn === "pms_room_types_reconcile").map((c) => c.args);
+
+  it("may switch off a type Cloudbeds no longer lists only on a full read whose list went to its end, before writing the list", async () => {
+    const supabase = makeSupabaseStub();
+    serve([]);
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(reconcileCalls(supabase)).toEqual([
+      { p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_listed: ["RT1"], p_remove: true },
+    ]);
+    if (res.ok) expect(res.ingest).toMatchObject({ roomTypeListComplete: true, roomTypesSwitchedOff: [], roomTypesSwitchedBackOn: [] });
+  });
+
+  it("never switches one off on a list that did not reach its end", async () => {
+    const supabase = makeSupabaseStub();
+    serve([]);
+    client.cloudbedsListRoomTypes.mockResolvedValueOnce({
+      roomTypes: [{ roomTypeID: "RT1", roomTypeName: "King", roomTypeUnits: 10 }],
+      complete: false,
+    });
+
+    await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(reconcileCalls(supabase)).toEqual([{ p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_listed: ["RT1"], p_remove: false }]);
+  });
+
+  it("only brings types back on an incremental tick, and leaves the time zone to the daily read", async () => {
+    const supabase = makeSupabaseStub([], {
+      reservations_modified_through: new Date(NOW.getTime() - 10 * 60_000).toISOString(),
+      last_full_sync_at: new Date(NOW.getTime() - 60 * 60_000).toISOString(),
+    });
+    serve([]);
+    client.cloudbedsGetHotelDetails.mockClear();
+
+    await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(reconcileCalls(supabase)).toEqual([{ p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_listed: ["RT1"], p_remove: false }]);
+    expect(client.cloudbedsGetHotelDetails).not.toHaveBeenCalled();
+    expect(supabase.rpcCalls.some((c) => c.fn === "pms_property_details_refresh")).toBe(false);
+  });
+
+  it("saves the time zone and currency Cloudbeds reports on the daily read", async () => {
+    const supabase = makeSupabaseStub();
+    serve([]);
+    client.cloudbedsGetHotelDetails.mockResolvedValueOnce({
+      externalPropertyId: "prop-1",
+      name: "Juniper Lodge",
+      timezone: "America/Chicago",
+      currency: "USD",
+    });
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.rpcCalls.filter((c) => c.fn === "pms_property_details_refresh").map((c) => c.args)).toEqual([
+      { p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_timezone: "America/Chicago", p_currency: "USD" },
+    ]);
+  });
+
+  it("reads the details once per full read, not again on each tick that resumes a large sweep", async () => {
+    const supabase = makeSupabaseStub([], { full_sweep_after_id: "checkout:2026-08-20", full_sweep_started_at: NOW.toISOString() });
+    serve([]);
+    client.cloudbedsGetHotelDetails.mockClear();
+
+    await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(client.cloudbedsGetHotelDetails).not.toHaveBeenCalled();
+    // The room type list is still read, and may still switch a type off.
+    expect(reconcileCalls(supabase)).toEqual([{ p_hotel_id: "hotel-1", p_pms_type: "cloudbeds", p_listed: ["RT1"], p_remove: true }]);
+  });
+
+  it("carries on when the details read fails: the time zone waits for tomorrow", async () => {
+    const supabase = makeSupabaseStub();
+    serve([]);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    client.cloudbedsGetHotelDetails.mockRejectedValueOnce(new Error("Cloudbeds getHotelDetails failed (503): upstream"));
+
+    const res = await runCloudbedsSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(supabase.rpcCalls.some((c) => c.fn === "pms_property_details_refresh")).toBe(false);
+    expect(errorLog.mock.calls.map((c) => String(c[0])).join("\n")).toContain("hotel_details");
+    errorLog.mockRestore();
   });
 });
 

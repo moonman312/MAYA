@@ -263,7 +263,9 @@ function FireRow({ fire, open, onToggle }: { fire: RuleFireItem; open: boolean; 
             <p className="font-medium text-slate-200">{fire.price_line}</p>
           ) : (
             <>
-              <p className="font-medium text-slate-200">{fire.room_type}</p>
+              <p className="truncate font-medium text-slate-200" title={fire.room_type}>
+                {fire.room_type}
+              </p>
               <p className="text-slate-500">The prices for this run aren&apos;t on record.</p>
             </>
           )}

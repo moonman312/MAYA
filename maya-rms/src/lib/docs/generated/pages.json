@@ -113,7 +113,7 @@
   "order": 20,
   "title": "Is MAYA right for your property",
   "summary": "Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.",
-  "readingTime": 17,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -210,6 +210,7 @@
    "Our old tool priced a year ahead. What happens to the far-out nights when we switch?",
    "How can I tell whether MAYA is earning me more? Is there a performance or pace report?",
    "Is MAYA available in languages other than English?",
+   "Which currencies does MAYA work in?",
    "Does MAYA work for hostels, apartments, campsites or vacation rentals?",
    "Can MAYA price per bed or per guest?",
    "Can I talk to a hotel that already uses MAYA, or read about one?"
@@ -225,7 +226,7 @@
   "order": 30,
   "title": "How to get started",
   "summary": "The whole journey on one page, in the order it happens. Two ways in, then connect, the history import, the review, and going live when you are ready. With Mews we connect it for you, and there is no import or review yet.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -949,7 +950,7 @@
   "summary": "How several properties arrive from one Connect App in Cloudbeds, why the payment screen says Property 2 of 3, one card and one subscription per property, paying with a different card or billing a different company, setting a property aside with Not now, and what a group looks like on the billing page.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1089,9 +1090,9 @@
   "order": 20,
   "title": "Cloudbeds",
   "summary": "How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.",
-  "readingTime": 9,
+  "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds"
   ],
@@ -1173,9 +1174,9 @@
   "order": 30,
   "title": "ThinkReservations",
   "summary": "How to connect ThinkReservations from inside MAYA, what MAYA reads there, which rate type it sends prices to, how a send is checked, and what is different about room counts and disconnects.",
-  "readingTime": 15,
+  "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "thinkreservations"
   ],
@@ -1431,8 +1432,8 @@
    },
    {
     "depth": 2,
-    "text": "Property details are read once",
-    "id": "property-details-are-read-once"
+    "text": "When property details are read",
+    "id": "when-property-details-are-read"
    },
    {
     "depth": 2,
@@ -1817,9 +1818,9 @@
   "order": 110,
   "title": "What MAYA picks up from your system, and how soon",
   "summary": "Every change you can make in Cloudbeds, ThinkReservations or Mews, whether MAYA picks it up, and how long it takes. Bookings within about five minutes, your own rates within the hour, the whole window once a day, and a short list of things MAYA never reads.",
-  "readingTime": 14,
+  "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1944,9 +1945,9 @@
   "order": 10,
   "title": "The history import",
   "summary": "What MAYA reads from your property system after you connect, in what order, what it keeps, how long it takes, and what you can do while it runs.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -2145,10 +2146,10 @@
   "slug": "checking-what-maya-found",
   "order": 40,
   "title": "Checking what MAYA found",
-  "summary": "The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.",
-  "readingTime": 14,
+  "summary": "The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, your floors and ceilings, and how to come back later.",
+  "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -2208,6 +2209,11 @@
    },
    {
     "depth": 2,
+    "text": "Your floors and ceilings",
+    "id": "your-floors-and-ceilings"
+   },
+   {
+    "depth": 2,
     "text": "The banner on your dashboard",
     "id": "the-banner-on-your-dashboard"
    },
@@ -2227,6 +2233,8 @@
    "What does \"Some stays have a $0 rate\" mean?",
    "What does \"Some old stays reference deleted room types\" mean?",
    "What is the room count strip?",
+   "Where do I see the floors and ceilings the import set?",
+   "How do I remove a floor or ceiling during setup?",
    "Can I skip the review and come back later?",
    "What is the blue banner on my dashboard that links to the review?",
    "I answered a review card wrong. Can I change it?",
@@ -2244,9 +2252,9 @@
   "order": 50,
   "title": "Your starter rules",
   "summary": "The rules MAYA builds during a first import, which depend on your answer to the last of the five questions, what each one does, how they count bookings, why you may not have them, and how to turn one off or delete it.",
-  "readingTime": 20,
+  "readingTime": 22,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -2355,6 +2363,8 @@
    "Why did I not get starter rules?",
    "Can I turn the starter rules off or delete them?",
    "What does Slow-date rescue do?",
+   "Can a starter rule cut a night that is nearly full?",
+   "I ticked a room type as a room. Do the starter rules cover it now?",
    "What does Hot-week surge do?",
    "Do starter rules change prices straight away?",
    "Which room types do the starter rules cover?",
@@ -2376,10 +2386,10 @@
   "slug": "floors-and-ceilings",
   "order": 60,
   "title": "Floors and ceilings",
-  "summary": "What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), the numbers MAYA uses, and what they mean for prices you type.",
-  "readingTime": 11,
+  "summary": "What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), where you see and remove them, the numbers MAYA uses, and what they mean for prices you type.",
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -2391,6 +2401,11 @@
     "depth": 2,
     "text": "Where they show",
     "id": "where-they-show"
+   },
+   {
+    "depth": 2,
+    "text": "On the review",
+    "id": "on-the-review"
    },
    {
     "depth": 2,
@@ -2431,6 +2446,8 @@
    "Why did the price stop at my ceiling?",
    "Could a price really climb to $99,999.99?",
    "My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will the default ceiling cap them?",
+   "How do I remove a floor or ceiling the import set?",
+   "Did the import set limits on my property after it went live?",
    "Why does a room type I confirmed as a room have no floor or ceiling?"
   ],
   "faq": []
@@ -2446,7 +2463,7 @@
   "summary": "The Get suggestions from my data button on the Rules tab, who can press it, what it re-reads, the four kinds of card it can offer (the rules offered follow your answer to the last of the five questions), and what accepting each one does.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -3146,7 +3163,7 @@
   "summary": "The Change prices on different room types checkbox, the Measure and Change lists, what the rule card shows, and what happens when a rule measures a type that is not a room.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -4153,6 +4170,11 @@
    },
    {
     "depth": 2,
+    "text": "Your property changed in Cloudbeds",
+    "id": "your-property-changed-in-cloudbeds"
+   },
+   {
+    "depth": 2,
     "text": "Prices not reaching your property system",
     "id": "prices-not-reaching-your-property-system"
    },
@@ -4184,6 +4206,8 @@
   ],
   "questions": [
    "What is the change log?",
+   "What does \"Deluxe is no longer in Cloudbeds\" mean in the change log?",
+   "Why does the change log say my time zone changed?",
    "What is a \"pricing run\"?",
    "How do I see only the changes in the change log?",
    "How far back does the change log go?",
@@ -4622,9 +4646,9 @@
   "order": 70,
   "title": "Room types and rooms out of service",
   "summary": "The Room types list on the PMS tab. Untick Counts as a room for anything nobody sleeps in, and enter rooms out of service so occupancy reads against what you can really sell.",
-  "readingTime": 13,
+  "readingTime": 15,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4696,6 +4720,7 @@
    "What does \"Counts as a room\" mean?",
    "Will an unticked room type still be priced?",
    "Why did MAYA propose that a room type is not a room?",
+   "Our King Room with Parking was asked about, not ticked. Why?",
    "What are \"Rooms out of service\"?",
    "Does rooms out of service send anything to my property system?",
    "Does rooms out of service change booking speed?",
@@ -4897,7 +4922,7 @@
   "order": 20,
   "title": "Going live",
   "summary": "Where the go-live buttons are (the amber strip at the top of the dashboard, and the review screen), who can press them, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.",
-  "readingTime": 15,
+  "readingTime": 18,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4925,6 +4950,11 @@
     "depth": 2,
     "text": "The confirm dialog",
     "id": "the-confirm-dialog"
+   },
+   {
+    "depth": 3,
+    "text": "The nights outside your limits",
+    "id": "the-nights-outside-your-limits"
    },
    {
     "depth": 3,
@@ -4976,6 +5006,7 @@
    "What is \"Live: your rules are now managing prices\"?",
    "Does going live change my rules or my history?",
    "Why did a rate change on a night no rule touched when I went live?",
+   "What does \"12 nights have a rate outside your floor or ceiling\" mean?",
    "What is recorded when I go live?",
    "How do I go live, and can I go back?",
    "Can I schedule going live for a date, say next Monday morning?",
@@ -4999,7 +5030,7 @@
   "summary": "Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.",
   "readingTime": 26,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5130,7 +5161,7 @@
   "summary": "What the \"Prices not reaching Cloudbeds\" item in the change log means, every cause it can name, what to do about each, how MAYA retries, and when you are told.",
   "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5474,10 +5505,10 @@
   "slug": "cards-payments-and-invoices",
   "order": 30,
   "title": "Cards, payments and invoices",
-  "summary": "The two zero-amount card checks, what happens when a payment fails and when the retries run out, what \"stopped\" means, updating your card, keeping a second card on file, where invoices and receipts live, the name on your card statement, tax, switching monthly and yearly, refunds and disputes.",
-  "readingTime": 13,
+  "summary": "The two zero-amount card checks, what happens when a payment fails and when the retries run out, what \"stopped\" means, updating your card and what moves onto it, keeping a second card on file, where invoices and receipts live, the name on your card statement, tax, switching monthly and yearly, refunds and disputes.",
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6438,7 +6469,7 @@
   "summary": "Build a standard rule that raises a night's price by 10% when its sellable occupancy is above 85%, and takes the raise off again when the night drops back.",
   "readingTime": 3,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6472,7 +6503,7 @@
   "summary": "Build a booking speed rule that cuts a night 7% when its bookings over the past month read Slower Than Normal, waits a week, then counts only the bookings made since the cut before it cuts again.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6513,7 +6544,7 @@
   "summary": "Build a booking speed rule that raises a night 25% when its bookings over the past day read Surging, waits a day, and raises again only if the bookings since that raise are still pouring in.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6699,16 +6730,21 @@
   "slug": "set-a-floor-or-ceiling",
   "order": 150,
   "title": "Set or change a floor or ceiling",
-  "summary": "Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.",
-  "readingTime": 8,
+  "summary": "Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the review or the Rate Simulator tab first. There is no editor, but the review removes one in a click. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.",
+  "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
     "depth": 2,
     "text": "Check what you have first",
     "id": "check-what-you-have-first"
+   },
+   {
+    "depth": 2,
+    "text": "Remove one",
+    "id": "remove-one"
    },
    {
     "depth": 2,
@@ -6735,6 +6771,7 @@
    "Where do I set floors and ceilings?",
    "Did setup already set my floors and ceilings?",
    "How do I change a floor or ceiling that is already set?",
+   "How do I remove a floor or ceiling?",
    "Why is my ceiling $99,999.99?",
    "Why is my floor $1.00?",
    "Why did my new floor not change one room type?",
@@ -6755,7 +6792,7 @@
   "summary": "Untick Counts as a room for a meeting room, spa slot or court on the PMS tab so it no longer counts in sellable occupancy, the calendar's room counts or the room count you are billed for.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -7082,10 +7119,10 @@
   "slug": "update-your-card",
   "order": 240,
   "title": "Update your card",
-  "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, change the payment method there, come back, and email us so we move your subscription onto the new card. An unpaid subscription is paid and moved for you. When to do it, and what clears the warning.",
+  "summary": "Click Update card, receipts & cancellation on the Billing page to open Stripe's portal, save the new card as your default, and come back. Your subscription moves onto it, and an overdue payment is paid with it straight away. When to do it, and what clears the warning.",
   "readingTime": 4,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -7367,9 +7404,9 @@
   "order": 20,
   "title": "A price looks wrong",
   "summary": "Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.",
-  "readingTime": 16,
+  "readingTime": 17,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7474,7 +7511,7 @@
    },
    {
     "q": "Why did it cut a night that is nearly full?",
-    "a": "A cut rule with only a booking speed condition does not look at occupancy. It counts bookings made in its window (past day, week or month, in full days up to yesterday) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires."
+    "a": "A cut rule with only a booking speed condition does not look at occupancy. The two cut rules setup builds, \"Slow-date rescue\" and \"Slow-date trim\", come with an occupancy condition, Less than 70, so they leave a night 70% booked or more alone. Starter rules built before that, and cut rules you built, have only booking speed unless you add one. It counts bookings made in its window (past day, week or month, in full days up to yesterday) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires."
    },
    {
     "q": "We are sold out tonight. Why is the price still changing?",
@@ -7486,7 +7523,7 @@
    },
    {
     "q": "Why is a price at $99,999?",
-    "a": "That is the default ceiling, $99,999.99. In most currencies it has the same effect as no ceiling at all. Raise rules that keep firing on a night that keeps reading fast climb until the ceiling stops them."
+    "a": "That is the default ceiling, $99,999.99. In the currencies MAYA works in it has the same effect as no ceiling at all. Raise rules that keep firing on a night that keeps reading fast climb until the ceiling stops them."
    },
    {
     "q": "Why is my price stuck at the floor?",
@@ -8328,7 +8365,7 @@
   "summary": "Sign-in trouble, the connection link, codes, a stuck \"Payment received\" screen, card checks and whether you were charged twice, the room count banner, a paused property, seats, invitations, and a property name, time zone or currency that came in wrong.",
   "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8527,7 +8564,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 67,
+  "readingTime": 70,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-10-01",
   "pms": [
@@ -8725,8 +8762,8 @@
   "slug": "time-weekends-currency-and-holidays",
   "order": 20,
   "title": "Time, weekends, currency and holidays",
-  "summary": "Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, your currency and how prices are rounded, including currencies without cents, and how far ahead MAYA looks.",
-  "readingTime": 10,
+  "summary": "Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, which currencies MAYA works in and how prices are rounded, and how far ahead MAYA looks.",
+  "readingTime": 12,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -8811,7 +8848,9 @@
    "Which holidays does MAYA use?",
    "Which currency symbol will I see?",
    "Can I change the currency?",
-   "My currency has no cents (JPY). How are prices rounded and sent?",
+   "Which currencies does MAYA work in?",
+   "My property system uses yen (or won, rupiah, pesos). Can I connect it?",
+   "My system keeps whole numbers. How are prices rounded and sent?",
    "My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will MAYA's default ceiling cap them?",
    "We write prices as 180,50. Do I type a comma or a point in the price box?",
    "How far ahead does MAYA see bookings?"

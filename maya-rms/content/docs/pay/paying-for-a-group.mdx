@@ -20,7 +20,7 @@ questions:
   - Do I get a discount for several properties? {#one-card-one-subscription-per-property/its-own-bracket}
   - Can one property be monthly and the other yearly? {#one-card-one-subscription-per-property/its-own-billing}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -71,7 +71,7 @@ Sam owns The Harbour Inn (20 rooms) and a 15-room guesthouse, both in Cloudbeds.
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-**Different cards: yes, when you pay.** Once you have paid for one property, Stripe's page for the next offers the same card, and you can type a different card there instead. That property is then charged to the card you paid for it with. Both cards are saved on the same billing account. To move one property to a different card after you have paid for it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Card%20for%20one%20property).
+**Different cards: yes, when you pay.** Once you have paid for one property, Stripe's page for the next offers the same card, and you can type a different card there instead. That property is then charged to the card you paid for it with, and it keeps that card when you later save a new default card. Both cards are saved on the same billing account. To move one property to a different card after you have paid for it, [email us](mailto:info@modern-hospitality-solutions.com?subject=Card%20for%20one%20property).
 
 **Different companies: not inside one group.** Every property you pay for through the Cloudbeds Marketplace bills on the same billing account in Stripe, the one that belongs to your MAYA login. That account has one billing email and, if you add them, one billing address and one business tax ID. So each property gets its own invoice, but every invoice is addressed the same way.
 
@@ -126,7 +126,7 @@ The owner who paid, being Hotel Admin of every property, opens the full portal a
 
 The properties do not all stop at once. Each one is charged on its own renewal date, so a failing card fails one property at a time, as each renewal comes round. Each property then follows its own path: "Payment overdue" while the bank retries, with MAYA still working on it, then "Unpaid" and stopped if the retries run out. A property whose renewal has not come yet keeps running as normal.
 
-Only the owner can fix it, because the card belongs to the owner's billing account. The owner adds a working card in the full portal and saves it as the default. Every property already "Unpaid" is then paid on the new card straight away and moved onto it. A subscription can keep the card it was set up with, so for any other property the owner also [emails us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) which properties to move onto the new card (or all of them), and we move each one. Read [Moving to another card](/docs/billing/cards-payments-and-invoices#moving-to-another-card). A General Manager of only one property cannot reach the card from their <Ui>Billing</Ui> page, so they ask the owner or [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20card). [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices#when-a-payment-fails) has each step of a failed payment.
+Only the owner can fix it, because the card belongs to the owner's billing account. The owner adds a working card in the full portal and saves it as the default. Every property on the old default card then moves to the new card, and each one that is overdue ("Payment overdue" or "Unpaid") is paid with it straight away. A property paid for with a different card at checkout keeps that card. If the owner had no default card before and the properties were paid for with different cards, none of them moves: the owner [emails us](mailto:info@modern-hospitality-solutions.com?subject=Move%20to%20a%20new%20card) which properties to move onto the new card, and we move each one. Read [Moving to another card](/docs/billing/cards-payments-and-invoices#moving-to-another-card). A General Manager of only one property cannot reach the card from their <Ui>Billing</Ui> page, so they ask the owner or [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20card). [Cards, payments and invoices](/docs/billing/cards-payments-and-invoices#when-a-payment-fails) has each step of a failed payment.
 
 ## Cancelling one property in a group
 

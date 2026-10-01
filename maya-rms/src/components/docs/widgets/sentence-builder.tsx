@@ -52,9 +52,9 @@ const SHAPES = {
     why: "Bookings came in much faster than normal in the 3 days since this rule or a stronger one's latest raise still on this night: 12, against the 5 a night like this usually gets in a whole week.",
   },
   "speed-stalled": {
-    label: 'Booking speed, "Slow-date rescue" (at most Much Slower Than Normal, past month)',
+    label: 'Booking speed and occupancy, "Slow-date rescue" (at most Much Slower Than Normal, past month, under 70%)',
     rule: '"Slow-date rescue" lowered this night 15%, from $200.00 to $170.00.',
-    why: "Bookings came in much slower than normal in the month up to yesterday: none, against the 5 a night like this usually gets in those days.",
+    why: "It was 40% full, under the 70% mark you set. Bookings came in much slower than normal in the month up to yesterday: none, against the 5 a night like this usually gets in those days.",
   },
 } as const;
 

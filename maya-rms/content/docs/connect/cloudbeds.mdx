@@ -3,7 +3,7 @@ title: Cloudbeds
 summary: How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.
 section: connect
 order: 20
-readingTime: 9
+readingTime: 10
 keywords: [PIE, Price Intelligence Engine, import from PIE, Cloudbeds, Marketplace, Connect App, My Apps, permissions, write reservations, access code, link expired, 24 hours, 15 minutes, covers properties, group, base rate, derived rate, package, rate plan, virtual room type, blocked rooms, allotment, Confirmation Pending, unassigned, password, second user, snag, booking date, day off, time zone, choose rate plan, pick rate plan, different rate plan, user left, employee left, staff left, deactivated user, deleted user, removed user, installer left, group login, stopped syncing, Last sync, second property, new property, Create your MAYA account, took too long, paid without a code, uninstall, disconnect, availability, restrictions, minimum stay, guest names, untick virtual room type]
 questions:
   - How do I connect Cloudbeds to MAYA? {#way-1-from-the-cloudbeds-marketplace}
@@ -30,7 +30,7 @@ questions:
   - Which Cloudbeds bookings does MAYA count? {#what-maya-reads-from-cloudbeds/about-every-five}
   - How do I stop using MAYA with Cloudbeds? {#disconnecting-and-reconnecting/you-disconnect-in}
 pms: [cloudbeds]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -82,6 +82,7 @@ You land on a page that says "That sign-in link ran out after 15 minutes. Start 
 ### Messages you may see
 
 - **"Cloudbeds needs an access code to connect. Use the system you signed up with, or get in touch and we'll sort you out."** You paid without a code, and Cloudbeds needs one. A code cannot be added after paying, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Access%20code%20for%20Cloudbeds).
+- **"Your property's system uses KRW. MAYA doesn't price in KRW yet, so nothing was set up or imported. Email us and we'll tell you when it does."** (with your currency's code). For now MAYA works only in dollar, euro and pound style currencies, and checks yours as you connect, from either way in. Nothing about the property is kept. When you had already paid, it adds "Reply to your receipt and we'll sort out your payment." In a group, only the properties in other currencies are left out, and the sign-in page says how many. [Which currencies MAYA works in](/docs/reference/time-weekends-currency-and-holidays#currency) has the list.
 - **"This Cloudbeds login covers 3 properties. MAYA signs one property up at a time right now"** (with your own number). MAYA cannot tell which property you paid for, so [email us](mailto:info@modern-hospitality-solutions.com?subject=Group%20login) and we set them up.
 - **Anything else**, such as "We hit a snag connecting your property" or "We couldn't verify your signup just now", usually clears if you try again in a moment. [Messages you might see, explained](/docs/wrong/messages-explained) has each one.
 
@@ -89,7 +90,7 @@ You land on a page that says "That sign-in link ran out after 15 minutes. Start 
 
 About every five minutes, MAYA reads **bookings** made or changed since the last read, with each room's own nightly rate, and your **room types** with the number of units in each. About once an hour it reads your own nightly rates for the next 396 nights from each base rate plan. Once a day it reads the whole booking window again. It also asks for your taxes and fees, because Cloudbeds requires it, but keeps none of that and uses none of it.
 
-Your property's name, time zone and currency are read once, at connect. If you change them in Cloudbeds, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency).
+Your property's name is read once, at connect. Its time zone and currency are read at connect and again once a day: MAYA follows a new time zone, and a new currency only while you are in simulation, with a line in the change log either way. Once you are live, a currency change in Cloudbeds is not followed; [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency).
 
 Cloudbeds sends availability and restrictions (such as minimum stays) with your room types and nightly rates, and guest names with bookings. MAYA uses none of them and keeps none of them. It never asks for room blocks, allotments or other guest details.
 

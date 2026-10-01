@@ -35,7 +35,7 @@ On Cloudbeds and ThinkReservations, MAYA changes one thing in your system: one n
 <PmsTab pms="cloudbeds">
 1. Every room type you want priced has a rate plan that does not follow another plan and has no public name. That is the plan MAYA writes to.
 2. That plan has a rate loaded for tonight and the next 395 nights, and further out if you sell further out.
-3. Your time zone and currency are right. MAYA copies them from Cloudbeds once, when you connect. Check both under <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) if either is wrong.
+3. Your time zone and currency are right. MAYA copies them from Cloudbeds when you connect and checks them again once a day. Check both under <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) if either is wrong.
 4. Anything nobody sleeps in is unticked under <Ui>Counts as a room</Ui> on the <Ui>PMS</Ui> tab.
 5. Rooms you have blocked or taken out of order in Cloudbeds are recorded under <Ui>Rooms out of service</Ui> in MAYA.
 6. Floors and ceilings are set for every room type. Read [floors and ceilings](/docs/review/floors-and-ceilings).
@@ -101,13 +101,13 @@ MAYA reads the nightly rate from the base rate plan it writes to, and from no ot
 
 ## Time zone and currency
 
-MAYA copies your property's name, time zone and currency from your system once, when you connect (on Mews, we set them with you). They are not refreshed afterwards. The <Ui>PMS</Ui> tab shows both, and there is no field in MAYA to change them.
+MAYA copies your property's name, time zone and currency from your system when you connect (on Mews, we set them with you). The name is not read again. On Cloudbeds the time zone and currency are checked once a day: MAYA follows a new time zone, and a new currency while you are in simulation; once you are live it keeps the currency it has and our team is alerted. On ThinkReservations they are not read again. The <Ui>PMS</Ui> tab shows both, and there is no field in MAYA to change them.
 
-If MAYA could not read the time zone or currency at that moment, it uses universal time (UTC) and US dollars until we change them. That is why you check them on the <Ui>PMS</Ui> tab, even when your system has them right. When the time zone there reads UTC, a line under it says so.
+If MAYA could not read the time zone or currency at that moment, it uses universal time (UTC) and US dollars until we change them, or on Cloudbeds until the daily read finds them (a currency only while you are in simulation). That is why you check them on the <Ui>PMS</Ui> tab, even when your system has them right. When the time zone there reads UTC, a line under it says so.
 
 The time zone sets what "today" is, which nights are in the 396-night window, and what "past week" means for booking speed. If it is wrong, your system may refuse the price for tonight with "Cloudbeds wouldn't take Standard rates for a night that had already begun at the property".
 
-Nothing waits on it while you simulate, because nothing is sent. So before you go live, check the time zone on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) if it is wrong. Email us too if you change your time zone or currency in your system later. Read [time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+Nothing waits on it while you simulate, because nothing is sent. So before you go live, check the time zone on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) if it is wrong. Email us too if you change your time zone or currency in your system later, except a time zone on Cloudbeds, which MAYA follows by itself the next day. Read [time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
 
 ### Where to check your time zone and currency
 

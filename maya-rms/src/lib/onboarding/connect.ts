@@ -6,6 +6,8 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createOnboardingAdapter } from "@/lib/pms/onboarding-adapter";
+import { currencyRefusalFor, recordCurrencyRefused } from "@/lib/onboarding/currency-gate";
+import { currencyCode } from "../../../supabase/functions/_shared/pms/currencies";
 import { isAmbiguousGroupGrant } from "../../../supabase/functions/_shared/pms/errors";
 import type { PmsType } from "@/lib/pms/registry";
 import type { cookies } from "next/headers";
@@ -100,6 +102,29 @@ export async function handleOnboardingConnect(
   //    this never blocks (hotels.name is globally unique). User can rename later.
   const pendingHotelId = await findPendingHotelForUser(admin, user.id);
 
+  // Only dollar, euro and pound style currencies for now (currencies.ts).
+  // Stopped before the row is touched or anything is stored, so a property
+  // in another currency is never half set up: the placeholder stays as
+  // checkout left it, and there is no credential, connection or import.
+  const refusal = currencyRefusalFor(profile.currency);
+  if (refusal) {
+    // They have paid by now on a deployment that charges. The event then also
+    // posts a line to #maya-signups, so someone sorts out the payment.
+    const paid = Boolean(pendingHotelId) && isStripeConfigured();
+    await recordCurrencyRefused(admin, {
+      currency: currencyCode(profile.currency) ?? String(profile.currency),
+      pmsType,
+      via: "onboarding_oauth",
+      paid,
+      hotelId: pendingHotelId,
+      userId: user.id,
+      propertyId: profile.externalPropertyId ?? null,
+      propertyName: profile.name ?? null,
+    });
+    const payment = paid ? " Reply to your receipt and we'll sort out your payment." : "";
+    return onboardingError(`${refusal}${payment}`, { retry: false });
+  }
+
   // Creating a hotel outright is only ever right when there was no payment to
   // attach one to. On a deployment that CAN charge, reaching here without a
   // pending row means checkout never happened, and minting one anyway is how a
@@ -117,7 +142,7 @@ export async function handleOnboardingConnect(
     const fields = {
       name,
       timezone: profile.timezone ?? "UTC",
-      currency: profile.currency ?? "USD",
+      currency: currencyCode(profile.currency) ?? "USD",
     };
     // Deliberately NOT clearing setup_pending_at or activating here. Everything
     // below this point can still fail — the Vault write especially — and

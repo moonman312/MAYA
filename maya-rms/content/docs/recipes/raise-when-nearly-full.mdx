@@ -11,7 +11,7 @@ questions:
   - How do I charge more for the last few rooms? {#in-plain-words}
   - Does an occupancy rule undo itself when someone cancels? {#what-you-will-see/the-row-reads}
   - Why did my 85% rule not fire at exactly 85%? {#what-you-will-see/example-the-harbour}
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -43,7 +43,7 @@ The row reads "Occupancy above 85%" under <Ui>Conditions</Ui> and "+10%" under <
 
 This is a standard rule: it switches on when the condition starts holding, holds one raise while it holds, and switches off when it stops. With its undo box ticked, as it is on every new rule, a cancellation that takes the night to 85% or under takes the raise off on the next run. Untick it and falling occupancy never takes the raise off. It never stacks on itself.
 
-A sold-out night keeps the raise and is still priced like any other night. Once you are live on Cloudbeds or ThinkReservations, a room freed by a cancellation goes back on sale at the night's current price, raised as long as the night stays above 85%. On Mews it sells at the rate you set in Mews, because MAYA sends no prices there yet. A booking speed cut rule can still cut a sold-out night, because a full night takes no new bookings. Read [A price looks wrong](/docs/wrong/a-price-looks-wrong#we-are-sold-out-tonight-why-is-the-price-still-changing).
+A sold-out night keeps the raise and is still priced like any other night. Once you are live on Cloudbeds or ThinkReservations, a room freed by a cancellation goes back on sale at the night's current price, raised as long as the night stays above 85%. On Mews it sells at the rate you set in Mews, because MAYA sends no prices there yet. A booking speed cut rule with no occupancy row can still cut a sold-out night, because a full night takes no new bookings. The two cut rules setup builds only act under 70% booked. Read [A price looks wrong](/docs/wrong/a-price-looks-wrong#we-are-sold-out-tonight-why-is-the-price-still-changing).
 
 <Callout kind="example">
 The Harbour Inn has 20 rooms that count. On Saturday, November 14, 2026, 18 are booked: 90%, so the rule fires and Standard goes from $150 to $165. A cancellation leaves 17 booked: 85% exactly, which is not more than 85, so the raise comes off and Standard returns to $150.

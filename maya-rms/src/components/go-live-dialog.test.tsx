@@ -5,7 +5,7 @@
  */
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GoLiveConfirmation, GoLiveDialog, WENT_LIVE_EVENT, goLiveCopy, pmsConnected, requestGoLive } from "./go-live-dialog";
+import { GoLiveConfirmation, GoLiveDialog, OutsideLimitsLine, WENT_LIVE_EVENT, goLiveCopy, outsideLimitsLine, pmsConnected, requestGoLive } from "./go-live-dialog";
 import { StarterRules } from "./onboarding/review-findings";
 import { SimulationModeToggle } from "./admin/simulation-mode-toggle";
 
@@ -21,6 +21,41 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("the nights whose own rate sits outside a limit (audit A21)", () => {
+  it("counts them in plain words, with no line when there are none", () => {
+    expect(outsideLimitsLine(12)).toBe(
+      "12 nights have a rate outside your floor or ceiling; MAYA will move them inside when it sends.",
+    );
+    expect(outsideLimitsLine(1)).toBe("1 night has a rate outside your floor or ceiling; MAYA will move it inside when it sends.");
+    expect(outsideLimitsLine(1200)).toContain("1,200 nights");
+    for (const none of [0, null, undefined, Number.NaN, -3]) expect(outsideLimitsLine(none)).toBeNull();
+    expect(outsideLimitsLine(12)).not.toMatch(/[—–]/);
+  });
+
+  it("asks for the property on screen, and shows the count it gets back", async () => {
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ nights: 12 }), { status: 200 }));
+    const view = render(<OutsideLimitsLine hotelId="hotel-1" pmsType="cloudbeds" connected />);
+    expect(await view.findByText(/12 nights have a rate outside your floor or ceiling/)).toBeTruthy();
+    expect(fetchSpy.mock.calls[0][0]).toBe("/api/property/outside-limits?hotelId=hotel-1");
+  });
+
+  it("says nothing, and asks nothing, where MAYA sends no price or nothing is connected", async () => {
+    for (const props of [{ pmsType: "mews" }, { pmsType: "cloudbeds", connected: false }]) {
+      const view = render(<OutsideLimitsLine hotelId="hotel-1" {...props} />);
+      expect(view.container.textContent).toBe("");
+      cleanup();
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("says nothing when the count can't be had", async () => {
+    fetchSpy.mockImplementation(async () => new Response(JSON.stringify({ nights: null }), { status: 200 }));
+    const view = render(<OutsideLimitsLine hotelId="hotel-1" pmsType="think" />);
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
+    expect(view.container.textContent).toBe("");
+  });
 });
 
 describe("goLiveCopy", () => {
@@ -61,6 +96,21 @@ describe("goLiveCopy", () => {
     });
   });
 
+  it("says nothing is sent yet to a system whose sending is still off, as ThinkReservations' starts (audit A25)", () => {
+    expect(goLiveCopy({ pmsType: "think", windowDays: 60, propertyName: "Harbour Inn", sendingOn: false })).toEqual({
+      title: "Take Harbour Inn live?",
+      lines: [
+        "Sending to Think Reservations isn't on yet, so nothing is sent until MAYA switches it on. Your prices wait until then.",
+        "Once it's on, each price MAYA sends replaces that night's rate in Think Reservations, and a night is sent again whenever its price changes.",
+      ],
+    });
+    expect(text(goLiveCopy({ pmsType: "think", windowDays: 60, sendingOn: false }))).not.toContain("on the next cycle");
+    // Switched on, or a system with no switch to speak of: as before.
+    expect(text(goLiveCopy({ pmsType: "think", windowDays: 60, sendingOn: true }))).toContain("MAYA starts sending its prices");
+    expect(goLiveCopy({ pmsType: "mews", windowDays: 60, sendingOn: false }).lines[0]).toContain("MAYA doesn't send prices to Mews yet");
+    expect(text(goLiveCopy({ pmsType: null, windowDays: 60, sendingOn: false }))).toContain("MAYA starts sending its prices for the next 60 nights to your PMS");
+  });
+
   it("names the property it takes live", () => {
     expect(goLiveCopy({ pmsType: "cloudbeds", windowDays: 60, propertyName: "Juniper Lodge" }).title).toBe(
       "Send Juniper Lodge's prices to Cloudbeds?",
@@ -80,6 +130,12 @@ describe("GoLiveConfirmation", () => {
     );
     view.unmount();
     expect(render(<GoLiveConfirmation />).container.textContent).toContain("sends MAYA's prices to your property system automatically");
+  });
+
+  it("says the prices go once sending is on, where it is still off", () => {
+    expect(render(<GoLiveConfirmation pmsType="think" sendingOn={false} />).container.textContent).toBe(
+      "Going live sends MAYA's prices to Think Reservations automatically once sending is on. You're confirming you've reviewed your rules and limits (Terms 3.3).",
+    );
   });
 });
 
@@ -149,11 +205,13 @@ describe("the onboarding go-live button", () => {
     windowDays: 60,
     ...over,
   });
-  const answer = (mode: Record<string, unknown>, activate?: Response) =>
+  const answer = (mode: Record<string, unknown>, activate?: Response, outside: number | null = null) =>
     fetchSpy.mockImplementation(async (input: RequestInfo | URL) =>
       String(input) === "/api/property/mode"
         ? new Response(JSON.stringify(mode), { status: 200 })
-        : (activate ?? new Response(JSON.stringify({ ok: true }), { status: 200 })),
+        : String(input).startsWith("/api/property/outside-limits")
+          ? new Response(JSON.stringify({ nights: outside }), { status: 200 })
+          : (activate ?? new Response(JSON.stringify({ ok: true }), { status: 200 })),
     );
   const activateCalls = () => fetchSpy.mock.calls.filter((c) => c[0] === "/api/onboarding/activate");
 
@@ -181,6 +239,28 @@ describe("the onboarding go-live button", () => {
     expect(JSON.parse(String((activateCalls()[0][1] as RequestInit).body))).toMatchObject({ hotelId: "hotel-1" });
     await waitFor(() => expect(view.container.textContent).toContain("Live: your rules are now managing prices"));
     expect(view.queryByRole("dialog")).toBeNull();
+  });
+
+  it("counts in the confirm the nights whose own rate sits outside a floor or ceiling", async () => {
+    answer(modeAnswer(), undefined, 12);
+    const view = render(<StarterRules status={status} />);
+    fireEvent.click(await view.findByRole("button", { name: "Turn them on for real" }));
+    await waitFor(() =>
+      expect(view.getByRole("dialog").textContent).toContain(
+        "12 nights have a rate outside your floor or ceiling; MAYA will move them inside when it sends.",
+      ),
+    );
+    expect(fetchSpy.mock.calls.some((c) => c[0] === "/api/property/outside-limits?hotelId=hotel-1")).toBe(true);
+  });
+
+  it("says on a ThinkReservations property whose sending is off that nothing is sent yet", async () => {
+    answer(modeAnswer({ pmsType: "think", sendingOn: false }));
+    const view = render(<StarterRules status={{ ...status!, pmsType: "think" }} />);
+    fireEvent.click(await view.findByRole("button", { name: "Turn them on for real" }));
+    const dialog = view.getByRole("dialog", { name: "Take Juniper Lodge live?" });
+    expect(dialog.textContent).toContain("Sending to Think Reservations isn't on yet, so nothing is sent until MAYA switches it on.");
+    expect(dialog.textContent).toContain("to Think Reservations automatically once sending is on.");
+    expect(dialog.textContent).not.toContain("on the next cycle");
   });
 
   it("keeps the dialog open with the server's reason when going live fails", async () => {

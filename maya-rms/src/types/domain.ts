@@ -665,13 +665,21 @@ export type ChangelogSupportChange = {
  *               changes look like another pricing tool at work. It carries a
  *               button that opens the setting.
  *   more        the overwrites past the ones the log lists, counted.
+ *
+ * And what a read of the property system changed about the property itself
+ * (pms_property_changes, src/lib/changelog-property-changes.ts):
+ *
+ *   room_type_removed  a room type it no longer lists, switched off in MAYA
+ *   room_type_back     one it lists again, switched back on
+ *   timezone           the time zone changed to the system's
+ *   currency           the currency changed to the system's (simulation only)
  */
 export type ChangelogPmsChange = {
   kind: "pms_change";
   id: string;
   /** When the change was found. */
   timestamp: string;
-  change: "overwrite" | "other_tool" | "more";
+  change: "overwrite" | "other_tool" | "more" | "room_type_removed" | "room_type_back" | "timezone" | "currency";
   /** The property system's name, e.g. "Cloudbeds". */
   pms: string;
   /** What the log says, in one or a few sentences. */

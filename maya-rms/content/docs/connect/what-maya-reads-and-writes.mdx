@@ -43,7 +43,7 @@ About once an hour: your rate plans, with each room type's own nightly rate for 
 
 Once a day: the whole booking window again, and your taxes and fees (Cloudbeds requires the request, but MAYA keeps none of it and uses none of it).
 
-Once, at connect: the property's name, time zone and currency, and which properties your login covers.
+Once, at connect: the property's name and which properties your login covers. The time zone and currency are read at connect and checked again once a day: MAYA follows a new time zone, and a new currency only while you are in simulation.
 
 Arrives but is never used or kept: availability and restrictions (minimum stays, closed to arrival or departure), which come with your room types and nightly rates, and guest names, which come with bookings.
 
@@ -147,16 +147,16 @@ MAYA reads and writes the same rate field in your system, so prices come out on 
 On Cloudbeds and ThinkReservations, a price you type in MAYA goes to your system exactly as typed, on that same basis (except 0, which you set there yourself). If your rates are entered without tax, type prices without tax. Nothing is sent to Mews.
 </Callout>
 
-## Property details are read once
+## When property details are read
 
-MAYA reads your property's name, time zone and currency at connect and does not read them again. On Mews it copies none of the three, and we set them with you when we connect. The name you can change yourself in the questions step. The time zone and currency cannot be changed inside MAYA. If you change either in your system, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) and we change it in MAYA. The time zone matters more than it looks: the calendar, the 396-night window, the booking window and every "past week" count run on it. Read [time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
+MAYA reads your property's name at connect and does not read it again; you can change it yourself in the questions step. The time zone and currency cannot be changed inside MAYA, and how they stay right depends on your system. On Cloudbeds MAYA checks both once a day: it follows a new time zone, and a new currency while you are in simulation. Once you are live it keeps the currency it has, and our team is alerted. On ThinkReservations MAYA reads both once, at connect: if you change either there, [email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone%20or%20currency) and we change it in MAYA. On Mews MAYA copies none of the three, and we set them with you when we connect. The time zone matters more than it looks: the calendar, the 396-night window, the booking window and every "past week" count run on it. Read [time, weekends, currency and holidays](/docs/reference/time-weekends-currency-and-holidays).
 
 ## How many rooms each room type has
 
 Cloudbeds reports the number of rooms in each room type, and MAYA re-reads it on every cycle, so a wing you open shows up on the next read. On ThinkReservations, MAYA counts the rooms in each room type from your list of rooms on every cycle, and keeps the counts it has if the list cannot be read. MAYA does not read room counts from Mews yet, so it uses one number for every Mews room category, which we set with you when we connect (100 until then). That number cannot differ by category, so occupancy is exact only when your categories are the same size. The count is what sellable occupancy divides by and what your bill is based on. Read [room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) and [your room count and what you pay](/docs/billing/your-room-count).
 
 <Callout kind="not-yet" title="Not yet">
-MAYA does not use, keep or write availability or restrictions on any system (on Cloudbeds they arrive with your room types and nightly rates and are dropped). It does not read or write room blocks or allotments. It does not read rate plans from Mews or send anything to Mews. Time zone and currency are not re-read after connect (email us). Mews room counts are not read, and a count for each room category is not possible there yet (one number covers them all).
+MAYA does not use, keep or write availability or restrictions on any system (on Cloudbeds they arrive with your room types and nightly rates and are dropped). It does not read or write room blocks or allotments. It does not read rate plans from Mews or send anything to Mews. Time zone and currency are not re-read after connect on ThinkReservations (email us); on Cloudbeds they are checked once a day. Mews room counts are not read, and a count for each room category is not possible there yet (one number covers them all).
 </Callout>
 
 <Related>

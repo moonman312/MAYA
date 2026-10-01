@@ -3,7 +3,7 @@ title: The history import
 summary: What MAYA reads from your property system after you connect, in what order, what it keeps, how long it takes, and what you can do while it runs.
 section: review
 order: 10
-readingTime: 13
+readingTime: 14
 keywords: [import, 18 months, less than three years, short history, new property, no banner, claim the property, history, importing, reading your bookings, how long, progress bar, room-nights, years covered, oldest stay, import stopped, import paused, tries again by itself, we've been told, import complete, first results ready, ten years, three years, stuck, still importing, part 2, close the page, reconnected, reconnect, amber dot, did not carry on, not resuming, restart import, group login, several properties, cancelled bookings, no-show]
 questions:
   - What happens during the import? {#what-it-reads-in-order/reading-your-property}
@@ -17,7 +17,7 @@ questions:
   - Why does it say part 2 while reading my bookings? {#what-it-reads-in-order/reading-your-current}
   - We only have 18 months of history. Will the review still open? {#what-it-reads-in-order/checking-your-full}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -48,6 +48,10 @@ The progress bar names each step as it goes. In order:
 4. **Building your starter rules.** After the first three past years are in, MAYA reads what it has so far and writes the review cards, sets floors and ceilings that were still at their defaults, and builds your starter rules. From here the bar reads "First results ready. Importing older years", and the review can open while the rest loads.
 5. **Checking your full history.** Once every year is in, MAYA reads everything again. This pass refines the review cards: it can sharpen a card, add one, or take one away. With less than three years on record, step 4 is skipped and this is the only read, so your first results come once all of your history has been read.
 6. **Import complete.**
+
+<Callout kind="good-to-know" title="Once your property is live">
+The import sets floors and ceilings, and unticks room types, only while your property is in simulation. If it is live by the time a read runs (you went live between steps 4 and 5, say), that read writes no floor or ceiling and unticks nothing: a duplicate room type gets a card asking whether to hide it, and a name that reads like something nobody sleeps in waits for your answer. Starter rules are still built once, if you have no rules at all.
+</Callout>
 
 <Callout kind="good-to-know" title="Why three years first">
 Every comparison MAYA makes for pricing (similar past nights, seasons, the checks behind a "Not a fair comparison?" answer) reaches at most three years back. So three years is the smallest history on which the review and the starter rules work as they will with the full import.
@@ -120,9 +124,9 @@ The prompt takes the bar's place in one case only: a Cloudbeds Marketplace prope
 
 When the read has run, you have:
 
-- your room types with their unit counts, and MAYA's first proposal for which of them are rooms,
+- your room types with their unit counts, and MAYA's first proposal for which of them are rooms (read [How MAYA proposes the answer](/docs/watch/room-types-and-rooms-out-of-service#how-maya-proposes-the-answer)),
 - the review cards: closures, room types that may not be rooms, duplicates, rates that look like typos, stays with no rate, stays that point at deleted room types,
-- floors and ceilings for room types that were still at their defaults,
+- floors and ceilings for room types that were still at their defaults, each listed on the review with a remove that the import never undoes,
 - starter rules, if you have enough history and no rules yet.
 
 Your property's own rates (the starting point your rules work from) are not part of the import. The regular cycle reads them once your property is paid for. A free trial counts.

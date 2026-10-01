@@ -34,6 +34,13 @@ export type PropertyMode = {
   pmsType: string | null;
   /** Whether MAYA sends prices to that system at all. */
   sendsPrices: boolean;
+  /**
+   * Whether sending to that system is switched on now (sendingSwitchOn).
+   * False for a system MAYA sends to whose switch is off, such as
+   * ThinkReservations until MAYA switches it on: going live then sends
+   * nothing yet. Absent where it was not read: taken as on.
+   */
+  sendingOn?: boolean;
   /** Whether the scheduled sync picks the connection up, for the confirm's words. */
   connected: boolean;
   /** Offer Go live: simulating, a system MAYA sends to (or none yet), and a General Manager or Hotel Admin. */
@@ -49,6 +56,23 @@ export function pickConnection<T extends { pms_type?: unknown; status?: unknown 
   );
 }
 
+/**
+ * What an unreported switch means: Cloudbeds' falls back to the switch both
+ * syncs used to share, which production sends with; ThinkReservations' starts
+ * off (_shared/pms/push-switch.ts).
+ */
+const SENDING_WHEN_UNREPORTED: Record<string, boolean> = { cloudbeds: true, think: false };
+
+/**
+ * Whether sending to `pmsType` is on, from what its sync last reported
+ * (src/lib/pms/sending-switch.ts; null when it has not said). Never for a
+ * system MAYA doesn't send to.
+ */
+export function sendingSwitchOn(pmsType: string | null, reported: boolean | null | undefined): boolean {
+  if (!pmsSendsPrices(pmsType)) return false;
+  return typeof reported === "boolean" ? reported : (SENDING_WHEN_UNREPORTED[pmsType as string] ?? true);
+}
+
 export function propertyMode(p: {
   /** hotel_settings.simulation_mode; a missing row is simulation, as the push reads it. */
   simulationMode: boolean | null | undefined;
@@ -56,6 +80,8 @@ export function propertyMode(p: {
   /** The person's own role on the property, from their membership; null without one. */
   memberRole: string | null;
   windowDays: number | null;
+  /** What the system's sync last reported about its sending switch (loadSendingSwitch); null or absent when not known. */
+  sendingSwitch?: boolean | null;
 }): PropertyMode {
   const mode = p.simulationMode === false ? "live" : "simulation";
   const conn = pickConnection(p.connections);
@@ -66,6 +92,7 @@ export function propertyMode(p: {
     mode,
     pmsType,
     sendsPrices,
+    sendingOn: sendingSwitchOn(pmsType, p.sendingSwitch),
     connected,
     canGoLive: mode === "simulation" && (pmsType == null || sendsPrices) && canManageFinances(p.memberRole),
     windowDays: p.windowDays,
@@ -83,13 +110,23 @@ export const OTHER_PROPERTY = "This page is for another property. Reload and try
 /** Who may switch the property to live, for everyone else. */
 export const WHO_CAN_GO_LIVE = "A General Manager or Hotel Admin can switch this property to live.";
 
+/** Sending to a system MAYA sends to is switched off for now (ThinkReservations until MAYA switches it on). */
+function sendingIsOff(m: Pick<PropertyMode, "sendsPrices" | "sendingOn">): boolean {
+  return m.sendsPrices && m.sendingOn === false;
+}
+
 /** The "?" beside the strip: what simulation means here, and how it ends. */
-export function simulationHelp(m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "canGoLive">): { title: string; lines: string[] } {
+export function simulationHelp(
+  m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "canGoLive" | "sendingOn">,
+): { title: string; lines: string[] } {
   const pms = pmsLabel(m.pmsType);
   const lines = [
     `Your rules run as they will live, and their prices show on the calendar and in the change log. ${m.pmsType ? pms : "Your property system"} keeps its own rates.`,
   ];
-  lines.push(noGoLiveLine(m) ?? "Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us.");
+  const goLive = sendingIsOff(m)
+    ? `Sending to ${pms} isn't on yet, so going live sends nothing until MAYA switches it on. To go back to simulation, email us.`
+    : "Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us.";
+  lines.push(noGoLiveLine(m) ?? goLive);
   return { title: "Simulation", lines };
 }
 
@@ -105,13 +142,18 @@ export function noGoLiveLine(m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "
   return WHO_CAN_GO_LIVE;
 }
 
-/** The "?" beside the Live tag, only where it needs saying: nothing goes to a system MAYA doesn't send to. */
-export function liveHelp(m: Pick<PropertyMode, "pmsType" | "sendsPrices">): { title: string; lines: string[] } | null {
-  if (m.pmsType == null || m.sendsPrices) return null;
+/** The "?" beside the Live tag, only where it needs saying: nothing goes to a system MAYA doesn't send to, or doesn't yet. */
+export function liveHelp(m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "sendingOn">): { title: string; lines: string[] } | null {
+  if (m.pmsType == null) return null;
+  if (sendingIsOff(m)) {
+    return { title: "Live", lines: [`Sending to ${pmsLabel(m.pmsType)} isn't on yet, so nothing goes to it. Your prices wait until MAYA switches it on.`] };
+  }
+  if (m.sendsPrices) return null;
   return { title: "Live", lines: [`MAYA doesn't send prices to ${pmsLabel(m.pmsType)} yet, so nothing goes to it, live or not.`] };
 }
 
 /** The Live tag's hover words. */
-export function liveTitle(m: Pick<PropertyMode, "pmsType" | "sendsPrices">): string {
+export function liveTitle(m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "sendingOn">): string {
+  if (sendingIsOff(m)) return `Sending to ${pmsLabel(m.pmsType)} isn't on yet.`;
   return m.sendsPrices ? `MAYA sends its prices to ${pmsLabel(m.pmsType)}.` : "Live";
 }

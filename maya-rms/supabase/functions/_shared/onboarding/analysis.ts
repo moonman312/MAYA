@@ -12,7 +12,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ImportJobRow } from "./worker-core.ts";
 import { projectStrategyOntoRoomTypes } from "./project-strategy.ts";
+import { loadLimitRemovals, type LimitRemovals } from "./limit-removals.ts";
 import { nameIsCertainlyNonRoom, nameLooksLikeNonRoom } from "./room-type-names.ts";
+import { roomTypeNames } from "../pms/room-type-label.ts";
 import {
   computeOccupancyReference,
   computeStarterRules,
@@ -379,10 +381,10 @@ export async function proposeCountsAsRoom(
   const rooms: string[] = [];
   const unclassified: string[] = [];
   for (const rt of rows) {
-    // Both names, same as billing: PMSes differ in which one carries the label.
-    const label = String(rt.display_name || rt.name || "");
-    if (!nameLooksLikeNonRoom(label)) rooms.push(rt.external_room_type_id);
-    else if (mode === "import" && nameIsCertainlyNonRoom(label)) nonRooms.push(rt.external_room_type_id);
+    // Both names, same as billing: PMSes differ in which one carries the telling word.
+    const names = roomTypeNames(rt);
+    if (!names.some(nameLooksLikeNonRoom)) rooms.push(rt.external_room_type_id);
+    else if (mode === "import" && names.some(nameIsCertainlyNonRoom)) nonRooms.push(rt.external_room_type_id);
     else unclassified.push(rt.external_room_type_id);
   }
   if (mode === "sync" && unclassified.length > 0) {
@@ -482,6 +484,95 @@ export async function loadAnsweredRoomTypeIds(
     console.error(JSON.stringify({ fn: "loadAnsweredRoomTypeIds", hotel: hotelId, error: withSetBy.error.message }));
   }
   return new Set();
+}
+
+/**
+ * Whether the property is live: its prices go to the PMS (hotel_settings
+ * simulation_mode false). An import of a live property writes no floor or
+ * ceiling and switches no room type off or out (Jake, 2026-09-30, audit
+ * A21): those were the setup's guesses for the owner to look over on the
+ * review before going live, and on a live property they would move live
+ * prices with nobody looking. No settings row is not live. A failed read
+ * throws, so the worker retries rather than guess.
+ */
+export async function hotelIsLive(supabase: SupabaseClient, hotelId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("hotel_settings")
+    .select("simulation_mode")
+    .eq("hotel_id", hotelId)
+    .maybeSingle();
+  if (error) throw new Error(`simulation mode read failed: ${error.message}`);
+  return (data as { simulation_mode?: unknown } | null)?.simulation_mode === false;
+}
+
+/** Room-nights a room type needs on record before its rate can speak for it. */
+export const MIN_ROWS_FOR_ROOM_LIKE_RATE = 5;
+/** How far from the rooms' usual rate a rate may sit and still read as a room's. */
+export const ROOM_LIKE_RATE_FACTOR = 3;
+
+/**
+ * Room types whose name the import reads as never a bedroom (a parking bay, a
+ * storage unit, a conference room: nameIsCertainlyNonRoom) but whose nightly
+ * rate is in line with the property's rooms. A rate like that wins over the
+ * name (Jake, 2026-09-30, audit A22): the type is left for the owner to
+ * answer on the review rather than switched to "not a room". In line means
+ * its median rate within ROOM_LIKE_RATE_FACTOR of the median of the other
+ * room types' medians (the types whose names read as bedrooms), from at
+ * least MIN_ROWS_FOR_ROOM_LIKE_RATE room-nights. With no such types to
+ * compare with, nothing is.
+ */
+export function findRoomLikeNonRooms(stats: RoomTypeStats[]): string[] {
+  const priced = (s: RoomTypeStats) =>
+    s.is_active && s.row_count >= MIN_ROWS_FOR_ROOM_LIKE_RATE && s.median_rate != null && s.median_rate > 0;
+  const reference = median(
+    stats.filter((s) => priced(s) && !nameLooksLikeNonRoom(s.name)).map((s) => s.median_rate!),
+  );
+  if (!(reference > 0)) return [];
+  return stats
+    .filter(
+      (s) =>
+        priced(s) &&
+        nameIsCertainlyNonRoom(s.name) &&
+        s.median_rate! >= reference / ROOM_LIKE_RATE_FACTOR &&
+        s.median_rate! <= reference * ROOM_LIKE_RATE_FACTOR,
+    )
+    .map((s) => s.room_type_id);
+}
+
+/**
+ * Put the import's "not a room" guess back to unanswered on the types
+ * findRoomLikeNonRooms names. Only the import's own guess
+ * (counts_as_room_set_by null) is touched, never an answer someone gave.
+ * Unanswered counts as a room in occupancy and in the starter rules, and the
+ * review asks about the type (its name still trips the suspect test). Ahead
+ * of the column that tells the two apart nothing is touched, since an
+ * owner's answer could not be told from a guess.
+ */
+async function releaseRoomLikeNonRooms(
+  supabase: SupabaseClient,
+  hotelId: string,
+  roomTypeIds: string[],
+): Promise<void> {
+  if (roomTypeIds.length === 0) return;
+  const { error } = await supabase
+    .from("room_types")
+    .update({ counts_as_room: null })
+    .eq("hotel_id", hotelId)
+    .in("id", roomTypeIds)
+    .eq("counts_as_room", false)
+    .is("counts_as_room_set_by", null);
+  if (!error) return;
+  if (isMissingColumnError(error, "counts_as_room_set_by") || isMissingColumnError(error, "counts_as_room")) {
+    console.warn(JSON.stringify({
+      fn: "releaseRoomLikeNonRooms",
+      hotel: hotelId,
+      roomTypeIds,
+      warning: "room_types.counts_as_room_set_by is not in this database yet, so the import's guesses can't be told " +
+        "from the owner's answers; left as they are. Run 99_supabase_migration_room_type_counts_as_room_v1.sql.",
+    }));
+    return;
+  }
+  throw new Error(`room type release failed: ${error.message}`);
 }
 
 export type SuspectRoomTypeFinding = {
@@ -998,6 +1089,12 @@ export async function analyzeImport(
   // "refresh" = user asked for help on a hotel with existing config: analysis
   // only ever SUGGESTS — nothing is written without an explicit accept.
   const refreshMode = job.stats.mode === "refresh";
+  // A first import of a property that is already live (the owner went live
+  // between the early and the final pass, or the import was started again
+  // later) writes no floor or ceiling and switches no room type off, as a
+  // refresh doesn't: its duplicates are proposed, not hidden (hotelIsLive).
+  const live = !refreshMode && (await hotelIsLive(supabase, hotelId));
+  const proposeOnly = refreshMode || live;
 
   const [daily, { data: statsRaw, error: statsErr }] = await Promise.all([
     loadDailyRoomNights(supabase, hotelId),
@@ -1023,6 +1120,12 @@ export async function analyzeImport(
       median_los: r.median_los != null ? Number(r.median_los) : null,
     }),
   );
+
+  // The discover step guessed "not a room" from the name alone; a nightly
+  // rate in line with the rooms' wins over it, and the owner answers on the
+  // review (findRoomLikeNonRooms). Before the starter rules are built, so
+  // such a type joins them while it waits for that answer.
+  if (!proposeOnly) await releaseRoomLikeNonRooms(supabase, hotelId, findRoomLikeNonRooms(stats));
 
   // Simple counts for informational findings.
   const [
@@ -1116,17 +1219,17 @@ export async function analyzeImport(
   }
 
   // Duplicates: auto-fix on first import (reversible); on a refresh of an
-  // established hotel, only propose — their setup is theirs.
+  // established hotel, or a live one, only propose — their setup is theirs.
   for (const d of duplicates) {
     // Re-asserting a deactivation that is already on record (the PMS handed
     // the room type back active, say) files no second copy of the same
     // paperwork. Refresh mode writes nothing, so it still has to file:
     // detection means the room type is active again, and the standing
     // auto_applied record only offers Dismiss, which would re-activate it.
-    if (!refreshMode && onRecordAsDeactivated.has(d.deactivate_room_type_id)) continue;
+    if (!proposeOnly && onRecordAsDeactivated.has(d.deactivate_room_type_id)) continue;
     drafts.push({
       kind: "duplicate_room_type",
-      status: refreshMode ? "proposed" : "auto_applied",
+      status: proposeOnly ? "proposed" : "auto_applied",
       payload: d as unknown as Record<string, unknown>,
     });
   }
@@ -1158,7 +1261,7 @@ export async function analyzeImport(
   // pass that died in between left a room type switched off with nothing on
   // the review screen to show it or undo it — and no later pass could file
   // one, because the detector only sees active room types.
-  if (!refreshMode) {
+  if (!proposeOnly) {
     for (const d of duplicates) {
       await supabase
         .from("room_types")
@@ -1169,20 +1272,33 @@ export async function analyzeImport(
 
   if (refreshMode) return; // suggestions only — no direct writes past this point
 
-  // Strategy answers may have arrived while the import ran — re-project so
-  // room types created by the import get their guardrails too. Once is
-  // enough per import: saving an answer re-projects on its own, and running it
-  // again at the end would overwrite a guardrail the owner changed in between.
-  if (pass === "early" || typeof job.stats.earlyAnalysisAt !== "string") {
-    await projectStrategyOntoRoomTypes(supabase, hotelId);
-  }
+  // A live property gets no floor or ceiling from an import, from the answers
+  // or from its rates (hotelIsLive). Saving an answer still projects it, as
+  // the owner's own act.
+  // A floor or ceiling the owner removed on the review is never filled again
+  // by an import, from the answers or from the rates (limit-removals.ts):
+  // the review opens while the import is still reading, so the remove can
+  // come before the last pass. When the removals can't be read, no limit is
+  // written this pass rather than one the owner may have removed.
+  const removals = live ? null : await loadLimitRemovals(supabase, hotelId);
+  if (!live && removals) {
+    // Strategy answers may have arrived while the import ran — re-project so
+    // room types created by the import get their guardrails too. Once is
+    // enough per import: saving an answer re-projects on its own, and running it
+    // again at the end would overwrite a guardrail the owner changed in between.
+    if (pass === "early" || typeof job.stats.earlyAnalysisAt !== "string") {
+      await projectStrategyOntoRoomTypes(supabase, hotelId, { removals });
+    }
 
-  // Then data fills whatever the answers left at schema defaults: ceilings
-  // from p99 x 1.5, floors from a fraction of the median — the guardrail
-  // half of the starter package, applied while still in simulation mode.
-  // Only defaults are ever touched, so a second pass fills a type the first
-  // one skipped and leaves everything else alone.
-  await applyInitialGuardrails(supabase, hotelId, stats, new Set(allSuspects.map((s) => s.room_type_id)));
+    // Then data fills whatever the answers left at schema defaults: ceilings
+    // from p99 x 1.5, floors from a fraction of the median — the guardrail
+    // half of the starter package, applied while still in simulation mode.
+    // Only defaults are ever touched, so a second pass fills a type the first
+    // one skipped and leaves everything else alone, and never a limit the
+    // owner removed. The review lists each limit with a remove, and the
+    // go-live confirm counts the nights whose own rate sits outside them.
+    await applyInitialGuardrails(supabase, hotelId, stats, new Set(allSuspects.map((s) => s.room_type_id)), removals);
+  }
 
   // The payoff: starter rules built from their own history, live-in-simulation.
   await recordStarterRules(supabase, job);
@@ -1431,6 +1547,7 @@ async function applyInitialGuardrails(
   hotelId: string,
   stats: RoomTypeStats[],
   suspectRoomTypeIds: ReadonlySet<string>,
+  removals: LimitRemovals,
 ): Promise<void> {
   const { data: roomTypes } = await supabase
     .from("room_types")
@@ -1442,6 +1559,7 @@ async function applyInitialGuardrails(
   const statsById = new Map(stats.map((s) => [s.room_type_id, s]));
   const inputs: InitialGuardrailInput[] = roomTypes.map((rt) => {
     const s = statsById.get(String(rt.id));
+    const removed = removals.get(String(rt.id));
     return {
       room_type_id: String(rt.id),
       name: String(rt.name ?? ""),
@@ -1450,6 +1568,8 @@ async function applyInitialGuardrails(
       observed_p99_rate: s?.p99_rate ?? null,
       observed_median_rate: s?.median_rate ?? null,
       row_count: s?.row_count ?? 0,
+      floor_removed: removed?.floor ?? false,
+      ceiling_removed: removed?.ceiling ?? false,
     };
   });
 

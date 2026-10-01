@@ -15,6 +15,10 @@
  * With no job to ask about, a 202 is never taken as applied: the send counts
  * as settled only once the base rate refresh reads its price back
  * (pms-edits.ts).
+ *
+ * Nothing is sent through this until MAYA_PUSH_RATES_THINK is true in
+ * think-scheduled-sync's settings (push-switch.ts). The shared MAYA_PUSH_RATES
+ * that turns Cloudbeds on does not turn this on.
  */
 
 import {

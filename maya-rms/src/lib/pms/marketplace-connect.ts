@@ -8,6 +8,8 @@ import { markConnectionReauthorized } from "@/lib/pms/connection-stamps";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
 import { hotelsConnectedInsideMaya } from "@/lib/pms/stored-property";
 import { createAdminClient } from "@/utils/supabase/admin";
+import { currencyRefusal, recordCurrencyRefused } from "@/lib/onboarding/currency-gate";
+import { currencySupported } from "../../../supabase/functions/_shared/pms/currencies";
 import {
   cloudbedsDiscoverPropertyId,
   cloudbedsGetHotelDetails,
@@ -55,8 +57,18 @@ export type MarketplaceOutcome =
       groupProperties?: number;
       /** The property was one connected from inside MAYA, reconnected for someone signed in. */
       inApp?: boolean;
+      /** Properties of the group left out for their currency (currencies.ts). */
+      currencySkipped?: number;
     }
-  | { kind: "claim"; token: string; propertyName: string | null; groupProperties?: number; parked?: number }
+  | {
+      kind: "claim";
+      token: string;
+      propertyName: string | null;
+      groupProperties?: number;
+      parked?: number;
+      /** Properties of the group left out for their currency (currencies.ts). */
+      currencySkipped?: number;
+    }
   /** A plain sentence for the person at the browser; nothing was changed. */
   | { kind: "refused"; message: string }
   | { kind: "error"; message: string };
@@ -136,6 +148,8 @@ export async function handleMarketplaceConnect(
   const parked: { token: string; hotelId: string; name: string | null }[] = [];
   const reconnected: { hotelId: string; name: string | null; inApp?: boolean }[] = [];
   const failures: string[] = [];
+  // New properties in a currency MAYA doesn't price in yet, by their code.
+  const refusedCurrencies: string[] = [];
 
   // Which MAYA hotel each property already is, settled before anything is
   // written.
@@ -207,14 +221,17 @@ export async function handleMarketplaceConnect(
     const creds = { ...bare, propertyId: property.propertyId };
 
     // Name/timezone/currency per property — a group's hotels are not clones.
+    // getHotels already listed each one with its time zone and currency, so a
+    // details read that fails or comes back without them still has those.
+    // UTC and US dollars only when Cloudbeds gave neither.
     let propertyName = property.name;
-    let timezone = "UTC";
-    let currency = "USD";
+    let timezone = property.timezone ?? "UTC";
+    let currency = property.currency ?? "USD";
     try {
       const details = await cloudbedsGetHotelDetails(creds);
       propertyName = details.name ?? propertyName;
-      timezone = details.timezone ?? "UTC";
-      currency = details.currency ?? "USD";
+      timezone = details.timezone ?? property.timezone ?? "UTC";
+      currency = details.currency ?? property.currency ?? "USD";
     } catch {
       // Naming is a nicety; an unnamed property is still connectable.
     }
@@ -333,6 +350,23 @@ export async function handleMarketplaceConnect(
       continue;
     }
 
+    // Only dollar, euro and pound style currencies for now (currencies.ts).
+    // A property new to MAYA in any other is stopped here, before a row, a
+    // credential, a webhook or a ticket exists for it, so it is never half
+    // set up. One already in MAYA (the branches above) is never checked.
+    if (!currencySupported(currency)) {
+      await recordCurrencyRefused(admin, {
+        currency,
+        pmsType,
+        via: "marketplace_flow_a",
+        hotelId: existing?.id ?? null,
+        propertyId: property.propertyId,
+        propertyName,
+      });
+      refusedCurrencies.push(currency);
+      continue;
+    }
+
     // An unclaimed row from an earlier click is reused rather than re-created:
     // external_enterprise_id is unique, so inserting again would fail, and the
     // row is inert anyway. What matters is that this pass mints a fresh ticket.
@@ -446,10 +480,15 @@ export async function handleMarketplaceConnect(
   }
 
   // Nothing landed at all — say so rather than sending them to a login page
-  // that will not have a property waiting.
+  // that will not have a property waiting. Left out for its currency alone,
+  // that is the sentence (currency-gate.ts).
   if (parked.length === 0 && reconnected.length === 0) {
+    if (failures.length === 0 && refusedCurrencies.length > 0) {
+      return { kind: "refused", message: currencyRefusal(refusedCurrencies[0]) };
+    }
     return { kind: "error", message: failures[0] ?? "Could not connect any property." };
   }
+  const skipped = refusedCurrencies.length > 0 ? { currencySkipped: refusedCurrencies.length } : {};
 
   // Anything parked means someone has to claim it, even if other properties in
   // the same group reconnected — a half-claimed group is still unclaimed.
@@ -459,6 +498,7 @@ export async function handleMarketplaceConnect(
       token: parked[0].token,
       propertyName: parked[0].name,
       ...(isGroup ? { groupProperties: properties.length, parked: parked.length } : {}),
+      ...skipped,
     };
   }
 
@@ -468,5 +508,6 @@ export async function handleMarketplaceConnect(
     propertyName: reconnected[0].name,
     ...(isGroup ? { groupProperties: properties.length } : {}),
     ...(reconnected[0].inApp ? { inApp: true } : {}),
+    ...skipped,
   };
 }

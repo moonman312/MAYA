@@ -285,8 +285,17 @@ describe("a Live hotel that is sent nothing", () => {
         severity: "rose",
         text:
           "792 published prices not sent after over an hour, the oldest for 26h. Nothing was sent in 24h and no sending problem " +
-          "is on record: check MAYA_PUSH_RATES in the function settings, then the push in the sync log.",
+          "is on record: check MAYA_PUSH_RATES_CLOUDBEDS (or MAYA_PUSH_RATES, while that is not set) in " +
+          "cloudbeds-scheduled-sync's settings, then the push in the sync log.",
       },
+    ]);
+  });
+
+  it("names ThinkReservations' own switch for a ThinkReservations property, which is off until set", () => {
+    const row = healthy({ pms_type: "think", last_sync_at: minutesAgo(3), sent_24h: 0, unsent_count: 4, unsent_since: minutesAgo(90) });
+    expect(texts(row)).toEqual([
+      "4 published prices not sent after over an hour, the oldest for 2h. Nothing was sent in 24h and no sending problem is on " +
+        "record: check MAYA_PUSH_RATES_THINK in think-scheduled-sync's settings (off until set), then the push in the sync log.",
     ]);
   });
 

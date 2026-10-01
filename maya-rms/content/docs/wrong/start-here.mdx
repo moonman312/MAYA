@@ -36,7 +36,7 @@ A tentative booking is different. On Cloudbeds a booking marked Confirmation Pen
 
 **Keep the rules off those nights.** Your typed price is not a lock. Once its wait is over, a booking speed rule reads the night again and can cut on top of your price. To keep your number, switch off the cut rules on the <Ui>Rules</Ui> tab until the weekend has passed. Off stops a rule on every night, and what it already did stays. Read [Hold a price for an event](/docs/recipes/hold-a-price-for-an-event).
 
-**Prevent it next time.** Give your cut rules an occupancy condition, so a full night can never read as one to cut. Click <Ui>Edit</Ui> on the rule, add <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50 as a second condition and click <Ui>Save changes</Ui>. <Ui>Apply price adjustments</Ui> takes its cuts off the full nights, and <Ui>Skip price adjustments</Ui> leaves them and keeps new cuts off. Read [Change a rule](/docs/recipes/change-a-rule).
+**Prevent it next time.** Give your cut rules an occupancy condition, so a full night can never read as one to cut. The two starter cuts setup builds now come with one, <Ui>Less than</Ui> 70; starter rules built before that, and rules you built, have none unless you add it. Click <Ui>Edit</Ui> on the rule, add <Ui>Sellable occupancy (%)</Ui> <Ui>Less than</Ui> 50 as a second condition and click <Ui>Save changes</Ui>. <Ui>Apply price adjustments</Ui> takes its cuts off the full nights, and <Ui>Skip price adjustments</Ui> leaves them and keeps new cuts off. Read [Change a rule](/docs/recipes/change-a-rule).
 
 For a block held in your system without bookings, enter those rooms as out of service on the <Ui>PMS</Ui> tab so occupancy reads against what you can sell.
 
@@ -94,7 +94,7 @@ Mews: nothing is ever sent, live or not. MAYA reads Mews bookings and shows pric
 Read [Simulation mode](/docs/live/simulation-mode) and [How prices reach your property system](/docs/live/how-prices-reach-your-pms).
 
 <Example title="A Saturday at The Harbour Inn">
-Sam sees Standard cut from $150 to $127.50 on the Saturday of a wedding. The change log reads: "Slow-date rescue" lowered this night 15%, from $150.00 to $127.50. Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now.
+The inn's starter rules were built before the starter cuts came with their occupancy row. Sam sees Standard cut from $150 to $127.50 on the Saturday of a wedding. The change log reads: "Slow-date rescue" lowered this night 15%, from $150.00 to $127.50. Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now.
 
 The wedding was booked as one reservation for 12 rooms. That is 12 rooms for occupancy (100% of Standard) and one booking for booking speed. Sam opens the Friday, types $150 with <Ui>through…</Ui> set to the Saturday, and presses <Ui>Save</Ui>. The confirmation reads "Saved. Sending to Cloudbeds now. Paused 1 rule on these 2 nights for this room; new rules will apply on top."
 

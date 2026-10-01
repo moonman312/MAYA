@@ -45,6 +45,7 @@ import { SupportChangeItem } from "@/components/support-change-item";
 import { isModeSwitch } from "@/lib/changelog-mode-switches";
 import { ModeSwitchItem } from "@/components/mode-switch-item";
 import { isPmsChange } from "@/lib/changelog-pms-changes";
+import { RoomTypeName } from "@/components/room-type-name";
 import { PmsChangeItem } from "@/components/pms-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { PricingRunItem } from "@/components/pricing-run-item";
@@ -1584,7 +1585,7 @@ export function Dashboard({
                               data-deeplink={`calendar.room-type:${rt.id}`}
                             >
                               <p className="flex flex-wrap items-center gap-2 font-medium">
-                                {rt.name}
+                                <RoomTypeName name={rt.name} />
                                 {rt.manual_price ? (
                                   <span
                                     className="rounded-full border border-amber-500/60 bg-amber-500/10 px-2 py-0.5 text-[0.6875rem] font-semibold text-amber-300"
@@ -1771,7 +1772,7 @@ export function Dashboard({
                         {formatRuleConditionsDisplay(rule.conditions)}
                       </td>
                       <td className="py-2 pr-3">
-                        {ruleRoomTypesLabel(rule, isCountingRoomTypeId)}
+                        <RoomTypeName name={ruleRoomTypesLabel(rule, isCountingRoomTypeId)} className="block max-w-[18rem]" />
                       </td>
                       <td className="py-2 pr-3 tabular-nums">
                         {rule.action.adjust_rate_percent !== undefined &&
@@ -2630,6 +2631,7 @@ export function Dashboard({
               <PropertyTimeAndCurrency
                 timezone={pmsActivity.property.timezone}
                 currency={pmsActivity.property.currency}
+                pmsType={pmsActivity.connection?.pms_type ?? null}
               />
             ) : null}
           </section>

@@ -10,6 +10,18 @@ Where each PMS integration stands, and exactly what's blocking each one from bei
 
 None of the three requires a code change to plug in — the moment the env vars are set on the server, both OAuth integrations start working. Mews already works.
 
+### Sending prices
+
+Each system has its own sending switch, a Supabase function secret read by that system's scheduled sync (`supabase/functions/_shared/pms/push-switch.ts`):
+
+| System | Switch | When it is not set |
+|---|---|---|
+| Cloudbeds | `MAYA_PUSH_RATES_CLOUDBEDS` | `MAYA_PUSH_RATES` decides, as before the split |
+| ThinkReservations | `MAYA_PUSH_RATES_THINK` | Off. `MAYA_PUSH_RATES` does not turn it on |
+| Mews | none | Never sent to |
+
+Only `true` turns a switch on, and only Live hotels are sent to. Pilot health shows "Sending: Cloudbeds on (…). ThinkReservations off (…)." from what each sync last reported.
+
 ---
 
 ## What's already built for Cloudbeds + Think

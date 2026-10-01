@@ -80,8 +80,14 @@ function enumerateNights(checkIn: string, checkOut: string | null): string[] {
 }
 
 /** ── Room types ─────────────────────────────────────────────
- * ⚠ VERIFY field names: roomTypeID, roomTypeName, roomTypeNameShort,
- * roomTypeUnits / totalUnits.
+ * ⚠ VERIFY field names: roomTypeID, roomTypeName, roomTypeUnits / totalUnits.
+ *
+ * Both names are the full one, roomTypeName. roomTypeNameShort is a code the
+ * property types for itself ("DBL", "STE"), and two different types can share
+ * one: display_name used to hold it, and a property with a double and a
+ * deluxe double coded alike read "DBL" for both wherever a screen preferred
+ * display_name. The short
+ * code is only a last resort for a type with no name at all.
  */
 export function parseCloudbedsRoomTypes(
   rows: Json[],
@@ -93,7 +99,6 @@ export function parseCloudbedsRoomTypes(
     if (!id) continue;
     const name =
       firstString(r, ["roomTypeName", "name", "roomTypeNameShort"]) ?? "Unknown";
-    const shortName = firstString(r, ["roomTypeNameShort", "roomTypeName", "name"]);
     // roomsAvailable is deliberately not a fallback: it is how many are free on
     // a date, not how many exist, and would have stored 15 for a 20-room type.
     const units =
@@ -102,7 +107,7 @@ export function parseCloudbedsRoomTypes(
     out.push({
       external_room_type_id: id,
       name,
-      display_name: shortName ?? name,
+      display_name: name,
       total_rooms: Math.max(0, Math.floor(units)),
     });
   }

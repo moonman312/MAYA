@@ -74,6 +74,20 @@ export type PilotHealthRow = {
 
 /** A read older than this is a problem: the overview page's own stale sync line. */
 export const STALE_READ_MINUTES = 30;
+
+/**
+ * Where to look when a live property's prices are not going out: its own
+ * system's sending switch (push-switch.ts), then the push in the sync log.
+ */
+export function sendingSwitchHint(pmsType: PmsType | null): string {
+  if (pmsType === "cloudbeds") {
+    return "check MAYA_PUSH_RATES_CLOUDBEDS (or MAYA_PUSH_RATES, while that is not set) in cloudbeds-scheduled-sync's settings, then the push in the sync log.";
+  }
+  if (pmsType === "think") {
+    return "check MAYA_PUSH_RATES_THINK in think-scheduled-sync's settings (off until set), then the push in the sync log.";
+  }
+  return "check the property system's sending switch in its sync function's settings, then the push in the sync log.";
+}
 /**
  * A night waiting longer than this is a problem: the push's freshness limit
  * for a change (MAYA_PUSH_MAX_PRICE_AGE_MINUTES in push-guardrails.ts).
@@ -277,9 +291,7 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
   if (row.mode === "live" && unsent > 0) {
     const waited = row.unsent_since ? `, the oldest for ${ageLabel(row.unsent_since, nowIso)}` : "";
     const nothingSays = row.sent_24h === 0 && row.open_incidents === 0 && row.open_incidents_admin_only === 0;
-    const why = nothingSays
-      ? " Nothing was sent in 24h and no sending problem is on record: check MAYA_PUSH_RATES in the function settings, then the push in the sync log."
-      : "";
+    const why = nothingSays ? ` Nothing was sent in 24h and no sending problem is on record: ${sendingSwitchHint(row.pms_type)}` : "";
     problems.push({
       kind: "unsent",
       severity: "rose",

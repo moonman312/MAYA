@@ -15,7 +15,7 @@ questions:
   - What does "Watches Standard, Deluxe · Changes Suite" mean on the rule card? {#what-the-rule-card-shows}
   - What does each condition measure when the lists differ? {#what-each-condition-measures/sellable-occupancy}
   - Can a rule measure one set of room types for occupancy and another for booking speed? {#a-rule-that-measures-only-non-rooms/good-to-know}
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -94,7 +94,7 @@ A rule reads its numbers only from room types that count as rooms. What happens 
 
 - **A rule saved with a mixed list** (Standard and the Meeting Room, say, before you unticked the Meeting Room on the <Ui>PMS</Ui> tab) keeps pricing every type in its <Ui>Change</Ui> list, but the Meeting Room drops out of what it measures. The change log tells you: "That 95% leaves out Meeting Room."
 - **A rule whose measured types have all been unticked** measures nothing. Any sellable occupancy, booking speed or pickup count condition on it can never be true, so it stops firing. It stays <Ui>On</Ui> on the <Ui>Rules</Ui> tab, with no warning. A standard rule's change comes off. A booking speed or pickup rule's earlier changes stay where they are.
-- **A rule whose measured types have all been switched off in MAYA** (during the review) stops running. Any price change it had already made on the types it changes stays in place, as if the rule were switched off. To clear it, delete the rule or type a price for those nights. Editing the rule to measure active room types, with <Ui>Apply price adjustments</Ui>, judges those changes against the edited rule. Removing a room type in your property system does not switch it off in MAYA, so the rule keeps measuring it. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says what happens to a removed room type in each system, and [Contact support](/docs/help/contact-support#your-property-system) lists what you can ask us to change.
+- **A rule whose measured types have all been switched off in MAYA** (during the review, or because Cloudbeds no longer lists them) stops running. Any price change it had already made on the types it changes stays in place, as if the rule were switched off. To clear it, delete the rule or type a price for those nights. Editing the rule to measure active room types, with <Ui>Apply price adjustments</Ui>, judges those changes against the edited rule. On Cloudbeds, a room type you remove is switched off by MAYA's next daily read of your room types, and the rule stops measuring it then. On ThinkReservations and Mews, removing one does not switch it off in MAYA, so the rule keeps measuring it. [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service) says what happens to a removed room type in each system, and [Contact support](/docs/help/contact-support#your-property-system) lists what you can ask us to change.
 
 A booking window reads no room types, so a rule whose only condition is a booking window keeps working when every type it measures has been unticked as a room.
 

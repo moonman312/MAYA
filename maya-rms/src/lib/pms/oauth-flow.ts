@@ -365,12 +365,14 @@ export async function handleOAuthCallback(
     });
     if (outcome.kind === "error") return renderCallbackError(pmsType, outcome.message);
     if (outcome.kind === "refused") return renderNotice(outcome.message, 403);
+    // Properties of a group left out for their currency: the login page says how many.
+    const skipped = outcome.currencySkipped ? `&currencySkipped=${outcome.currencySkipped}` : "";
     if (outcome.kind === "reconnected") {
       if (outcome.inApp) return reconnectedRedirect(base, outcome.hotelId);
       // Flow A's own wording: after connecting, "Connect App" becomes "Login".
-      return NextResponse.redirect(`${base}/login?reconnected=1`, { status: 302 });
+      return NextResponse.redirect(`${base}/login?reconnected=1${skipped}`, { status: 302 });
     }
-    return NextResponse.redirect(`${base}/login?claim=${outcome.token}`, { status: 302 });
+    return NextResponse.redirect(`${base}/login?claim=${outcome.token}${skipped}`, { status: 302 });
   }
 
   if (!verified || !verified.ok) {

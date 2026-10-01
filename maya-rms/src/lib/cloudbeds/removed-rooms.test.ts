@@ -21,7 +21,7 @@ const client = vi.hoisted(() => {
       this.name = "CloudbedsHttpError";
     }
   }
-  return {
+  const c = {
     CloudbedsHttpError,
     setCloudbedsRequestLogger: vi.fn(),
     cloudbedsDiscoverPropertyId: vi.fn(async () => "prop-1"),
@@ -36,6 +36,23 @@ const client = vi.hoisted(() => {
     cloudbedsGetReservationDetail: vi.fn(),
     cloudbedsLookUpReservation: vi.fn(),
     cloudbedsTimestamp: (d: Date) => d.toISOString().slice(0, 19).replace("T", " "),
+  };
+  return {
+    ...c,
+    // The paged list the sync reads, built from cloudbedsGetRoomTypes so a test that stubs that still steers it.
+    cloudbedsListRoomTypes: vi.fn(async (creds: unknown) => ({
+      roomTypes: await (c.cloudbedsGetRoomTypes as (x: unknown) => Promise<Record<string, unknown>[]>)(creds),
+      complete: true,
+    })),
+    // The daily details read: no time zone or currency, so nothing changes.
+    cloudbedsGetHotelDetails: vi.fn(
+      async (): Promise<{ externalPropertyId: string; name: string | null; timezone: string | null; currency: string | null }> => ({
+        externalPropertyId: "prop-1",
+        name: null,
+        timezone: null,
+        currency: null,
+      }),
+    ),
   };
 });
 

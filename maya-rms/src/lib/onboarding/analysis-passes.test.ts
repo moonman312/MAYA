@@ -254,6 +254,191 @@ describe("analysing an import early and again at the end", () => {
   });
 });
 
+describe("a first import of a property that is already live (audit A21)", () => {
+  /** Jake 2026-09-30: once live, an import writes no limit and switches no room type off. */
+  function liveDb(simulation: boolean | null) {
+    const base = hotelDb();
+    return fakeSupabase(
+      {
+        room_types: base.tables.room_types.map((r) => ({ ...r, floor_price: 1, ceiling_price: 99999.99 })),
+        hotel_settings: simulation == null ? [] : [{ hotel_id: HOTEL, simulation_mode: simulation, strategy_floor: 90 }],
+      },
+      {
+        rpc: (fn) => {
+          if (fn === "onboarding_daily_room_nights") return EARLY_DAILY;
+          if (fn !== "onboarding_room_type_stats") return null;
+          return [
+            stat({ room_type_id: "rt-king", name: "Deluxe King" }),
+            stat({ room_type_id: "rt-dead", name: "Deluxe  King", row_count: 0, reservation_count: 0, median_rate: null, p99_rate: null, max_rate: null }),
+          ];
+        },
+      },
+    );
+  }
+
+  it("writes no floor or ceiling and hides no duplicate, only proposes it", async () => {
+    const db = liveDb(false);
+    await analyzeImport(db.client, importJob(), "early");
+
+    expect(db.tables.room_types.map((r) => [r.id, r.floor_price, r.ceiling_price, r.is_active])).toEqual([
+      ["rt-king", 1, 99999.99, true],
+      ["rt-dead", 1, 99999.99, true],
+      ["rt-court", 1, 99999.99, true],
+    ]);
+    expect(db.tables.onboarding_findings.filter((f) => f.kind === "duplicate_room_type").map((f) => f.status)).toEqual(["proposed"]);
+  });
+
+  it("still does both while the property simulates, and with no settings row at all", async () => {
+    for (const simulation of [true, null]) {
+      const db = liveDb(simulation);
+      await analyzeImport(db.client, importJob(), "early");
+      const king = db.tables.room_types.find((r) => r.id === "rt-king")!;
+      // The data floor (40% of 200) and ceiling (p99 400 x 1.5), or the answer's 90 floor.
+      expect(Number(king.floor_price)).toBeGreaterThan(1);
+      expect(king.ceiling_price).toBe(600);
+      expect(db.tables.room_types.find((r) => r.id === "rt-dead")?.is_active).toBe(false);
+    }
+  });
+});
+
+describe("a floor or ceiling removed on the review stays removed (audit A21)", () => {
+  /** A property in simulation, its answers giving a 90 floor, read in two passes. */
+  function removalDb(opts: { stamped?: boolean; migrated?: boolean } = {}) {
+    const migrated = opts.migrated ?? true;
+    return fakeSupabase(
+      {
+        room_types: [
+          { id: "rt-king", hotel_id: HOTEL, name: "Deluxe King", is_active: true, floor_price: 1, ceiling_price: 99999.99, counts_as_room: true, counts_as_room_set_by: null },
+          { id: "rt-queen", hotel_id: HOTEL, name: "Harbour Queen", is_active: true, floor_price: 1, ceiling_price: 99999.99, counts_as_room: true, counts_as_room_set_by: null },
+        ],
+        hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true, strategy_floor: 90 }],
+      },
+      {
+        rpc: (fn) => {
+          if (fn === "onboarding_daily_room_nights") return EARLY_DAILY;
+          if (fn === "room_type_max_rates") return [];
+          if (fn !== "onboarding_room_type_stats") return null;
+          return [stat({ room_type_id: "rt-king", name: "Deluxe King" }), stat({ room_type_id: "rt-queen", name: "Harbour Queen" })];
+        },
+        // Before the migration, any call naming the stamps fails as PostgREST does.
+        fault: (call) =>
+          !migrated && (callTouchesColumn(call, "floor_cleared_at") || callTouchesColumn(call, "ceiling_cleared_at"))
+            ? missingColumn("room_types", call.columns.includes("floor_cleared_at") ? "floor_cleared_at" : "ceiling_cleared_at")
+            : null,
+      },
+    );
+  }
+  const row = (db: ReturnType<typeof removalDb>, id: string) => db.tables.room_types.find((r) => r.id === id)!;
+  /** What POST /api/room-types/limits writes for a remove. */
+  const remove = (db: ReturnType<typeof removalDb>, id: string, limit: "floor" | "ceiling") =>
+    Object.assign(
+      row(db, id),
+      limit === "floor"
+        ? { floor_price: 1, floor_cleared_at: "2026-10-01T12:00:00Z" }
+        : { ceiling_price: 99999.99, ceiling_cleared_at: "2026-10-01T12:00:00Z" },
+    );
+  const finalPass = (job: ImportJobRow) =>
+    ({ ...job, phase: "analyze", stats: { ...job.stats, earlyAnalysisAt: "2026-10-01T10:00:00Z" } }) as ImportJobRow;
+
+  it("keeps the owner's remove through the import's last pass, the answer's floor and the data ceiling alike", async () => {
+    const db = removalDb();
+    const job = importJob();
+    await analyzeImport(db.client, job, "early");
+    // The answer's floor and the data ceiling (p99 400 x 1.5) landed.
+    expect([row(db, "rt-king").floor_price, row(db, "rt-king").ceiling_price]).toEqual([90, 600]);
+
+    // The owner removes King's floor and Queen's ceiling on the review while
+    // the older years are still importing.
+    remove(db, "rt-king", "floor");
+    remove(db, "rt-queen", "ceiling");
+
+    await analyzeImport(db.client, finalPass(job), "final");
+    expect(row(db, "rt-king")).toMatchObject({ floor_price: 1, ceiling_price: 600 });
+    expect(row(db, "rt-queen")).toMatchObject({ floor_price: 90, ceiling_price: 99999.99 });
+  });
+
+  it("keeps it through a later import in simulation, which projects the answers again", async () => {
+    const db = removalDb();
+    await analyzeImport(db.client, importJob(), "early");
+    remove(db, "rt-king", "floor");
+    // A new import job: no early pass on record, so the answers are projected again.
+    await analyzeImport(db.client, { ...importJob(), id: "job-2" }, "early");
+    expect(row(db, "rt-king").floor_price).toBe(1);
+    expect(row(db, "rt-queen").floor_price).toBe(90);
+  });
+
+  it("still fills limits before the migration, saying so", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const db = removalDb({ migrated: false });
+    await analyzeImport(db.client, importJob(), "early");
+    expect([row(db, "rt-king").floor_price, row(db, "rt-king").ceiling_price]).toEqual([90, 600]);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("99_supabase_migration_room_type_limit_removals_v1.sql"));
+    warn.mockRestore();
+  });
+});
+
+describe("a never-a-bedroom name with a room's nightly rate (audit A22)", () => {
+  function nameDb(opts: { live?: boolean } = {}) {
+    return fakeSupabase(
+      {
+        room_types: [
+          { id: "rt-king", hotel_id: HOTEL, name: "Deluxe King", is_active: true, total_rooms: 10, floor_price: 1, ceiling_price: 99999.99, counts_as_room: true, counts_as_room_set_by: null },
+          { id: "rt-exec", hotel_id: HOTEL, name: "Executive Conference Room", is_active: true, total_rooms: 2, floor_price: 1, ceiling_price: 99999.99, counts_as_room: false, counts_as_room_set_by: null },
+          { id: "rt-bay", hotel_id: HOTEL, name: "Parking Bay", is_active: true, total_rooms: 20, floor_price: 1, ceiling_price: 99999.99, counts_as_room: false, counts_as_room_set_by: null },
+          { id: "rt-board", hotel_id: HOTEL, name: "Harbour Boardroom", is_active: true, total_rooms: 1, floor_price: 1, ceiling_price: 99999.99, counts_as_room: false, counts_as_room_set_by: "owner-1" },
+        ],
+        hotel_settings: [{ hotel_id: HOTEL, simulation_mode: !opts.live }],
+      },
+      {
+        rpc: (fn) => {
+          if (fn === "onboarding_daily_room_nights") return EARLY_DAILY;
+          if (fn !== "onboarding_room_type_stats") return null;
+          return [
+            stat({ room_type_id: "rt-king", name: "Deluxe King", median_rate: 200 }),
+            stat({ room_type_id: "rt-exec", name: "Executive Conference Room", median_rate: 190, row_count: 60, reservation_count: 30 }),
+            stat({ room_type_id: "rt-bay", name: "Parking Bay", median_rate: 25, row_count: 400 }),
+            stat({ room_type_id: "rt-board", name: "Harbour Boardroom", median_rate: 210, row_count: 50 }),
+          ];
+        },
+      },
+    );
+  }
+  const flags = (db: ReturnType<typeof nameDb>) =>
+    db.tables.room_types.map((r) => [r.id, r.counts_as_room]);
+
+  it("puts the import's 'not a room' back to unanswered, asks the owner, and builds it into the starter rules", async () => {
+    const db = nameDb();
+    await analyzeImport(db.client, importJob(), "early");
+
+    // The parking bay's rate says parking; the boardroom is the owner's answer.
+    expect(flags(db)).toEqual([
+      ["rt-king", true],
+      ["rt-exec", null],
+      ["rt-bay", false],
+      ["rt-board", false],
+    ]);
+    const asked = db.tables.onboarding_findings
+      .filter((f) => f.kind === "suspect_room_type")
+      .map((f) => (f.payload as Record<string, unknown>).room_type_id);
+    expect(asked).toContain("rt-exec");
+    // Unanswered counts as a room, so the starter rules measure and change it.
+    const rule = db.tables.pricing_rules[0];
+    const measured = db.tables.rule_signal_room_type.filter((j) => j.rule_id === rule.id).map((j) => j.room_type_id).sort();
+    expect(measured).toEqual(["rt-exec", "rt-king"]);
+  });
+
+  it("leaves every flag alone on a live property", async () => {
+    const db = nameDb({ live: true });
+    await analyzeImport(db.client, importJob(), "early");
+    expect(flags(db)).toEqual([
+      ["rt-king", true],
+      ["rt-exec", false],
+      ["rt-bay", false],
+      ["rt-board", false],
+    ]);
+  });
+});
+
 describe("guardrail suggestions on a refresh", () => {
   /** A hotel that already has config: nothing answered, one floor set by hand. */
   function refreshDb(opts: { strategyFloor?: number } = {}) {

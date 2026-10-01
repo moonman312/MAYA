@@ -9,6 +9,7 @@ import {
 import {
   computeOccupancyReference,
   computeStarterRules,
+  STARTER_CUT_UNDER_OCCUPANCY,
 } from "../../../supabase/functions/_shared/onboarding/generate-rules";
 
 /* ── Seasonal closure merging ────────────────────────────────────────────── */
@@ -114,14 +115,31 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     for (const r of rules) {
       expect(r.is_pickup_rule).toBe(true);
       expect(r.condition.booking_speed_operator).toBeDefined();
-      expect(r.condition.occupancy_operator).toBeUndefined();
       expect(r.condition.pickup_operator).toBeUndefined();
+    }
+  });
+
+  it("only cuts a night under 70% booked, and never puts an occupancy bar on a raise", () => {
+    // Audit A15: a night that filled early takes no new bookings, which reads
+    // as far behind similar nights. Without the bar the rescue cut a sold-out
+    // night 15%.
+    expect(STARTER_CUT_UNDER_OCCUPANCY).toBe(0.7);
+    for (const r of rules) {
+      if (r.action.action_direction === "decrease") {
+        expect(r.condition).toMatchObject({ occupancy_operator: "lt", occupancy_threshold: 0.7 });
+        expect(r.explanation).toContain("under 70% booked");
+      } else {
+        expect(r.condition.occupancy_operator).toBeUndefined();
+        expect(r.condition.occupancy_threshold).toBeUndefined();
+      }
     }
   });
 
   it("matches the agreed ladder: windows, levels, percentages, cooldowns", () => {
     expect(byName.get("Slow-date rescue")).toMatchObject({
       condition: {
+        occupancy_operator: "lt",
+        occupancy_threshold: 0.7,
         booking_speed_operator: "at_most",
         booking_speed_level: "much_slower",
         booking_speed_window_days: 30,
@@ -131,6 +149,8 @@ describe("computeStarterRules: the booking-speed ladder", () => {
     });
     expect(byName.get("Slow-date trim")).toMatchObject({
       condition: {
+        occupancy_operator: "lt",
+        occupancy_threshold: 0.7,
         booking_speed_operator: "is",
         booking_speed_level: "slower",
         booking_speed_window_days: 30,

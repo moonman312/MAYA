@@ -17,7 +17,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { GoLiveConfirmation, GoLiveDialog, requestGoLive } from "@/components/go-live-dialog";
+import { GoLiveConfirmation, GoLiveDialog, OutsideLimitsLine, requestGoLive } from "@/components/go-live-dialog";
 import { RoomCountHelp } from "@/components/room-type-settings";
 import { usePropertyMode } from "@/components/use-property-mode";
 import { liveHelp, liveTitle, simulationHelp, simulationStripText, type PropertyMode } from "@/lib/simulation-strip";
@@ -125,12 +125,14 @@ export function SimulationStrip({
         connected={mode.connected}
         windowDays={mode.windowDays}
         propertyName={mode.propertyName}
+        sendingOn={mode.sendingOn}
         busy={going}
         error={error}
         onConfirm={() => void goLive()}
         onCancel={() => setConfirming(false)}
       >
-        <GoLiveConfirmation pmsType={mode.pmsType} />
+        <OutsideLimitsLine hotelId={mode.hotelId} pmsType={mode.pmsType} connected={mode.connected} />
+        <GoLiveConfirmation pmsType={mode.pmsType} sendingOn={mode.sendingOn} />
       </GoLiveDialog>
     </div>
   );

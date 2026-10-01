@@ -1,5 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { treatAsRoom } from "./room-type-names.ts";
+import { roomTypeLabel } from "../pms/room-type-label.ts";
+import type { LimitRemovals } from "./limit-removals.ts";
 
 /**
  * Project hotel-level strategy answers onto the per-room-type guardrails the
@@ -31,6 +33,14 @@ import { treatAsRoom } from "./room-type-names.ts";
 export async function projectStrategyOntoRoomTypes(
   supabase: SupabaseClient,
   hotelId: string,
+  opts: {
+    /**
+     * The limits the owner removed on the review (limit-removals.ts). Passed
+     * by the import, which leaves each one removed. Saving an answer passes
+     * none: that is the owner setting the limit again.
+     */
+    removals?: LimitRemovals;
+  } = {},
 ): Promise<GuardrailNotSaved[]> {
   const notSaved: GuardrailNotSaved[] = [];
   const { data: settings } = await supabase
@@ -61,8 +71,9 @@ export async function projectStrategyOntoRoomTypes(
 
   for (const rt of roomTypes) {
     const patch: Record<string, number> = {};
-    if (floor !== null && floor > 0) patch.floor_price = floor;
-    if (ceiling !== null && ceiling > 0) {
+    const removed = opts.removals?.get(String(rt.id));
+    if (floor !== null && floor > 0 && !removed?.floor) patch.floor_price = floor;
+    if (ceiling !== null && ceiling > 0 && !removed?.ceiling) {
       const observedMax = maxRateByRoomType.get(String(rt.id));
       if (observedMax !== undefined && ceiling >= observedMax) patch.ceiling_price = ceiling;
     }
@@ -70,7 +81,7 @@ export async function projectStrategyOntoRoomTypes(
 
     const base = {
       roomTypeId: String(rt.id),
-      roomTypeName: String(rt.display_name || rt.name || ""),
+      roomTypeName: roomTypeLabel(rt),
       floor,
       ceiling,
       savedFloor: Number(rt.floor_price),

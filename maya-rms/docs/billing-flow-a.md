@@ -191,12 +191,18 @@ Three environment variables and one script. No code changes.
    `customer.subscription.paused`, `customer.subscription.resumed`,
    `customer.subscription.trial_will_end`, `invoice.payment_succeeded`,
    `invoice.upcoming`, `customer.updated`. Copy its signing secret.
-   `customer.updated` is what pays an unpaid subscription's open invoice when
-   the owner saves a new default card in the billing portal
-   (`lib/billing/unpaid-recovery.ts`); without it on the endpoint, updating
-   the card does not restart the subscription. It only pays the subscription
-   `hotel_subscriptions` records for the hotel; an older unpaid one a newer
-   checkout replaced is logged (`stale_unpaid_not_revived`) and left alone.
+   `customer.updated` is what follows the owner to a new default card saved
+   in the billing portal (`lib/billing/card-change.ts`): subscriptions on the
+   old default card (or, when the customer had no default, on the one card
+   they all share) move to the new card, ones on a different card of their own
+   are left alone, and an overdue (`past_due` or `unpaid`) subscription's open
+   invoice is paid with the new card at once. Without it on the endpoint,
+   updating the card neither moves the subscription nor restarts an unpaid
+   one. It only acts on the subscription `hotel_subscriptions` records for the
+   hotel; an older one a newer checkout replaced is logged
+   (`stale_subscription_not_touched`) and left alone. What Stripe's portal
+   itself does to a subscription's own card is proved by
+   `docs/stripe-portal-card-proof.md`.
 4. In Vercel (Production), set `STRIPE_SECRET_KEY`,
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to the live
    values, and `MAYA_MARKETPLACE_TRIAL_DAYS` to what the offer should be.

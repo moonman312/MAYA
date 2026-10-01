@@ -6,9 +6,11 @@ import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
 import { links } from "@/lib/deep-links";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
-import { GoLiveConfirmation, GoLiveDialog, requestGoLive } from "@/components/go-live-dialog";
+import { GoLiveConfirmation, GoLiveDialog, OutsideLimitsLine, requestGoLive } from "@/components/go-live-dialog";
 import { usePropertyMode } from "@/components/use-property-mode";
+import { RoomTypeName } from "@/components/room-type-name";
 import { noGoLiveLine } from "@/lib/simulation-strip";
+import { hasCeiling, hasFloor } from "@/lib/onboarding/limits";
 import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
 import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { suggestionDraft, tunedDraft } from "@/lib/rule-suggestion-draft";
@@ -411,6 +413,8 @@ export function ReviewFindings({
 
           <RoomCountStrip hotelId={status?.hotelId} />
 
+          <LimitsList hotelId={status?.hotelId} currencySymbol={currencySymbol} />
+
           <StarterRules status={status} />
 
           {status?.pmsType === "cloudbeds" ? (
@@ -549,12 +553,14 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
         pmsType={status?.pmsType ?? null}
         windowDays={status?.pushWindowDays ?? null}
         propertyName={mode?.propertyName ?? status?.hotelName ?? null}
+        sendingOn={mode?.sendingOn}
         busy={going}
         error={error}
         onConfirm={() => void goLive()}
         onCancel={() => setConfirming(false)}
       >
-        <GoLiveConfirmation pmsType={status?.pmsType ?? null} />
+        <OutsideLimitsLine hotelId={mode?.hotelId ?? status?.hotelId ?? null} pmsType={status?.pmsType ?? null} />
+        <GoLiveConfirmation pmsType={status?.pmsType ?? null} sendingOn={mode?.sendingOn} />
       </GoLiveDialog>
     </div>
   );
@@ -636,7 +642,7 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
                 onChange={(e) => toggle(rt, e.target.checked)}
                 aria-label={`${rt.name} counts as a room`}
               />
-              {rt.name}
+              <RoomTypeName name={rt.name} className="max-w-[16rem]" />
               <span className="text-slate-500">{rt.total_rooms}</span>
               {needsAnswer(rt) ? (
                 <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-amber-300">
@@ -647,6 +653,114 @@ function RoomCountStrip({ hotelId }: { hotelId: string | undefined }) {
           );
         })}
       </div>
+      {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
+    </div>
+  );
+}
+
+/* ── Floors and ceilings: what holds every price ──────────────────────────── */
+
+const LIMITS_HELP = {
+  label: "What floors and ceilings do",
+  title: "Floors and ceilings",
+  lines: [
+    "MAYA never sends a price under a room type's floor or over its ceiling, even on a night your own rate sits outside them.",
+    "These came from your answers and your own rates.",
+    "Remove one and that room type has no limit there.",
+  ],
+};
+
+function amount(n: number, symbol: string): string {
+  return `${symbol}${n.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Every floor and ceiling on the property, each with a one-click remove that
+ * puts it back to no limit (POST /api/room-types/limits). The import writes
+ * them from the owner's own rates without a card, and going live confirms
+ * the owner reviewed them, so this is where they are reviewed. A room type
+ * with neither set is not listed, and with none at all there is nothing here.
+ */
+function LimitsList({ hotelId, currencySymbol }: { hotelId: string | undefined; currencySymbol: string }) {
+  const [types, setTypes] = useState<Array<RoomTypeOption & { floor_price?: number; ceiling_price?: number }> | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/room-types");
+        if (!res.ok || !alive) return;
+        const rows = await res.json();
+        if (alive && Array.isArray(rows)) setTypes(rows);
+      } catch {
+        // A courtesy, like the room count strip: the review is whole without it.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const listed = (types ?? []).filter((t) => hasFloor(t.floor_price) || hasCeiling(t.ceiling_price));
+  if (listed.length === 0) return null;
+
+  async function remove(roomTypeId: string, limit: "floor" | "ceiling") {
+    if (!hotelId) return;
+    setBusy(`${roomTypeId}|${limit}`);
+    setError(null);
+    try {
+      const res = await fetch("/api/room-types/limits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hotelId, roomTypeId, limit }),
+      });
+      const body = (await res.json().catch(() => null)) as { error?: string; floor_price?: number; ceiling_price?: number } | null;
+      if (!res.ok) throw new Error(body?.error ?? "That didn't save. Try again.");
+      setTypes((prev) =>
+        prev?.map((t) =>
+          t.id === roomTypeId ? { ...t, floor_price: body?.floor_price ?? t.floor_price, ceiling_price: body?.ceiling_price ?? t.ceiling_price } : t,
+        ) ?? prev,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That didn't save. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const chip = (rt: RoomTypeOption, limit: "floor" | "ceiling", value: number) => (
+    <span className="inline-flex items-center gap-1 rounded border border-slate-700 bg-slate-900 py-0.5 pl-2 pr-1 text-slate-300">
+      {limit === "floor" ? "Floor" : "Ceiling"} {amount(value, currencySymbol)}
+      <button
+        type="button"
+        disabled={!hotelId || busy === `${rt.id}|${limit}`}
+        onClick={() => void remove(rt.id, limit)}
+        aria-label={`Remove the ${limit} for ${rt.name}`}
+        title="Remove"
+        className="cursor-pointer rounded px-1 text-slate-500 hover:text-rose-300 disabled:opacity-50"
+      >
+        ×
+      </button>
+    </span>
+  );
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm text-slate-200">Your floors and ceilings</p>
+        <RoomCountHelp {...LIMITS_HELP} docs="limits" />
+      </div>
+      <ul className="mt-3 space-y-1.5">
+        {listed.map((rt) => (
+          <li key={rt.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+            <RoomTypeName name={rt.name} className="mr-1 max-w-[16rem] text-slate-200" />
+            {hasFloor(rt.floor_price) ? chip(rt, "floor", Number(rt.floor_price)) : null}
+            {hasCeiling(rt.ceiling_price) ? chip(rt, "ceiling", Number(rt.ceiling_price)) : null}
+          </li>
+        ))}
+      </ul>
       {error ? <p className="mt-2 text-xs text-rose-300">{error}</p> : null}
     </div>
   );
@@ -782,6 +896,15 @@ export function describeFinding(f: Finding): {
       };
     }
     case "duplicate_room_type":
+      // Only proposed on a refresh or a live property: nothing was hidden yet.
+      if (f.status === "proposed") {
+        return {
+          title: `Hide duplicate room type "${String(p.name)}"?`,
+          body: "Two room types share the same name and this one has zero bookings. Hiding it keeps your occupancy math honest.",
+          confirmLabel: "Hide it",
+          dismissLabel: "Keep it",
+        };
+      }
       return {
         title: `Hid duplicate room type "${String(p.name)}"`,
         body: "Two room types shared the same name and this one had zero bookings, so we set it aside to keep your occupancy math honest.",

@@ -37,6 +37,7 @@ export type HelpPanel =
   | "alert-limit"
   | "manual-price"
   | "counts-as-room"
+  | "limits"
   | "out-of-service"
   | "roles"
   | "not-now"

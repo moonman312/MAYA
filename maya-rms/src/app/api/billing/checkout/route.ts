@@ -221,7 +221,7 @@ export async function POST(request: Request) {
     );
   }
   // Unpaid is still alive in Stripe with its invoice open, and a new card
-  // pays that invoice and revives it (lib/billing/unpaid-recovery.ts). A new
+  // pays that invoice and revives it (lib/billing/card-change.ts). A new
   // subscription beside it would have the property paying twice.
   if (existing?.stripe_subscription_id && existing.status === "unpaid") {
     return NextResponse.json(

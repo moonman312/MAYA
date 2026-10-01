@@ -168,7 +168,7 @@ describe("the pilot health page", () => {
     expect(text).toContain("0 sent in 24h");
     expect(text).toContain("792 not sent after an hour");
     expect(text).toContain("792 published prices not sent after over an hour, the oldest for 3h.");
-    expect(text).toContain("check MAYA_PUSH_RATES in the function settings");
+    expect(text).toContain("check MAYA_PUSH_RATES_CLOUDBEDS (or MAYA_PUSH_RATES, while that is not set) in cloudbeds-scheduled-sync's settings");
     expect(text).toContain("2 properties, 2 live, 0 simulating, 1 with a problem.");
     expect(text).not.toContain("Run 99_supabase_migration_pilot_health_v2.sql");
   });
@@ -272,6 +272,30 @@ describe("the alerts line", () => {
       "Alerts: missing. cloudbeds-scheduled-sync said 12m ago that MAYA_ALERT_WEBHOOK is not set in the Supabase function secrets, so the alerts it raises are being skipped.",
     );
     expect(text).toContain("Last test alert: not sent 12m ago through cloudbeds-scheduled-sync (no_webhook_configured).");
+  });
+
+  it("says which systems prices are sent to, from each sending sync's own switch", async () => {
+    state.rows = [healthy()];
+    state.auditRows = [
+      {
+        event_type: "alert.channel",
+        entity_id: "think-scheduled-sync",
+        detail: { fn: "think-scheduled-sync", state: "ready", min_severity: "warn", sending: false, sending_setting: "MAYA_PUSH_RATES_THINK" },
+        created_at: minutesAgo(4),
+      },
+      // A test alert's report says nothing about sending; the line keeps the last one that did.
+      channelReport("cloudbeds-scheduled-sync", "ready", 6),
+      {
+        event_type: "alert.channel",
+        entity_id: "cloudbeds-scheduled-sync",
+        detail: { fn: "cloudbeds-scheduled-sync", state: "ready", min_severity: "warn", sending: true, sending_setting: "MAYA_PUSH_RATES" },
+        created_at: minutesAgo(30),
+      },
+      channelReport("mews-scheduled-sync", "ready", 8),
+    ];
+    const html = await render();
+    expect(html).toContain("data-sending");
+    expect(asText(html)).toContain("Sending: Cloudbeds on (MAYA_PUSH_RATES). ThinkReservations off (MAYA_PUSH_RATES_THINK).");
   });
 
   it("is shown even when the pilot health function is missing, and survives a failed read", async () => {

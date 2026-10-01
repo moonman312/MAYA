@@ -111,6 +111,7 @@
  * calendar keeps re-reading a night whose row says 0.
  */
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { mwsEnv } from "../mews/env.ts";
 
 export const GUARDRAIL = {
@@ -215,6 +216,47 @@ function cents(n: number): number {
   return Math.round(n * 100);
 }
 
+/**
+ * Whether the push sends for this room type at all, before any night's typed
+ * price is looked at: a type unticked as a room only when a rule names it
+ * under "Change" (guardrail:not_a_room). The go-live confirm's count of nights
+ * outside the limits (src/lib/onboarding/rates-outside-limits.ts) asks the
+ * same question, so it never counts a night nothing would be sent for.
+ */
+export function pushSendsForRoomType(rt: Pick<GuardrailRoomType, "countsAsRoom" | "namedByRule">): boolean {
+  return rt.countsAsRoom !== false || rt.namedByRule === true;
+}
+
+/**
+ * The room types any rule of the hotel's names under "Change"
+ * (rule_affected_room_type), on or paused: the push sends for such a type
+ * even when it is unticked as a room. A paused rule's changes stay on the
+ * price (pausing freezes, it never reverts), so a type it names is still one
+ * the owner asked MAYA to price. Read a page at a time. A failed read throws:
+ * taking it as "no rule names anything" would hold back prices the owner
+ * asked for, and taking it as "every rule does" would send prices nobody
+ * asked for.
+ */
+export async function readRoomTypesNamedByRules(supabase: SupabaseClient, hotelId: string): Promise<Set<string>> {
+  const named = new Set<string>();
+  for (let from = 0, guard = 0; guard < 1000; from += 1000, guard++) {
+    const { data, error } = await supabase
+      .from("pricing_rules")
+      .select("id, rule_affected_room_type ( room_type_id )")
+      .eq("hotel_id", hotelId)
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as Array<{ rule_affected_room_type?: unknown }>;
+    for (const r of rows) {
+      const affected = Array.isArray(r.rule_affected_room_type) ? r.rule_affected_room_type : [];
+      for (const a of affected as Array<{ room_type_id?: unknown }>) if (a?.room_type_id != null) named.add(String(a.room_type_id));
+    }
+    if (rows.length < 1000) break;
+  }
+  return named;
+}
+
 /** The code a cell is held back for, or null when it may be sent. */
 export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
   if (!ISO_DATE.test(c.stayDate) || c.stayDate < c.firstDate || c.stayDate > c.lastDate) {
@@ -224,7 +266,7 @@ export function checkPushGuardrails(c: GuardrailInput): GuardrailCode | null {
   const manual = typeof c.manualPrice === "number" && Number.isFinite(c.manualPrice) ? c.manualPrice : null;
   // A price typed for the night is as much the owner's ask as a rule naming
   // the type: it is sent, as it was before the type flag was checked here.
-  if (c.roomType.countsAsRoom === false && c.roomType.namedByRule !== true && manual == null) return GUARDRAIL.notARoom;
+  if (!pushSendsForRoomType(c.roomType) && manual == null) return GUARDRAIL.notARoom;
   if (typeof c.price !== "number" || !Number.isFinite(c.price) || cents(c.price) < 0) return GUARDRAIL.invalidPrice;
   // The engine publishes 0 only for a manual price of 0.
   if (cents(c.price) === 0 && !(manual != null && cents(manual) === 0)) return GUARDRAIL.invalidPrice;

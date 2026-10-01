@@ -1,10 +1,10 @@
 ---
 title: Time, weekends, currency and holidays
-summary: Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, your currency and how prices are rounded, including currencies without cents, and how far ahead MAYA looks.
+summary: Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, which currencies MAYA works in and how prices are rounded, and how far ahead MAYA looks.
 section: reference
 order: 20
-readingTime: 10
-keywords: [time zone, timezone, hotel day, today, tonight, midnight, which day, UTC, clock, browser time, change the time zone, wrong time zone, past day, past week, past month, last 24 hours, 7 days, 30 days, booking date, a day off, wait, 24 hours, lookback, daylight saving, DST, clocks change, weekend, Friday, Saturday, Sunday, weekday, holiday, holidays, US holidays, Thanksgiving, Christmas, bank holiday, national holiday, outside the US, season, currency, euro, pound, yen, JPY, no cents, whole numbers, rounding, decimals, two decimal places, dollar sign, $, change the currency, US dollars, billing currency, how far ahead, 13 months, 396 nights, 399 days, whole days, won, rupiah, dong, over 99999, default ceiling, decimal comma, comma or point, 180,50, decimal separator, thousands separator]
+readingTime: 12
+keywords: [which currencies, supported currencies, currency not supported, doesn't price in yet, KRW, IDR, VND, HKD, MXN, CAD, AUD, NZD, CHF, SGD, time zone, timezone, hotel day, today, tonight, midnight, which day, UTC, clock, browser time, change the time zone, wrong time zone, past day, past week, past month, last 24 hours, 7 days, 30 days, booking date, a day off, wait, 24 hours, lookback, daylight saving, DST, clocks change, weekend, Friday, Saturday, Sunday, weekday, holiday, holidays, US holidays, Thanksgiving, Christmas, bank holiday, national holiday, outside the US, season, currency, euro, pound, yen, JPY, no cents, whole numbers, rounding, decimals, two decimal places, dollar sign, $, change the currency, US dollars, billing currency, how far ahead, 13 months, 396 nights, 399 days, whole days, won, rupiah, dong, over 99999, default ceiling, decimal comma, comma or point, 180,50, decimal separator, thousands separator]
 questions:
   - What is a hotel day? {#your-propertys-day/maya-counts-days}
   - Which time zone does MAYA use? {#which-time-zone}
@@ -20,7 +20,9 @@ questions:
   - Which holidays does MAYA use? {#holidays}
   - Which currency symbol will I see? {#currency/your-currencys-symbol}
   - Can I change the currency? {#currency/your-propertys-currency}
-  - My currency has no cents (JPY). How are prices rounded and sent? {#rounding-and-currencies-without-cents/maya-works-out}
+  - Which currencies does MAYA work in? {#currency/which-currencies-maya}
+  - My property system uses yen (or won, rupiah, pesos). Can I connect it? {#currency/which-currencies-maya}
+  - My system keeps whole numbers. How are prices rounded and sent? {#rounding-and-currencies-without-cents/maya-works-out}
   - My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will MAYA's default ceiling cap them? {#currency/the-default-floor}
   - We write prices as 180,50. Do I type a comma or a point in the price box? {#currency/typing-amounts}
   - How far ahead does MAYA see bookings? {#how-far-ahead-maya-looks/bookings}
@@ -29,7 +31,7 @@ updated: 2026-10-01
 ---
 
 <InPlainWords>
-MAYA works on your property's own calendar, using the time zone read from your system when you connected. Tonight is today's date there, and weekends are Friday and Saturday nights. The holidays MAYA uses are 17 US holidays, and any other can be set aside. Prices are in your property's currency, worked out to two decimal places, while billing is in US dollars.
+MAYA works on your property's own calendar, using the time zone read from your system (on Cloudbeds, checked again once a day). Tonight is today's date there, and weekends are Friday and Saturday nights. The holidays MAYA uses are 17 US holidays, and any other can be set aside. Prices are in your property's currency, worked out to two decimal places, while billing is in US dollars.
 </InPlainWords>
 
 ## Your property's day
@@ -52,21 +54,21 @@ An illustration with made-up numbers, not your property.
 
 ## Which time zone
 
-MAYA reads your property's time zone once, when you connect, and keeps it.
+MAYA reads your property's time zone when you connect.
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-The time zone set on your property in Cloudbeds.
+The time zone set on your property in Cloudbeds. MAYA checks it again once a day, at its daily full read, and follows a change. The change log says so under "Changed in Cloudbeds": "Your time zone changed from America/Denver to America/Chicago, to match Cloudbeds. Tonight and every rule's dates follow it." A read that finds no time zone changes nothing.
 </PmsTab>
 <PmsTab pms="thinkreservations">
-The time zone set on your hotel in ThinkReservations.
+The time zone set on your hotel in ThinkReservations, read once, when you connect. Changing it in ThinkReservations later does not change it in MAYA.
 </PmsTab>
 <PmsTab pms="mews">
 MAYA does not read it from Mews. We set it with you when we connect the property.
 </PmsTab>
 </PmsTabs>
 
-If your system gave none, or it could not be read when you connected, MAYA uses universal time (UTC) until we set yours. The <Ui>PMS</Ui> tab shows the time zone MAYA has, under <Ui>Time zone and currency</Ui>, and says so in plain words when it is UTC. It cannot be changed from the app. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) to change it. Changing it in your system later does not change it in MAYA.
+If your system gave none, or it could not be read when you connected, MAYA uses universal time (UTC) until we set yours, or on Cloudbeds until the daily read finds it. The <Ui>PMS</Ui> tab shows the time zone MAYA has, under <Ui>Time zone and currency</Ui>, and says so in plain words when it is UTC. It cannot be changed from the app. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Time%20zone) to change it.
 
 It matters for sending. If your system and MAYA disagree about when tonight ends, your system can refuse tonight's price in the hours between the two midnights. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) has the signs to look for.
 
@@ -135,7 +137,11 @@ Seasons are stretches of your year that book differently, found from your own hi
 
 ## Currency
 
-Your property's currency is read once, when you connect: from Cloudbeds or ThinkReservations, and set with you for Mews. If none could be read, MAYA uses US dollars until we set yours. MAYA never converts anything. Every price is a number in your own currency.
+Your property's currency is read when you connect: from Cloudbeds or ThinkReservations, and set with you for Mews. If none could be read, MAYA uses US dollars until we set yours. MAYA never converts anything. Every price is a number in your own currency.
+
+On Cloudbeds, MAYA checks the currency again once a day. While your property is in simulation it follows a change to a currency it works in, and the change log says "Your currency changed from USD to CAD, to match Cloudbeds. Amounts in MAYA are now in CAD; nothing was converted." Once you are live it never changes the currency by itself, since your floors, ceilings and every price sent are in the one you have. Our team is alerted instead.
+
+**Which currencies MAYA works in.** For now, dollar, euro and pound style currencies: ones with two decimal places, whose prices run in the same range as US dollars. That is US, Canadian, Australian, New Zealand, Singapore, Bahamian, Bermudian, Cayman Islands, Barbados, Belize, East Caribbean and Fiji dollars, euros, pounds sterling and Swiss francs (USD, CAD, AUD, NZD, SGD, BSD, BMD, KYD, BBD, BZD, XCD, FJD, EUR, GBP, CHF). When you connect Cloudbeds or ThinkReservations and your system uses any other currency, MAYA stops there with "Your property's system uses KRW. MAYA doesn't price in KRW yet, so nothing was set up or imported. Email us and we'll tell you when it does." (with your currency's code). Nothing about the property is kept: no connection, no import. If you had already paid, the message adds "Reply to your receipt and we'll sort out your payment." In a Cloudbeds group, the properties in other currencies are left out and the rest connect; the sign-in page then says how many were left out, for example "2 of your properties use a currency MAYA doesn't price in yet, so they weren't connected." A property already in MAYA is never checked.
 
 The symbol depends on the screen:
 
@@ -146,18 +152,18 @@ Your MAYA subscription is billed in US dollars, whatever your property's currenc
 
 To check which currency MAYA has for your property, open the <Ui>PMS</Ui> tab: <Ui>Time zone and currency</Ui> shows it by its code and sign, such as "EUR (€)". The currency cannot be changed from the app. If MAYA has the wrong one, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
 
-**The default floor and ceiling are numbers in your currency.** Every room type starts with a floor of 1.00 and a ceiling of 99,999.99, whatever the currency. In most currencies they stop nothing. Where a room type sells above 99,999.99 (yen, won, rupiah or dong, for example), the default ceiling holds its prices down to 99,999.99, and a price you type above it is refused, until a real ceiling is set. Set ceilings before you go live: through the five questions, a suggestion card, or by email. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
+**The default floor and ceiling are numbers in your currency.** Every room type starts with a floor of 1.00 and a ceiling of 99,999.99, whatever the currency. In the currencies MAYA works in they stop nothing, because no night costs anywhere near 99,999.99. That is one reason a currency where a night costs 150,000 (won, rupiah or dong, for example) cannot connect yet: the default ceiling would hold every price down to 99,999.99. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
 
 **Typing amounts.** The price box on the calendar and the amount and threshold boxes in the rule builder are your browser's number boxes. Type a point for decimals, as in 180.50, and no thousands separator, as in 1250. Whether a box also takes a comma (180,50) depends on your browser and its language. If it cannot read what you typed, the box counts as empty: <Ui>Save</Ui> stays greyed out, or the rule is not added, so nothing wrong is saved.
 
 ## Rounding, and currencies without cents
 
-MAYA works out every price to two decimal places, whatever the currency, and sends it that way. A price you type, a floor and a ceiling are rounded to two decimal places too. There is no setting to round to whole units.
+MAYA works out every price to two decimal places, whatever the currency, and sends it that way. A price you type, a floor and a ceiling are rounded to two decimal places too. There is no setting to round to whole units. Every currency MAYA connects in has two decimal places, which is the other reason a currency without cents, such as Japanese yen, cannot connect yet.
 
-For a currency with no cents, such as Japanese yen, that means a percentage rule can produce a price with decimals. MAYA sends that number as it is. If your system keeps whole units, it rounds the price its own way. When MAYA reads the rate back, a whole number less than 1 away from the price MAYA sent counts as MAYA's own price, rounded, and not as a rate you changed. So the rounding never turns into a manual price, and MAYA does not keep sending the price again.
+A percentage rule can still produce cents where your rates have none. MAYA sends that number as it is. If your system keeps whole units, it rounds the price its own way. When MAYA reads the rate back, a whole number less than 1 away from the price MAYA sent counts as MAYA's own price, rounded, and not as a rate you changed. So the rounding never turns into a manual price, and MAYA does not keep sending the price again.
 
-<Example title="A yen price">
-Standard is ¥15,125. A rule raises it 10%, to ¥16,637.50. MAYA sends ¥16,637.50 to your system. Your system keeps whole yen and stores ¥16,638. About an hour later MAYA reads ¥16,638. It is a whole number less than 1 away from the price MAYA sent, so it counts as MAYA's own price, rounded, and nothing changes.
+<Example title="A price in whole dollars">
+Standard is $151.25. A rule raises it 10%, to $166.38. MAYA sends $166.38 to your system. Your system keeps whole dollars and stores $166. About an hour later MAYA reads $166. It is a whole number less than 1 away from the price MAYA sent, so it counts as MAYA's own price, rounded, and nothing changes.
 
 An illustration with made-up numbers, not your property.
 </Example>

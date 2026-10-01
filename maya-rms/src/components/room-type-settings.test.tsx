@@ -64,6 +64,8 @@ describe("the ? beside Room types", () => {
         'A type tagged "needs your answer" is one nobody has ticked or unticked yet. Until you answer, it counts in occupancy but not in your bill.',
       ),
     ).not.toBeNull();
+    // Ticking one in simulation adds it to the starter rules (audit A22).
+    expect(screen.getByText("Tick one while you're in simulation and it joins the starter rules you haven't edited.")).not.toBeNull();
   });
 });
 

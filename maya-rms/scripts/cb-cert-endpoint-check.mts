@@ -51,6 +51,30 @@ await probe("getSources", "getSources", { propertyID: PID });
 await probe("getItems", "getItems", { propertyID: PID });
 await probe("getGuestsByFilter", "getGuestsByFilter", { propertyID: PID, pageSize: "2" });
 
+// How getRoomTypes pages (audit A16). MAYA asks for 100 a page and reads on
+// until a page comes back empty (cloudbedsListRoomTypes). Room types are only
+// ever switched off on a list read to its end, so check here that:
+//   - pageSize=1 really gives one row a page (the host honours pageSize);
+//   - the page after the last one comes back empty with success true, not an
+//     error. An error there means every list reads as not complete, and MAYA
+//     never switches off a room type Cloudbeds stopped listing.
+console.log("\n--- getRoomTypes paging (A16) ---");
+const all = await probe("getRoomTypes pageSize=100 page 1", "getRoomTypes", { propertyID: PID, pageNumber: "1", pageSize: "100" });
+const count = Array.isArray(all.json?.data) ? all.json.data.length : 0;
+console.log(`  rows ${count}, total ${JSON.stringify(all.json?.total ?? null)}, count ${JSON.stringify(all.json?.count ?? null)}`);
+const past = await probe("getRoomTypes pageSize=100 page 2 (past end)", "getRoomTypes", { propertyID: PID, pageNumber: "2", pageSize: "100" });
+console.log(`  success ${JSON.stringify(past.json?.success ?? null)}, data ${JSON.stringify(past.json?.data ?? null).slice(0, 80)}`);
+const one = await probe("getRoomTypes pageSize=1 page 1", "getRoomTypes", { propertyID: PID, pageNumber: "1", pageSize: "1" });
+const two = await probe("getRoomTypes pageSize=1 page 2", "getRoomTypes", { propertyID: PID, pageNumber: "2", pageSize: "1" });
+const idOf = (r: any) => (Array.isArray(r.json?.data) ? r.json.data.map((t: any) => t.roomTypeID).join(",") : "none");
+console.log(`  pageSize=1 honoured: ${Array.isArray(one.json?.data) && one.json.data.length === 1 ? "yes" : "NO"}; page 1 ${idOf(one)}, page 2 ${idOf(two)}`);
+
+// Where the time zone and currency come from (getHotels, filtered to this property).
+console.log("\n--- getHotels (time zone, currency) ---");
+const hotels = await probe("getHotels", "getHotels", { propertyIDs: PID });
+const mine = Array.isArray(hotels.json?.data) ? hotels.json.data.find((h: any) => String(h.propertyID) === String(PID)) : null;
+console.log(`  propertyTimezone ${JSON.stringify(mine?.propertyTimezone ?? null)}, propertyCurrency ${JSON.stringify(mine?.propertyCurrency ?? null).slice(0, 120)}`);
+
 // What does detailedRates actually give us that MAYA isn't using?
 if (rp.ok && rp.json?.data?.[0]) {
   console.log("\n--- what getRatePlans detailedRates returns (first plan) ---");

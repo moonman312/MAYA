@@ -16,7 +16,8 @@ import {
   cloudbedsGetReservationsWithRateDetailsPage,
   cloudbedsLookUpReservation,
   cloudbedsTimestamp,
-  cloudbedsGetRoomTypes,
+  cloudbedsGetHotelDetails,
+  cloudbedsListRoomTypes,
   cloudbedsGetTaxesAndFees,
   CloudbedsHttpError,
   type CloudbedsReservation,
@@ -54,6 +55,7 @@ import type {
 import { mwsEnv } from "../mews/env.ts";
 import { persistPropertyId, resolveOAuthCredentials } from "../pms/oauth-credentials.ts";
 import { proposeCountsAsRoom } from "../onboarding/analysis.ts";
+import { reconcileListedRoomTypes, refreshPropertyDetails } from "../pms/property-changes.ts";
 import { dropUnchangedReservationRows } from "../pms/row-diff.ts";
 import { deleteNightsOutside } from "../pms/stale-nights.ts";
 import { decideSyncWindow } from "../pms/sync-mode.ts";
@@ -166,6 +168,14 @@ export type CloudbedsSyncSuccess = {
     roomsNoLongerOnBooking: number;
     /** What the full read did about stored bookings Cloudbeds did not return. */
     missingBookings: MissingBookingsCheck;
+    /** Whether the room type list was read to its end (cloudbedsListRoomTypes). */
+    roomTypeListComplete: boolean;
+    /** Room types switched off because Cloudbeds no longer lists them, by name. */
+    roomTypesSwitchedOff: string[];
+    /** Room types switched back on because Cloudbeds lists them again, by name. */
+    roomTypesSwitchedBackOn: string[];
+    /** The time zone this run saved from Cloudbeds, when it changed (full reads only). */
+    timezoneChanged: { from: string | null; to: string } | null;
   };
 };
 
@@ -1288,59 +1298,6 @@ export async function runCloudbedsSyncForHotel(
       refresh,
     };
 
-    // 4. Room types → room_types upsert. No is_active in the payload: PostgREST
-    //    only touches the columns it is given, so a type the owner excluded (or
-    //    the duplicate-dedup deactivated) is not resurrected and priced by the
-    //    next 5-minute cron. New rows still default to active.
-    const { data: hotelRow } = await supabase
-      .from("hotels")
-      .select("total_rooms_per_type")
-      .eq("id", hotelId)
-      .maybeSingle();
-    const defaultRooms = hotelRow?.total_rooms_per_type ?? 100;
-
-    const rtRaw = await cloudbedsGetRoomTypes(creds);
-    const parsedRoomTypes = parseCloudbedsRoomTypes(rtRaw, defaultRooms);
-
-    let roomTypesUpserted = 0;
-    if (parsedRoomTypes.length > 0) {
-      const rtRows = dedupeByKey(
-        parsedRoomTypes.map((rt) => ({
-          hotel_id: hotelId,
-          external_room_type_id: rt.external_room_type_id,
-          name: rt.name,
-          display_name: rt.display_name,
-          total_rooms: rt.total_rooms,
-        })),
-        (r) => `${r.hotel_id}:${r.external_room_type_id}`,
-      );
-      roomTypesUpserted = rtRows.length;
-      const { error: rtErr } = await supabase
-        .from("room_types")
-        .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
-      if (rtErr) return { ok: false, error: rtErr.message };
-      // Default counts_as_room for types nobody has classified yet. Separate
-      // from the upsert on purpose: written there it would overwrite the
-      // owner's answer every tick. "sync" mode: only ever writes `true` —
-      // nobody is on the review screen to correct a guessed `false`.
-      await proposeCountsAsRoom(supabase, hotelId, rtRows, "sync");
-    }
-
-    // 5. Map external room-type id → internal uuid.
-    const { data: idRows, error: idErr } = await supabase
-      .from("room_types")
-      .select("id, external_room_type_id")
-      .eq("hotel_id", hotelId);
-    if (idErr) return { ok: false, error: idErr.message };
-    const idByExternal: Record<string, string> = {};
-    for (const row of idRows ?? []) {
-      if (row.external_room_type_id && row.id) idByExternal[String(row.external_room_type_id)] = String(row.id);
-    }
-
-    // 6. Reservations for the check-in window, one row per room per night at
-    //    that room's own nightly rate. See pullWithRateDetails.
-    const { checkInFrom, checkInTo } = resolveWindow(options);
-
     // Incremental unless there is a reason not to be. Re-fetching the whole book
     // every five minutes is what made this impossible above ~30 rooms; a
     // steady-state tick only needs the bookings somebody actually touched.
@@ -1349,6 +1306,7 @@ export async function runCloudbedsSyncForHotel(
     // when the last one is older than CLOUDBEDS_FULL_SYNC_INTERVAL_MS, or when
     // the caller asked for a specific window — an incremental pull cannot see a
     // booking nobody changed, so something has to look at everything sometimes.
+    // Decided before the room types, which a full read may switch off.
     const runStartedAt = new Date();
     const { data: syncState } = await supabase
       .from("pms_connections")
@@ -1376,6 +1334,102 @@ export async function runCloudbedsSyncForHotel(
       overlapMs: CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
       fullSweepIntervalMs: CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
     });
+
+    // 4. Room types → room_types upsert. No is_active in the payload: PostgREST
+    //    only touches the columns it is given, so a type the owner excluded (or
+    //    the duplicate-dedup deactivated) is not resurrected and priced by the
+    //    next 5-minute cron. New rows still default to active.
+    const { data: hotelRow } = await supabase
+      .from("hotels")
+      .select("total_rooms_per_type")
+      .eq("id", hotelId)
+      .maybeSingle();
+    const defaultRooms = hotelRow?.total_rooms_per_type ?? 100;
+
+    const roomTypeList = await cloudbedsListRoomTypes(creds);
+    const parsedRoomTypes = parseCloudbedsRoomTypes(roomTypeList.roomTypes, defaultRooms);
+
+    // A type Cloudbeds no longer lists is switched off (A16), before the list
+    // is written so "none of the property's types is listed" is measured
+    // against what the property had, not what this read is about to add. Only
+    // on a full read whose list went to its end: a partial or failed read
+    // proves nothing about a type missing from it. A type listed again on any
+    // read comes back on. Never deleted; the change log names each one.
+    const roomTypeChanges = await reconcileListedRoomTypes(
+      supabase,
+      hotelId,
+      "cloudbeds",
+      parsedRoomTypes.map((rt) => rt.external_room_type_id),
+      !incremental && roomTypeList.complete && parsedRoomTypes.length > 0,
+    );
+
+    let roomTypesUpserted = 0;
+    if (parsedRoomTypes.length > 0) {
+      const rtRows = dedupeByKey(
+        parsedRoomTypes.map((rt) => ({
+          hotel_id: hotelId,
+          external_room_type_id: rt.external_room_type_id,
+          name: rt.name,
+          display_name: rt.display_name,
+          total_rooms: rt.total_rooms,
+        })),
+        (r) => `${r.hotel_id}:${r.external_room_type_id}`,
+      );
+      roomTypesUpserted = rtRows.length;
+      const { error: rtErr } = await supabase
+        .from("room_types")
+        .upsert(rtRows, { onConflict: "hotel_id,external_room_type_id" });
+      if (rtErr) return { ok: false, error: rtErr.message };
+      // Default counts_as_room for types nobody has classified yet. Separate
+      // from the upsert on purpose: written there it would overwrite the
+      // owner's answer every tick. "sync" mode: only ever writes `true` —
+      // nobody is on the review screen to correct a guessed `false`.
+      await proposeCountsAsRoom(supabase, hotelId, rtRows, "sync");
+    }
+
+    // The time zone and currency, once a day, on the full read: on its first
+    // tick only, when a large property's sweep takes several. Cloudbeds keeps
+    // the time zone on getHotels (client.ts cloudbedsGetHotelDetails); a read
+    // that finds none, or fails, changes nothing. A live property's currency
+    // is never changed here (property-changes.ts).
+    let timezoneChanged: { from: string | null; to: string } | null = null;
+    const resumingSweep = !windowRequested && syncState?.full_sweep_after_id != null;
+    if (!incremental && !resumingSweep) {
+      try {
+        const details = await cloudbedsGetHotelDetails(creds);
+        timezoneChanged = (
+          await refreshPropertyDetails(supabase, hotelId, "cloudbeds", {
+            timezone: details.timezone,
+            currency: details.currency,
+          })
+        ).timezone;
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            fn: "runCloudbedsSyncForHotel",
+            step: "hotel_details",
+            hotelId,
+            error: error instanceof Error ? error.message.slice(0, 300) : String(error),
+            note: "time zone and currency left as they are until tomorrow's full read",
+          }),
+        );
+      }
+    }
+
+    // 5. Map external room-type id → internal uuid.
+    const { data: idRows, error: idErr } = await supabase
+      .from("room_types")
+      .select("id, external_room_type_id")
+      .eq("hotel_id", hotelId);
+    if (idErr) return { ok: false, error: idErr.message };
+    const idByExternal: Record<string, string> = {};
+    for (const row of idRows ?? []) {
+      if (row.external_room_type_id && row.id) idByExternal[String(row.external_room_type_id)] = String(row.id);
+    }
+
+    // 6. Reservations for the check-in window, one row per room per night at
+    //    that room's own nightly rate. See pullWithRateDetails.
+    const { checkInFrom, checkInTo } = resolveWindow(options);
 
     // Only on a full sweep. A property's tax configuration does not change
     // every five minutes, and calling it on every tick made a scope the
@@ -1640,6 +1694,10 @@ export async function runCloudbedsSyncForHotel(
         tokenRefreshed: resolved.refreshed || refresh.fresh === true,
         roomsNoLongerOnBooking: writer.stats.roomsGone,
         missingBookings,
+        roomTypeListComplete: roomTypeList.complete,
+        roomTypesSwitchedOff: roomTypeChanges.removed,
+        roomTypesSwitchedBackOn: roomTypeChanges.back,
+        timezoneChanged,
       },
     };
   } catch (error) {

@@ -1,5 +1,5 @@
 import { PmsStatusPill } from "@/components/admin/status-pill";
-import { describeAlertChannel, loadAlertChannel, type AlertChannelLine } from "@/lib/admin/alert-channel";
+import { describeAlertChannel, describeSending, loadAlertChannel, type AlertChannelLine } from "@/lib/admin/alert-channel";
 import { loadPilotHealth } from "@/lib/admin/pilot-health";
 import { requireStaffPage } from "@/lib/admin/staff-page";
 import {
@@ -34,15 +34,20 @@ const ALERT_LINE_STYLES: Record<AlertChannelLine["severity"], string> = {
  * functions reported (lib/admin/alert-channel.ts), never from the app's own
  * settings. A failed read says so in the same place rather than failing the page.
  */
-async function alertChannelLine(ssr: Parameters<typeof loadAlertChannel>[0], nowIso: string): Promise<AlertChannelLine> {
+async function alertChannelLine(
+  ssr: Parameters<typeof loadAlertChannel>[0],
+  nowIso: string,
+): Promise<AlertChannelLine & { sending: string | null }> {
   try {
-    return describeAlertChannel(await loadAlertChannel(ssr), nowIso);
+    const facts = await loadAlertChannel(ssr);
+    return { ...describeAlertChannel(facts, nowIso), sending: describeSending(facts, nowIso) };
   } catch (e) {
     return {
       verdict: "unknown",
       severity: "amber",
       text: `Alerts: not known. The scheduled syncs' reports could not be read: ${e instanceof Error ? e.message : String(e)}`,
       test: null,
+      sending: null,
     };
   }
 }
@@ -127,6 +132,11 @@ export default async function PilotHealthPage({ searchParams }: { searchParams: 
       <p className={`rounded border px-4 py-3 text-xs ${ALERT_LINE_STYLES[alerts.severity]}`} data-alerts={alerts.verdict}>
         {alerts.text}
         {alerts.test ? <span className="block mt-1 opacity-80">{alerts.test}</span> : null}
+        {alerts.sending ? (
+          <span className="block mt-1 opacity-80" data-sending>
+            {alerts.sending}
+          </span>
+        ) : null}
       </p>
 
       <div className="overflow-hidden rounded border border-slate-800 bg-slate-900">

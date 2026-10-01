@@ -14,6 +14,8 @@
  * So the signals are split in two.
  */
 
+import { roomTypeNames } from "../pms/room-type-label.ts";
+
 /** Never a sleeping room, whatever else the name says. */
 const NON_ROOM_STRONG =
   /\b(parking|pickleball|boardroom|banquet|conference|meeting|treatment|massage|storage|locker|kayak|excursion|day\s?-?use|gift\s?shop|deposit|resort\s?fee|service\s?fee|add-?on|misc)\b/i;
@@ -24,7 +26,16 @@ const NON_ROOM_WEAK =
 
 /** If one of these appears, someone sleeps there. */
 const ROOM_NOUN =
-  /\b(rooms?|suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bunks?|penthouses?|lofts?|cottages?|chalets?|casitas?)\b/i;
+  /\b(rooms?|suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bunks?|penthouses?|lofts?|cottages?|chalets?|casita[s]?)\b/i;
+
+/**
+ * The bedroom words that outweigh even a strong word. The bare "room" is not
+ * one: "Meeting Room", "Storage Room" and "Conference Room" have it too.
+ * "King Room with Parking", "Queen - Free Parking Included", "Studio with
+ * Storage" and "Conference Suite" all do have one (audit A22).
+ */
+const BEDROOM_WORD =
+  /\b(suites?|kings?|queens?|doubles?|twins?|singles?|studios?|villas?|cabins?|bungalows?|apartments?|dorms?|beds?|bedrooms?|bunks?|penthouses?|lofts?|cottages?|chalets?|casita[s]?)\b/i;
 
 /**
  * The bill-time and review-time judgement: a strong word, or a weak word with
@@ -37,14 +48,19 @@ export function nameLooksLikeNonRoom(name: string): boolean {
 
 /**
  * The stricter half of the same judgement: only the words that are never a
- * bedroom. "Deluxe Pool View" and "Spa Deluxe" trip the weak test, and they
- * are real bedrooms at real resorts. That test is fine for a bill-time
- * exclusion that under-charges us, but not for a default that takes a type
- * out of the engine's occupancy before anyone has looked at it, nor for
- * leaving a real room without the owner's floor.
+ * bedroom, and no bedroom word beside them. "Deluxe Pool View" and "Spa
+ * Deluxe" trip the weak test, and they are real bedrooms at real resorts.
+ * That test is fine for a bill-time exclusion that under-charges us, but not
+ * for a default that takes a type out of the engine's occupancy before anyone
+ * has looked at it, nor for leaving a real room without the owner's floor.
+ *
+ * A bedroom word wins over a strong word (Jake, 2026-09-30, audit A22): "King
+ * Room with Parking" is a king room that comes with parking. Such a name still
+ * trips nameLooksLikeNonRoom, so the review asks the owner about it; it is
+ * just never switched to "not a room" before they answer.
  */
 export function nameIsCertainlyNonRoom(name: string): boolean {
-  return NON_ROOM_STRONG.test(name);
+  return NON_ROOM_STRONG.test(name) && !BEDROOM_WORD.test(name);
 }
 
 /**
@@ -57,5 +73,5 @@ export function nameIsCertainlyNonRoom(name: string): boolean {
 export function treatAsRoom(rt: { counts_as_room?: boolean | null; name?: string | null; display_name?: string | null }): boolean {
   if (rt.counts_as_room === false) return false;
   if (rt.counts_as_room === true) return true;
-  return !nameIsCertainlyNonRoom(String(rt.display_name || rt.name || ""));
+  return !roomTypeNames(rt).some(nameIsCertainlyNonRoom);
 }

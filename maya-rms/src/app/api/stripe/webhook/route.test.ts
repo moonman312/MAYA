@@ -31,9 +31,14 @@ const state = vi.hoisted(() => ({
   firstPaidInvoices: [] as { id?: string; amount_paid?: number }[],
   /** The customer as Stripe holds it now, for customer.updated. */
   customer: { id: "cus_1", invoice_settings: { default_payment_method: "pm_new" } } as Record<string, unknown>,
-  unpaidSubs: [] as Record<string, unknown>[],
+  /** The customer's subscriptions, for customer.updated. */
+  customerSubs: [] as Record<string, unknown>[],
   openInvoices: [] as Record<string, unknown>[],
+  /** Subscriptions customer.updated moved, with the card and the key it sent. */
+  movedSubs: [] as { id: string; params: unknown; opts: unknown }[],
   payError: null as Error | null,
+  /** What an invoice reads as when read back after Stripe refused to pay it. */
+  invoiceStatusAfter: "open" as string,
   paid: [] as { id: string; params: unknown }[],
   /** What the webhook handed the account-ready email, and what it answers. */
   readyCalls: [] as { sub: string; hotel: string; status: string }[],
@@ -83,8 +88,11 @@ vi.mock("@/lib/billing/stripe", async () => {
           if (state.retrieveError) throw state.retrieveError;
           return state.retrieved;
         },
-        list: async () => ({ data: state.unpaidSubs }),
-        update: async (id: string) => ({ id }),
+        list: async () => ({ data: state.customerSubs, has_more: false }),
+        update: async (id: string, params: unknown, opts: unknown) => {
+          state.movedSubs.push({ id, params, opts });
+          return { id };
+        },
       },
       customers: { retrieve: async () => state.customer },
       invoices: {
@@ -94,6 +102,7 @@ vi.mock("@/lib/billing/stripe", async () => {
           state.paid.push({ id, params });
           return { id, status: "paid" };
         },
+        retrieve: async (id: string) => ({ id, status: state.invoiceStatusAfter }),
       },
     }),
   };
@@ -489,7 +498,7 @@ describe("invoice.payment_succeeded records the first payment", () => {
   });
 });
 
-describe("customer.updated pays an unpaid subscription on the new card", () => {
+describe("customer.updated follows the owner to the new default card", () => {
   const cardChange = (previous: Record<string, unknown> = { invoice_settings: { default_payment_method: "pm_old" } }) => ({
     id: "evt_card",
     type: "customer.updated",
@@ -500,27 +509,66 @@ describe("customer.updated pays an unpaid subscription on the new card", () => {
   });
 
   beforeEach(() => {
-    state.unpaidSubs = [
+    state.customerSubs = [
       { id: "sub_1", status: "unpaid", default_payment_method: "pm_old", metadata: { hotel_id: "hotel-1" } },
     ];
     state.openInvoices = [{ id: "in_open", status: "open", created: CREATED }];
     state.payError = null;
+    state.invoiceStatusAfter = "open";
     state.paid = [];
+    state.movedSubs = [];
     // The hotel is on the subscription that went unpaid.
     state.subRow = { stripe_subscription_id: "sub_1" };
   });
 
-  it("pays the open invoice with the card the owner just saved", async () => {
+  it("moves the subscription onto the card the owner just saved and pays the open invoice with it", async () => {
     const res = await POST(signedRequest(cardChange()));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ received: true, paid: 1, notPaid: 0 });
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, kept: 0, paid: 1, notPaid: 0 });
+    expect(state.movedSubs).toEqual([
+      {
+        id: "sub_1",
+        params: { default_payment_method: "pm_new", metadata: { maya_card_moved_from: "pm_old", maya_card_moved_event: "evt_card" } },
+        opts: { idempotencyKey: "maya_card_move_evt_card_sub_1_pm_new" },
+      },
+    ]);
     expect(state.paid).toEqual([{ id: "in_open", params: { payment_method: "pm_new", off_session: true } }]);
+  });
+
+  it("does the same for a payment that is overdue but still being retried", async () => {
+    state.customerSubs = [
+      { id: "sub_1", status: "past_due", default_payment_method: "pm_old", metadata: { hotel_id: "hotel-1" } },
+    ];
+    const res = await POST(signedRequest(cardChange()));
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, paid: 1 });
+  });
+
+  it("treats the checkout card as the old one when the customer had no default before", async () => {
+    state.customerSubs = [
+      { id: "sub_1", status: "past_due", default_payment_method: "pm_checkout", metadata: { hotel_id: "hotel-1" } },
+    ];
+    const res = await POST(signedRequest(cardChange({ invoice_settings: { default_payment_method: null } })));
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, kept: 0, paid: 1 });
+    expect(state.movedSubs.map((m) => m.id)).toEqual(["sub_1"]);
+  });
+
+  it("leaves a subscription on a different card of its own alone", async () => {
+    state.customerSubs = [
+      { id: "sub_1", status: "past_due", default_payment_method: "pm_its_own", metadata: { hotel_id: "hotel-1" } },
+    ];
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(await res.json()).toMatchObject({ received: true, moved: 0, kept: 1, paid: 0, notPaid: 0 });
+    expect(state.movedSubs).toHaveLength(0);
+    expect(state.paid).toHaveLength(0);
+    errorSpy.mockRestore();
   });
 
   it("ignores a customer change that is not the default card", async () => {
     const res = await POST(signedRequest(cardChange({ email: "old@driftwood.example" })));
     expect(await res.json()).toMatchObject({ ignored: "no_card_change" });
     expect(state.paid).toHaveLength(0);
+    expect(state.movedSubs).toHaveLength(0);
   });
 
   it("acknowledges a decline instead of making Stripe retry it", async () => {
@@ -533,7 +581,37 @@ describe("customer.updated pays an unpaid subscription on the new card", () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(signedRequest(cardChange()));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ received: true, paid: 0, notPaid: 1 });
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, paid: 0, notPaid: 1 });
+    errorSpy.mockRestore();
+  });
+
+  it("counts an invoice Stripe's retry paid first as paid, not as one the owner still owes", async () => {
+    state.payError = Object.assign(new Error("Invoice is already paid"), {
+      type: "StripeInvalidRequestError",
+      rawType: "invalid_request_error",
+      code: "invoice_already_paid",
+    });
+    state.invoiceStatusAfter = "paid";
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, paid: 1, notPaid: 0, refused: 0 });
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining("still_overdue_owner_needs_another_card"));
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
+  it("reports an invoice Stripe will not take as refused, not as a declined card", async () => {
+    state.payError = Object.assign(new Error("This invoice can no longer be paid"), {
+      type: "StripeInvalidRequestError",
+      rawType: "invalid_request_error",
+      code: "invoice_not_open",
+    });
+    state.invoiceStatusAfter = "void";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await POST(signedRequest(cardChange()));
+    expect(await res.json()).toMatchObject({ received: true, moved: 1, paid: 0, notPaid: 0, refused: 1 });
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("invoice_not_payable"));
     errorSpy.mockRestore();
   });
 
@@ -545,22 +623,23 @@ describe("customer.updated pays an unpaid subscription on the new card", () => {
     errorSpy.mockRestore();
   });
 
-  it("leaves an unpaid subscription alone once the hotel is on a newer one", async () => {
+  it("leaves a subscription alone once the hotel is on a newer one", async () => {
     // A second checkout moved the hotel onto sub_2. Paying sub_1 now would
     // bill the property on both.
     state.subRow = { stripe_subscription_id: "sub_2" };
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await POST(signedRequest(cardChange()));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ received: true, unpaid: "superseded" });
+    expect(await res.json()).toMatchObject({ received: true, cardChange: "superseded" });
     expect(state.paid).toHaveLength(0);
+    expect(state.movedSubs).toHaveLength(0);
     errorSpy.mockRestore();
   });
 
-  it("does nothing when nothing is unpaid", async () => {
-    state.unpaidSubs = [];
+  it("does nothing when the customer has no subscription that still bills", async () => {
+    state.customerSubs = [];
     const res = await POST(signedRequest(cardChange()));
-    expect(await res.json()).toMatchObject({ received: true, unpaid: "nothing_unpaid" });
+    expect(await res.json()).toMatchObject({ received: true, cardChange: "no_subscriptions" });
     expect(state.paid).toHaveLength(0);
   });
 });

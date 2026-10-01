@@ -70,7 +70,7 @@ function RoomTypeChips({
               onClick={() => onSelected(on ? selected.filter((x) => x !== opt.id) : [...selected, opt.id])}
               title={room ? opt.name : `${opt.name}, not counted as a room (change this in the PMS tab)`}
             >
-              {opt.name}
+              <span className="inline-block max-w-[16rem] truncate align-bottom">{opt.name}</span>
               {room ? null : (
                 <span className="ml-1.5 rounded bg-slate-950/50 px-1 py-px text-[0.5625rem] uppercase tracking-wide text-slate-400">
                   not a room

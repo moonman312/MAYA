@@ -177,6 +177,7 @@ every billing metric.
 | `pms.disconnected` | the grant is gone (401, uninstall webhook, vendor said so) | same | same |
 | `pms.degraded`, `pms.error` | credential trouble; self-clearing, so at most once per property per 24h | same | same |
 | `pms.recovered` | back to connected from degraded or error; at most once per 24h | same | same |
+| `pms.currency_refused` | a property tried to connect in a currency MAYA doesn't price in yet (`SUPPORTED_CURRENCIES`, `supabase/functions/_shared/pms/currencies.ts`) and was stopped before anything was stored. One per property per attempt; a Marketplace group writes one for each property left out. `hotel_id` is the Flow B placeholder from checkout, or null for a Marketplace arrival (no row is made); the PMS property id and name are copied on | `lib/onboarding/currency-gate.ts`, from the onboarding OAuth callback and the Marketplace callback (source `app`) | `currency` (the ISO code), `via` (`onboarding_oauth` or `marketplace_flow_a`), `paid` (true when the owner had paid at checkout first, the `onboarding_oauth` path on a deployment that charges; left out otherwise). A paid one also posts to #maya-signups (below) |
 | `import.started` | the worker first claimed a job | trigger on `import_jobs.started_at` | `job_id`, `kind` (`initial` or `refresh`), `phase`, `attempts`, `queued_seconds` |
 | `import.completed`, `import.failed`, `import.canceled` | job finished; `canceled` is a job stopped because its connection went away, its owner said "Not now" or its claim was swept | trigger on `import_jobs.status` | the above plus `duration_seconds`, `rows_upserted`, `reservations_enumerated`, `windows_completed`, `error_kind` |
 | `property.data_purged` | a claimed Marketplace property that never paid was quiet for 180 days; written just before its imported history, import jobs, open findings, unaccepted invites, credential and connection were deleted | `never_paid_retention_sweep()` (source `sweep`) | `last_activity_at`, `idle_days`, `was_active`, `subscription_status`, `deleted` (row counts by table) |
@@ -451,7 +452,8 @@ like every `analytics_*` function).
 One short Slack line for each real signup milestone, posted by the database:
 an AFTER INSERT trigger on `product_events` (`signup_feed_post`,
 `99_supabase_migration_signups_feed_v1.sql`; `signup_feed_line` and
-`signup_feed_test` as `..._v2.sql` restates them, with its three helpers) sends it through pg_net to the
+`signup_feed_test` as `..._v2.sql` restates them, with its three helpers;
+`signup_feed_line` and the trigger as `..._v3.sql` restates them) sends it through pg_net to the
 incoming webhook stored in Vault as `maya_signups_webhook`, the same way
 `pricing_watchdog` posts to `maya_alert_webhook`. The app never holds the
 address.
@@ -465,9 +467,10 @@ address.
 | `property.went_live` | `Harbour Inn (Cloudbeds) went live.`, the first time only |
 | `subscription.cancel_scheduled` | `Harbour Inn (Cloudbeds) cancelled. Ends Oct 30, 2026. Reason: too expensive.` |
 | `subscription.canceled` | `... cancelled.` (`during the trial` from trialing, `Reason: payment failed` and so on), unless a `cancel_scheduled` line was posted for it first (and not taken back since); one scheduled while the feed had no webhook gets this line |
+| `pms.currency_refused` | `Juniper Lodge (Cloudbeds) was stopped at connect: its system uses JPY, which MAYA doesn't price in yet. They have already paid: refund or cancel it in Stripe.`, only with `paid` true (v3). The name is the one the property system gave, since the hotel keeps checkout's placeholder |
 
 Only events with `is_test` false, written by a trigger (never a backfill or
-the sweep). For a property's events (billing, connected, went live) that is
+the sweep), apart from `pms.currency_refused`, which the app writes. For a property's events (billing, connected, went live) that is
 the property's own test flag, never its owner: a property owned by a `+`
 address or a MAYA staff login posts like any other, since MAYA staff own real
 client properties, until it is flagged test (the Command Center toggle, or a

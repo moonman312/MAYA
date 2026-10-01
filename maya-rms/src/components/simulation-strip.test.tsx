@@ -28,6 +28,7 @@ function answer(mode: PropertyModeView | null, activate: { status: number; body:
       return mode ? new Response(JSON.stringify(mode), { status: 200 }) : new Response("{}", { status: 400 });
     }
     if (url === "/api/onboarding/activate") return new Response(JSON.stringify(activate.body), { status: activate.status });
+    if (url.startsWith("/api/property/outside-limits")) return new Response(JSON.stringify({ nights: 3 }), { status: 200 });
     throw new Error(`unexpected ${url}`);
   });
   vi.stubGlobal("fetch", fetchSpy);
@@ -56,6 +57,9 @@ describe("SimulationStrip", () => {
     expect(screen.getByRole("dialog").textContent).toContain("Going live sends MAYA's prices to Cloudbeds automatically.");
     expect(screen.getByRole("dialog").textContent).toContain("for the next 396 nights");
     expect(screen.getByRole("dialog").textContent).toContain("Terms");
+    // The nights whose own rate sits outside a floor or ceiling, for this property.
+    expect(await screen.findByText("3 nights have a rate outside your floor or ceiling; MAYA will move them inside when it sends.")).toBeTruthy();
+    expect(fetchSpy.mock.calls.some(([url]) => url === "/api/property/outside-limits?hotelId=h-1")).toBe(true);
     expect(fetchSpy.mock.calls.some(([url]) => url === "/api/onboarding/activate")).toBe(false);
     fireEvent.click(screen.getAllByRole("button", { name: "Go live" }).at(-1)!);
     await screen.findByTestId("mode-live");

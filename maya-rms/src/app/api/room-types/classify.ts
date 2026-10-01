@@ -12,11 +12,19 @@
  * not there and the caller hears "pre_migration"; ahead of only the re-run
  * that added counts_as_room_set_by, the flag is written without provenance
  * and the log says so.
+ *
+ * A "yes, a room" answer on a property still in simulation also adds the
+ * type to the starter rules the import built and nobody has edited, to
+ * measure and to change (addToStarterRules). They were built from the room
+ * types that counted at the time, so a type the import took for a parking bay
+ * was left out of them.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError } from "../../../../supabase/functions/_shared/onboarding/analysis";
 import { isPreMigration } from "./reprice";
+import { addToStarterRules } from "@/lib/onboarding/starter-room-types";
+import { roomTypeLabel } from "../../../../supabase/functions/_shared/pms/room-type-label";
 
 export type ClassifyVia = "settings" | "onboarding_review";
 
@@ -58,7 +66,7 @@ export async function classifyRoomType(
   const before = readRes.data as BeforeRow | null;
   if (!before) return { kind: "not_found" };
 
-  const name = String(before.display_name || before.name || "");
+  const name = roomTypeLabel(before);
   const previous = before.counts_as_room == null ? null : Boolean(before.counts_as_room);
   // The same value, already a person's: nothing to do. The same value as the
   // import's guess is different — the owner is standing behind it now, which
@@ -108,6 +116,8 @@ export async function classifyRoomType(
     // audit line would be the wrong trade. Logged so it is not lost.
     console.error(JSON.stringify({ fn: "classifyRoomType", step: "audit", hotelId, error: logErr.message }));
   }
+
+  if (countsAsRoom) await addToStarterRules(admin, hotelId, roomTypeId);
 
   return { kind: confirming ? "confirmed" : "changed", before: previous, name };
 }

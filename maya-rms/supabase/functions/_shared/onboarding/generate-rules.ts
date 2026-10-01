@@ -13,6 +13,7 @@
  *
  *   far behind pace (past month)  -> cut 15%,  then waits a week
  *   a bit behind    (past month)  -> trim 7%,  then waits a week
+ *     (both cuts only while the night is under 70% booked)
  *   ahead of pace   (past month)  -> raise 10%, then waits 3 days
  *   way ahead       (past week)   -> raise 25%, then waits 2 days
  *   sudden surge    (past day)    -> raise 25%, then waits a day
@@ -136,6 +137,17 @@ export const LADDER_RAISES: LadderRaises = { warm: 10, hotWeek: 25, spike: 25 };
 export const MIN_HISTORY_DAYS_FOR_STARTERS = 60;
 
 /**
+ * The two cuts act only on a night under this share booked (a fraction, as
+ * rule_condition stores it). A night that filled early takes no new bookings
+ * because nothing is left to sell, which reads as far behind the pace similar
+ * nights set; without this bar Slow-date rescue cut a sold-out night 15% and
+ * the last rooms of a nearly full one went cheap (audit A15, Jake 2026-09-30).
+ * Only the rules onboarding builds from now on carry it: rules already on a
+ * property are never changed.
+ */
+export const STARTER_CUT_UNDER_OCCUPANCY = 0.7;
+
+/**
  * Pure: the booking-speed starter ladder. Every rule is event-style: it
  * fires, the price change sticks, and its wait holds it off that night and
  * room type until the wait is over (escalation to a stronger rule stays
@@ -148,12 +160,15 @@ export function computeStarterRules(input: {
 }): StarterRuleSpec[] {
   if (input.daysOfHistory < MIN_HISTORY_DAYS_FOR_STARTERS) return [];
   const { warm, hotWeek, spike } = input.raises ?? LADDER_RAISES;
+  const underPct = Math.round(STARTER_CUT_UNDER_OCCUPANCY * 100);
 
   return [
     {
       name: "Slow-date rescue",
       priority: 110,
       condition: {
+        occupancy_operator: "lt",
+        occupancy_threshold: STARTER_CUT_UNDER_OCCUPANCY,
         booking_speed_operator: "at_most",
         booking_speed_level: "much_slower",
         booking_speed_window_days: 30,
@@ -162,17 +177,19 @@ export function computeStarterRules(input: {
       action: { action_type: "percent", action_direction: "decrease", action_value: 15 },
       is_pickup_rule: true,
       explanation:
-        "When a night is booking far behind the pace similar nights set, a real 15% cut " +
-        "restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
+        `When a night under ${underPct}% booked is booking far behind the pace similar nights set, ` +
+        "a real 15% cut restarts interest. It looks at full days only, up to yesterday. MAYA waits a week, " +
         "judges only the bookings made since this rule or a stronger one's latest cut still on the " +
         "night, and " +
-        "cuts again if those are still that far behind. It tells you once three of its cuts are " +
-        "on the same night.",
+        "cuts again if those are still that far behind, as long as the night is under " +
+        `${underPct}% booked. It tells you once three of its cuts are on the same night.`,
     },
     {
       name: "Slow-date trim",
       priority: 105,
       condition: {
+        occupancy_operator: "lt",
+        occupancy_threshold: STARTER_CUT_UNDER_OCCUPANCY,
         booking_speed_operator: "is",
         booking_speed_level: "slower",
         booking_speed_window_days: 30,
@@ -181,10 +198,11 @@ export function computeStarterRules(input: {
       action: { action_type: "percent", action_direction: "decrease", action_value: 7 },
       is_pickup_rule: true,
       explanation:
-        "A night booking a bit behind the usual pace gets a small 7% trim, enough to stay " +
+        `A night under ${underPct}% booked and booking a bit behind the usual pace gets a small 7% trim, enough to stay ` +
         "competitive without giving the room away. It looks at full days only, up to yesterday. " +
         "MAYA re-checks a week after each trim, looking only at bookings made since this rule " +
-        "or a stronger one's latest cut still on the night, and trims again if those are still behind.",
+        "or a stronger one's latest cut still on the night, and trims again if those are still behind, " +
+        `as long as the night is under ${underPct}% booked.`,
     },
     {
       name: "Warm-date bump",

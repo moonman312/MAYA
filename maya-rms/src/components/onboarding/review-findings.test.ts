@@ -44,6 +44,17 @@ describe("describeFinding", () => {
     }
   });
 
+  it("asks about a duplicate it only proposed (a refresh, or a live property), and says what it did when it hid one", () => {
+    const asked = describeFinding(finding("duplicate_room_type", { name: "Harbour Double" }));
+    expect(asked).toMatchObject({
+      title: 'Hide duplicate room type "Harbour Double"?',
+      confirmLabel: "Hide it",
+      dismissLabel: "Keep it",
+    });
+    const done = describeFinding({ ...finding("duplicate_room_type", { name: "Harbour Double" }), status: "auto_applied" });
+    expect(done.title).toBe('Hid duplicate room type "Harbour Double"');
+  });
+
   it("marks unmapped_room_type as acknowledge-only with reassurance copy", () => {
     const c = describeFinding(finding("unmapped_room_type", { count: 7 }));
     expect(c.acknowledgeOnly).toBe(true);

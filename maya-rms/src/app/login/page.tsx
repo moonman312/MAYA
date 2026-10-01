@@ -89,6 +89,8 @@ export default function LoginPage() {
 
   const [claim, setClaim] = useState<string | null>(null);
   const [reconnected, setReconnected] = useState(false);
+  // Properties of a Cloudbeds group left out for their currency (marketplace-connect.ts).
+  const [currencySkipped, setCurrencySkipped] = useState(0);
   const [next, setNext] = useState<string | null>(null);
 
   // "Send the link again", on the check-email screen and after a sign-in that
@@ -170,6 +172,8 @@ export default function LoginPage() {
       setMode(fromUrl ? "signup" : "signin");
     }
     setReconnected(q.get("reconnected") === "1");
+    const skipped = Number(q.get("currencySkipped"));
+    setCurrencySkipped(Number.isInteger(skipped) && skipped > 0 && skipped < 1000 ? skipped : 0);
 
     // A link into MAYA sent them here to sign in first. Only MAYA's own /go
     // links are followed; anything else is ignored and the page works as ever.
@@ -487,6 +491,13 @@ export default function LoginPage() {
                         ? "Welcome back."
                         : "Set a password and you're on your way. Your property comes next."}
               </p>
+              {currencySkipped > 0 && mode !== "forgot" ? (
+                <p className="mt-2 text-sm text-amber-200">
+                  {currencySkipped === 1
+                    ? "1 of your properties uses a currency MAYA doesn't price in yet, so it wasn't connected."
+                    : `${currencySkipped} of your properties use a currency MAYA doesn't price in yet, so they weren't connected.`}
+                </p>
+              ) : null}
 
               {!configured && (
                 <div className="mt-4 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">

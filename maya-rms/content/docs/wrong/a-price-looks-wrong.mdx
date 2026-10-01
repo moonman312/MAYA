@@ -3,7 +3,7 @@ title: A price looks wrong
 summary: 'Every price surprise in one place: a jump of 50%, a raise on an empty night, a cut on a full one, $1, $99,999, stuck at the floor, changed with no rule named, back to the base rate, and an unpriced night, each with the reason and the fix.'
 section: wrong
 order: 20
-readingTime: 16
+readingTime: 17
 keywords: [jumped, jump, 50%, doubled, too high, too low, $1, 1.00, 99999, 99,999.99, floor, ceiling, stuck, stuck at the floor, empty night raised, raised an empty night, cut a full night, nearly full, no rule named, the rate moved from, back to the base rate, went back, reverted, unpriced, current price dash, no price, three times, keeps going, stop did not go back, same rule twice, another 15%, typed price disappeared, manual price gone, pricing rule, sold out, full night, no rooms left, still changing, yen, capped at 99,999.99, hidden room type, room type switched off, inactive room type, deactivated room type, removed room type, deleted room type, room type removed in cloudbeds, mews starting price, new booking changed the price, re-add a starter rule, rebuild a starter rule, slow-date trim, lost money, losing money, lost me money, cost me money, lost bookings, lost revenue, losing revenue]
 questions:
   - Why did the price jump 50%? {#why-did-the-price-jump-50/two-rules-acted}
@@ -21,7 +21,7 @@ questions:
   - Why does the same rule appear twice on one night? {#why-does-the-same-rule-appear-twice-on-one-night}
   - Why did my typed price disappear? {#why-did-my-typed-price-disappear/someone-pressed-clear}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -41,7 +41,7 @@ The change log shows the chain with running prices, each step followed by its ow
 
 Once three of one booking speed rule's changes are on the same night, the amber <Ui>Rules that keep adjusting</Ui> banner asks you whether to carry on or stop. Until you answer, it keeps going. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
-If the jump is bigger than you want, set a ceiling. The default ceiling is $99,999.99, which stops nothing in most currencies. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+If the jump is bigger than you want, set a ceiling. The default ceiling is $99,999.99, which stops nothing in the currencies MAYA works in. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
 <Example title="Two raises at The Harbour Inn">
 Deluxe is $200. "Busy nights" (occupancy Greater than 80, Increase 10%) takes it to $220. "Hot-week surge" (Much Faster Than Normal, Increase 25%) takes it to $275. The Deluxe ceiling is $400, so $275 is published. Had the ceiling been $250, the log would add "That would have gone past your $250.00 ceiling for Deluxe, so it stopped there."
@@ -57,7 +57,7 @@ To keep raises off empty nights, add <Ui>Sellable occupancy (%)</Ui> <Ui>Greater
 
 ## Why did it cut a night that is nearly full?
 
-A cut rule with only a booking speed condition does not look at occupancy. It counts bookings made in its window (past day, week or month, in full days up to yesterday) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires.
+A cut rule with only a booking speed condition does not look at occupancy. The two cut rules setup builds, "Slow-date rescue" and "Slow-date trim", come with an occupancy condition, <Ui>Less than</Ui> 70, so they leave a night 70% booked or more alone. Starter rules built before that, and cut rules you built, have only booking speed unless you add one. It counts bookings made in its window (past day, week or month, in full days up to yesterday) and compares them with similar nights over the same stretch. A night that filled up months ago and received one booking this month reads slower than a night like it usually books, and the cut fires.
 
 A wedding or group booked as one reservation makes this more likely: for booking speed, a booking counts once however many rooms it holds. Twenty rooms in one reservation are 20 rooms for occupancy and one booking for booking speed.
 
@@ -72,7 +72,7 @@ MAYA does not read how many rooms your system still has for sale. A full night i
 On a sold-out night:
 
 - **An occupancy raise stays.** A rule such as "Busy nights" keeps its one raise while the night stays above its mark, and, with its undo box ticked, takes it off if cancellations bring the night back down to the mark or under.
-- **A booking speed cut can still fire.** A full night takes no new bookings, so its recent count can read slow against similar nights that were still selling at the same point (the question above).
+- **A booking speed cut can still fire**, unless the rule also needs the night under a share booked, as the starter cuts setup builds now do (under 70%). A full night takes no new bookings, so its recent count can read slow against similar nights that were still selling at the same point (the question above).
 - **Raises already made stay on the price**, as they do on any night.
 
 To keep cuts off full nights, add a <Ui>Sellable occupancy (%)</Ui> row set to <Ui>Less than</Ui> (70, say) to each cut rule: <Ui>Edit</Ui> on its row, <Ui>+ Add condition</Ui>, <Ui>Save changes</Ui>. For an exact price on a sold-out night, type it on the <Ui>Calendar</Ui> tab.
@@ -91,9 +91,9 @@ Once a floor is set, a cut rule stops firing on a night that is already at the f
 
 ## Why is a price at $99,999?
 
-That is the default ceiling, $99,999.99. In most currencies it has the same effect as no ceiling at all. Raise rules that keep firing on a night that keeps reading fast climb until the ceiling stops them.
+That is the default ceiling, $99,999.99. In the currencies MAYA works in it has the same effect as no ceiling at all. Raise rules that keep firing on a night that keeps reading fast climb until the ceiling stops them.
 
-In a currency where rooms sell for more than 99,999.99 (yen, won, rupiah or dong, for example), a price stuck at 99,999.99 is the default ceiling holding it down, even below your own rate. Set a real ceiling for that room type before you go live. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
+A property whose rooms sell for more than 99,999.99 (in yen, won, rupiah or dong, for example) cannot connect to MAYA yet, so no night of yours is held down by it. Read [Floors and ceilings](/docs/review/floors-and-ceilings#when-your-rates-are-above-the-default-ceiling).
 
 Set a ceiling the same way as a floor: <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, which <Ui>Ask MAYA for a ceiling</Ui> on the amber banner also takes you to. MAYA offers a ceiling only for a room type whose ceiling is still the $99,999.99 default. It also needs your answer to the ceiling question during setup, or at least 200 sold nights for that room type. The number is your answer or one built from the highest rates you have sold at, and you can type your own before pressing <Ui>Set it to</Ui>. As with a floor, there is no screen yet for changing a ceiling once it is set.
 
@@ -144,7 +144,7 @@ The room type card shows "Current price" followed by a dash when no price has be
 4. **Rate removed in your system.** A night MAYA had sent a price to whose rate was then removed in Cloudbeds or ThinkReservations, while your property keeps changes made there as its price. The card reads "Rate removed in Cloudbeds, so MAYA isn't pricing this night". Load a rate there and the next hourly read picks it up (a rate other than MAYA's last price is kept as your price), or type a price in MAYA. [A rate removed in your system](/docs/watch/rates-changed-in-your-pms#a-rate-removed-in-your-system)
 5. **Not run yet.** A property that connected minutes ago has no runs until its first cycle. Give it about five minutes.
 6. **A past night.** Past nights are never priced or changed.
-7. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. A room type you only removed in your system stays priced until we switch it off, but nights that enter the 396-night window after you removed it have no rate to start from and show a dash. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
+7. **A room type switched off in MAYA.** A room type hidden during the review (an empty duplicate), one Cloudbeds no longer lists, or one we switched off after you removed it from your system, is not priced and has no card on the <Ui>Calendar</Ui> tab. On Cloudbeds, MAYA's daily read of your room types switches a removed one off, and the change log says "Deluxe is no longer in Cloudbeds." Until then, and on ThinkReservations and Mews until we switch it off, it stays priced, but nights that enter the 396-night window after you removed it have no rate to start from and show a dash. On those two, [email us](mailto:info@modern-hospitality-solutions.com?subject=Switch%20off%20a%20room%20type) its name and we switch it off. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
 
 Mews: a Mews property has no rate read, so a night stays unpriced until you type a price for it.
 
