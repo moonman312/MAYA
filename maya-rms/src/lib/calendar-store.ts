@@ -95,14 +95,22 @@ export function dayRates(
  * briefly per hotel so Prev/Next clicks and realtime-triggered reloads only
  * pay for the visible month's queries.
  *
- * TTL trade-off: colors may lag a real booking by up to 5 minutes (the
- * booked counts and revenue on the visible month always come from fresh
- * queries — only the threshold context ages). Kept deliberately short
- * because future-day thresholds are judged against on-the-books peers,
+ * TTL trade-off: the colour scale may lag a real booking by up to 5 minutes
+ * (the visible month's days, and the RevPAR each is coloured by, always come
+ * from fresh queries — only the threshold context ages). Kept deliberately
+ * short because future-day thresholds are judged against on-the-books peers,
  * a distribution that genuinely moves as bookings land.
  */
 export type HotelHistory = {
+  /**
+   * Per stay date, the room revenue a day counts for its RevPAR: the room
+   * types that count as rooms, each booking at its imported rate, else its
+   * latest (calendar_daily_revenue_v3). Before that function exists, every
+   * room type's revenue at the latest rate (v2, v1).
+   */
   revenueByDate: Map<string, number>;
+  /** Every stretch of rooms out of service on record, for the series' sellable rooms. */
+  outOfService: OutOfServiceRow[];
   minStayDate: string | null;
   maxStayDate: string | null;
   closedPeriods: { start_date: string; end_date: string }[];
@@ -153,6 +161,24 @@ export function clearCalendarHistoryCache(): void {
 }
 
 let loggedRevenueV2Missing = false;
+let loggedRevenueV3Missing = false;
+
+function logRevenueV3MissingOnce(hotelId: string, error: string): void {
+  if (loggedRevenueV3Missing) return;
+  loggedRevenueV3Missing = true;
+  console.error(
+    JSON.stringify({
+      fn: "calendar-store",
+      step: "calendar_daily_revenue_v3",
+      hotelId,
+      schema: "pre-migration",
+      message:
+        "calendar_daily_revenue_v3 does not exist yet; the colours rank every room type's revenue. Run 99_supabase_migration_signups_feed_v1.sql.",
+      migration: "99_supabase_migration_signups_feed_v1.sql",
+      error,
+    }),
+  );
+}
 
 function logRevenueV2MissingOnce(hotelId: string, error: string): void {
   if (loggedRevenueV2Missing) return;
@@ -174,8 +200,9 @@ async function loadHotelHistory(
   supabase: SupabaseClient,
   hotelId: string,
 ): Promise<HotelHistory> {
-  // Hotel-wide nightly revenue (sum of current_rate per stay date) — the
-  // RevPAR series day colors are judged against. Grouped in Postgres
+  // Nightly room revenue per stay date, as each day counts it for its RevPAR
+  // (calendar_daily_revenue_v3): the series day colors are judged against.
+  // Grouped in Postgres
   // (one row per distinct stay date) instead of pulling every reservation
   // row into Node — a mature property can have tens of thousands of
   // reservation rows but only a few hundred/thousand distinct stay dates.
@@ -198,34 +225,39 @@ async function loadHotelHistory(
   };
   const PAGE = 1000;
 
-  // calendar_daily_revenue_v2 checks access once and pages by date; v1 ran
-  // the RLS check on every reservation and re-aggregated the book per page,
-  // which can time out on a large property. v1 stays as the fallback until
-  // the migration has run.
-  let v2 = true;
-  let after: string | null = null;
-  for (let guard = 0; guard < 100; guard++) {
-    const { data: seriesRows, error: seriesErr } = await supabase.rpc("calendar_daily_revenue_v2", {
-      p_hotel_id: hotelId,
-      p_after: after,
-      p_limit: PAGE,
-    });
-    if (seriesErr) {
-      if (!isMissingFunctionError(seriesErr)) throw new Error(seriesErr.message);
-      logRevenueV2MissingOnce(hotelId, seriesErr.message);
-      v2 = false;
-      revenueByDate.clear();
-      minStayDate = null;
-      maxStayDate = null;
-      break;
+  // v3 counts what a day counts for its RevPAR (the room types that count as
+  // rooms, each booking at its imported rate first). v2, every room type at
+  // its latest rate, is the fallback until 99_supabase_migration_signups_feed_v1.sql
+  // has run. Both check access once and page by date; v1 ran the RLS check on
+  // every reservation and re-aggregated the book per page, which can time out
+  // on a large property, and stays as the last fallback.
+  const readPaged = async (fn: "calendar_daily_revenue_v3" | "calendar_daily_revenue_v2"): Promise<boolean> => {
+    let after: string | null = null;
+    for (let guard = 0; guard < 100; guard++) {
+      const { data: seriesRows, error: seriesErr } = await supabase.rpc(fn, {
+        p_hotel_id: hotelId,
+        p_after: after,
+        p_limit: PAGE,
+      });
+      if (seriesErr) {
+        if (!isMissingFunctionError(seriesErr)) throw new Error(seriesErr.message);
+        if (fn === "calendar_daily_revenue_v3") logRevenueV3MissingOnce(hotelId, seriesErr.message);
+        else logRevenueV2MissingOnce(hotelId, seriesErr.message);
+        revenueByDate.clear();
+        minStayDate = null;
+        maxStayDate = null;
+        return false;
+      }
+      const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
+      addRows(rows);
+      if (rows.length < PAGE) break;
+      after = String(rows[rows.length - 1].stay_date);
     }
-    const rows = (seriesRows ?? []) as { stay_date: string; revenue: number | string | null }[];
-    addRows(rows);
-    if (rows.length < PAGE) break;
-    after = String(rows[rows.length - 1].stay_date);
-  }
+    return true;
+  };
+  const paged = (await readPaged("calendar_daily_revenue_v3")) || (await readPaged("calendar_daily_revenue_v2"));
 
-  for (let from = 0, guard = 0; !v2 && guard < 100; from += PAGE, guard++) {
+  for (let from = 0, guard = 0; !paged && guard < 100; from += PAGE, guard++) {
     const { data: seriesRows, error: seriesErr } = await supabase
       .rpc("calendar_daily_revenue", { p_hotel_id: hotelId })
       .range(from, from + PAGE - 1);
@@ -261,8 +293,36 @@ async function loadHotelHistory(
     .limit(1)
     .maybeSingle();
 
+  // Every stretch out of service on record (cleared ones are not), so each
+  // night in the series is divided by the rooms it could sell, as the day is.
+  // Read as none when it fails: the month's own read of the same table says
+  // why, once, and the series is then on the physical count for a while.
+  let outOfService: OutOfServiceRow[] = [];
+  try {
+    outOfService = (
+      await fetchAllRows(() =>
+        supabase
+          .from("room_type_out_of_service")
+          .select("room_type_id, start_date, end_date, units")
+          .eq("hotel_id", hotelId)
+          .is("cleared_at", null)
+          .order("id", { ascending: true }),
+      )
+    )
+      .filter((r) => r.room_type_id && r.start_date && r.end_date)
+      .map((r) => ({
+        room_type_id: String(r.room_type_id),
+        start_date: String(r.start_date),
+        end_date: String(r.end_date),
+        units: Math.max(0, Number(r.units ?? 0)),
+      }));
+  } catch {
+    outOfService = [];
+  }
+
   return {
     revenueByDate,
+    outOfService,
     minStayDate,
     maxStayDate,
     closedPeriods,
@@ -350,7 +410,10 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
 
     const { roomTypes, totalRooms, totalBooked, totalRevenue } = demoDayNumbers(year, month, d);
     const occPct = totalRooms > 0 ? Math.round((totalBooked / totalRooms) * 100) : 0;
-    const revpar = computeRevpar(totalRevenue, totalRooms);
+    // Every demo type counts as a room and none is out of service, so the
+    // series below ranks the same RevPAR the day shows.
+    const rates = dayRates(roomTypes);
+    const revpar = rates.sellable_revpar ?? 0;
 
     days[String(d)] = {
       occupancy_pct: occPct,
@@ -361,7 +424,7 @@ function getCalendarDemo(year: number, month: number): CalendarResponse {
       room_types: roomTypes,
       revpar,
       color: colorForRevpar(revpar, dateStr < todayStr ? scale.past : scale.future),
-      ...dayRates(roomTypes),
+      ...rates,
     };
   }
 
@@ -399,13 +462,29 @@ export function isCountingRoom(rt: { counts_as_room?: boolean | null } | undefin
 }
 
 /**
- * The RevPAR denominator: total_rooms summed over the types that count as
- * rooms. Types flagged as non-rooms are out; an unclassified type is in.
+ * The RevPAR series the colours are judged against, one entry per night with
+ * revenue on record: that night's room revenue over the rooms it could sell,
+ * the way the day itself works it out (dayRates): the room types that count
+ * as rooms, less their rooms out of service that night. A night in a closed
+ * period is marked, so it is left out of the thresholds.
  */
-export function countingCapacity(
-  rows: ReadonlyArray<{ total_rooms: number; counts_as_room?: boolean | null }>,
-): number {
-  return rows.reduce((s, rt) => (isCountingRoom(rt) ? s + rt.total_rooms : s), 0);
+export function sellableRevparSeries(
+  revenueByDate: ReadonlyMap<string, number>,
+  roomTypes: ReadonlyArray<{ id: string; total_rooms: number; counts_as_room?: boolean | null }>,
+  outOfService: OutOfServiceRow[],
+  closedPeriods: { start_date: string; end_date: string }[],
+): RevparDatum[] {
+  const counting = roomTypes.filter((rt) => isCountingRoom(rt));
+  const series: RevparDatum[] = [];
+  for (const [date, revenue] of revenueByDate) {
+    const sellable = counting.reduce((s, rt) => s + sellableUnitsFor(rt.total_rooms, outOfService, date, String(rt.id)), 0);
+    series.push({
+      date,
+      revpar: computeRevpar(revenue, sellable),
+      closed: isDateInPeriods(date, closedPeriods),
+    });
+  }
+  return series;
 }
 
 /**
@@ -785,21 +864,11 @@ async function getCalendarFromDb(
 
   const { revenueByDate, closedPeriods } = history;
 
-  // Sellable capacity: a meeting room or a court in the PMS's room list is
-  // still priced and still shown per cell, but it is not a room anyone sleeps
-  // in, so it is not in the RevPAR denominator or the day's occupancy.
-  const totalRoomsProperty = countingCapacity(rtList);
-
-  // Split/scale are recomputed per request: they depend on "today", which the
-  // cached series must not bake in (a cache entry can straddle midnight).
-  const series: RevparDatum[] = [];
-  for (const [date, revenue] of revenueByDate) {
-    series.push({
-      date,
-      revpar: computeRevpar(revenue, totalRoomsProperty),
-      closed: isDateInPeriods(date, closedPeriods),
-    });
-  }
+  // The colours rank each night by the RevPAR a day shows: its room revenue
+  // over the rooms it could sell (sellableRevparSeries). Split/scale are
+  // recomputed per request: they depend on "today", which the cached series
+  // must not bake in (a cache entry can straddle midnight).
+  const series = sellableRevparSeries(revenueByDate, rtList, history.outOfService ?? [], closedPeriods);
   const split = splitRevparSeries(series, todayStr);
   const scale = buildRevparScale(split.past, split.future);
 
@@ -930,7 +999,9 @@ async function getCalendarFromDb(
     const totalRooms = counting.reduce((s, rt) => s + rt.total_rooms, 0);
     const totalBooked = counting.reduce((s, rt) => s + rt.booked, 0);
     const totalRevenue = roomTypes.reduce((s, rt) => s + rt.revenue, 0);
-    const revpar = computeRevpar(revenueByDate.get(dateStr) ?? 0, totalRoomsProperty);
+    // Coloured by the RevPAR the day shows, fresh, against the scale.
+    const rates = dayRates(counting);
+    const revpar = rates.sellable_revpar ?? 0;
 
     days[String(d)] = {
       occupancy_pct: totalRooms > 0 ? Math.round((totalBooked / totalRooms) * 100) : 0,
@@ -941,7 +1012,7 @@ async function getCalendarFromDb(
       room_types: roomTypes,
       revpar,
       color: colorForRevpar(revpar, dateStr < todayStr ? scale.past : scale.future),
-      ...dayRates(counting),
+      ...rates,
     };
   }
 

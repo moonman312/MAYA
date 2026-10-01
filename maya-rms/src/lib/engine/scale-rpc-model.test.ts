@@ -265,6 +265,34 @@ export function calendarDailyRevenueV2(reservations: FakeRow[], a: Record<string
     .slice(0, limit);
 }
 
+/**
+ * calendar_daily_revenue_v3(p_hotel_id, p_after, p_limit): per date, the room
+ * revenue a calendar day counts for its RevPAR: active room types that count
+ * as rooms, each booking at coalesce(base_rate, current_rate, 0). Every date
+ * with a booking is listed.
+ */
+export function calendarDailyRevenueV3(reservations: FakeRow[], roomTypes: FakeRow[], a: Record<string, unknown>): FakeRow[] {
+  const counting = new Set(
+    roomTypes
+      .filter((rt) => rt.hotel_id === a.p_hotel_id && rt.is_active !== false && rt.counts_as_room !== false)
+      .map((rt) => String(rt.id)),
+  );
+  const cents = new Map<string, number>();
+  for (const r of reservations) {
+    if (r.hotel_id !== a.p_hotel_id) continue;
+    const d = String(r.stay_date);
+    const amount = r.base_rate != null ? Number(r.base_rate) : r.current_rate != null ? Number(r.current_rate) : 0;
+    const counted = r.room_type_id != null && counting.has(String(r.room_type_id));
+    cents.set(d, (cents.get(d) ?? 0) + (counted ? Math.round(amount * 100) : 0));
+  }
+  const limit = Math.max(1, Math.min(Number(a.p_limit ?? 1000), 1000));
+  return [...cents.keys()]
+    .sort()
+    .filter((d) => a.p_after == null || d > String(a.p_after))
+    .slice(0, limit)
+    .map((d) => ({ stay_date: d, revenue: cents.get(d)! / 100 }));
+}
+
 /** audit_rows_before(p_hotel_id, p_before, p_stay_dates, p_room_type_ids) */
 export function auditRowsBefore(audits: FakeRow[], a: Record<string, unknown>): FakeRow[] | FakeRpcError {
   const dates = (a.p_stay_dates as string[] | null) ?? [];
@@ -324,6 +352,8 @@ export function scaleRpc(fn: string, args: unknown, tables: Record<string, FakeR
       return engineReservationCells(tables.reservations ?? [], a);
     case "calendar_daily_revenue_v2":
       return calendarDailyRevenueV2(tables.reservations ?? [], a);
+    case "calendar_daily_revenue_v3":
+      return calendarDailyRevenueV3(tables.reservations ?? [], tables.room_types ?? [], a);
     case "snapshot_cells_at":
       return snapshotCellsAt(tables.stay_date_snapshot ?? [], a);
     default:

@@ -8099,7 +8099,7 @@
   "faq": [
    {
     "q": "Why is every day amber?",
-    "a": "Colours need something to compare with. Each night's room revenue is divided by the property's room count to give revenue per room, and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The ? under the colour key on the left of the calendar says the same: each night's revenue per room, compared with this property's own nights."
+    "a": "Colours need something to compare with. Each night's room revenue, from the room types ticked as rooms, is divided by the rooms you could sell that night to give revenue per room (RevPAR), and past nights are ranked against your other past nights, future nights against your other future nights. With fewer than 10 nights on a side, MAYA borrows both sides together, and with fewer than 10 in total there is no scale and every night is amber. A new property, or a property whose history is still importing, is amber until it has enough nights. The ? under the colour key on the left of the calendar says the same: each night's revenue per room, compared with this property's own nights."
    },
    {
     "q": "Why is a busy night red?",

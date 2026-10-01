@@ -441,11 +441,15 @@ export type CalendarDay = {
   revenue: number;
   weekday: string;
   room_types: CalendarRoomType[];
-  /** Booked revenue / total property rooms for the day, 2dp; 0 when no rooms. */
+  /**
+   * The RevPAR the day is coloured by: sellable_revpar, or 0 with no rooms
+   * to sell. 2dp.
+   */
   revpar: number;
   /**
-   * Property-relative RevPAR bucket. Past days are judged against the
-   * hotel's historical terciles, future days against the on-the-books ones.
+   * Property-relative RevPAR bucket: the day's sellable RevPAR against the
+   * same figure on the property's other nights. Past days are judged against
+   * the hotel's historical terciles, future days against the on-the-books ones.
    * Always the standard colour (green strong, red weak): a property that
    * reversed its colours in Settings shows it through nightColor().
    */
