@@ -98,6 +98,12 @@ describe("the migration file", () => {
     expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_staff_roles_v1.sql"));
   });
 
+  it("says in its header that the owner's go-live names them and the Command Center's switch names nobody", () => {
+    expect(sql).toMatch(/The owner's go-live runs under their own\s+--\s+session, so it names them\./);
+    expect(sql).toMatch(/Command Center's switch runs under the\s+--\s+service role, so it names nobody here/);
+    expect(sql).not.toMatch(/owner's go-live route alike/);
+  });
+
   it("is one transaction, keeps row level security on and never grants anon anything", () => {
     expect(code.match(/\bbegin;/g)).toHaveLength(1);
     expect(code.match(/\bcommit;/g)).toHaveLength(1);
@@ -289,6 +295,17 @@ describe.skipIf(!PGLITE_DIR)("the simulation history migration in PGlite", () =>
     await q(`insert into public.hotels (id, name) values ($1, 'New Inn')`, [NEW]);
     await q(`insert into public.hotel_settings (hotel_id, simulation_mode) values ($1, true)`, [NEW]);
     expect(await rows(NEW)).toEqual([{ simulated: true, source: "switch", basis: null }]);
+  });
+
+  it("says on the column whose switch it names: the owner's go-live, not the Command Center's", async () => {
+    // The go-live route updates hotel_settings under the owner's own session (the test above), so its row names them.
+    const [{ c }] = await q(
+      `select col_description('public.hotel_mode_history'::regclass,
+         (select attnum from pg_attribute where attrelid = 'public.hotel_mode_history'::regclass and attname = 'changed_by')::int) as c`,
+    );
+    expect(c).toMatch(/as the owner's go-live does/);
+    expect(c).toMatch(/Null under the service role \(the Command Center switch/);
+    expect(c).not.toMatch(/go-live route/);
   });
 
   it("lets a property's own people read its history, and nobody else write it", async () => {

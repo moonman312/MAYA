@@ -25,9 +25,10 @@
 --   2. From now on: a trigger on hotel_settings writes a row on every switch
 --      (insert, or simulation_mode changed), at the switch's own instant
 --      (now(), the same instant live_since and the product event get), with
---      who made it (auth.uid(): null under the service role, so for the
---      Command Center's switch and the owner's go-live route alike; those
---      record the person in platform_audit_events already). source 'switch'.
+--      who made it (auth.uid()). The owner's go-live runs under their own
+--      session, so it names them. The Command Center's switch runs under the
+--      service role, so it names nobody here; platform_audit_events and
+--      support_changes record the person already. source 'switch'.
 --
 --   3. hotel_simulated_at(hotel, at): the mode at an instant (true, false, or
 --      null when not known). Security invoker, so RLS decides whose rows it
@@ -142,8 +143,8 @@ comment on table public.hotel_mode_history is
   '99_supabase_migration_simulation_history_v1.sql, `basis` naming the record. Read a moment''s mode with '
   'hotel_simulated_at(hotel, at). Kept for good, like the rest of a property''s history.';
 comment on column public.hotel_mode_history.changed_by is
-  'Who switched, when the switch ran under their own session (auth.uid()). Null under the service role '
-  '(the go-live route and the Command Center switch; platform_audit_events names the person for both) and '
+  'Who switched, when the switch ran under their own session (auth.uid()), as the owner''s go-live does. '
+  'Null under the service role (the Command Center switch; platform_audit_events names the person) and '
   'on backfilled rows.';
 
 alter table public.hotel_mode_history enable row level security;
