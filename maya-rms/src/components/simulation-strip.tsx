@@ -37,7 +37,7 @@ export function SimulationStrip({
   /** The page's own max width and side padding, so the words line up with it. */
   width?: string;
 }) {
-  const ROW = `mx-auto flex flex-wrap items-center gap-x-3 gap-y-1 ${width}`;
+  const ROW = `mx-auto flex items-center gap-x-3 ${width}`;
   const [mode, setMode] = useState<PropertyMode | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [going, setGoing] = useState(false);
@@ -101,12 +101,15 @@ export function SimulationStrip({
   return (
     <div role="status" className="border-b border-amber-500/30 bg-amber-500/10 text-amber-100" data-testid="mode-simulation">
       <div className={`${ROW} py-1.5 text-xs sm:text-[0.8125rem]`}>
-        <span>
+        <span className="min-w-0 flex-1">
           <span className="font-semibold text-amber-200">{lead}</span>
           <span className="text-amber-200/60"> · </span>
           {rest}
+          {/* Inline, so on a phone it ends the second line rather than taking a third. */}
+          <span className="ml-1.5 inline-block align-middle">
+            <RoomCountHelp label="What simulation means" {...simulationHelp(mode)} docs="simulation" />
+          </span>
         </span>
-        <RoomCountHelp label="What simulation means" {...simulationHelp(mode)} docs="simulation" />
         {mode.canGoLive ? (
           <button
             type="button"
@@ -114,7 +117,7 @@ export function SimulationStrip({
               setError(null);
               setConfirming(true);
             }}
-            className="ml-auto cursor-pointer rounded bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500"
+            className="shrink-0 cursor-pointer rounded bg-emerald-600 px-2.5 py-0.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500"
           >
             Go live
           </button>
