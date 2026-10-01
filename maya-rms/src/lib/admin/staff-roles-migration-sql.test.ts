@@ -999,8 +999,12 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
         { user_id: OWNER, is_test: false },
         { user_id: DEV, is_test: true },
       ]);
+      // analytics_range counts whole UTC days; the session's current_date is
+      // the machine's own day, a day off in the evening west of UTC.
       const accounts = async (includeTest: boolean) =>
-        as(ADMIN, "aal1", async () => (await q(`select (public.analytics_range(current_date, current_date, $1) ->> 'accounts')::int as n`, [includeTest]))[0].n);
+        as(ADMIN, "aal1", async () =>
+          (await q(`select (public.analytics_range((now() at time zone 'UTC')::date, (now() at time zone 'UTC')::date, $1) ->> 'accounts')::int as n`, [includeTest]))[0].n,
+        );
       expect(await accounts(false)).toBe(1);
       expect(await accounts(true)).toBe(2);
     });
