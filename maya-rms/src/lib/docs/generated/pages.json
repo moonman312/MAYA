@@ -1342,7 +1342,7 @@
    "Does MAYA send prices to Mews?",
    "Can I go live on a Mews property?",
    "I went live on Mews and nothing changed in Mews, why?",
-   "It says Sending to Mews now but nothing changes in Mews",
+   "I typed a price but nothing changes in Mews",
    "Why do Optional or Enquired reservations count as booked rooms on Mews?",
    "Why is there no history import for Mews?",
    "Mews needs its keys re-entered, what do I do?",
@@ -3474,7 +3474,7 @@
   "order": 110,
   "title": "Turning a rule off, deleting it, or changing it",
   "summary": "What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, how to read the rules list, and each rule's fire log behind its Fired count.",
-  "readingTime": 14,
+  "readingTime": 15,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [],
@@ -3951,7 +3951,7 @@
   "order": 20,
   "title": "The change log",
   "summary": "Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.",
-  "readingTime": 28,
+  "readingTime": 31,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4029,6 +4029,11 @@
     "depth": 2,
     "text": "Your answers",
     "id": "your-answers"
+   },
+   {
+    "depth": 2,
+    "text": "Going live and back",
+    "id": "going-live-and-back"
    },
    {
     "depth": 2,
@@ -4113,6 +4118,9 @@
    "What does \"Waiting to be sent to Cloudbeds\" mean?",
    "Why does an older change have no line saying it was sent?",
    "I went live. Why do older runs still say Simulation?",
+   "What does \"Sent to Cloudbeds after you went live\" mean?",
+   "What does \"Went live\" in the change log mean?",
+   "Why is there no \"Waiting to be sent\" line under a live change?",
    "What does \"Something other than MAYA seems to be changing rates\" mean?"
   ],
   "faq": []
@@ -4689,7 +4697,7 @@
   "order": 10,
   "title": "Simulation mode",
   "summary": "Every property starts in simulation. MAYA reads your bookings, runs every rule and writes what it would do to the change log, but sends nothing to your property system until you go live.",
-  "readingTime": 13,
+  "readingTime": 14,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4783,7 +4791,7 @@
   "order": 20,
   "title": "Going live",
   "summary": "Where the go-live buttons are (the amber strip at the top of the dashboard, and the review screen), who can press them, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.",
-  "readingTime": 14,
+  "readingTime": 15,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4869,7 +4877,8 @@
    "What is \"You need admin access on this property to go live.\"?",
    "Why is there no Turn them on for real button on my review screen?",
    "If I turn a starter rule off before going live, are its changes sent?",
-   "Can a Mews property go live?"
+   "Can a Mews property go live?",
+   "What is \"This page is for another property. Reload and try again.\"?"
   ],
   "faq": []
  },
@@ -6838,7 +6847,7 @@
   "order": 210,
   "title": "Tell whether you are live or in simulation",
   "summary": "An amber strip across the top of every screen says when your property is simulating, and a small green Live tag says when it is live. The change log tags each simulated run, and says whether each live price was sent. To see a price in your system, compare one night in MAYA and there, or email us and we check.",
-  "readingTime": 5,
+  "readingTime": 6,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -6864,7 +6873,7 @@
    "Where does it say whether I am live?",
    "Is there a live or simulation badge?",
    "How do I check that a price reached my property system?",
-   "It says Sending to Mews now. Did a price reach Mews?"
+   "I typed a price on a Mews property. Did it reach Mews?"
   ],
   "faq": []
  },
@@ -8181,7 +8190,7 @@
    },
    {
     "q": "Why are only some of a run's changes listed?",
-    "a": "A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40, then a line counting the rest, such as \"And 23 more changes in this run.\" In a very large run the count can be a minimum: \"And at least 23 more changes in this run.\" The rest are not listed anywhere in the app. To see where a night stands now, open it on the Calendar tab."
+    "a": "A run lists its 40 biggest moves, largest percentage first. A run that changed more nights than that shows 40, then a line counting the rest, such as \"And 23 more changes in this run.\" (\"And 23 more prices would have changed in this run.\" for a run made in simulation). In a very large run the count can be a minimum: \"And at least 23 more changes in this run.\" The rest are not listed anywhere in the app. To see where a night stands now, open it on the Calendar tab."
    },
    {
     "q": "Why is \"Show the numbers\" missing on some changes?",
@@ -8189,7 +8198,7 @@
    },
    {
     "q": "Whose time zone are the log times in?",
-    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. Last sync and the request times on the PMS tab use your clock too. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock. A rule's fire log is the one place that shows your property's time instead: \"Oct 3, 2:05 PM\" there is the clock at the property, and hovering it shows the zone."
+    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. Last sync and the request times on the PMS tab use your clock too. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock. A rule's fire log is the one place that shows your property's time instead, with its zone: \"Oct 3, 2:05 PM EDT\" there is the clock at the property."
    },
    {
     "q": "Why does the PMS tab say \"Not tracked for this system\" on ThinkReservations or Mews?",
@@ -8407,7 +8416,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 66,
+  "readingTime": 67,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-10-01",
   "pms": [

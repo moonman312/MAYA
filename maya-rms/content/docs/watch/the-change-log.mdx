@@ -3,8 +3,8 @@ title: The change log
 summary: Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.
 section: watch
 order: 20
-readingTime: 28
-keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, older button, see older, page back, older history, nothing older, couldn't load older history, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote, simulation, simulated run, would have, would have gone, would have raised, would have lowered, would have been, nothing was sent, nothing was sent to cloudbeds, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, typed a price, did it reach cloudbeds, was it sent, its simulated changes, due to go out again]
+readingTime: 31
+keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, older button, see older, page back, older history, nothing older, couldn't load older history, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote, simulation, simulated run, would have, would have gone, would have raised, would have lowered, would have been, nothing was sent, nothing was sent to cloudbeds, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, typed a price, did it reach cloudbeds, was it sent, its simulated changes, due to go out again, at the time, nothing was sent at the time, after you went live, sent after you went live, now that you're live, went live, back to simulation, switched pricing back, would have changed in this run]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
@@ -48,6 +48,9 @@ questions:
   - 'What does "Waiting to be sent to Cloudbeds" mean?' {#where-the-price-went}
   - 'Why does an older change have no line saying it was sent?' {#where-the-price-went}
   - 'I went live. Why do older runs still say Simulation?' {#runs-made-in-simulation}
+  - 'What does "Sent to Cloudbeds after you went live" mean?' {#runs-made-in-simulation/once-you-go}
+  - 'What does "Went live" in the change log mean?' {#going-live-and-back}
+  - 'Why is there no "Waiting to be sent" line under a live change?' {#where-the-price-went}
   - 'What does "Something other than MAYA seems to be changing rates" mean?' {#rates-changed-in-your-property-system/the-warning-that}
 updated: 2026-10-01
 ---
@@ -72,7 +75,7 @@ A run that finds nothing to change is counted into a quiet line between the runs
 
 The button in the top right toggles between the two views:
 
-- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, every answer you gave to a rule that kept adjusting, and every item about rates changed in your property system.
+- <Ui>Show All Cycles</Ui> is what the button says while you are in the default view. That view shows the runs that changed a price, every "Prices not reaching" problem, every answer you gave to a rule that kept adjusting, every item about rates changed in your property system, and every switch between simulation and live.
 - <Ui>Show Changes Only</Ui> is what the button says once you have opened the full view. The full view adds the quiet lines. Each counts a stretch of runs in a row that changed nothing, with when the first and last of them ran, in small grey type: "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM (4 min ago), nothing needed to change." A stretch of one reads "Prices checked once at Sep 24, 1:55 PM". The line under the oldest change shown starts "Just before that, prices were checked 12 times".
 
 When no run has changed a price yet, the default view shows no runs at all, and no message says why. Any "Prices not reaching" problem and any answer you gave still show. Click <Ui>Show All Cycles</Ui> to see the quiet lines.
@@ -93,7 +96,7 @@ A run made while your property was simulating carries a small amber <Ui>Simulati
 
 The time is shown in your browser's time zone, with the zone's abbreviation, so two people in different places see different clock times for the same run. Hover the line and the exact moment shows, to the second, on the same clock: "Oct 2, 2026, 3:05:12 PM PDT". The part in brackets says how long ago: "just now", "4 min ago", "2 hr ago", "yesterday", "3 days ago", up to 6 days. Older runs carry no bracket.
 
-Under the first line comes the list of changes, the biggest moves first. A run that made more than 40 changes lists its 40 biggest and ends with a line counting the rest, such as "And 23 more changes in this run."
+Under the first line comes the list of changes, the biggest moves first. A run that made more than 40 changes lists its 40 biggest and ends with a line counting the rest, such as "And 23 more changes in this run." A simulated run's line reads "And 23 more prices would have changed in this run."
 
 ## A change, line by line
 
@@ -130,7 +133,7 @@ While your property is in simulation MAYA runs every rule and writes every chang
 
 - The run's first line carries the amber <Ui>Simulation</Ui> tag.
 - The bold line reads "Simulation: the price for Fri Nov 13, Standard would have gone from $150.00 to $165.00." For a price someone typed, with nothing on top of it, it reads "Simulation: the price for Fri Nov 13, Standard would have been $180.00."
-- The line under it reads "Nothing was sent to Cloudbeds." (or your system's name, or "your property system" with none connected).
+- The line under it reads "Nothing was sent to Cloudbeds." (or your system's name, or "your property system" with none connected). Once you are live it reads "Nothing was sent to Cloudbeds at the time."
 - Each step says "would have": "Warm-date bump" would have raised this night 10%, from $150.00 to $165.00. Then "Hot-week surge" would have raised it 25%, from $165.00 to $206.25.
 - What came off: Cancellations meant "Warm-date bump" was no longer true, so its 10% raise would have come off. "Busy nights" would have stopped applying an earlier 10% raise here: this night no longer met its conditions.
 - A limit: That would have gone past your $300.00 ceiling for Standard, so it would have stopped there.
@@ -139,7 +142,18 @@ While your property is in simulation MAYA runs every rule and writes every chang
 
 What the run saw stays as it was: "It was 82% full, past the 70% mark you set." is true in either mode. So is "The base rate for this night changed from $150.00 to $160.00.", which is your own rate in your system, and "The price set by hand was cleared."
 
-The label follows the moment of the run, not the mode you are in now. Once you go live, the runs from before keep their <Ui>Simulation</Ui> tag and their "would have" words, and new runs read as live. A price from simulation that is still a night's price when you go live is sent on the first live cycle, like every other price ([Going live](/docs/live/going-live)); the simulated entry stays as it was.
+The label follows the moment of the run, not the mode you are in now. Once you go live, the runs from before keep their <Ui>Simulation</Ui> tag and their "would have" words, and new runs read as live.
+
+Once you go live, the first live cycles send every night's price, including prices worked out in simulation ([Going live](/docs/live/going-live)). So a simulated change's line then reads "Nothing was sent to Cloudbeds at the time.", and when its run was the last to price that night and the night still has its price, a second line says what became of it, from MAYA's record of its sends:
+
+| Second line | Meaning |
+|---|---|
+| Sent to Cloudbeds after you went live. | That price went out after you went live. |
+| Waiting to be sent to Cloudbeds now that you're live. | Not sent yet: the next cycle sends it. |
+| Couldn't be sent to Cloudbeds after you went live. | MAYA has stopped trying at this price. |
+| Held back after you went live, not sent to Cloudbeds. | MAYA held it back on purpose, or the room type has no rate in your system. |
+
+A simulated change whose price a later run replaced gets no second line, and nor does one on Mews, where nothing is sent.
 
 MAYA keeps a record of every switch between simulation and live, and reads each run's mode from it. For runs from before it kept that record, it works the mode out from what it had on file: a property that had never been live has every run marked as simulated. Where it cannot tell, for example a run from before mid-September 2026 on a property that was already live then, the run reads as a live one always has, with no line about sending.
 
@@ -150,13 +164,15 @@ On a live property, the line under a change's bold line says what became of its 
 | Line | Meaning |
 |---|---|
 | Sent to Cloudbeds. | The price was sent and your system took it. |
-| Waiting to be sent to Cloudbeds. | Not sent yet: the next cycle sends it, it is on its way, or a send is being tried again. |
+| Waiting to be sent to Cloudbeds. | Not sent yet: the next cycle sends it, it is on its way, or a send is being tried again, including once you clicked <Ui>Try again</Ui> or reconnected after MAYA had stopped trying. |
 | Couldn't be sent to Cloudbeds. | MAYA has stopped trying at this price. A "Prices not reaching Cloudbeds" item says why when it needs you ([below](#prices-not-reaching-your-property-system)). |
 | Held back, not sent to Cloudbeds. | MAYA held the price back on purpose, or the room type has no rate in your system to send to. |
 | Nothing was sent to Mews. MAYA doesn't send prices there yet. | A Mews property, on every live change. |
-| Nothing was sent to Cloudbeds. | A run made in simulation ([above](#runs-made-in-simulation)). |
+| Nothing was sent to Cloudbeds. | A run made in simulation ([above](#runs-made-in-simulation)). "at the time" is added once you are live. |
 
-MAYA keeps one record per night and room type: its latest send. So only the newest change shown for a night, whose price is still the night's price, gets one of the live lines. An older change, whose price a later run replaced, has no line at all, because MAYA can no longer say whether that price went. Nor does a night already over that was never sent: nothing will send it now. Everyone on the property sees these lines, whatever their role.
+MAYA keeps one record per night and room type: its latest send. So a change gets one of the live lines only when its run was the last to price that night and room type, and the night's price is still its price. That is checked against MAYA's own records, not against what the log has on screen: a later run counts even when it is on a newer page, or its change for that night is one of those only counted under "And 23 more changes in this run." An older change, whose price a later run replaced, has no line at all, because MAYA can no longer say whether that price went. Nor does a night already over that was never sent: nothing will send it now.
+
+"Waiting to be sent" is only said while MAYA can send the price. When your property is back in simulation, MAYA's work is paused over your subscription, the connection reads Disconnected, or the night is beyond the 396-night window, an unsent price gets no line. Everyone on the property sees these lines, whatever their role.
 
 ## The sentences, by kind of rule
 
@@ -248,6 +264,15 @@ When you answer the <Ui>Rules that keep adjusting</Ui> banner, the answer is log
 - Priya let "Hot-week surge" run again on 4 nights. It can start adjusting again from the next pricing run.
 
 A deleted rule reads "A rule" here. At most 20 answers are shown, within the span of the runs on screen. An answer our staff gave for you is headed "MAYA support's answer" instead, and names them as "MAYA support" in the line. [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting) explains the banner and the choices.
+
+## Going live and back
+
+When someone on your property switches it between simulation and live, the switch is its own item, where it happened among the runs:
+
+- **Went live** · Fri, Oct 2, 2026, 3:12 PM PDT: "Sam took pricing live. From the next cycle, MAYA sends its prices to Cloudbeds."
+- **Back to simulation** · ...: "Sam switched pricing back to simulation. MAYA stopped sending prices to Cloudbeds."
+
+It marks where the log's wording changes: runs before a go-live say what would have happened, runs after it say where each price went. It says what going live does, not that a given price went out: each change's own line says that. A person MAYA has no name for reads "A manager". On Mews it reads "Sam took pricing live. MAYA doesn't send prices to Mews yet, so nothing goes to it." A switch our staff made for you shows as a change by MAYA support instead ([below](#changes-by-maya-support)), and the first mode a new property starts in is not an item.
 
 ## Changes by MAYA support
 
