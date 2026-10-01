@@ -234,13 +234,14 @@ function FireRow({ fire, open, onToggle }: { fire: RuleFireItem; open: boolean; 
         aria-expanded={open}
         aria-controls={detailId}
         onClick={onToggle}
-        className="grid w-full cursor-pointer grid-cols-[1fr_auto_auto_auto] items-center gap-x-3 py-2 text-left text-sm hover:bg-slate-800/40"
+        className="grid w-full cursor-pointer grid-cols-[1fr_auto_auto_auto] items-center gap-x-2 py-2 text-left text-[0.8125rem] hover:bg-slate-800/40 sm:gap-x-3 sm:text-sm"
       >
-        <time dateTime={fire.fired_at} title={fire.when_exact} className="text-slate-300">
+        <time dateTime={fire.fired_at} title={fire.when_exact} className="whitespace-nowrap text-slate-300">
           {fire.when}
         </time>
-        <span className="text-slate-400">{fire.night}</span>
-        <span className="flex items-center justify-end gap-1.5 font-medium tabular-nums text-sky-300">
+        <span className="whitespace-nowrap text-slate-400">{fire.night}</span>
+        {/* On a phone the Simulation tag sits over the amount, so the row stays one line of text. */}
+        <span className="flex flex-col items-end gap-0.5 font-medium tabular-nums text-sky-300 sm:flex-row sm:items-center sm:gap-1.5">
           {fire.mode === "simulation" ? (
             <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-1.5 py-px text-[0.625rem] font-medium text-amber-300">
               Simulation
