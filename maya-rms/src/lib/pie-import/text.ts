@@ -39,6 +39,76 @@ export function tidy(text: string): string {
     .join(" ");
 }
 
+/** At most one letter different (an OCR slip in a word PIE always prints the same way). */
+export function near(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || Math.min(a.length, b.length) < 4) return false;
+  let i = 0;
+  let j = 0;
+  let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i++;
+      j++;
+      continue;
+    }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else {
+      i++;
+      j++;
+    }
+  }
+  return edits + (a.length - i) + (b.length - j) <= 1;
+}
+
+/** The words of PIE's description template, which OCR sometimes misreads by a letter ("Ralse", "cccupancy"). */
+const TEMPLATE_WORDS = [
+  "raise",
+  "lower",
+  "increase",
+  "decrease",
+  "rate",
+  "rates",
+  // Before "when", so "then" (a misread "than") becomes "than".
+  "than",
+  "when",
+  "occupancy",
+  "greater",
+  "higher",
+  "less",
+  "more",
+  "equal",
+  "booking",
+  "days",
+  "advance",
+  "today",
+  "individual",
+  "combined",
+  "overall",
+];
+
+/**
+ * A description with its template words read right: a word one letter
+ * away from one of them (four letters or more) becomes that word, and "ls"
+ * or "1s" becomes "is". Numbers and other words are left as they are.
+ */
+export function fixTemplateWords(text: string): string {
+  return text
+    .split(" ")
+    .map((token) => {
+      if (/^[il1|]s$/i.test(token)) return "is";
+      const m = token.match(/^([A-Za-z]+)([.,:;]?)$/);
+      if (!m || m[1].length < 4) return token;
+      const lower = m[1].toLowerCase();
+      if (TEMPLATE_WORDS.includes(lower)) return token;
+      const hit = TEMPLATE_WORDS.find((t) => near(lower, t));
+      return hit ? `${hit}${m[2]}` : token;
+    })
+    .join(" ");
+}
+
 /**
  * A number as PIE prints it: "10.00", "1,234.50", "3,500", or with a decimal
  * comma ("10,00"). null when it is not one.
@@ -99,7 +169,10 @@ export function parsePieDate(raw: string | null | undefined):
   | { kind: "date"; date: string; ambiguous: boolean }
   | { kind: "unreadable" } {
   const all = tidy(raw ?? "");
-  if (all === "" || /^-+$/.test(all) || /\bn\s*\/\s*a\b/i.test(all) || /^n\s*a$/i.test(all)) return { kind: "none" };
+  // "N/A", and OCR's "NIA", "N|A", "N1A", "INJA": a few letters and no digit
+  // is never a date.
+  if (all === "" || /^-+$/.test(all) || /\bn\s*[/|il1]\s*a\b/i.test(all) || /^n\s*a$/i.test(all)) return { kind: "none" };
+  if (!/\d/.test(all) && all.replace(/[^A-Za-z]/g, "").length <= 5) return { kind: "none" };
   // The date itself, without stray marks OCR found beside it.
   const found =
     all.match(/\d{4}-\d{1,2}-\d{1,2}/) ??

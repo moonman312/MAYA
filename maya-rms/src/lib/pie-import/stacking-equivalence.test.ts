@@ -148,6 +148,8 @@ function rowOf(s: Spec): PieRowRead {
     startDate: s.start ?? "N/A",
     endDate: s.end ?? "N/A",
     cutOff: false,
+    cutEdge: null,
+    numbersUnsure: false,
     y: 0,
   };
 }
@@ -155,7 +157,7 @@ function rowOf(s: Spec): PieRowRead {
 function imported(specs: Spec[]): { items: ImportItem[]; sim: SimRule[]; drafts: ImportDraft[] } {
   let n = 0;
   const random = () => `${(n++).toString(16).padStart(8, "0")}-1111-4111-8111-111111111111`;
-  const merged = mergeReads([{ width: 2000, height: 1200, columns: null, rows: specs.map(rowOf), limits: { master: null, byType: [] } }]);
+  const merged = mergeReads([{ width: 2000, height: 1200, columns: null, rows: specs.map(rowOf), limits: { master: null, byType: [] }, entries: null, rulesSeen: true, scale: 2 }]);
   const { items } = planImport(merged, ROOMS, { today: TODAY, random });
   for (const item of items) expect(item.status).toBe("ready");
   const sim = merged.rules.map((r, i): SimRule => {

@@ -6,15 +6,15 @@
  *   "Lower rate by 10.00 % when occupancy is lower than 20.00 % and when
  *    booking today-28 days in advance"
  *
- * The parser is tolerant of what OCR does to it (spacing, a misread digit,
- * a decimal comma) and also takes a fixed amount (no "%", or a currency
+ * The parser is tolerant of what OCR does to it (spacing, a misread digit or
+ * a template word one letter off, a decimal comma) and also takes a fixed amount (no "%", or a currency
  * sign), "less than", "or equal to" and "equal to", and wording that names
  * the room types an occupancy is measured on. It never guesses: a part it
  * cannot read makes the description unreadable, and a description that
  * stops early (the screenshot cut it off) is marked incomplete.
  */
 
-import { parseNumber, tidy } from "./text";
+import { fixTemplateWords, parseNumber, tidy } from "./text";
 
 export type OccupancyOp = "gt" | "lt" | "gte" | "lte" | "eq";
 
@@ -38,7 +38,18 @@ export type PieDescription = {
   scope: PieScope;
   /** "booking A-B days in advance", inclusive; "today" is 0. */
   window: { from: number; to: number } | null;
+  /**
+   * The amount and threshold as they were read, and whether the amount had a
+   * currency sign: PIE prints both with two decimals ("10.00"), so one
+   * without them was misread.
+   */
+  printed: { amount: string; threshold: string; currencySign: boolean };
 };
+
+/** Whether a number was read the way PIE prints it: two decimals ("10.00", "1,250.00", "10,00"). */
+export function printedLikePie(raw: string): boolean {
+  return /^\d{1,3}(,\d{3})*\.\d{2}$/.test(raw) || /^\d+\.\d{2}$/.test(raw) || /^\d+,\d{2}$/.test(raw);
+}
 
 export type DescriptionRead =
   | { ok: true; rule: PieDescription; complete: boolean }
@@ -87,7 +98,7 @@ function scopeBeforeWhen(raw: string): string[] | null {
  * reading order.
  */
 export function parseDescription(text: string): DescriptionRead {
-  let s = tidy(text).replace(/^[^A-Za-z]+/, "");
+  let s = fixTemplateWords(tidy(text)).replace(/^[^A-Za-z]+/, "");
   const head = s.match(HEAD);
   if (!head) return { ok: false, reason: "not_rate" };
   const direction = /^(raise|increase)/i.test(head[1]) ? "raise" : "lower";
@@ -95,7 +106,8 @@ export function parseDescription(text: string): DescriptionRead {
 
   const amt = s.match(AMOUNT);
   if (!amt) return { ok: false, reason: s.trim() === "" ? "cut" : "unreadable", direction };
-  const amount = parseNumber(amt[2].replace(/[.,]$/, ""));
+  const amountText = amt[2].replace(/[.,]$/, "");
+  const amount = parseNumber(amountText);
   if (amount === null || !(amount > 0)) return { ok: false, reason: "unreadable", direction };
   const kind: PieDescription["kind"] = amt[3] && !amt[1] ? "percent" : "fixed";
   s = s.slice(amt[0].length);
@@ -137,7 +149,8 @@ export function parseDescription(text: string): DescriptionRead {
 
   const th = s.match(/^(\d[\d.,]*)\s*(%)?\s*/);
   if (!th) return { ok: false, reason: s.trim() === "" ? "cut" : "unreadable", direction };
-  const threshold = parseNumber(th[1].replace(/[.,]$/, ""));
+  const thresholdText = th[1].replace(/[.,]$/, "");
+  const threshold = parseNumber(thresholdText);
   if (threshold === null || threshold < 0 || threshold > 100) return { ok: false, reason: "unreadable", direction };
   const hasPercent = th[2] === "%";
   s = s.slice(th[0].length);
@@ -173,7 +186,16 @@ export function parseDescription(text: string): DescriptionRead {
   return {
     ok: true,
     complete,
-    rule: { direction, kind, amount, occupancyOp: op, threshold, scope, window },
+    rule: {
+      direction,
+      kind,
+      amount,
+      occupancyOp: op,
+      threshold,
+      scope,
+      window,
+      printed: { amount: amountText, threshold: thresholdText, currencySign: Boolean(amt[1]) },
+    },
   };
 }
 

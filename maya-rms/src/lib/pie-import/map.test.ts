@@ -43,13 +43,15 @@ function rowOf(name: string, description: string, o: Partial<PieRowRead> = {}): 
     startDate: "N/A",
     endDate: "N/A",
     cutOff: false,
+    cutEdge: null,
+    numbersUnsure: false,
     y: 0,
     ...o,
   };
 }
 
 function shot(rows: PieRowRead[], limits: ScreenshotRead["limits"] = { master: null, byType: [] }): ScreenshotRead {
-  return { width: 2000, height: 1200, columns: null, rows, limits };
+  return { width: 2000, height: 1200, columns: null, rows, limits, entries: null, rulesSeen: rows.length > 0, scale: 2 };
 }
 
 let seq = 0;
@@ -110,6 +112,74 @@ describe("merging screenshots", () => {
   });
 });
 
+describe("merging screenshots: rows cut in two, overlaps, copies", () => {
+  const at = (row: PieRowRead, y: number, o: Partial<PieRowRead> = {}): PieRowRead => ({ ...row, y, ...o });
+
+  it("keeps two rules alike but for their dates, and an on and an off copy, each once", () => {
+    const june = rowOf("Summer bump", "Raise rate by 10.00 % when occupancy is greater than 60.00 %", { startDate: "06/01/2027", endDate: "06/30/2027" });
+    const august = { ...june, startDate: "08/01/2027", endDate: "08/31/2027" };
+    const merged = mergeReads([shot([june, august, { ...june, active: false }])]);
+    expect(merged.rules.map((r) => [r.startDate, r.active])).toEqual([
+      ["06/01/2027", true],
+      ["08/01/2027", true],
+      ["06/01/2027", false],
+    ]);
+    expect(new Set(merged.rules.map((r) => r.key)).size).toBe(3);
+    // The same rule in two screenshots, its switch seen in one only, and "N/A" read with a stray mark: once, on.
+    const again = mergeReads([shot([{ ...june, active: null }]), shot([{ ...june, startDate: "06/01/2027 |" }])]);
+    expect(again.rules.map((r) => r.active)).toEqual([true]);
+  });
+
+  it("puts back together a row one screenshot ended in and the next began with", () => {
+    const first = at(rowOf("Busy", "Raise rate by 10.00 % when occupancy is greater than 60.00 %"), 640);
+    const top = at(rowOf("Near full more", "Raise rate by 8.00 % when occupancy is greater than 82.00 %", { cutOff: true, cutEdge: "bottom", startDate: "N/" }), 718);
+    const rest = at(rowOf("than 12 days", "and when booking 12-400 days in advance", { cutOff: true, cutEdge: "top", mode: null, type: null, typeText: "" }), 6);
+    const next = at(rowOf("Peak", "Raise rate by 15.00 % when occupancy is greater than 90.00 %"), 70);
+    const merged = mergeReads([shot([first, top]), shot([rest, next])]);
+    expect(merged.rules.map((r) => [r.name, r.description, r.joined ?? false])).toEqual([
+      ["Busy", "Raise rate by 10.00 % when occupancy is greater than 60.00 %", false],
+      ["Near full more than 12 days", "Raise rate by 8.00 % when occupancy is greater than 82.00 % and when booking 12-400 days in advance", true],
+      ["Peak", "Raise rate by 15.00 % when occupancy is greater than 90.00 %", false],
+    ]);
+    const { items } = planImport(merged, ROOMS, { today: TODAY, random });
+    // Read whole once together: ready, but checked before it's ticked.
+    expect(items[1]).toMatchObject({ status: "ready", ticked: false, notes: [PIE_COPY.joined] });
+    expect(items[1].drafts[0].condition).toEqual({ occupancy_operator: "gt", occupancy_threshold: 0.82, dta_operator: "gt", dta_threshold_days: 11 });
+    // Halves that still don't read whole together are finished in the builder.
+    const torn = mergeReads([shot([first, at(top, 718, { description: "Raise rate by 8.00 % when" })]), shot([at(rest, 6, { description: "" }), next])]);
+    expect(planImport(torn, ROOMS, { today: TODAY, random }).items[1]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff });
+  });
+
+  it("leaves out a piece the edge cut when an overlapping screenshot shows that row whole", () => {
+    const a = at(rowOf("Busy", "Raise rate by 10.00 % when occupancy is greater than 60.00 %"), 640);
+    const b = at(rowOf("Very busy", "Raise rate by 10.00 % when occupancy is greater than 80.00 %"), 718);
+    const c = at(rowOf("Peak", "Raise rate by 15.00 % when occupancy is greater than 90.00 %"), 796);
+    // The first screenshot ends part way down Peak, with nothing of it readable; the second, scrolled 600 px, starts part way down Busy.
+    const cutPeak = at(rowOf("", "", { cutOff: true, cutEdge: "bottom" }), 790);
+    const cutBusy = at(rowOf("", "", { cutOff: true, cutEdge: "top" }), 38);
+    const merged = mergeReads([shot([a, b, cutPeak]), shot([cutBusy, at(b, 118), at(c, 196)])]);
+    expect(merged.rules.map((r) => r.name)).toEqual(["Busy", "Very busy", "Peak"]);
+  });
+
+  it("matches a cut piece to a whole rule by its text only with its numbers too", () => {
+    const busy = rowOf("Busy", "Raise rate by 12.00 % when occupancy is greater than 87.00 %");
+    const peak = rowOf("Peak", "Raise rate by 12.00 % when occupancy is greater than 96.00 %");
+    const piece = rowOf("", "Raise rate by 12.00 % when occupancy is greater than 96.00", { cutOff: true, cutEdge: "bottom" });
+    expect(mergeReads([shot([busy, piece])]).rules.map((r) => r.name)).toEqual(["Busy", ""]);
+    expect(mergeReads([shot([busy, piece]), shot([peak])]).rules.map((r) => r.name)).toEqual(["Busy", "Peak"]);
+  });
+
+  it("says when a screenshot's rules couldn't be read, and how many of PIE's rules aren't here", () => {
+    const limitsOnly: ScreenshotRead = { ...shot([], { master: { min: 90, max: 2000 }, byType: [] }), rulesSeen: true, entries: { from: 1, to: 9, total: 9 } };
+    const merged = mergeReads([limitsOnly, shot([rowOf("Busy", "Raise rate by 10.00 % when occupancy is greater than 60.00 %")])]);
+    expect(merged).toMatchObject({ rulesUnread: [0], unread: [], listed: 9, missing: 8 });
+    // A screenshot of the limits alone, with no rules on it, is no failure.
+    expect(mergeReads([{ ...limitsOnly, rulesSeen: false }]).rulesUnread).toEqual([]);
+    expect(PIE_COPY.rulesUnread(1)).toBe("The rules in one screenshot couldn't be read. Try a sharper or bigger screenshot.");
+    expect(PIE_COPY.missing(9, 1)).toBe("PIE lists 9 rules, and 1 is here. Add a screenshot that shows the rest.");
+  });
+});
+
 describe("PIE rules as MAYA rules", () => {
   it("makes a raise with a window from A days into one rule, on the property's rooms", () => {
     const { items } = plan([rowOf("Early bird", "Raise rate by 10.00 % when occupancy is greater than 31.00 % and when booking 80-800 days in advance")]);
@@ -151,7 +221,7 @@ describe("PIE rules as MAYA rules", () => {
       ["Mid, beyond 60 days", "gt", 60, { adjust_rate_percent: -9.0909 }],
     ]);
     expect(items[0].notes).toEqual([PIE_COPY.split(60, true)]);
-    expect(items[1].notes).toEqual([PIE_COPY.split(30, false)]);
+    expect(items[1].notes).toEqual([PIE_COPY.fixedAmount, PIE_COPY.split(30, false)]);
     expect(items[1].drafts.map((d) => d.action)).toEqual([{ adjust_rate_dollars: -20 }, { adjust_rate_dollars: 20 }]);
   });
 
@@ -172,9 +242,15 @@ describe("PIE rules as MAYA rules", () => {
   });
 
   it("keeps a fixed amount, and creates a rule off when its switch was off", () => {
-    const { items } = plan([rowOf("Flat", "Raise rate by 25.00 when occupancy is greater than 70.00 %", { active: false })]);
-    expect(items[0]).toMatchObject({ status: "ready", on: false, ticked: true });
+    const { items } = plan([
+      rowOf("Flat", "Raise rate by 25.00 when occupancy is greater than 70.00 %", { active: false }),
+      rowOf("Flat sign", "Raise rate by $25.00 when occupancy is greater than 70.00 %", { active: false }),
+    ]);
+    // No % and no currency sign: a dropped "%" reads the same, so it's checked before it's ticked.
+    expect(items[0]).toMatchObject({ status: "ready", on: false, ticked: false, notes: [PIE_COPY.fixedAmount] });
     expect(items[0].drafts[0].action).toEqual({ adjust_rate_dollars: 25 });
+    expect(items[1]).toMatchObject({ status: "ready", on: false, ticked: true, notes: [] });
+    expect(items[1].drafts[0].action).toEqual({ adjust_rate_dollars: 25 });
   });
 
   it("notes a Manual rule, and a switch that couldn't be seen (added off)", () => {
@@ -221,6 +297,35 @@ describe("PIE rules as MAYA rules", () => {
     expect(items[0].drafts[0].condition).toEqual({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
     expect(items[1]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff, drafts: [] });
     expect(items[2]).toMatchObject({ status: "not_imported", reason: PIE_COPY.unreadable });
+  });
+
+  it("says an Occupancy row it couldn't read is unread, not another kind of rule, and a cut row with half a TYPE is to finish", () => {
+    const { items } = plan([
+      rowOf("Smudge", "Rxxxe rote 10.00 % wben occ"),
+      rowOf("Edge", "and when booking 12-400 days in advance", { cutOff: true, cutEdge: "top", type: "other", typeText: "Occ" }),
+    ]);
+    expect(items[0]).toMatchObject({ status: "not_imported", reason: PIE_COPY.unreadable });
+    expect(items[1]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff });
+    expect(items[1].pie.description).toBe("… and when booking 12-400 days in advance");
+  });
+
+  it("flags numbers PIE wouldn't print, or reads that differ, and leaves them unticked", () => {
+    const { items } = plan([
+      rowOf("No point", "Raise rate by 1000 % when occupancy is greater than 55.00 %"),
+      rowOf("Bare", "Raise rate by 10.00 % when occupancy is greater than 55 %"),
+      rowOf("Huge", "Raise rate by 150.00 % when occupancy is greater than 55.00 %"),
+      rowOf("All of it", "Lower rate by 100.00 % when occupancy is lower than 5.00 %"),
+      rowOf("Two reads", "Raise rate by 10.00 % when occupancy is greater than 55.00 %", { numbersUnsure: true }),
+      rowOf("Fine", "Raise rate by 10.00 % when occupancy is greater than 55.00 %"),
+    ]);
+    expect(items.map((i) => [i.pie.name, i.status, i.ticked, i.notes.includes(PIE_COPY.checkNumbers)])).toEqual([
+      ["No point", "ready", false, true],
+      ["Bare", "ready", false, true],
+      ["Huge", "ready", false, true],
+      ["All of it", "ready", false, true],
+      ["Two reads", "ready", false, true],
+      ["Fine", "ready", true, false],
+    ]);
   });
 
   it("matches 'or equal to' within 0.01%, and doesn't import 'equal to'", () => {
@@ -271,8 +376,8 @@ describe("PIE rules as MAYA rules", () => {
   it("flags an amount that can be on the same night as a percent, on the amount's rule, and only those", () => {
     const { items } = plan([
       rowOf("Pct", "Raise rate by 10.00 % when occupancy is greater than 60.00 %"),
-      rowOf("Flat", "Raise rate by 5.00 when occupancy is greater than 80.00 %"),
-      rowOf("Flat low", "Lower rate by 5.00 when occupancy is lower than 30.00 %"),
+      rowOf("Flat", "Raise rate by $5.00 when occupancy is greater than 80.00 %"),
+      rowOf("Flat low", "Lower rate by $5.00 when occupancy is lower than 30.00 %"),
     ]);
     expect(only(items, "Pct").notes).toEqual([]);
     expect(only(items, "Flat").notes).toEqual([PIE_COPY.mixed]);
@@ -317,10 +422,11 @@ describe("price limits as floors and ceilings", () => {
     };
     expect(planLimits(merged, ROOMS)).toEqual({
       changes: [
-        { roomTypeId: "rt-garden", name: "Garden Room", floor: 100, ceiling: 500, current: { floor: 80, ceiling: 600 }, from: "own", problem: null },
+        { roomTypeId: "rt-garden", name: "Garden Room", floor: 100, ceiling: 500, current: { floor: 80, ceiling: 600 }, from: "own", problem: null, check: null },
         // Tree House: its row matches what it has, so nothing changes.
-        { roomTypeId: "rt-loft", name: "Loft", floor: 90, ceiling: 2000, current: { floor: 1, ceiling: 99999.99 }, from: "master", problem: null },
-        { roomTypeId: "rt-court", name: "Tennis Court", floor: 90, ceiling: 2000, current: { floor: 10, ceiling: 50 }, from: "master", problem: null },
+        { roomTypeId: "rt-loft", name: "Loft", floor: 90, ceiling: 2000, current: { floor: 1, ceiling: 99999.99 }, from: "master", problem: null, check: null },
+        // A ceiling 40 times the one it has: checked first.
+        { roomTypeId: "rt-court", name: "Tennis Court", floor: 90, ceiling: 2000, current: { floor: 10, ceiling: 50 }, from: "master", problem: null, check: PIE_COPY.limitCheck },
       ],
       unmatched: ["Yurt"],
     });
@@ -335,6 +441,40 @@ describe("price limits as floors and ceilings", () => {
 
   it("does nothing without limits in view", () => {
     expect(planLimits({ master: null, limits: [] }, ROOMS)).toEqual({ changes: [], unmatched: [] });
+  });
+});
+
+describe("price limits to check first", () => {
+  it("leaves a pair unticked when it may be misread, or is out of line with the table or what the room type has", () => {
+    const rooms: MayaRoomType[] = [
+      { id: "g", name: "Garden Room", floor_price: 1, ceiling_price: 99999.99 },
+      { id: "t", name: "Tree House", floor_price: 1, ceiling_price: 99999.99 },
+      { id: "l", name: "Loft", floor_price: 1, ceiling_price: 99999.99 },
+      { id: "b", name: "Bunk Room", floor_price: 1, ceiling_price: 99999.99 },
+      { id: "s", name: "Suite", floor_price: 150, ceiling_price: 600 },
+    ];
+    const plan = planLimits(
+      {
+        master: null,
+        limits: [
+          { name: "Garden Room", min: 110, max: 520, unsure: true },
+          { name: "Tree House", min: 140, max: 600 },
+          { name: "Loft", min: 120, max: 34000 },
+          { name: "Bunk Room", min: 100, max: 500 },
+          { name: "Suite", min: 160, max: 9000 },
+        ],
+      },
+      rooms,
+    );
+    expect(plan.changes.map((c) => [c.name, c.check])).toEqual([
+      ["Garden Room", PIE_COPY.limitCheck],
+      ["Tree House", null],
+      // $34,000 against the others' $500 to $600.
+      ["Loft", PIE_COPY.limitCheck],
+      ["Bunk Room", null],
+      // $9,000 against the $600 it has (and the table).
+      ["Suite", PIE_COPY.limitCheck],
+    ]);
   });
 });
 

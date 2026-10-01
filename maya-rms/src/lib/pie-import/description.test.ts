@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parseDescription } from "./description";
-import { fixDigits, nameKey, parseMoney, parseNumber, parsePieDate, tidy } from "./text";
+import { parseDescription, printedLikePie } from "./description";
+import { fixDigits, fixTemplateWords, nameKey, parseMoney, parseNumber, parsePieDate, tidy } from "./text";
 
 const ok = (text: string) => {
   const read = parseDescription(text);
@@ -21,6 +21,7 @@ describe("PIE's description template", () => {
         threshold: 31,
         scope: { kind: "overall" },
         window: { from: 80, to: 800 },
+        printed: { amount: "10.00", threshold: "31.00", currencySign: false },
       },
     });
   });
@@ -69,6 +70,26 @@ describe("PIE's description template", () => {
     });
     expect(ok("Raise rate by 10.00 % when overall occupancy is greater than 50.00 %").rule.scope).toEqual({ kind: "overall" });
     expect(ok("Raise rate by 10.00 % when individual occupancy is greater than 50.00 %").rule.scope).toEqual({ kind: "individual", names: [] });
+  });
+
+  it("takes a template word OCR read a letter off", () => {
+    expect(ok("Ralse rate by 10.00 % when cccupancy ls greater than 55.00 %").rule).toMatchObject({
+      direction: "raise",
+      amount: 10,
+      occupancyOp: "gt",
+      threshold: 55,
+    });
+    expect(ok("Lower rate by 7.00 % when occupancy is lower then 25.00 % and when bookinq today-21 days in advanca").rule.window).toEqual({ from: 0, to: 21 });
+    expect(fixTemplateWords("Ralse rate bv 5.00")).toBe("raise rate bv 5.00");
+    // Names and numbers are left alone.
+    expect(fixTemplateWords("Garden Room 10.00 Loft")).toBe("Garden Room 10.00 Loft");
+  });
+
+  it("keeps the numbers as read, to tell one PIE wouldn't print", () => {
+    expect(ok("Raise rate by 1000 % when occupancy is greater than 55.00 %").rule.printed).toEqual({ amount: "1000", threshold: "55.00", currencySign: false });
+    expect(ok("Raise rate by $12.50 when occupancy is greater than 55 %").rule.printed).toEqual({ amount: "12.50", threshold: "55", currencySign: true });
+    expect(["10.00", "1,250.00", "10,00", "0.50"].map(printedLikePie)).toEqual([true, true, true, true]);
+    expect(["10", "1000", "10.0", "10.000", "1,2"].map(printedLikePie)).toEqual([false, false, false, false, false]);
   });
 
   it("takes OCR noise: spacing, look-alike digits, a decimal comma, stray marks", () => {
@@ -138,6 +159,8 @@ describe("text helpers", () => {
 
   it("reads PIE's dates, N/A as none", () => {
     expect(parsePieDate("N/A")).toEqual({ kind: "none" });
+    // OCR's N/A: a few letters and no digit is never a date.
+    for (const na of ["NIA", "N|A", "N1A", "INJA", "N/A I", "NA"]) expect(parsePieDate(na)).toEqual({ kind: "none" });
     expect(parsePieDate("N/A I")).toEqual({ kind: "none" });
     expect(parsePieDate("")).toEqual({ kind: "none" });
     expect(parsePieDate("10/15/2026")).toEqual({ kind: "date", date: "2026-10-15", ambiguous: false });

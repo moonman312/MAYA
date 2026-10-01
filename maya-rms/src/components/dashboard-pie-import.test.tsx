@@ -25,10 +25,15 @@ const SHOT: ScreenshotRead = {
       startDate: "N/A",
       endDate: "N/A",
       cutOff: false,
+    cutEdge: null,
+    numbersUnsure: false,
       y: 0,
     } satisfies PieRowRead,
   ],
   limits: { master: null, byType: [] },
+  entries: null,
+  rulesSeen: true,
+  scale: 2,
 };
 
 vi.mock("@/lib/pie-import/browser-ocr", () => ({

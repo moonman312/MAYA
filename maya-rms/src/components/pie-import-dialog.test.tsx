@@ -21,7 +21,7 @@ const ROOM_TYPES = [
 ];
 
 function row(name: string, description: string, o: Partial<PieRowRead> = {}): PieRowRead {
-  return { name, description, mode: "auto", type: "occupancy", typeText: "Occupancy", active: true, startDate: "N/A", endDate: "N/A", cutOff: false, y: 0, ...o };
+  return { name, description, mode: "auto", type: "occupancy", typeText: "Occupancy", active: true, startDate: "N/A", endDate: "N/A", cutOff: false, cutEdge: null, numbersUnsure: false, y: 0, ...o };
 }
 
 const SHOT: ScreenshotRead = {
@@ -31,11 +31,14 @@ const SHOT: ScreenshotRead = {
   rows: [
     row("Busy weekends", "Raise rate by 10.00 % when occupancy is greater than 60.00 % and when booking 30-500 days in advance"),
     row("Quiet last days", "Lower rate by 8.00 % when occupancy is lower than 20.00 % and when booking today-14 days in advance", { mode: "manual" }),
-    row("Off one", "Raise rate by 5.00 when occupancy is greater than 90.00 %", { active: false }),
+    row("Off one", "Raise rate by $5.00 when occupancy is greater than 90.00 %", { active: false }),
     row("Min stay", "Set minimum stay to 2 nights", { type: "restriction", typeText: "Restriction" }),
     row("close-in dip", "Lower rate by 10.00 % when occupancy is lower than 30.00 % and xx", { cutOff: true, active: false }),
   ],
   limits: { master: { min: 90, max: 2000 }, byType: [{ name: "Garden Room", min: 100, max: 500 }, { name: "Yurt", min: 60, max: 300 }] },
+  entries: null,
+  rulesSeen: true,
+  scale: 2,
 };
 
 function json(body: unknown, status = 200) {

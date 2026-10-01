@@ -32,7 +32,7 @@
 
 import { defaultSignalIds, ruleConditionToLegacyConditions } from "@/lib/rule-form";
 import type { RuleAction, RuleCondition, RuleConditionValue } from "@/types/domain";
-import type { PieDescription } from "./description";
+import { printedLikePie, type PieDescription } from "./description";
 import type { MergedRead, PieRule } from "./merge";
 import { nameKey, parsePieDate } from "./text";
 
@@ -110,6 +110,8 @@ export type LimitChange = {
   from: "own" | "master";
   /** Why it can't be set as read, or null. */
   problem: string | null;
+  /** Why to check it before ticking it (a number that may be misread, or out of line), or null. Starts unticked. */
+  check: string | null;
 };
 
 export type LimitsPlan = { changes: LimitChange[]; unmatched: string[] };
@@ -119,24 +121,31 @@ export type ImportPlan = { items: ImportItem[]; limits: LimitsPlan };
 /* ── Copy ─────────────────────────────────────────────────────── */
 
 export const PIE_COPY = {
-  manual: "Manual in PIE, so it only suggested prices. In MAYA it changes them (nothing is sent while your property is in simulation).",
+  manual: "Manual in PIE, so it only suggested rates. In MAYA it changes prices (nothing is sent while your property is in simulation).",
   restriction: "Not imported: MAYA doesn't set restrictions.",
   compset: "Not imported: MAYA doesn't price from competitors' rates.",
   otherType: "Not imported: MAYA has no rule like it.",
   unreadable: "Couldn't read its description. Add it yourself in the rule builder.",
   equalTo: "Not imported: MAYA can't match one exact occupancy.",
-  cutOff: "Cut off at the bottom of the screenshot. Add a screenshot that shows it whole, or finish it in the rule builder.",
+  cutOff: "Cut off at the edge of the screenshot. Add a screenshot that shows it whole, or finish it in the rule builder.",
+  joined: "Put together from two screenshots. Check it, then tick it.",
+  checkNumbers: "Its numbers may be misread. Check them against PIE, then tick it.",
+  fixedAmount: "Read as a fixed amount, not a percent. Check it against PIE, then tick it.",
   switchUnknown: "Its switch couldn't be seen, so it's added off.",
   orEqual: (op: "more" | "less", n: string) => `PIE's "or equal to" becomes ${op} than ${n}%.`,
   split: (to: number, percent: boolean) =>
     `A MAYA rule has one booking window, so a second rule takes the change back off beyond ${to} days.${percent ? " A price can come out a cent different from PIE's." : ""}`,
-  mixed: "With a % rule on the same night the price can differ a little from PIE's, which applies them in the order they were triggered.",
+  mixed: "With a % rule on the same night the price can differ a little from PIE's rate, as PIE applies them in the order they were triggered.",
   scopeUnknown: "PIE reads only some room types' occupancy here. Pick them in the rule builder.",
   scopeUnmatched: (names: string[]) => `No room type called ${names.map((n) => `"${n}"`).join(", ")}. Pick them in the rule builder.`,
   datesUnreadable: "Its dates couldn't be read. Add it yourself in the rule builder.",
   datesAmbiguous: "Its dates were read month first. Check them before ticking it.",
   datesPassed: "Its dates have passed.",
   rounding: "PIE's rounding isn't shown in the list, so it isn't imported.",
+  limitCheck: "This may be misread. Check it against PIE, then tick it.",
+  rulesUnread: (n: number) =>
+    `${n === 1 ? "The rules in one screenshot" : `The rules in ${n} screenshots`} couldn't be read. Try a sharper or bigger screenshot.`,
+  missing: (listed: number, read: number) => `PIE lists ${listed} ${listed === 1 ? "rule" : "rules"}, and ${read} ${read === 1 ? "is" : "are"} here. Add a screenshot that shows the rest.`,
 } as const;
 
 /* ── Rule ids ─────────────────────────────────────────────────── */
@@ -269,12 +278,14 @@ function draftOf(
 }
 
 /**
- * A cut-off description as far as it reads: what the edge left of the last
- * line is OCR noise, so it stops at the "and" that starts the booking window.
+ * A cut-off description as far as it reads. Cut at the bottom, what the
+ * edge left of the last line is OCR noise, so it stops at the last "and"
+ * that starts the booking window; cut at the top, it starts part way.
  */
-export function shownDescription(text: string, cutOff: boolean): string {
-  if (!cutOff) return text;
-  const m = text.match(/^(.*?%)\s+and\b/i) ?? text.match(/^(.*?\boccupancy\b.*?\d\s*%)/i);
+export function shownDescription(text: string, cut: "top" | "bottom" | boolean | null): string {
+  if (!cut) return text;
+  if (cut === "top") return text ? `… ${text}` : text;
+  const m = text.match(/^(.*%)\s+and\b/i) ?? text.match(/^(.*?\boccupancy\b.*?\d\s*%)/i);
   return m ? `${m[1]} …` : text;
 }
 
@@ -284,7 +295,7 @@ function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: str
     key: rule.key,
     pie: {
       name,
-      description: shownDescription(rule.description, rule.cutOff),
+      description: rule.joined ? rule.description : shownDescription(rule.description, rule.cutEdge ?? rule.cutOff),
       active: rule.active,
       mode: rule.mode,
       typeText: rule.typeText,
@@ -303,16 +314,36 @@ function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: str
   const isRateRule = rule.parsed.ok || rule.parsed.reason !== "not_rate";
   if (rule.type === "restriction") return { ...base, reason: PIE_COPY.restriction };
   if (rule.type === "compset") return { ...base, reason: PIE_COPY.compset };
+  // A row the edge cut: its TYPE may be half a word.
+  if (!rule.parsed.ok && rule.cutOff) return { ...base, status: "needs_edit", reason: PIE_COPY.cutOff };
   if (rule.type === "other" && !isRateRule) return { ...base, reason: PIE_COPY.otherType };
   if (!rule.parsed.ok) {
-    if (rule.cutOff) return { ...base, status: "needs_edit", reason: PIE_COPY.cutOff };
-    return { ...base, reason: rule.parsed.reason === "not_rate" ? PIE_COPY.otherType : PIE_COPY.unreadable };
+    // An Occupancy row (or one whose TYPE wasn't read) that doesn't read as PIE's template was misread.
+    return { ...base, reason: PIE_COPY.unreadable };
   }
+  // Both halves of a row cut in two, read whole: added once checked.
+  const cutOff = rule.cutOff && !(rule.joined && rule.parsed.complete);
 
   const pie = rule.parsed.rule;
   const occ = occupancyOf(pie);
   if (!occ) return { ...base, reason: PIE_COPY.equalTo };
   const notes: string[] = [];
+  let check = false;
+  if (rule.joined && !cutOff) {
+    notes.push(PIE_COPY.joined);
+    check = true;
+  }
+  // PIE prints every number with two decimals, never raises over 100% and can't lower by 100%:
+  // anything else, or two reads that differ, was likely misread.
+  const p = pie.printed;
+  if (rule.numbersUnsure || !printedLikePie(p.amount) || !printedLikePie(p.threshold) || (pie.kind === "percent" && pie.amount >= 100)) {
+    notes.push(PIE_COPY.checkNumbers);
+    check = true;
+  }
+  if (pie.kind === "fixed" && !p.currencySign) {
+    notes.push(PIE_COPY.fixedAmount);
+    check = true;
+  }
   if (rule.mode === "manual") notes.push(PIE_COPY.manual);
   if (rule.active === null) notes.push(PIE_COPY.switchUnknown);
   if (occ.note) notes.push(occ.note);
@@ -376,10 +407,10 @@ function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: str
   }
   if (win.undoBeyond !== null) notes.push(PIE_COPY.split(win.undoBeyond, pie.kind === "percent"));
 
-  if (rule.cutOff) return { ...base, notes, drafts, status: "needs_edit", reason: PIE_COPY.cutOff };
+  if (cutOff) return { ...base, notes, drafts, status: "needs_edit", reason: PIE_COPY.cutOff };
   if (!rule.parsed.complete) return { ...base, notes, drafts, status: "needs_edit", reason: PIE_COPY.cutOff };
   if (reason) return { ...base, notes, drafts, status: "needs_edit", reason };
-  return { ...base, notes, drafts, status: "ready", ticked: datesOk };
+  return { ...base, notes, drafts, status: "ready", ticked: datesOk && !check };
 }
 
 /* ── Mixed percents and amounts ───────────────────────────────── */
@@ -461,10 +492,24 @@ export function planImport(
   return { items, limits: planLimits(merged, roomTypes) };
 }
 
+const middle = (values: number[]) => {
+  const v = [...values].sort((a, b) => a - b);
+  return v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+};
+
+/** More than ten times, or under a tenth of, another figure. */
+const outOfLine = (value: number, against: number) => against > 0 && (value > against * 10 || value < against / 10);
+
+/** MAYA's own limits for a room type nobody has set limits for. */
+const UNSET_FLOOR = 1;
+const UNSET_CEILING = 99_999.99;
+
 /**
  * PIE's limits as each room type's floor and ceiling: its own row in the
  * PRICE LIMITS BY ACCOMMODATION TYPE table (matched by name, case and spaces
  * aside), or else PIE's Minimum and Maximum Price. Only changes are listed.
+ * A pair that may be misread (an unsure read, or out of line with the
+ * table's other rows or the room type's own limits now) is to check first.
  */
 export function planLimits(merged: Pick<MergedRead, "limits" | "master">, roomTypes: readonly MayaRoomType[]): LimitsPlan {
   const own = new Map(merged.limits.map((l) => [nameKey(l.name), l]));
@@ -482,7 +527,19 @@ export function planLimits(merged: Pick<MergedRead, "limits" | "master">, roomTy
     if (floor === current.floor && ceiling === current.ceiling) continue;
     const problem =
       !(floor > 0) ? "A floor has to be above 0." : ceiling < floor ? "Its minimum is above its maximum." : null;
-    changes.push({ roomTypeId: rt.id, name: rt.name, floor, ceiling, current, from: row ? "own" : "master", problem });
+    // Out of line with the other rows of PIE's table (three or more), or with the limits it has now (when set).
+    const others = row ? merged.limits.filter((l) => l !== row) : [];
+    const mins = others.flatMap((l) => (l.min !== null ? [l.min] : []));
+    const maxes = others.flatMap((l) => (l.max !== null ? [l.max] : []));
+    const odd =
+      (row && row.min !== null && mins.length >= 3 && outOfLine(row.min, middle(mins))) ||
+      (row && row.max !== null && maxes.length >= 3 && outOfLine(row.max, middle(maxes))) ||
+      (current.floor !== null && current.floor > UNSET_FLOOR && outOfLine(floor, current.floor)) ||
+      (current.ceiling !== null && current.ceiling < UNSET_CEILING && outOfLine(ceiling, current.ceiling));
+    // Half a pair read (its other half kept as it is) is checked too.
+    const partial = source.min === null || source.max === null;
+    const check = problem === null && (source.unsure || odd || partial) ? PIE_COPY.limitCheck : null;
+    changes.push({ roomTypeId: rt.id, name: rt.name, floor, ceiling, current, from: row ? "own" : "master", problem, check });
   }
   return { changes, unmatched };
 }

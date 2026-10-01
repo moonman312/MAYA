@@ -9,9 +9,11 @@
  *
  *   node scripts/pie-synthetic-screenshot.mjs
  *
- * writes src/lib/pie-import/__fixtures__/synthetic-pie.png. The PNG is
+ * writes src/lib/pie-import/__fixtures__/synthetic-pie.png, as a retina
+ * capture is (2000 px wide), and synthetic-pie-1x.png, the same page drawn
+ * at half the size, as a capture at 1x is (Windows at 100%). The PNGs are
  * committed, so the test reads the same pixels on every machine (fonts
- * differ from one to the next); run this again only to change it.
+ * differ from one to the next); run this again only to change them.
  */
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -20,6 +22,7 @@ import sharp from "sharp";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "src", "lib", "pie-import", "__fixtures__", "synthetic-pie.png");
+const out1x = path.join(root, "src", "lib", "pie-import", "__fixtures__", "synthetic-pie-1x.png");
 
 const W = 2000;
 const FONT = "Helvetica, Arial, sans-serif";
@@ -128,3 +131,8 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${heig
 mkdirSync(path.dirname(out), { recursive: true });
 await sharp(Buffer.from(svg)).png({ compressionLevel: 9 }).toFile(out);
 console.log(`wrote ${path.relative(root, out)} (${W}x${height})`);
+
+// The same drawing at half the size: the text drawn small, not a big capture shrunk.
+const small = `<svg xmlns="http://www.w3.org/2000/svg" width="${W / 2}" height="${height / 2}" viewBox="0 0 ${W} ${height}">${parts.join("")}</svg>`;
+await sharp(Buffer.from(small)).png({ compressionLevel: 9 }).toFile(out1x);
+console.log(`wrote ${path.relative(root, out1x)} (${W / 2}x${height / 2})`);
