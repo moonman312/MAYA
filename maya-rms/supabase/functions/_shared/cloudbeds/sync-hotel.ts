@@ -34,7 +34,7 @@ import {
   CLOUDBEDS_SYNC_BUDGET_MS,
   CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
   CLOUDBEDS_FULL_SYNC_INTERVAL_MS,
-  defaultCloudbedsBaseUrl,
+  cloudbedsBaseUrlFor,
   CLOUDBEDS_ACTIVE_STATUSES,
   CLOUDBEDS_CANCELED_STATUSES,
   CLOUDBEDS_RATE_DETAILS_PAGE_SIZE,
@@ -1239,7 +1239,7 @@ export async function resolveCloudbedsCredentials(
   return {
     accessToken: resolved.accessToken,
     tokenType: resolved.tokenType,
-    baseUrl: (connRow?.base_url || defaultCloudbedsBaseUrl()).replace(/\/$/, ""),
+    baseUrl: cloudbedsBaseUrlFor(connRow?.base_url as string | null | undefined, hotelId),
     propertyId: resolved.propertyId,
     refresh: tokenRefreshFor(supabase, hotelId),
   };
@@ -1258,14 +1258,15 @@ export async function runCloudbedsSyncForHotel(
     const resolved = await resolveOAuthCredentials(supabase, hotelId, "cloudbeds");
     if ("error" in resolved) return { ok: false, error: resolved.error };
 
-    // 2. Base URL (pms_connections.base_url wins over env default).
+    // 2. Base URL: pms_connections.base_url wins over the env default when
+    //    it is one of Cloudbeds' own hosts (pms/base-url.ts).
     const { data: connRow } = await supabase
       .from("pms_connections")
       .select("id, base_url")
       .eq("hotel_id", hotelId)
       .eq("pms_type", "cloudbeds")
       .maybeSingle();
-    const baseUrl = (connRow?.base_url || defaultCloudbedsBaseUrl()).replace(/\/$/, "");
+    const baseUrl = cloudbedsBaseUrlFor(connRow?.base_url as string | null | undefined, hotelId);
 
     // One new token for the whole run, asked for by the first read Cloudbeds refuses.
     const refresh = tokenRefreshFor(supabase, hotelId);

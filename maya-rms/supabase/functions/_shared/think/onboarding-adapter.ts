@@ -29,7 +29,7 @@ import {
   type ThinkHotel,
 } from "./client.ts";
 import { countThinkRoomsByType, parseThinkReservations, parseThinkRoomTypes } from "./etl.ts";
-import { THINK_API_BASE_URL, THINK_PAGE_SIZE } from "./constants.ts";
+import { THINK_PAGE_SIZE, thinkBaseUrlFor } from "./constants.ts";
 import type { ThinkCredentials } from "./types.ts";
 
 function asPage(cursor: AdapterCursor | null): number {
@@ -41,17 +41,15 @@ export async function createThinkOnboardingAdapter(
   hotelId: string,
   preResolved?: PreResolvedOAuthCredentials,
 ): Promise<OnboardingPmsAdapter> {
-  // pms_connections.base_url wins over the env default (same as sync-hotel).
+  // pms_connections.base_url wins over the env default when it is
+  // ThinkReservations' own host (same as sync-hotel; pms/base-url.ts).
   const { data: connRow } = await supabase
     .from("pms_connections")
     .select("base_url")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "think")
     .maybeSingle();
-  const baseUrl = ((connRow?.base_url as string | null) || THINK_API_BASE_URL).replace(
-    /\/$/,
-    "",
-  );
+  const baseUrl = thinkBaseUrlFor(connRow?.base_url as string | null | undefined, hotelId);
 
   let knownPropertyId = preResolved?.propertyId ?? null;
   // The /v1/hotels answer, kept for the run: it names the property AND its

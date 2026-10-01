@@ -8,12 +8,31 @@
  */
 
 import { mwsEnv } from "../mews/env.ts";
+import { pmsBaseUrlFor } from "../pms/base-url.ts";
 
 export const THINK_API_BASE_URL = (() => {
   const fromEnv = mwsEnv("THINK_API_BASE_URL");
   if (fromEnv && fromEnv.startsWith("http")) return fromEnv.replace(/\/$/, "");
   return "https://api.thinkreservations.com";
 })();
+
+/** ThinkReservations' own host. */
+export const THINK_ORIGINS: readonly string[] = ["https://api.thinkreservations.com"];
+
+/**
+ * The address a connection's calls go to: its stored base_url when that is
+ * ThinkReservations' host (or the one this deployment configured), the
+ * default otherwise. See pms/base-url.ts.
+ */
+export function thinkBaseUrlFor(stored: string | null | undefined, hotelId?: string): string {
+  return pmsBaseUrlFor(stored, {
+    pms: "think",
+    hotelId,
+    fallback: THINK_API_BASE_URL,
+    vendorOrigins: THINK_ORIGINS,
+    configured: mwsEnv("THINK_API_BASE_URL"),
+  });
+}
 
 /**
  * Wall-clock budget for one sync invocation. Same shape as the Cloudbeds and

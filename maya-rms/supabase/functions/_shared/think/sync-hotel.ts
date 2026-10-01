@@ -21,7 +21,7 @@ import {
   ThinkHttpError,
 } from "./client.ts";
 import {
-  THINK_API_BASE_URL,
+  thinkBaseUrlFor,
   THINK_FULL_SYNC_INTERVAL_MS,
   THINK_INCREMENTAL_OVERLAP_MS,
   THINK_PAGE_SIZE,
@@ -303,7 +303,8 @@ export async function runThinkSyncForHotel(
 
     const creds: ThinkCredentials = {
       accessToken: resolved.accessToken,
-      baseUrl: (connRow?.base_url || THINK_API_BASE_URL).replace(/\/$/, ""),
+      // The stored override only when it is ThinkReservations' own host (pms/base-url.ts).
+      baseUrl: thinkBaseUrlFor(connRow?.base_url as string | null | undefined, hotelId),
     };
 
     // 3. The hotel id for API paths — Think spells it externalId, and it is

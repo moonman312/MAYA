@@ -54,7 +54,7 @@ import {
 } from "./etl.ts";
 import {
   CLOUDBEDS_ACTIVE_STATUSES,
-  defaultCloudbedsBaseUrl,
+  cloudbedsBaseUrlFor,
 } from "./constants.ts";
 import { installCloudbedsRequestLogging } from "./request-log.ts";
 import { cloudbedsRateDetailsRefused } from "./rate-details-refusal.ts";
@@ -213,16 +213,15 @@ export async function createCloudbedsOnboardingAdapter(
   // Mirror every Cloudbeds API call into pms_request_log (fire-and-forget).
   installCloudbedsRequestLogging(supabase, hotelId);
 
-  // pms_connections.base_url wins over the env default (same as sync-hotel).
+  // pms_connections.base_url wins over the env default when it is one of
+  // Cloudbeds' own hosts (same as sync-hotel; pms/base-url.ts).
   const { data: connRow } = await supabase
     .from("pms_connections")
     .select("base_url")
     .eq("hotel_id", hotelId)
     .eq("pms_type", "cloudbeds")
     .maybeSingle();
-  const baseUrl = (
-    (connRow?.base_url as string | null) || defaultCloudbedsBaseUrl()
-  ).replace(/\/$/, "");
+  const baseUrl = cloudbedsBaseUrlFor(connRow?.base_url as string | null | undefined, hotelId);
 
   async function creds(): Promise<CloudbedsResolvedCredentials> {
     if (preResolved) {

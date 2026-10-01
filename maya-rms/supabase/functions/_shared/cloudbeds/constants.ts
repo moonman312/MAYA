@@ -24,6 +24,7 @@
  */
 
 import { mwsEnv } from "../mews/env.ts";
+import { pmsBaseUrlFor } from "../pms/base-url.ts";
 
 const DEFAULT_BASE_URL = "https://hotels.cloudbeds.com/api/v1.2";
 
@@ -31,6 +32,24 @@ export function defaultCloudbedsBaseUrl(): string {
   const fromEnv = mwsEnv("CLOUDBEDS_API_BASE_URL") ?? mwsEnv("CLOUDBEDS_BASE_URL");
   if (fromEnv && fromEnv.startsWith("http")) return fromEnv.replace(/\/$/, "");
   return DEFAULT_BASE_URL;
+}
+
+/** Cloudbeds' own hosts: the classic API on both, as scripts/cb-host-compare.mts found. */
+export const CLOUDBEDS_ORIGINS: readonly string[] = ["https://hotels.cloudbeds.com", "https://api.cloudbeds.com"];
+
+/**
+ * The address a connection's calls go to: its stored base_url when that is
+ * one of Cloudbeds' hosts (or the one this deployment configured), the
+ * default otherwise. See pms/base-url.ts.
+ */
+export function cloudbedsBaseUrlFor(stored: string | null | undefined, hotelId?: string): string {
+  return pmsBaseUrlFor(stored, {
+    pms: "cloudbeds",
+    hotelId,
+    fallback: defaultCloudbedsBaseUrl(),
+    vendorOrigins: CLOUDBEDS_ORIGINS,
+    configured: mwsEnv("CLOUDBEDS_API_BASE_URL") ?? mwsEnv("CLOUDBEDS_BASE_URL"),
+  });
 }
 
 /**
