@@ -233,8 +233,20 @@ export async function handleMarketplaceConnect(
       propertyName = details.name ?? propertyName;
       timezone = details.timezone ?? property.timezone ?? "UTC";
       currency = details.currency ?? property.currency ?? "USD";
-    } catch {
-      // Naming is a nicety; an unnamed property is still connectable.
+    } catch (e) {
+      // Naming is a nicety; an unnamed property is still connectable. The
+      // time zone and currency fall back to what getHotels listed, so the
+      // read that failed is said, in case both were missing (audit A19).
+      console.error(
+        JSON.stringify({
+          fn: "handleMarketplaceConnect",
+          step: "hotel_details",
+          propertyId: property.propertyId,
+          error: (e instanceof Error ? e.message : String(e)).slice(0, 300),
+          timezoneFromList: property.timezone ?? null,
+          currencyFromList: property.currency ?? null,
+        }),
+      );
     }
 
     const storeSecret = async (hotelId: string) =>

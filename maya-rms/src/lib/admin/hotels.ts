@@ -49,6 +49,11 @@ export async function createHotel(
   admin: SupabaseClient,
   input: CreateHotelInput,
 ): Promise<CreateHotelResult> {
+  // A name the runtime does not know is read as UTC everywhere MAYA dates a
+  // night, with no message, so it is refused here instead (audit A19).
+  if (!isKnownTimeZone(input.timezone)) {
+    throw new Error(`"${String(input.timezone ?? "")}" is not a time zone name. Use one like America/Chicago.`);
+  }
   const { data: hotel, error: hotelErr } = await admin
     .from("hotels")
     .insert({
@@ -167,4 +172,15 @@ export async function setHotelSimulationMode(
       ...(godModeSessionId ? { god_mode_session_id: godModeSessionId } : {}),
     },
   });
+}
+
+/** Whether the runtime knows this IANA time zone name. */
+export function isKnownTimeZone(zone: unknown): boolean {
+  if (typeof zone !== "string" || zone.trim() === "") return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: zone.trim() });
+    return true;
+  } catch {
+    return false;
+  }
 }
