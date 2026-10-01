@@ -353,7 +353,7 @@
 {"q":"What is a \"pricing run\"?","page":"watch/the-change-log","bankSection":10},
 {"q":"Why are there so many \"Prices checked\" entries?","page":"wrong/calendar-and-log-questions","bankSection":10},
 {"q":"How do I see only the changes?","page":"watch/the-change-log","anchor":"the-two-views","bankSection":10},
-{"q":"How far back does the log go?","page":"watch/the-change-log","anchor":"how-much-the-log-shows","bankSection":10},
+{"q":"How far back does the log go?","page":"watch/the-change-log","anchor":"how-far-back-the-log-goes","bankSection":10},
 {"q":"Why are only some of a run's changes listed?","page":"watch/the-change-log","alt":["wrong/calendar-and-log-questions"],"bankSection":10},
 {"q":"What do the sentences mean?","page":"watch/the-change-log","anchor":"the-sentences-by-kind-of-rule","bankSection":10},
 {"q":"\"It was 82% full, past the 70% mark you set\"","page":"watch/the-change-log","anchor":"occupancy-and-booking-window","bankSection":10},
