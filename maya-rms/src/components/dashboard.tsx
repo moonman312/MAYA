@@ -421,6 +421,8 @@ export function Dashboard({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [pmsActivity, setPmsActivity] = useState<PmsActivity | null>(null);
+  // Simulating or live, as the strip at the top read it: the day card words a typed price for it.
+  const [propertyMode, setPropertyMode] = useState<"simulation" | "live" | null>(null);
   // Settings, opened from the gear in the header (or a link to it).
   const [settingsOpen, setSettingsOpen] = useState(false);
   // A section of Settings a link or a change log button asked for.
@@ -1222,6 +1224,7 @@ export function Dashboard({
       {activeHotelId ? (
         <SimulationStrip
           hotelId={activeHotelId}
+          onMode={setPropertyMode}
           onWentLive={() => {
             if (tab === "changelog") void reloadChangelog();
           }}
@@ -1540,10 +1543,12 @@ export function Dashboard({
                               {rt.rate_removed_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
                                 <RemovedRateLine
                                   pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
+                                  simulating={propertyMode === "simulation"}
                                 />
                               ) : rt.no_rate_in_pms && (rt.current_rate ?? rt.current_price) == null ? (
                                 <NoRateLine
                                   pmsName={pmsActivity?.connection ? formatPmsName(pmsActivity.connection.pms_type) : "your PMS"}
+                                  simulating={propertyMode === "simulation"}
                                 />
                               ) : null}
                               <p className="text-sm text-slate-300">

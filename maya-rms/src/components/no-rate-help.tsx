@@ -11,13 +11,23 @@
  *                    and the property keeps changes made there
  *                    (pms-edits.ts): MAYA stops pricing the night until the
  *                    system has a rate again.
+ *
+ * Both end on what a typed price does. While the property is simulating a
+ * typed price is sent nowhere until it goes live, and the line says so.
  */
+
+/** What a price typed on this night does, in the property's mode. */
+export function typedPriceLine(simulating: boolean): string {
+  return simulating
+    ? "Or type a price here. Once you go live, a price you type is sent as it is."
+    : "Or type a price here. A price you type is sent as it is.";
+}
 
 import { HOVER_BRIDGE, LearnMore } from "@/components/deep-links/help-links";
 import type { HelpPanel } from "@/lib/deep-links";
 import { useEffect, useId, useRef, useState } from "react";
 
-export function NoRateLine({ pmsName }: { pmsName: string }) {
+export function NoRateLine({ pmsName, simulating = false }: { pmsName: string; simulating?: boolean }) {
   return (
     <p className="flex items-center gap-1.5 text-xs text-amber-300" data-testid="no-rate-line">
       <span>No rate in {pmsName} for this night yet</span>
@@ -28,14 +38,14 @@ export function NoRateLine({ pmsName }: { pmsName: string }) {
         lines={[
           `${pmsName} has no rate for this night, so your rules have nothing to start from. Nothing is priced or sent for it.`,
           `Load a rate for it in ${pmsName} and it is priced within the hour, on that rate.`,
-          "Or type a price here. A price you type is sent as it is.",
+          typedPriceLine(simulating),
         ]}
       />
     </p>
   );
 }
 
-export function RemovedRateLine({ pmsName }: { pmsName: string }) {
+export function RemovedRateLine({ pmsName, simulating = false }: { pmsName: string; simulating?: boolean }) {
   return (
     <p className="flex items-center gap-1.5 text-xs text-amber-300" data-testid="removed-rate-line">
       <span>Rate removed in {pmsName}, so MAYA isn&apos;t pricing this night</span>
@@ -46,7 +56,7 @@ export function RemovedRateLine({ pmsName }: { pmsName: string }) {
         lines={[
           `${pmsName} no longer has a rate for this night, after MAYA sent its price. You keep changes made in ${pmsName}, so nothing is priced or sent for it.`,
           `Load a rate in ${pmsName} and MAYA reads it within the hour. If it isn't MAYA's last price, it is kept as your price.`,
-          "Or type a price here. A price you type is sent as it is.",
+          typedPriceLine(simulating),
         ]}
       />
     </p>

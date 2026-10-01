@@ -135,3 +135,37 @@ describe("the day card for a night whose rate was removed in the property system
     expect(screen.getByText(/If it isn't MAYA's last price, it is kept as your price/)).toBeTruthy();
   });
 });
+
+describe("the day card while the property is simulating", () => {
+  it("shows the simulation strip above the header, and says a typed price goes out only once live", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        const cal = /^\/api\/calendar\/(\d+)\/(\d+)$/.exec(url);
+        if (cal) return json(month(Number(cal[1]), Number(cal[2])));
+        if (url === "/api/rules" || url === "/api/rules/stops" || url === "/api/room-types") return json([]);
+        if (url === "/api/rules/fire-counts") return json({});
+        if (url === "/api/hotels") return json({ hotels: [{ id: "h1", name: "Juniper" }], activeHotelId: "h1" });
+        if (url === "/api/property/mode") {
+          return json({ hotelId: "h1", mode: "simulation", pmsType: "cloudbeds", sendsPrices: true, connected: true, canGoLive: false, windowDays: 396 });
+        }
+        if (url === "/api/events") return new Response(null, { status: 204 });
+        return json({}, 404);
+      }),
+    );
+    window.history.replaceState(null, "", "/?tab=calendar");
+    render(<Dashboard initialSearch={window.location.search} />);
+
+    const strip = await screen.findByTestId("mode-simulation");
+    expect(strip.textContent).toContain("Simulation · MAYA works out prices but sends nothing to Cloudbeds");
+    // In the page's flow, before the header: it never covers it.
+    expect(strip.compareDocumentPosition(screen.getByRole("banner")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole("button", { name: /^10\b/ }));
+    await screen.findAllByTestId("no-rate-line");
+    fireEvent.click(screen.getByRole("button", { name: "Why this night has no price" }));
+    expect(screen.getByText("Or type a price here. Once you go live, a price you type is sent as it is.")).toBeTruthy();
+    expect(screen.queryByText("Or type a price here. A price you type is sent as it is.")).toBeNull();
+  });
+});

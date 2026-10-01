@@ -25,12 +25,15 @@ const DASHBOARD_WIDTH = "max-w-6xl px-[12px] sm:px-6 md:px-10";
 export function SimulationStrip({
   hotelId,
   onWentLive,
+  onMode,
   width = DASHBOARD_WIDTH,
 }: {
   /** The property on screen, when the page knows it: the strip reads again when it changes. */
   hotelId?: string | null;
   /** Called once the switch to live has gone through. */
   onWentLive?: () => void;
+  /** Told the mode whenever the strip learns it (null when it can't), so the page can word things for it. */
+  onMode?: (mode: PropertyMode["mode"] | null) => void;
   /** The page's own max width and side padding, so the words line up with it. */
   width?: string;
 }) {
@@ -39,6 +42,11 @@ export function SimulationStrip({
   const [confirming, setConfirming] = useState(false);
   const [going, setGoing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const shown = mode?.mode ?? null;
+  useEffect(() => {
+    onMode?.(shown);
+  }, [onMode, shown]);
 
   useEffect(() => {
     let alive = true;
