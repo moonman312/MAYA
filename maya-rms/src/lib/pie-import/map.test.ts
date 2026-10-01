@@ -210,6 +210,8 @@ describe("PIE rules as MAYA rules", () => {
       rowOf("Smudge", "Raise rate by 10.00 % when pickup is greater than 4"),
     ]);
     expect(items[0]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff, ticked: false, on: false });
+    // Shown as far as it reads, without the noise at the edge.
+    expect(items[0].pie.description).toBe("Lower rate by 10.00 % when occupancy is lower than 30.00 % and…");
     // What was read, ready to finish: no window yet.
     expect(items[0].drafts[0].condition).toEqual({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
     expect(items[1]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff, drafts: [] });

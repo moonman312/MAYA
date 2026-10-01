@@ -217,3 +217,20 @@ describe("the words on the review", () => {
     expect(document.body.textContent).not.toContain("—");
   });
 });
+
+describe("Import from PIE", () => {
+  it("links a Cloudbeds property to the import on the Rules tab, and no other", async () => {
+    statusReply = { connected: true, hotelId: "h1", simulationMode: true, pmsType: "cloudbeds" };
+    render(<ReviewFindings />);
+    const link = (await screen.findByRole("link", { name: "Import from PIE" })) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/go/rules.import-pie");
+    cleanup();
+    statusReply = { connected: true, hotelId: "h1", simulationMode: true, pmsType: "thinkreservations" };
+    render(<ReviewFindings />);
+    await screen.findByRole("button", { name: /Finish/ });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(screen.queryByRole("link", { name: "Import from PIE" })).toBeNull();
+  });
+});

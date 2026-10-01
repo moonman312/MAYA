@@ -268,13 +268,23 @@ function draftOf(
   };
 }
 
+/**
+ * A cut-off description as far as it reads: what the edge left of the last
+ * line is OCR noise, so it stops at the "and" that starts the booking window.
+ */
+export function shownDescription(text: string, cutOff: boolean): string {
+  if (!cutOff) return text;
+  const m = text.match(/^(.*?%)\s+and\b/i);
+  return m ? `${m[1]} and…` : text;
+}
+
 function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: string, index: number): Built {
   const name = rule.name.trim() || `PIE rule ${index + 1}`;
   const base: Built = {
     key: rule.key,
     pie: {
       name,
-      description: rule.description,
+      description: shownDescription(rule.description, rule.cutOff),
       active: rule.active,
       mode: rule.mode,
       typeText: rule.typeText,
