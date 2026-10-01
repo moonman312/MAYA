@@ -25,7 +25,9 @@ const PREVIEW_NIGHTS = 3;
  *
  * A rule on a bad run can reach three fires on every night of the horizon, so
  * a card names the first few and keeps the rest behind a disclosure, and the
- * answers that cover the whole range come first. Without that the banner ran
+ * answers that cover the whole range come first. The disclosure lists the
+ * nearest ALERT_NIGHTS_SHOWN nights; the count and the answers for all of
+ * them cover every night waiting. Without that the banner ran
  * to thousands of pixels and pushed the calendar, the rules and the change log
  * off the screen.
  */
@@ -89,8 +91,11 @@ export function RuleAlertBanner({
       className="mb-6 space-y-4 rounded-lg border border-amber-500/50 bg-amber-500/10 p-5"
     >
       {view.alerts.map((alert) => {
+        // Every night waiting, listed or not: what the answers for all of them cover.
+        const total = alert.night_count;
         const shown = alert.nights.slice(0, PREVIEW_NIGHTS);
-        const more = alert.nights.length - shown.length;
+        const more = total - shown.length;
+        const unlisted = total - alert.nights.length;
         const nightCard = (night: RuleAlert["nights"][number]) => (
           <li key={`${alert.id}|${night.stay_date}`} className="rounded border border-amber-500/30 bg-slate-950/40 p-3">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -153,7 +158,7 @@ export function RuleAlertBanner({
 
             {view.can_manage ? (
               <div className="flex flex-wrap items-center gap-2">
-                {alert.nights.length > 1 ? (
+                {total > 1 ? (
                   <>
                     <button
                       type="button"
@@ -161,7 +166,7 @@ export function RuleAlertBanner({
                       onClick={() => void answer(alert, "keep_adjusting", null)}
                       className="cursor-pointer rounded border border-slate-600 px-3 py-1 text-xs font-medium text-slate-200 hover:border-slate-400 disabled:cursor-default disabled:opacity-60"
                     >
-                      Keep adjusting on all {alert.nights.length} nights
+                      Keep adjusting on all {total} nights
                     </button>
                     <button
                       type="button"
@@ -169,7 +174,7 @@ export function RuleAlertBanner({
                       onClick={() => void answer(alert, "stop", null)}
                       className="cursor-pointer rounded border border-amber-500/60 px-3 py-1 text-xs font-medium text-amber-200 hover:border-amber-400 disabled:cursor-default disabled:opacity-60"
                     >
-                      Stop on all {alert.nights.length} nights
+                      Stop on all {total} nights
                     </button>
                   </>
                 ) : null}
@@ -179,7 +184,7 @@ export function RuleAlertBanner({
               <p className="text-xs text-amber-200/80">Only a Revenue Manager or above can answer this.</p>
             )}
 
-            {alert.nights.length === 1 ? (
+            {total === 1 ? (
               <ul className="space-y-3">{alert.nights.map(nightCard)}</ul>
             ) : (
               <details className="group" open={openAlertId === alert.id ? true : undefined}>
@@ -190,6 +195,11 @@ export function RuleAlertBanner({
                   <span className="ml-1.5 hidden text-slate-400 group-open:inline">Hide the nights</span>
                 </summary>
                 <ul className="mt-3 space-y-3">{alert.nights.map(nightCard)}</ul>
+                {unlisted > 0 ? (
+                  <p className="mt-3 text-xs text-amber-200/80">
+                    And {unlisted} more night{unlisted === 1 ? "" : "s"} after these.
+                  </p>
+                ) : null}
               </details>
             )}
           </div>

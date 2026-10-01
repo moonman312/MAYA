@@ -41,6 +41,7 @@ function fakeSupabase(seed: Record<string, Row[]>) {
     const filters: Filter[] = [];
     const orders: { col: string; ascending: boolean }[] = [];
     let cap = Infinity;
+    let skip = 0;
     const rows = () => {
       const out = (tables.get(table) ?? []).filter((r) => matches(r, filters));
       out.sort((a, b) => {
@@ -50,7 +51,8 @@ function fakeSupabase(seed: Record<string, Row[]>) {
         }
         return 0;
       });
-      return out.slice(0, cap);
+      // PostgREST's own cap: 1,000 rows a request.
+      return out.slice(skip, skip + Math.min(cap, 1000));
     };
     const api = {
       select: () => api,
@@ -60,6 +62,7 @@ function fakeSupabase(seed: Record<string, Row[]>) {
       lt: (c: string, v: string) => (filters.push(["lt", c, v]), api),
       order: (c: string, o?: { ascending?: boolean }) => (orders.push({ col: c, ascending: o?.ascending !== false }), api),
       limit: (n: number) => ((cap = n), api),
+      range: (a: number, z: number) => ((skip = a), (cap = z - a + 1), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
       then: (resolve: (v: { data: Row[]; error: null }) => unknown) =>
         Promise.resolve({ data: rows(), error: null }).then(resolve),
@@ -118,7 +121,6 @@ vi.mock("@/utils/supabase/admin", () => ({
 }));
 
 const { GET, POST } = await import("./route");
-const { MAX_STOPPED_NIGHTS } = await import("@/lib/rule-stops");
 const { hotelToday } = await import("@/lib/simulator");
 const { addDays } = await import("@/lib/observations/calendar");
 
@@ -213,15 +215,14 @@ describe("GET /api/rules/stops", () => {
     expect(await (await GET()).json()).toEqual([]);
   });
 
-  it("keeps the nights nearest today when the hotel has more stopped nights than it reads", async () => {
-    // Eight rules stopped on their next sixty nights: 480 rows, over the
-    // hotel-wide cap. Read newest first, the cap kept the far end of the
-    // season and dropped the nights about to happen, the ones the owner most
-    // needs to see.
+  it("counts every stopped night of every rule, a page at a time (audit A14)", async () => {
+    // Twenty rules stopped on their next sixty nights: 1,200 rows, more than
+    // one page. One read capped at 400 across the hotel counted each rule's
+    // first twenty and said "Stopped on 20 nights".
     const today = hotelToday("UTC");
     const nights: Row[] = [];
     const rules: Row[] = [];
-    for (let r = 1; r <= 8; r++) {
+    for (let r = 1; r <= 20; r++) {
       const ruleId = `00000000-0000-4000-8000-0000000001${String(r).padStart(2, "0")}`;
       rules.push({ id: ruleId, version: 1 });
       for (let d = 0; d < 60; d++) {
@@ -234,14 +235,13 @@ describe("GET /api/rules/stops", () => {
     state.fake = seed(nights, rules);
 
     const body = (await (await GET()).json()) as { rule_id: string; alert_ids: string[]; nights: string[]; resume_nights: string[] }[];
-    const all = body.flatMap((b) => b.nights).sort();
-    expect(all).toHaveLength(MAX_STOPPED_NIGHTS);
-    // Every rule's next fifty nights are there, tonight first.
+    expect(body).toHaveLength(20);
+    // Every rule's sixty nights are there, tonight first.
     for (const b of body) {
-      expect(b.nights.slice(0, 50)).toEqual(Array.from({ length: 50 }, (_, d) => addDays(today, d)));
+      expect(b.nights).toEqual(Array.from({ length: 60 }, (_, d) => addDays(today, d)));
     }
-    // The passed night is read on its own, so it takes none of the cap, and
-    // "Let it run again" still takes the answer off it.
+    // The passed night is read on its own, and "Let it run again" still
+    // takes the answer off it.
     const first = body.find((b) => b.rule_id === rules[0].id)!;
     expect(first.resume_nights[0]).toBe(addDays(today, -7));
     expect(first.resume_nights.slice(1)).toEqual(first.nights);

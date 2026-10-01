@@ -25,6 +25,7 @@ const view = (over: Partial<RuleAlertsView> = {}): RuleAlertsView => ({
       undo_on_cancellation: true,
       headline: '"Slow-date rescue" has 3 cuts on each of 2 nights.',
       consequence: "It keeps cutting these nights until you stop it.",
+      night_count: 2,
       nights: [
         {
           stay_date: "2026-11-14",
@@ -115,6 +116,7 @@ describe("RuleAlertBanner", () => {
   it("sends the night it is about, and shows what came back", async () => {
     const after = view();
     after.alerts[0].nights = [after.alerts[0].nights[1]];
+    after.alerts[0].night_count = 1;
     serve(view(), after);
     render(<RuleAlertBanner />);
     await waitFor(() => screen.getByText("Sat, Nov 14 2026"));
@@ -143,6 +145,7 @@ describe("RuleAlertBanner", () => {
   it("offers the all-nights answers only when there is more than one night", async () => {
     const one = view();
     one.alerts[0].nights = [one.alerts[0].nights[0]];
+    one.alerts[0].night_count = 1;
     serve(one);
     render(<RuleAlertBanner />);
     await waitFor(() => screen.getByText("Sat, Nov 14 2026"));
@@ -160,6 +163,7 @@ describe("RuleAlertBanner", () => {
       stay_date: `2026-11-${String(i + 1).padStart(2, "0")}`,
       label: `Night ${i + 1}`,
     }));
+    many.alerts[0].night_count = 30;
     serve(many);
     const { container } = render(<RuleAlertBanner />);
     await waitFor(() => screen.getByText("Keep adjusting on all 30 nights"));
@@ -172,6 +176,33 @@ describe("RuleAlertBanner", () => {
     expect(rangeButton.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // Every night is still answerable, inside the disclosure.
     expect(details.querySelectorAll("li")).toHaveLength(30);
+  });
+
+  it("counts every night waiting when it lists only the nearest, and answers all of them (audit A14)", async () => {
+    // 388 nights waiting; the route lists the nearest 30.
+    const big = view();
+    const first = big.alerts[0].nights[0];
+    big.alerts[0].nights = Array.from({ length: 30 }, (_, i) => ({
+      ...first,
+      stay_date: `2026-11-${String(i + 1).padStart(2, "0")}`,
+      label: `Night ${i + 1}`,
+    }));
+    big.alerts[0].night_count = 388;
+    big.alerts[0].headline = '"Slow-date rescue" has 3 cuts on each of 388 nights.';
+    serve(big, view({ alerts: [] }));
+    const { container } = render(<RuleAlertBanner />);
+    await waitFor(() => screen.getByText("Stop on all 388 nights"));
+    expect(screen.getByText("Keep adjusting on all 388 nights")).toBeTruthy();
+    expect(container.querySelector("summary")?.textContent).toContain("Night 1, Night 2, Night 3 and 385 more nights");
+    const details = container.querySelector("details")!;
+    expect(details.querySelectorAll("li")).toHaveLength(30);
+    expect(details.textContent).toContain("And 358 more nights after these.");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Stop on all 388 nights"));
+    });
+    const [, init] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    // No nights named: the database answers every night still waiting.
+    expect(JSON.parse(String(init.body))).toEqual({ choice: "stop" });
   });
 
   it("says so when the answer did not save, and keeps the alert on screen", async () => {

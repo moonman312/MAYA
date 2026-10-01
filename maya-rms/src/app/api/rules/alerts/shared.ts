@@ -22,10 +22,18 @@ import {
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-/** Alerts read at once. More than this on one property is a story in itself. */
-export const MAX_ALERTS = 20;
-/** Nights read per list. The engine files one row per night and rule version. */
+/**
+ * Alerts read at once: every open one. A rule has at most one open alert (its
+ * current version's), and a property has at most 40 active rules
+ * (enforce_rule_limit).
+ */
+export const MAX_ALERTS = 40;
+/** Nights one answer can name. An alert's nights all fall in the 396-night window. */
 export const MAX_ALERT_NIGHTS = 400;
+/** Rows per page of the nights read, PostgREST's own cap. */
+const PAGE = 1000;
+/** Pages read at most: 40 alerts over the whole window is 16. */
+const MAX_PAGES = 40;
 
 function roomTypesOf(value: unknown): AlertNightRoomType[] {
   if (!Array.isArray(value)) return [];
@@ -109,19 +117,31 @@ export async function loadRuleAlerts(
     return { alerts: [], currency_symbol: currencySymbol, can_manage: canManage, simulation };
   }
 
-  const { data: nightRows, error: nightsError } = await supabase
-    .from("rule_repeat_alert_nights")
-    .select(
-      "alert_id, rule_id, stay_date, fire_count, last_fire_at, window_days, window_bookings, window_expected, " +
-        "pickup_metric, pickup_threshold, pickup_window_days, pickup_net, room_types",
-    )
-    .in("alert_id", alerts.map((a) => a.id))
-    .is("choice", null)
-    .is("closed_at", null)
-    .order("stay_date", { ascending: true })
-    .limit(MAX_ALERT_NIGHTS);
-  if (nightsError) throw nightsError;
-  const nights: AlertNightRow[] = ((nightRows ?? []) as unknown as Record<string, unknown>[]).map((n) => ({
+  // Every night still waiting on every open alert, a page at a time: the
+  // headline and the answers that cover a whole alert count all of them, and
+  // the banner shows each alert's nearest (buildRuleAlerts). One read capped
+  // across the hotel used to cut a broad rule short and leave a later alert
+  // out altogether (audit A14).
+  const nightRows: Record<string, unknown>[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const { data, error: nightsError } = await supabase
+      .from("rule_repeat_alert_nights")
+      .select(
+        "alert_id, rule_id, stay_date, fire_count, last_fire_at, window_days, window_bookings, window_expected, " +
+          "pickup_metric, pickup_threshold, pickup_window_days, pickup_net, room_types",
+      )
+      .in("alert_id", alerts.map((a) => a.id))
+      .is("choice", null)
+      .is("closed_at", null)
+      .order("alert_id", { ascending: true })
+      .order("stay_date", { ascending: true })
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (nightsError) throw nightsError;
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
+    nightRows.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  const nights: AlertNightRow[] = nightRows.map((n) => ({
     alert_id: String(n.alert_id),
     rule_id: String(n.rule_id),
     stay_date: String(n.stay_date).slice(0, 10),

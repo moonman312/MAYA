@@ -84,12 +84,22 @@ export type RuleAlert = {
   direction: "increase" | "decrease";
   /** The rule's undo box: whether cancellations can still take its changes off. */
   undo_on_cancellation: boolean;
-  /** One line naming the rule, what it did and how often. */
+  /** One line naming the rule, what it did and how often, over every night waiting. */
   headline: string;
   /** One line on what happens if nobody answers. */
   consequence: string;
+  /** Every night waiting on an answer: what the answers that cover the whole alert apply to. */
+  night_count: number;
+  /** The nearest of them, up to ALERT_NIGHTS_SHOWN, oldest first. */
   nights: RuleAlertNight[];
 };
+
+/**
+ * Nights a card lists one by one, nearest first. A rule on a bad run can
+ * file every night of the window; the rest are counted, answered with the
+ * buttons that cover them all, and listed as the nearest ones are answered.
+ */
+export const ALERT_NIGHTS_SHOWN = 30;
 
 export type RuleAlertsView = {
   alerts: RuleAlert[];
@@ -437,9 +447,10 @@ export function limitActionLabel(direction: "increase" | "decrease"): string {
 }
 
 /**
- * Every open alert as the banner shows it: one card per rule, its nights
- * oldest first. Nights whose rule is unknown, or that the owner has already
- * answered, are left out by the caller's read.
+ * Every open alert as the banner shows it: one card per rule, its nearest
+ * ALERT_NIGHTS_SHOWN nights oldest first, with the headline and night_count
+ * over every night waiting. Nights whose rule is unknown, or that the owner
+ * has already answered, are left out by the caller's read.
  */
 export function buildRuleAlerts(input: {
   alerts: AlertRow[];
@@ -452,6 +463,8 @@ export function buildRuleAlerts(input: {
   wholeWindowDays?: Map<string, number>;
   /** The rules whose undo box is unticked; every other rule is ticked. */
   untickedRuleIds?: ReadonlySet<string>;
+  /** Nights listed per alert; ALERT_NIGHTS_SHOWN unless a test says otherwise. */
+  nightsShown?: number;
 }): RuleAlert[] {
   const byAlert = new Map<string, AlertNightRow[]>();
   for (const night of input.nights) {
@@ -471,7 +484,8 @@ export function buildRuleAlerts(input: {
     const ruleName = input.ruleNames.get(alert.rule_id);
     if (!ruleName) continue;
 
-    const nights: RuleAlertNight[] = rows.map((night) => {
+    const shown = rows.slice(0, input.nightsShown ?? ALERT_NIGHTS_SHOWN);
+    const nights: RuleAlertNight[] = shown.map((night) => {
       const limit = nightLimit(night, alert.action_direction, input.roomTypeNames);
       return {
         stay_date: night.stay_date,
@@ -498,13 +512,15 @@ export function buildRuleAlerts(input: {
       rule_name: ruleName,
       direction: alert.action_direction,
       undo_on_cancellation: !(input.untickedRuleIds?.has(alert.rule_id) ?? false),
+      // Over every night waiting, not only the ones listed.
       headline: alertHeadline({
         ruleName,
         direction: alert.action_direction,
-        nights,
+        nights: rows.map((night) => ({ label: humanDate(night.stay_date), fires: night.fire_count, uneven: nightIsUneven(night) })),
         simulation: input.simulation,
       }),
       consequence: alertConsequence(alert.action_direction, input.simulation),
+      night_count: rows.length,
       nights,
     });
   }

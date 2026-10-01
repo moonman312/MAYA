@@ -34,9 +34,23 @@ function fakeSupabase(seed: Record<string, Row[]>) {
       return v != null;
     });
 
+  // Orders, limits and pages the way PostgREST does, at its 1,000-row cap, so
+  // a read that leans on them is tested as it runs.
   function builder(table: string) {
     const filters: Filter[] = [];
-    const rows = () => (tables.get(table) ?? []).filter((r) => matches(r, filters));
+    const orders: { col: string; ascending: boolean }[] = [];
+    let window: [number, number] = [0, 999];
+    const rows = () => {
+      const out = (tables.get(table) ?? []).filter((r) => matches(r, filters));
+      out.sort((a, b) => {
+        for (const o of orders) {
+          const [x, y] = [String(a[o.col]), String(b[o.col])];
+          if (x !== y) return (x < y ? -1 : 1) * (o.ascending ? 1 : -1);
+        }
+        return 0;
+      });
+      return out.slice(window[0], Math.min(window[1], window[0] + 999) + 1);
+    };
     const api = {
       select: () => api,
       eq: (c: string, v: unknown) => (filters.push(["eq", c, v]), api),
@@ -45,8 +59,9 @@ function fakeSupabase(seed: Record<string, Row[]>) {
       not: (c: string) => (filters.push(["notNull", c]), api),
       gte: () => api,
       lte: () => api,
-      order: () => api,
-      limit: () => api,
+      order: (c: string, o?: { ascending?: boolean }) => (orders.push({ col: c, ascending: o?.ascending !== false }), api),
+      limit: (n: number) => ((window = [0, n - 1]), api),
+      range: (a: number, z: number) => ((window = [a, z]), api),
       maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
       then: (resolve: (v: { data: Row[]; error: null }) => unknown) =>
         Promise.resolve({ data: rows(), error: null }).then(resolve),
@@ -214,6 +229,92 @@ describe("GET /api/rules/alerts", () => {
       "2026-11-16",
     ]);
     expect(body.alerts[0].nights[0].limit_is_default).toBe(true);
+  });
+
+  it("counts every night of every open alert, past any cap across the hotel (audit A14)", async () => {
+    // Four cut rules: three filed on 388 nights each, one on 96 nights from
+    // 300 days out, 1,260 nights in all, so the read takes two pages. One read
+    // capped at 400 nights across the hotel cut the first ones short and left
+    // the last ones out.
+    const day = (i: number) => new Date(Date.UTC(2026, 9, 2) + i * 86_400_000).toISOString().slice(0, 10);
+    const rules = [0, 1, 2, 3].map((k) => `00000000-0000-4000-8000-00000000003${k + 2}`);
+    const alerts = [0, 1, 2, 3].map((k) => `00000000-0000-4000-8000-00000000004${k + 2}`);
+    const nightRow = (k: number, i: number): Row => ({
+      alert_id: alerts[k],
+      hotel_id: HOTEL,
+      rule_id: rules[k],
+      stay_date: day(i),
+      fire_count: 3,
+      last_fire_at: "2026-09-17T10:00:00Z",
+      window_days: null,
+      window_bookings: null,
+      window_expected: null,
+      pickup_metric: null,
+      pickup_threshold: null,
+      pickup_window_days: null,
+      pickup_net: null,
+      room_types: [{ room_type_id: STD, fires: 3, limit: 80, limit_is_default: false, price: 100 }],
+      choice: null,
+      closed_at: null,
+    });
+    state.fake = seed({
+      pricing_rules: rules.map((id, k) => ({ id, name: `Cut ${k + 1}` })),
+      rule_repeat_alerts: alerts.map((id, k) => ({
+        id,
+        hotel_id: HOTEL,
+        rule_id: rules[k],
+        rule_version: 1,
+        action_direction: "decrease",
+        opened_at: `2026-09-1${k}T10:00:00Z`,
+        resolved_at: null,
+      })),
+      rule_repeat_alert_nights: [
+        ...Array.from({ length: 388 }, (_, i) => nightRow(0, i)),
+        ...Array.from({ length: 388 }, (_, i) => nightRow(1, i)),
+        ...Array.from({ length: 388 }, (_, i) => nightRow(2, i)),
+        ...Array.from({ length: 96 }, (_, i) => nightRow(3, 300 + i)),
+      ],
+    });
+    const body = await (await GET()).json();
+    const cards = body.alerts as { rule_name: string; headline: string; night_count: number; nights: { stay_date: string }[] }[];
+    expect(cards.map((c) => [c.rule_name, c.night_count, c.nights.length])).toEqual([
+      ["Cut 1", 388, 30],
+      ["Cut 2", 388, 30],
+      ["Cut 3", 388, 30],
+      ["Cut 4", 96, 30],
+    ]);
+    expect(cards[0].headline).toBe('"Cut 1" has 3 cuts on each of 388 nights.');
+    expect(cards[3].nights[0].stay_date).toBe(day(300));
+  });
+
+  it("reads every open alert, up to one per rule of the 40 a property can have", async () => {
+    const rules = Array.from({ length: 25 }, (_, k) => `00000000-0000-4000-8000-0000000005${String(k).padStart(2, "0")}`);
+    const alerts = Array.from({ length: 25 }, (_, k) => `00000000-0000-4000-8000-0000000006${String(k).padStart(2, "0")}`);
+    state.fake = seed({
+      pricing_rules: rules.map((id, k) => ({ id, name: `Rule ${String(k).padStart(2, "0")}` })),
+      rule_repeat_alerts: alerts.map((id, k) => ({
+        id,
+        hotel_id: HOTEL,
+        rule_id: rules[k],
+        rule_version: 1,
+        action_direction: "increase",
+        opened_at: `2026-09-17T10:${String(k).padStart(2, "0")}:00Z`,
+        resolved_at: null,
+      })),
+      rule_repeat_alert_nights: alerts.map((id, k) => ({
+        alert_id: id,
+        hotel_id: HOTEL,
+        rule_id: rules[k],
+        stay_date: "2026-11-14",
+        fire_count: 3,
+        last_fire_at: "2026-09-17T10:00:00Z",
+        room_types: [],
+        choice: null,
+        closed_at: null,
+      })),
+    });
+    const body = await (await GET()).json();
+    expect(body.alerts).toHaveLength(25);
   });
 
   it("names the whole window a rule that raises on a fast pace had to beat since its last raise", async () => {

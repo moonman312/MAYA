@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ALERT_NIGHTS_SHOWN,
   alertChoiceHelp,
   alertConsequence,
   alertHeadline,
@@ -277,6 +278,25 @@ describe("buildRuleAlerts", () => {
     expect(card.nights[0].label).toBe("Sat, Nov 14 2026");
     expect(card.nights[0].fires_line).toBe("3 cuts on Standard");
     expect(card.headline).toBe('"Slow-date rescue" has 3 cuts on each of 2 nights.');
+  });
+
+  it("lists the nearest nights and counts every one waiting, the headline included (audit A14)", () => {
+    // 388 nights waiting, three cuts on each but four on the farthest.
+    const many = Array.from({ length: 388 }, (_, i) =>
+      night({ stay_date: new Date(Date.UTC(2026, 10, 1) + i * 86_400_000).toISOString().slice(0, 10), fire_count: i === 387 ? 4 : 3 }),
+    );
+    const [card] = build({ nights: [...many].reverse() });
+    expect(card.night_count).toBe(388);
+    expect(card.nights).toHaveLength(ALERT_NIGHTS_SHOWN);
+    expect(card.nights[0].stay_date).toBe("2026-11-01");
+    expect(card.headline).toBe('"Slow-date rescue" has 3 to 4 cuts on each of 388 nights.');
+    expect(build({ nights: many, nightsShown: 5 })[0].nights.map((n) => n.stay_date)).toEqual([
+      "2026-11-01",
+      "2026-11-02",
+      "2026-11-03",
+      "2026-11-04",
+      "2026-11-05",
+    ]);
   });
 
   it("leaves out an alert with nothing left to answer, and one whose rule it cannot name", () => {

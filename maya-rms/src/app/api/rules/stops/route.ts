@@ -31,46 +31,55 @@ import { dbErrorResponse, isRealIsoDate, isUuid } from "@/lib/api-guards";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { requireSupabaseHotel, requireSupabaseHotelRank } from "@/lib/require-supabase-hotel";
 import type { RuleStops } from "@/lib/rule-alerts";
-import { MAX_STOPPED_NIGHTS } from "@/lib/rule-stops";
+import { MAX_RESUME_NIGHTS, STOPPED_NIGHTS_MAX_PAGES, STOPPED_NIGHTS_PAGE } from "@/lib/rule-stops";
 import { hotelToday } from "@/lib/simulator";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { recordAlertAnswer } from "../alerts/shared";
 
-/** Nights one "Let it run again" can name: the upcoming and the passed ones GET hands out. */
-const MAX_RESUME_NIGHTS = 2 * MAX_STOPPED_NIGHTS;
-
 type StoppedNight = { alert_id: string; rule_id: string; rule_version: number; stay_date: string };
+
+type StoppedRead = (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: { code?: string; message: string } | null }>;
+
+/** Every row of a stopped-nights read, a page at a time; the error of the first page that fails. */
+async function readPages(read: StoppedRead): Promise<{ rows: Record<string, unknown>[]; error: { code?: string; message: string } | null }> {
+  const rows: Record<string, unknown>[] = [];
+  for (let page = 0; page < STOPPED_NIGHTS_MAX_PAGES; page++) {
+    const from = page * STOPPED_NIGHTS_PAGE;
+    const { data, error } = await read(from, from + STOPPED_NIGHTS_PAGE - 1);
+    if (error) return { rows, error };
+    const got = (data ?? []) as Record<string, unknown>[];
+    rows.push(...got);
+    if (got.length < STOPPED_NIGHTS_PAGE) break;
+  }
+  return { rows, error: null };
+}
 
 /** Every stopped night of the hotel's rules that the chip covers, grouped by rule. */
 async function loadRuleStops(supabase: SupabaseClient, hotelId: string): Promise<RuleStops[]> {
   const { data: hotel } = await supabase.from("hotels").select("timezone").eq("id", hotelId).maybeSingle();
   const today = hotelToday(String(hotel?.timezone ?? "UTC"));
 
-  // Two reads, each capped on its own. The nights still to come are what the
-  // chip counts and names, so they are read from tonight on: a hotel with
-  // more stopped nights than are read keeps the ones about to happen, not the
-  // far end of the season. The passed ones only matter to what "Let it run
-  // again" clears, so they never take a place from a night still to come.
-  const read = (upcoming: boolean) => {
-    const q = supabase
-      .from("rule_repeat_alert_nights")
-      .select("alert_id, rule_id, rule_version, stay_date")
-      .eq("hotel_id", hotelId)
-      .eq("choice", "stop");
-    return (upcoming ? q.gte("stay_date", today) : q.lt("stay_date", today))
-      .order("stay_date", { ascending: upcoming })
+  // Every stopped night still to come, a page at a time: what the chip counts
+  // and names. One read capped across the hotel used to undercount a rule
+  // stopped on a long run of nights once another rule was stopped too
+  // (audit A14).
+  const stopped = () =>
+    supabase.from("rule_repeat_alert_nights").select("alert_id, rule_id, rule_version, stay_date").eq("hotel_id", hotelId).eq("choice", "stop");
+  const upcoming = await readPages((from, to) =>
+    stopped()
+      .gte("stay_date", today)
+      .order("stay_date", { ascending: true })
       .order("rule_id", { ascending: true })
-      .limit(MAX_STOPPED_NIGHTS);
-  };
-  const [upcoming, passed] = await Promise.all([read(true), read(false)]);
-  for (const { error } of [upcoming, passed]) {
-    if (!error) continue;
+      .order("alert_id", { ascending: true })
+      .range(from, to),
+  );
+  if (upcoming.error) {
     // A database without the alert tables yet has nothing to show, which is
     // not an error the rules page should carry.
-    if (isMissingRelationError(error)) return [];
-    throw error;
+    if (isMissingRelationError(upcoming.error)) return [];
+    throw upcoming.error;
   }
   const toNight = (row: Record<string, unknown>): StoppedNight => ({
     alert_id: String(row.alert_id),
@@ -78,11 +87,23 @@ async function loadRuleStops(supabase: SupabaseClient, hotelId: string): Promise
     rule_version: Number(row.rule_version),
     stay_date: String(row.stay_date).slice(0, 10),
   });
-  const ahead = ((upcoming.data ?? []) as Record<string, unknown>[]).map(toNight);
-  const behind = ((passed.data ?? []) as Record<string, unknown>[]).map(toNight);
+  const ahead = upcoming.rows.map(toNight);
   // A rule whose stops have all passed is not stopped on anything: no chip,
   // and nothing for the owner to take back.
   if (ahead.length === 0) return [];
+  // The passed ones only matter to what "Let it run again" clears, and only
+  // for a rule the chip shows.
+  const passed = await readPages((from, to) =>
+    stopped()
+      .in("rule_id", [...new Set(ahead.map((r) => r.rule_id))])
+      .lt("stay_date", today)
+      .order("stay_date", { ascending: false })
+      .order("rule_id", { ascending: true })
+      .order("alert_id", { ascending: true })
+      .range(from, to),
+  );
+  if (passed.error) throw passed.error;
+  const behind = passed.rows.map(toNight);
 
   const { data: rules } = await supabase
     .from("pricing_rules")
