@@ -147,8 +147,11 @@ describe("Import from PIE", () => {
     expect((within(item("close-in dip")).getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
     // Limits: its own row for Garden Room, PIE's minimum and maximum for Loft, ticked; Yurt has no room type.
     const limits = screen.getByTestId("pie-limits");
-    expect(within(limits).getByText(/Garden Room: \$100 to \$500/)).toBeTruthy();
-    expect(within(limits).getByText(/Loft: \$90 to \$2,000/)).toBeTruthy();
+    // Today's limit first, then PIE's, so "$80 → $100" can't be read backwards.
+    expect(within(limits).getByText("Garden Room")).toBeTruthy();
+    expect(limits.textContent).toContain("Garden RoomFloor $80 → $100 · Ceiling $600 → $500");
+    expect(limits.textContent).toContain("LoftFloor $1 → $90 · Ceiling $99,999.99 → $2,000");
+    expect(within(limits).queryByText(/\(now /)).toBeNull();
     await waitFor(() => expect(within(limits).getAllByRole("checkbox").every((c) => (c as HTMLInputElement).checked)).toBe(true));
     expect(within(limits).getByText('No room type called "Yurt" in MAYA.')).toBeTruthy();
     // Rounding, said once.

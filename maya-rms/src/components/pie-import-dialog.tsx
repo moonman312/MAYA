@@ -113,6 +113,16 @@ type Phase = "pick" | "reading" | "review" | "saving" | "done";
 type Result = { created: { id: string; on: boolean }[]; failed: { id: string; error: string }[]; limits: number };
 
 /** "Garden Room: $110 to $520" */
+/**
+ * "Floor $120.00 → $149.00": what the room type has today, then what PIE's
+ * limit would make it. Today's value comes first so the line can't be read
+ * the other way round; an unchanged or unknown one shows just the new value.
+ */
+export function limitChange(label: string, current: number | null, next: number, symbol: string): string {
+  if (current === null || current === next) return `${label} ${money(next, symbol)}`;
+  return `${label} ${money(current, symbol)} → ${money(next, symbol)}`;
+}
+
 function money(n: number, symbol: string): string {
   return `${symbol}${n.toLocaleString("en-US", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })}`;
 }
@@ -684,13 +694,12 @@ function Review({
                   onChange={(e) => onLimitTick(c.roomTypeId, e.target.checked)}
                 />
                 <span>
-                  {c.name}: {money(c.floor, symbol)} to {money(c.ceiling, symbol)}
-                  {c.current.floor !== null && c.current.ceiling !== null ? (
-                    <span className="text-slate-500">
-                      {" "}
-                      (now {money(c.current.floor, symbol)} to {money(c.current.ceiling, symbol)})
-                    </span>
-                  ) : null}
+                  <span className="text-slate-200">{c.name}</span>
+                  <span className="block">
+                    {limitChange("Floor", c.current.floor, c.floor, symbol)}
+                    <span className="text-slate-500"> · </span>
+                    {limitChange("Ceiling", c.current.ceiling, c.ceiling, symbol)}
+                  </span>
                   {c.problem ? <span className="block text-xs text-amber-300">{c.problem}</span> : null}
                   {c.check && !c.problem ? <span className="block text-xs text-amber-300">{c.check}</span> : null}
                 </span>
