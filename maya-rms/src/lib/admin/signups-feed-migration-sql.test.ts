@@ -174,8 +174,8 @@ describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
   const code = sql.replace(/--.*$/gm, "");
 
-  it("is last on the list the SQL tests build production's schema from, after the staff roles", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is on the list the SQL tests build production's schema from, after the staff roles", () => {
+    expect(MIGRATION_ORDER).toContain(MIGRATION);
     expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf(STAFF_ROLES));
   });
 

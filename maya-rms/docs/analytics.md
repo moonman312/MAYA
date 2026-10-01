@@ -450,7 +450,8 @@ like every `analytics_*` function).
 
 One short Slack line for each real signup milestone, posted by the database:
 an AFTER INSERT trigger on `product_events` (`signup_feed_post`,
-`99_supabase_migration_signups_feed_v1.sql`) sends it through pg_net to the
+`99_supabase_migration_signups_feed_v1.sql`; `signup_feed_line` and
+`signup_feed_test` as `..._v2.sql` restates them) sends it through pg_net to the
 incoming webhook stored in Vault as `maya_signups_webhook`, the same way
 `pricing_watchdog` posts to `maya_alert_webhook`. The app never holds the
 address.
@@ -463,12 +464,18 @@ address.
 | `pms.connected` | `Harbour Inn connected Cloudbeds.` |
 | `property.went_live` | `Harbour Inn (Cloudbeds) went live.`, the first time only |
 | `subscription.cancel_scheduled` | `Harbour Inn (Cloudbeds) cancelled. Ends Oct 30, 2026. Reason: too expensive.` |
-| `subscription.canceled` | `... cancelled.` (`during the trial` from trialing, `Reason: payment failed` and so on), only when no `cancel_scheduled` line came first for that subscription |
+| `subscription.canceled` | `... cancelled.` (`during the trial` from trialing, `Reason: payment failed` and so on), unless a `cancel_scheduled` line was posted for it first (and not taken back since); one scheduled while the feed had no webhook gets this line |
 
-Only events with `is_test` false (no test property, no `+` address, no MAYA
-staff) written by a trigger (never a backfill or the sweep), and never a
-billing line for `plan_kind = 'internal'`. An invitation to test properties
-only says nothing. A property still on checkout's placeholder name reads
+Only events with `is_test` false, written by a trigger (never a backfill or
+the sweep). For a property's events (billing, connected, went live) that is
+the property's own test flag and nothing else: a property owned by a `+`
+address or a MAYA staff login posts like any other until it is flagged test
+(the Command Center toggle, or a test-property code). For an account with no
+property it is a `+` address or a MAYA staff login at the moment the email is
+confirmed, so a staffer who signs up and is given a staff role afterwards
+gets a `New account` line. Never a billing line for `plan_kind = 'internal'`;
+an internal-plan property's connected and went-live lines still post unless
+it is flagged test. An invitation to test properties only says nothing. A property still on checkout's placeholder name reads
 "A new signup"; its system is named once it has one. Lines carry the
 property's name and system and, for billing, the rooms, monthly or yearly,
 the trial's days, a cancellation's end date and Stripe's reason or the
@@ -483,8 +490,9 @@ request id, for `net._http_response`), so no event posts twice.
 Setting it up: in Supabase, Vault, add a secret named `maya_signups_webhook`
 holding the channel's incoming webhook address. Then **Send a test line** on
 the Command Center (platform admins; `signup_feed_test()`), or
-`select public.signup_feed_test();` in the SQL editor, posts one test line and
-says whether it was queued (`missing`: no secret in Vault yet). To see what
+`select public.signup_feed_test();` in the SQL editor, posts one test line
+("Test line from the Command Center. Real signups post here.", naming
+nobody) and says whether it was queued (`missing`: no secret in Vault yet). To see what
 any event would post:
 
 ```sql
