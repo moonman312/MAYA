@@ -75,6 +75,19 @@ marks their earlier events with no hotel the same way, and
 event inside a property (an admin working in God Mode, say) follows the
 property's flag, as before.
 
+A property's events and its daily snapshots (`hotel_metrics_daily`) follow
+its flag whenever it changes, both ways, whoever changes it: the Command
+Center toggle, a test-property code, or hand-run SQL
+(`hotels_test_flag_follows`, `99_supabase_migration_signups_feed_v1.sql`).
+A signup code made with **Test property (left out of analytics)** ticked
+(`signup_codes.test_property`) flags whoever signs up with it, the moment the
+code is bound to the property: its redemption row or its subscription's
+`signup_code_id`, whichever lands first. Those triggers fire before the
+product events triggers on the same tables, so the subscription's own events
+are test ones from the start. Nothing un-flags a property but the toggle. The
+person's own `account.created` comes before any code and has no property, so
+it follows the `+` and staff rules only.
+
 **Who can read.** RLS lets platform admins select `product_events`. Nobody
 can update or delete it through the API, the service role included; the
 service role may insert (that is `/api/events`). The functions call
@@ -428,6 +441,53 @@ The follow-up list's owner emails are never kept: the kept list holds the
 owner's user id, and each load asks `analytics_owner_emails(user_ids)` for
 the emails (in `99_supabase_migration_command_center_speed_v1.sql`, checked
 like every `analytics_*` function).
+
+## The #maya-signups feed
+
+One short Slack line for each real signup milestone, posted by the database:
+an AFTER INSERT trigger on `product_events` (`signup_feed_post`,
+`99_supabase_migration_signups_feed_v1.sql`) sends it through pg_net to the
+incoming webhook stored in Vault as `maya_signups_webhook`, the same way
+`pricing_watchdog` posts to `maya_alert_webhook`. The app never holds the
+address.
+
+| event | line |
+|---|---|
+| `account.created` | `New account: email confirmed.`, or `New account: joined Harbour Inn.` for an invitation to a real property |
+| `subscription.trialing` | `Harbour Inn (Cloudbeds) started a 14-day trial: 24 rooms, monthly.` |
+| `subscription.active` | `... started paying: 24 rooms, monthly.`, or `... moved from the trial to paying: ...`; nothing for a return from `past_due`, `unpaid` or `paused` |
+| `pms.connected` | `Harbour Inn connected Cloudbeds.` |
+| `property.went_live` | `Harbour Inn (Cloudbeds) went live.`, the first time only |
+| `subscription.cancel_scheduled` | `Harbour Inn (Cloudbeds) cancelled. Ends Oct 30, 2026. Reason: too expensive.` |
+| `subscription.canceled` | `... cancelled.` (`during the trial` from trialing, `Reason: payment failed` and so on), only when no `cancel_scheduled` line came first for that subscription |
+
+Only events with `is_test` false (no test property, no `+` address, no MAYA
+staff) written by a trigger (never a backfill or the sweep), and never a
+billing line for `plan_kind = 'internal'`. An invitation to test properties
+only says nothing. A property still on checkout's placeholder name reads
+"A new signup"; its system is named once it has one. Lines carry the
+property's name and system and, for billing, the rooms, monthly or yearly,
+the trial's days, a cancellation's end date and Stripe's reason or the
+owner's portal pick. Never an email, a guest or a card.
+
+No secret in Vault, or one that is not `https://`, posts nothing. Nothing the
+feed does can fail the event's insert: every error is a warning, and pg_net
+queues the request with the transaction, so a write that rolls back posts
+nothing. `signup_feed_posts` keeps one row per event posted (with pg_net's
+request id, for `net._http_response`), so no event posts twice.
+
+Setting it up: in Supabase, Vault, add a secret named `maya_signups_webhook`
+holding the channel's incoming webhook address. Then **Send a test line** on
+the Command Center (platform admins; `signup_feed_test()`, or
+`select public.signup_feed_test();` as the service role in the SQL editor)
+posts one test line. To see what any event would post:
+
+```sql
+select e.id, e.event, public.signup_feed_line(e) as line
+  from public.product_events e
+ order by e.id desc
+ limit 20;
+```
 
 ## The expired claim sweep
 

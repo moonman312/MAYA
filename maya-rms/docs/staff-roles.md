@@ -164,7 +164,7 @@ opened by its address, goes back to `/admin`.
 
 | page | platform admin | developer | sales |
 |---|---|---|---|
-| Overview `/admin` | every tile, **+ New hotel**, the test alert | Hotels, PMS connected, Users and Stale syncs tiles, the docs tally, recent hotels | Hotels, PMS connected and Stale syncs tiles, the docs tally, recent hotels |
+| Overview `/admin` | every tile, **+ New hotel**, the test alert, the #maya-signups test line | Hotels, PMS connected, Users and Stale syncs tiles, the docs tally, recent hotels | Hotels, PMS connected and Stale syncs tiles, the docs tally, recent hotels |
 | Hotels `/admin/hotels` | PMS, mode, plan, rooms, billing status, MRR; **+ New hotel** | the same without MRR | the same with MRR (empty on a test property) |
 | a property `/admin/hotels/[id]` | every control: Open this property, God Mode, Live switch, test flag, PMS card, team with invites | read only: the facts, plan and billing status in words, mode, test flag, PMS status and last sync, the team | read only: the facts, plan and billing status, mode, test flag, PMS status; business numbers on a real property; no team |
 | Analytics | with the test toggle, Refresh, and which signup code each subscription used | hidden | customers only: no test toggle, no Refresh; a signup that used a code says "code" |
@@ -173,7 +173,7 @@ opened by its address, goes back to `/admin`.
 | PMS Access | the switches | each gate in words ("Code needed", "Open to anyone") | hidden |
 | Stalled Signups | with Given up on it, and the code each signup used | hidden | with Email them only, and no code |
 | Docs Questions | yes | yes | yes |
-| Pending Invites, Signup Codes, New hotel | yes | hidden | hidden |
+| Pending Invites, Signup Codes (with the Test property box), New hotel | yes | hidden | hidden |
 
 No page shows a developer a money figure. Billing status in words (Trial,
 Active, Past due, ...) shows for every role.
