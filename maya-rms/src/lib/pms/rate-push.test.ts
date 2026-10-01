@@ -2433,3 +2433,111 @@ describe("pushRatesForHotel and Try again on a typed price", () => {
     expect(reads.map((c) => c.columns.includes("retry_requested_at"))).toEqual([true, false]);
   });
 });
+
+describe("a job the vendor applied in part (audit A18)", () => {
+  afterEach(() => {
+    resetDecidedJobs();
+    vi.restoreAllMocks();
+  });
+  const NIGHTS = ["2026-08-01", "2026-08-02", "2026-08-03"];
+
+  function world() {
+    return fakeSupabase({
+      hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+      room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+      published_price: NIGHTS.map((d) => ({ hotel_id: "hotel-1", stay_date: d, room_type_id: "rt-king", price: 210, computed_at: JUST_NOW })),
+      pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
+      rate_updates: [],
+    });
+  }
+
+  function jobAdapter(outcome: Record<string, unknown>) {
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.pushCells = async (cells) => cells.map((cell) => ({ cell, ok: true, jobReference: "job-king" }));
+    adapter.fetchJobOutcomes = async () => ({ "job-king": outcome as never });
+    return adapter;
+  }
+
+  const row = (db: ReturnType<typeof world>, d: string) => db.tables.rate_updates.find((r) => r.stay_date === d)!;
+
+  it("fails only the night it rejected, and confirms the rest", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = world();
+    const adapter = jobAdapter({
+      done: true,
+      ok: false,
+      message: "Rate is closed for this date",
+      intervals: [
+        { startDate: "2026-08-01", endDate: "2026-08-01", ok: true },
+        { startDate: "2026-08-02", endDate: "2026-08-02", ok: false, message: "Rate is closed for this date" },
+        { startDate: "2026-08-03", endDate: "2026-08-03", ok: true },
+      ],
+    });
+
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+
+    expect(res).toMatchObject({ sent: 3, jobsConfirmed: 2, jobsRejected: 1 });
+    expect(row(db, "2026-08-02")).toMatchObject({ status: "failed", error: "Rate is closed for this date", pms_job_reference: "job-king", confirmed_at: null });
+    for (const d of ["2026-08-01", "2026-08-03"]) {
+      expect(row(db, d)).toMatchObject({ status: "sent", pms_job_reference: "job-king" });
+      expect(typeof row(db, d).confirmed_at).toBe("string");
+    }
+  });
+
+  it("takes a night the vendor said nothing about as not applied, with the job's reason", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = world();
+    const adapter = jobAdapter({
+      done: true,
+      ok: false,
+      message: "job error",
+      intervals: [{ startDate: "2026-08-01", endDate: "2026-08-02", ok: true }],
+    });
+    const res = await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(res).toMatchObject({ jobsConfirmed: 2, jobsRejected: 1 });
+    expect(row(db, "2026-08-03")).toMatchObject({ status: "failed", error: "job error" });
+    expect(typeof row(db, "2026-08-02").confirmed_at).toBe("string");
+  });
+
+  it("fails the whole job, as before, when the vendor names no nights", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = world();
+    const res = await pushRatesForHotel(db.client, "hotel-1", jobAdapter({ done: true, ok: false, message: "job error" }), WIDE);
+    expect(res).toMatchObject({ jobsConfirmed: 0, jobsRejected: 3 });
+    expect(NIGHTS.map((d) => row(db, d).status)).toEqual(["failed", "failed", "failed"]);
+  });
+
+  it("confirms none of it while the rejected nights cannot be written as failed, and asks again", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const asked: string[] = [];
+    const outcome = {
+      done: true,
+      ok: false,
+      message: "closed",
+      intervals: [
+        { startDate: "2026-08-01", endDate: "2026-08-01", ok: true },
+        { startDate: "2026-08-02", endDate: "2026-08-03", ok: false, message: "closed" },
+      ],
+    };
+    const { adapter } = makeAdapter(CACHED_TWO);
+    adapter.pushCells = async (cells) => cells.map((cell) => ({ cell, ok: true, jobReference: "job-king" }));
+    adapter.fetchJobOutcomes = async (refs) => (asked.push(...refs), { "job-king": outcome as never });
+    let calls = 0;
+    const db = rawFakeSupabase(
+      {
+        hotel_settings: [{ hotel_id: "hotel-1", simulation_mode: false }],
+        room_types: ROOM_TYPES.map((r) => ({ ...r, hotel_id: "hotel-1" })),
+        published_price: NIGHTS.map((d) => ({ hotel_id: "hotel-1", stay_date: d, room_type_id: "rt-king", price: 210, computed_at: JUST_NOW })),
+        base_rate_calendar: NIGHTS.map((d) => ({ hotel_id: "hotel-1", stay_date: d, room_type_id: "rt-king", price: 100 })),
+        pms_connections: [{ id: "conn-1", hotel_id: "hotel-1", pms_type: "cloudbeds", push_rate_targets: CACHED_TWO }],
+        rate_updates: [],
+      },
+      {
+        // The correction write is the third rate_updates upsert (in progress, sent, correction).
+        fault: (c) => (c.table === "rate_updates" && c.op === "upsert" && ++calls === 3 ? { message: "connection reset" } : null),
+      },
+    );
+    await pushRatesForHotel(db.client, "hotel-1", adapter, WIDE);
+    expect(db.tables.rate_updates.every((r) => r.status === "sent" && r.confirmed_at == null)).toBe(true);
+  });
+});

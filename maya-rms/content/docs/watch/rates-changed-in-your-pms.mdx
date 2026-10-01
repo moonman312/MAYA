@@ -83,7 +83,7 @@ On a night MAYA has sent to, your change is kept only when all of these hold:
 - The difference is not one shared by nearly every night. That covers tax, a markup, or a raise of one percentage across the board (see "Prices with tax or a markup" below).
 - The send landed after you last went live. A rate changed while simulating is a starting point, not a manual price.
 
-A change that fails one of these is not kept. The most common miss is timing: a change you make in your system within an hour of MAYA's send can be written over if MAYA's price for that night changes in that hour.
+A change that fails one of these is not kept. The most common miss is timing: a change you make in your system within an hour of MAYA's send can be written over if MAYA's price for that night changes in that hour. On Cloudbeds, a send Cloudbeds never reported on is not confirmed either: if your system still has a different rate on that night 3 hours to a day after the send, MAYA takes it as never applied and sends its price again, over a change you made in the meantime.
 
 With <Ui>MAYA's price wins</Ui> on, the same conditions decide which changes MAYA sends its price over. A change that fails one of them is left as it is until MAYA's price for that night next changes.
 </Example>
@@ -224,7 +224,7 @@ When you mean to set a price, type it in MAYA. Change it in your system when tha
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-MAYA writes to the base rate of each room type in Cloudbeds, the rate plan that does not follow another plan. Change that rate and MAYA reads it. A change to a derived plan or a package is not read. Cloudbeds confirms MAYA's sends, so the hour starts when the send goes out.
+MAYA writes to the base rate of each room type in Cloudbeds, the rate plan that does not follow another plan. Change that rate and MAYA reads it. A change to a derived plan or a package is not read. Cloudbeds confirms MAYA's sends, so the hour starts when the send goes out. The rare send Cloudbeds never reports on is not confirmed, and is sent again if Cloudbeds still has another rate on that night 3 hours to a day later.
 </PmsTab>
 <PmsTab pms="thinkreservations">
 MAYA writes to the rate type named Best Available, or, if none is, to the standard rate type that covers the most room types. Change that rate and MAYA reads it. ThinkReservations accepts a price without confirming it applied, so MAYA counts a send as confirmed only once its hourly read finds the price there. A change you make before that read is not kept and is written over by MAYA's next price change. Give a night an hour or two after MAYA's send.

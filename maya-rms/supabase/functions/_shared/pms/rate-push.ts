@@ -126,6 +126,22 @@ export type CellPushResult = {
   deferred?: boolean;
 };
 
+/**
+ * What became of one job. `ok` only when every night in it applied.
+ *
+ * `intervals`, on a job that is done but not ok, is what the vendor said
+ * about each stretch of nights in it, when it said that for every update
+ * the job made (dates inclusive). A night inside a failed interval did not
+ * apply; one inside an applied interval did; one in neither is taken as not
+ * applied. Without `intervals` the whole job is taken as not applied.
+ */
+export type JobOutcome = {
+  done: boolean;
+  ok: boolean;
+  message?: string;
+  intervals?: { startDate: string; endDate: string; ok: boolean; message?: string }[];
+};
+
 /** One room-night of the property's own rate, as the PMS reports it. */
 export type RateCalendarEntry = {
   stayDate: string;
@@ -179,9 +195,7 @@ export interface PmsRatePushAdapter {
    * the retry forever. Optional: a vendor with synchronous writes has nothing
    * to reconcile.
    */
-  fetchJobOutcomes?(
-    jobReferences: string[],
-  ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>>;
+  fetchJobOutcomes?(jobReferences: string[]): Promise<Record<string, JobOutcome>>;
 
   /**
    * Read the property's OWN rate for each room-night in the window — what the
@@ -292,6 +306,13 @@ export type RatePushOptions = {
    * readBeforeResend finds, without reading again.
    */
   movedInPms?: Set<string>;
+  /**
+   * Nights this tick's own base rate read found MAYA's last send never
+   * landed on (pms-edits.ts unlanded), already written back as failed. Each
+   * is filed as a job never confirmed, as the push files one it finds
+   * itself, and goes out again with the other failed cells.
+   */
+  neverLanded?: Set<string>;
 };
 
 export type RatePushSummary =
@@ -582,6 +603,27 @@ export async function pushRatesForHotel(
 
   // What this run did to each cell, and the failures it hit, for push-incidents.ts.
   const run: RunTrack = { cells: new Map(), failures: [] };
+  // Sends the tick's read found never landed: filed as the job the vendor
+  // never confirmed, under the try they took. What happens to them now (sent
+  // again, held, out of the window) is recorded below like any failed cell.
+  for (const key of opts.neverLanded ?? []) {
+    const failed = lastFailed.get(key);
+    if (!failed || failed.error !== JOB_UNCONFIRMED_MESSAGE) continue;
+    const [stayDate, roomTypeId] = key.split("|");
+    const failure = classifyPushFailure({ pms: adapter.pmsType, phase: "job", message: JOB_UNCONFIRMED_MESSAGE, attempt: failed.attempts });
+    run.failures.push({
+      stayDate,
+      roomTypeId,
+      price: failed.price,
+      at: new Date(nowMs).toISOString(),
+      phase: "job",
+      outcome: "unconfirmed",
+      httpStatus: null,
+      message: JOB_UNCONFIRMED_MESSAGE,
+      jobReference: failed.jobReference,
+      failure,
+    });
+  }
 
   // ── Which cells changed since the last successful push? ───────────────────
   type Candidate = RateCell & { computedAtMs: number; roomType: GuardrailRoomType };
@@ -1629,6 +1671,34 @@ async function stampConfirmed(
   return true;
 }
 
+/**
+ * A job's cells by what the vendor said about their nights: applied, or
+ * rejected grouped by the vendor's reason. A night in a rejected interval
+ * is rejected, one in an applied interval is applied, and one the vendor
+ * said nothing about is taken as not applied, with the job's own reason.
+ */
+export function splitJobByIntervals(
+  cells: CellPushResult[],
+  outcome: JobOutcome,
+): { applied: CellPushResult[]; failed: Map<string, CellPushResult[]> } {
+  const intervals = outcome.intervals ?? [];
+  const fallback = outcome.message ?? "rate job rejected";
+  const covers = (i: { startDate: string; endDate: string }, d: string) => i.startDate <= d && d <= i.endDate;
+  const applied: CellPushResult[] = [];
+  const failed = new Map<string, CellPushResult[]>();
+  for (const c of cells) {
+    const d = c.cell.stayDate;
+    const bad = intervals.find((i) => !i.ok && covers(i, d));
+    if (!bad && intervals.some((i) => i.ok && covers(i, d))) {
+      applied.push(c);
+      continue;
+    }
+    const message = bad?.message ?? fallback;
+    failed.set(message, [...(failed.get(message) ?? []), c]);
+  }
+  return { applied, failed };
+}
+
 /** Earlier runs' sent cells grouped by job, leaving out cells in `resent` and jobs already decided. */
 function earlierJobs(
   recentlySent: Array<{ key: string; ref: string; pushedAt: number; result: CellPushResult }>,
@@ -1720,6 +1790,10 @@ async function reconcileJobOutcomes(
     const corrections: Record<string, unknown>[] = [];
     const correctedRefs: string[] = [];
     const failures: Array<{ cell: RateCell; failure: PushFailure; message: string; jobRef: string; outcome: "rejected" | "unconfirmed" }> = [];
+    // Jobs the vendor applied in part. Their applied nights are stamped
+    // confirmed only after the rejected ones are on record as failed: the
+    // stamp is by job, and lands on whatever rows of it still say sent.
+    const partlyApplied: string[] = [];
 
     const correct = (jobRef: string, cells: CellPushResult[], message: string, outcome: "rejected" | "unconfirmed") => {
       correctedRefs.push(jobRef);
@@ -1783,9 +1857,28 @@ async function reconcileJobOutcomes(
         ok += cells.length;
         continue;
       }
+      // The vendor said which nights of the job it applied (JobOutcome
+      // intervals): only the ones it rejected are failed, and the rest of the
+      // job is confirmed (audit A18). One night closed in a 30-night job used
+      // to fail all 30, tell the owner 30 nights were not accepted, send the
+      // 29 good ones again every run, and take a hand edit on any of them for
+      // MAYA's own price.
+      const split = outcome.intervals && outcome.intervals.length > 0 ? splitJobByIntervals(cells, outcome) : null;
+      if (split && split.failed.size === 0) {
+        confirmedRefs.push(jobRef);
+        ok += cells.length;
+        continue;
+      }
       // A rejected job only counts as decided once its cells are stored as
       // failed. If that write fails, the ledger still says sent, and asking
       // again next tick is what gets the correction written.
+      if (split) {
+        if (split.applied.length > 0) partlyApplied.push(jobRef);
+        ok += split.applied.length;
+        rejected += cells.length - split.applied.length;
+        for (const [message, group] of split.failed) correct(jobRef, group, message.slice(0, 300), "rejected");
+        continue;
+      }
       rejected += cells.length;
       correct(jobRef, cells, (outcome.message ?? "rate job rejected").slice(0, 300), "rejected");
     }
@@ -1811,7 +1904,11 @@ async function reconcileJobOutcomes(
         );
         return { ok, rejected, unconfirmed, dropTargets: false };
       }
-      for (const ref of correctedRefs) markDecided(hotelId, adapter.pmsType, ref);
+      const partly = new Set(partlyApplied);
+      for (const ref of correctedRefs) if (!partly.has(ref)) markDecided(hotelId, adapter.pmsType, ref);
+      if (partlyApplied.length > 0 && (await stampConfirmed(supabase, hotelId, adapter.pmsType, partlyApplied, nowIso))) {
+        for (const ref of partlyApplied) markDecided(hotelId, adapter.pmsType, ref);
+      }
       for (const f of failures) {
         if (f.failure.dropTargets) dropTargets = true;
         if (!track) continue;
@@ -1838,6 +1935,7 @@ async function reconcileJobOutcomes(
           pmsType: adapter.pmsType,
           rejected,
           ...(unconfirmed > 0 ? { unconfirmed } : {}),
+          ...(partlyApplied.length > 0 ? { partlyAppliedJobs: partlyApplied.length } : {}),
           event: rejected > 0 ? "rate_job_rejected" : "rate_job_unconfirmed",
         }),
       );

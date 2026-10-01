@@ -1004,12 +1004,18 @@ export async function cloudbedsGetTaxesAndFees(
   }
 }
 
-/** One entry from getRateJobs: the outcome of a patchRate we already sent. */
+/**
+ * One entry from getRateJobs: the outcome of a patchRate we already sent.
+ * Documented (developers.cloudbeds.com, getRateJobs, v1.2 and v1.3): status
+ * is in_progress, completed, or error ("an error with 1 or more updates
+ * requested in this job"); each update's action is in_progress, updated,
+ * created or error, with the reason in message.
+ */
 export type CloudbedsRateJob = {
   jobReferenceID: string;
   status: string;
   dateCreated: string | null;
-  updates: { rateID?: string; startDate?: string; endDate?: string; rate?: number; message?: string }[];
+  updates: { rateID?: string; action?: string; startDate?: string; endDate?: string; rate?: number; message?: string | null }[];
 };
 
 /**
@@ -1027,8 +1033,19 @@ export type CloudbedsRateJob = {
  */
 export async function cloudbedsGetRateJobs(
   creds: CloudbedsResolvedCredentials,
+  opts: {
+    /**
+     * Just this job. Without it the answer is the recent jobs of MAYA's
+     * client, one page of them, and a job can be missing from that page
+     * (Cloudbeds documents paging on this list and keeps jobs for 7 days).
+     */
+    jobReferenceID?: string;
+  } = {},
 ): Promise<CloudbedsRateJob[]> {
-  const res = await cloudbedsGet(creds, "getRateJobs", { propertyID: creds.propertyId });
+  const res = await cloudbedsGet(creds, "getRateJobs", {
+    propertyID: creds.propertyId,
+    ...(opts.jobReferenceID ? { jobReferenceID: opts.jobReferenceID } : {}),
+  });
   const data = res.data;
   if (!Array.isArray(data)) return [];
   return (data as JsonRecord[]).map((j) => ({

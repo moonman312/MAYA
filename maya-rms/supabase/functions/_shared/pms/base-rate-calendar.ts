@@ -132,6 +132,11 @@ export type SeedCalendarResult =
        * changes failed.
        */
       holdCells: string[];
+      /**
+       * Nights whose last send never landed (pms-edits.ts unlandedCells),
+       * written back as failed: the push files them and sends them again.
+       */
+      unlandedCells?: string[];
       /** Taking the hotel's changes failed; the next refresh tries again. */
       pmsEditsFailed?: true;
       /**
@@ -432,6 +437,7 @@ async function seedWithTargets(
       days: horizon,
       movedCells: [...rows.map((r) => `${r.stay_date}|${r.room_type_id}`), ...(pmsEdits?.movedCells ?? [])],
       holdCells: pmsEdits?.holdCells ?? [],
+      ...(pmsEdits?.unlandedCells?.length ? { unlandedCells: pmsEdits.unlandedCells } : {}),
       ...(pmsEdits?.failed ? { pmsEditsFailed: true as const } : {}),
       returnedThrough,
     },

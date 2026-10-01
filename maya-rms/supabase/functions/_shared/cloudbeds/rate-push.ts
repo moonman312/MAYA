@@ -18,12 +18,14 @@ import {
   cloudbedsGetRatePlans,
   cloudbedsPatchRate,
   type CloudbedsRateInterval,
+  type CloudbedsRateJob,
 } from "./client.ts";
 import { CLOUDBEDS_MERGE_RATE_INTERVALS } from "./constants.ts";
 import type { CloudbedsResolvedCredentials } from "./types.ts";
 import type { TargetGap } from "../pms/push-failure.ts";
 import type {
   CellPushResult,
+  JobOutcome,
   PmsRatePushAdapter,
   RateCalendarEntry,
   RateCell,
@@ -31,6 +33,59 @@ import type {
 } from "../pms/rate-push.ts";
 
 const MAX_INTERVALS_PER_CALL = 30; // Cloudbeds patchRate limit
+/** Jobs missing from the recent list asked about by reference, per fetchJobOutcomes call... */
+export const JOB_LOOKUPS_PER_CALL = 10;
+/** ...and per hotel tick (one adapter), so a huge first send cannot spend the tick on lookups. */
+export const JOB_LOOKUPS_PER_TICK = 30;
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+/** An update Cloudbeds reports as not applied: action "error", or a message (documented as the error message). */
+function updateFailed(u: CloudbedsRateJob["updates"][number]): boolean {
+  const action = typeof u.action === "string" ? u.action.toLowerCase() : null;
+  return action === "error" || (typeof u.message === "string" && u.message.trim() !== "");
+}
+
+/** An update Cloudbeds reports as applied. An older answer with no action and no message counts. */
+function updateApplied(u: CloudbedsRateJob["updates"][number]): boolean {
+  if (updateFailed(u)) return false;
+  const action = typeof u.action === "string" ? u.action.toLowerCase() : null;
+  return action == null || action === "updated" || action === "created";
+}
+
+/**
+ * One job as the push reads it (pms/rate-push.ts JobOutcome). A job still
+ * moving is undecided. A finished one is ok only when it completed and no
+ * update in it failed: a completed envelope can carry a failed update, and
+ * "error" means one or more of them failed, not all. So when every update
+ * names its nights, each stretch is reported on its own (`intervals`), and
+ * only the nights Cloudbeds rejected are taken as not applied (audit A18).
+ */
+export function jobOutcome(job: CloudbedsRateJob): JobOutcome {
+  const status = job.status.toLowerCase();
+  if (status !== "completed" && status !== "failed" && status !== "error") return { done: false, ok: false };
+  const failure = job.updates.find(updateFailed);
+  if (status === "completed" && !failure) return { done: true, ok: true };
+  const message = (typeof failure?.message === "string" ? failure.message.trim() : "") || `job ${status}`;
+  const dated = job.updates.length > 0 &&
+    job.updates.every((u) => typeof u.startDate === "string" && YMD.test(u.startDate) && typeof u.endDate === "string" && YMD.test(u.endDate));
+  if (!dated) return { done: true, ok: false, message };
+  return {
+    done: true,
+    ok: false,
+    message,
+    intervals: job.updates.map((u) => {
+      const applied = updateApplied(u);
+      const why = typeof u.message === "string" ? u.message.trim() : "";
+      return {
+        startDate: String(u.startDate),
+        endDate: String(u.endDate),
+        ok: applied,
+        ...(applied ? {} : { message: why || message }),
+      };
+    }),
+  };
+}
 
 // deno-lint-ignore no-explicit-any
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,6 +156,8 @@ export function createCloudbedsRateAdapter(
   // The last read that listed something, by the nights it covered. An adapter
   // lives for one hotel's tick, so this is the tick's own read.
   let lastListed: { start: string; end: string; targets: RateTargetMap } | null = null;
+  // Jobs asked about by reference this tick (fetchJobOutcomes).
+  let lookups = 0;
   const noteRead = (start: string, end: string, plans: unknown[], targets: RateTargetMap, withoutBaseRate: Record<string, number>) => {
     lastGaps = plans.length > 0 ? targetGaps(withoutBaseRate) : null;
     lastListed = plans.length > 0 ? { start, end, targets } : null;
@@ -197,32 +254,26 @@ export function createCloudbedsRateAdapter(
       return results;
     },
 
-    async fetchJobOutcomes(
-      jobReferences: string[],
-    ): Promise<Record<string, { done: boolean; ok: boolean; message?: string }>> {
-      // One call returns the recent job list; we match ours out of it rather
-      // than asking per job, because Cloudbeds has no per-reference lookup.
+    async fetchJobOutcomes(jobReferences: string[]): Promise<Record<string, JobOutcome>> {
+      // One call returns a page of recent jobs, and ours are matched out of
+      // it. A job missing from that page (a big first send makes hundreds)
+      // is then asked about by its reference, a few per call
+      // (JOB_LOOKUPS_PER_CALL, at most JOB_LOOKUPS_PER_TICK for this
+      // adapter's tick), so a job is never left unasked just because the list
+      // is paged. One the lookup does not find either is left as before.
       const wanted = new Set(jobReferences.map(String));
-      const out: Record<string, { done: boolean; ok: boolean; message?: string }> = {};
-      const jobs = await cloudbedsGetRateJobs(current);
-      for (const job of jobs) {
-        if (!wanted.has(job.jobReferenceID)) continue;
-        const status = job.status.toLowerCase();
-        // Anything still moving is left undecided so the next tick asks again.
-        if (status !== "completed" && status !== "failed" && status !== "error") {
-          out[job.jobReferenceID] = { done: false, ok: false };
-          continue;
+      const out: Record<string, JobOutcome> = {};
+      const take = (jobs: CloudbedsRateJob[]) => {
+        for (const job of jobs) {
+          if (!wanted.has(job.jobReferenceID) || out[job.jobReferenceID]) continue;
+          out[job.jobReferenceID] = jobOutcome(job);
         }
-        // A job can complete with per-update failures, and those carry the
-        // reason in `message` — a completed envelope is not on its own proof
-        // that every rate in it applied.
-        const failure = job.updates.find((u) => typeof u.message === "string" && u.message.trim());
-        const ok = status === "completed" && !failure;
-        out[job.jobReferenceID] = {
-          done: true,
-          ok,
-          ...(ok ? {} : { message: failure?.message?.trim() || `job ${status}` }),
-        };
+      };
+      take(await cloudbedsGetRateJobs(current));
+      const missing = [...wanted].filter((ref) => !out[ref]);
+      for (const ref of missing.slice(0, Math.min(JOB_LOOKUPS_PER_CALL, JOB_LOOKUPS_PER_TICK - lookups))) {
+        lookups += 1;
+        take(await cloudbedsGetRateJobs(current, { jobReferenceID: ref }));
       }
       return out;
     },

@@ -89,6 +89,18 @@
  * hotel made before MAYA first saw its price there is not taken; nor is one
  * on a night whose last send never landed.
  *
+ * A send that never landed is not left counted as sent, though (audit A17).
+ * One with a vendor job to check (not Think's "accepted:", which has none)
+ * that is still unconfirmed UNLANDED_AFTER_MS after it went out, on a night
+ * the PMS quotes at another rate, is written back as failed with
+ * JOB_UNCONFIRMED_MESSAGE, exactly as a job the vendor still lists as
+ * unfinished is (rate-push.ts), so the push sends it again and files it.
+ * Cloudbeds confirms a job in seconds, and the push asks about each one for
+ * an hour, so a send still unconfirmed hours on is one whose job was missed
+ * (dropped from a long job list, or asked about only while reads failed). A
+ * send over UNLANDED_UNTIL_MS old is left as it was: it predates the stamps,
+ * and the rate there may be a change the hotel made long ago.
+ *
  * Nor is a change on a night whose send settled before the hotel last went
  * live (hotel_settings.live_since). While MAYA only simulated, the hotel went
  * on pricing by hand, and taking those rates as manual prices when it goes
@@ -146,7 +158,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
 import { mwsEnv } from "../mews/env.ts";
 import { hotelRuleIds, setManualPrices } from "./manual-price.ts";
-import { classifyPushFailure, SHARED_RATIO_REASON } from "./push-failure.ts";
+import { classifyPushFailure, JOB_UNCONFIRMED_MESSAGE, SHARED_RATIO_REASON } from "./push-failure.ts";
 import { PMS_RATE_REMOVED_REASON } from "./push-guardrails.ts";
 import { recordPushIncidents, type RunCell, type RunFailure } from "./push-incidents.ts";
 import { recordOverwrites, watchPmsChanges } from "./pms-change-watch.ts";
@@ -156,6 +168,10 @@ import { type RateTargetMap, upsertLedger } from "./rate-push.ts";
 export type PmsRateChangeMode = "keep" | "maya_wins";
 
 const DEFAULT_SETTLE_MINUTES = 60;
+/** An unconfirmed send this old, with another rate in the PMS, is taken as never landed (see the header)... */
+export const UNLANDED_AFTER_MS = 3 * 60 * 60_000;
+/** ...up to this old. Older, it predates the stamps, and is left as it was. */
+export const UNLANDED_UNTIL_MS = 24 * 60 * 60_000;
 const HALF_CENT = 0.005 + 1e-9;
 /** numeric(10,2). */
 const MAX_PRICE = 99_999_999.99;
@@ -230,6 +246,12 @@ export type PmsEditPlan = {
   removed: SentNight[];
   /** 'maya_wins': nights changed or removed in the PMS that MAYA sends its price to again. */
   overwrites: Overwrite[];
+  /**
+   * Sends with a vendor job never confirmed, UNLANDED_AFTER_MS to
+   * UNLANDED_UNTIL_MS old, on nights the PMS quotes at another rate: written
+   * back as failed, so the push sends them again (see the header).
+   */
+  unlanded: PushedNightRead[];
   /** Differ from MAYA's last send, which is not settled or not old enough yet. */
   waiting: number;
   /** Differ, with a price typed in MAYA since the send still to go out. */
@@ -273,6 +295,7 @@ export function planPmsEdits(input: {
     rebased: [],
     removed: [],
     overwrites: [],
+    unlanded: [],
     waiting: 0,
     typedSinceSend: 0,
     systematic: 0,
@@ -317,6 +340,17 @@ export function planPmsEdits(input: {
     if (holds && !settledWhileLive) plan.landed.push(r);
     // A 0 MAYA can't have sent: the hotel's, landed send or not (see the header).
     const zeroNotMaya = !holds && input.sendsZero !== true && !ratesDiffer(r.pmsRate, 0);
+    // A send with a job to check that was never confirmed, hours on, with
+    // another rate in the PMS: it never landed (see the header).
+    const jobRef = l.pms_job_reference != null ? String(l.pms_job_reference) : "";
+    const ageMs = input.nowMs - pushedAtMs;
+    if (
+      !holds && !settled && !zeroNotMaya && jobRef !== "" && !jobRef.startsWith("accepted:") &&
+      ageMs >= Math.max(UNLANDED_AFTER_MS, input.settleMs) && ageMs <= UNLANDED_UNTIL_MS
+    ) {
+      plan.unlanded.push(r);
+      continue;
+    }
     if (!oldEnough || (!settled && !zeroNotMaya)) {
       if (!holds) plan.waiting += 1;
       continue;
@@ -440,6 +474,12 @@ export type PmsEditsResult = {
   removed: number;
   /** 'maya_wins': nights changed or removed in the PMS that MAYA sends its price to again. */
   overwritten: number;
+  /**
+   * Sends that never landed, written back as failed (see the header), by
+   * `stay_date|room_type_id`. Absent when there were none, or writing them
+   * failed. The push files them and sends them again.
+   */
+  unlandedCells?: string[];
   suppressedRules: number;
   retiredPickups: number;
   /**
@@ -536,7 +576,8 @@ export async function applyPmsEdits(
   supabase: SupabaseClient,
   hotelId: string,
   pmsType: string,
-  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed" | "rebased"> & Partial<Pick<PmsEditPlan, "removed" | "overwrites">>,
+  plan: Pick<PmsEditPlan, "edits" | "inStep" | "landed" | "closed" | "rebased"> &
+    Partial<Pick<PmsEditPlan, "removed" | "overwrites" | "unlanded">>,
   at: string,
   manual: Map<string, OpenManualPrice> = new Map(),
 ): Promise<PmsEditsResult> {
@@ -571,7 +612,18 @@ export async function applyPmsEdits(
   }
   inStep.push(...overwriteLedgerRows(hotelId, pmsType, plan.overwrites ?? [], at));
   const landed = plan.landed.map((read) => ledgerRow(hotelId, pmsType, read, { confirmed_at: at }));
-  for (const batch of [inStep, landed]) {
+  // Never landed: failed, as a job the vendor never confirmed is, with the
+  // tries it had and its job; what the PMS had before it is not on record.
+  const unlanded = (plan.unlanded ?? []).map((read) =>
+    ledgerRow(hotelId, pmsType, read, {
+      status: "failed",
+      error: JOB_UNCONFIRMED_MESSAGE,
+      sent_price: null,
+      confirmed_at: null,
+      pms_edited_at: null,
+    })
+  );
+  for (const batch of [inStep, landed, unlanded]) {
     for (let i = 0; i < batch.length; i += 500) {
       const error = await upsertLedger(supabase, batch.slice(i, i + 500));
       if (error) throw new Error(`Failed to record PMS rates in the ledger: ${error.message}`);
@@ -588,6 +640,7 @@ export async function applyPmsEdits(
     rebased: plan.rebased.length,
     removed: (plan.removed ?? []).length,
     overwritten: (plan.overwrites ?? []).length,
+    ...(unlanded.length > 0 ? { unlandedCells: (plan.unlanded ?? []).map((r) => `${r.stayDate}|${r.roomTypeId}`) } : {}),
     suppressedRules: reset.suppressedRules,
     retiredPickups: reset.retiredPickups,
     movedCells: movedCells(plan),
@@ -919,7 +972,7 @@ export async function adoptPmsEdits(
     });
     await recordSharedRatio(supabase, hotelId, pmsType, plan.systematicNights, at);
     const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.rebased.length +
-      plan.removed.length + plan.overwrites.length;
+      plan.removed.length + plan.overwrites.length + plan.unlanded.length;
     const applied = found > 0 ? await applyPmsEdits(supabase, hotelId, pmsType, plan, at, manual) : none;
     const held = plan.heldAtZero.map((r) => `${r.stayDate}|${r.roomTypeId}`);
     const result = { ...applied, heldAtZero: held.length, movedCells: movedCells(plan), holdCells: held };
@@ -1045,7 +1098,7 @@ function logPreMigration(hotelId: string): PmsEditsResult {
 /** One line per hotel per refresh, counts only. */
 function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: PmsEditsResult): void {
   const found = plan.edits.length + plan.inStep.length + plan.landed.length + plan.closed.length + plan.heldAtZero.length +
-    plan.rebased.length + plan.removed.length + plan.overwrites.length;
+    plan.rebased.length + plan.removed.length + plan.overwrites.length + plan.unlanded.length;
   if (found + plan.waiting + plan.typedSinceSend + plan.systematic === 0) return;
   console.log(
     JSON.stringify({
@@ -1062,6 +1115,7 @@ function logPlan(hotelId: string, pmsType: string, plan: PmsEditPlan, result: Pm
       rebased: result.rebased,
       removed: result.removed,
       overwritten: result.overwritten,
+      ...(plan.unlanded.length > 0 ? { neverLanded: plan.unlanded.length, neverLandedWritten: result.unlandedCells?.length ?? 0 } : {}),
       suppressedRules: result.suppressedRules,
       retiredPickups: result.retiredPickups,
       waiting: plan.waiting,

@@ -288,7 +288,8 @@ const CATALOG: Record<PushCause, CatalogEntry> = {
     retry: "quiet",
     sentence: (w) => `${w.pms} took ${w.roomsRates} but never confirmed it saved them`,
     action: () => null,
-    admin: "The vendor still listed the job as unfinished 45 minutes after it went out, so it is taken as not applied and sent again.",
+    admin:
+      "The vendor still listed the job as unfinished 45 minutes after it went out, or never reported on it and the hourly read found another rate there 3 hours to a day later, so it is taken as not applied and sent again.",
   },
   guardrail_outside_window: guardrail("the night is outside the pricing window", false),
   guardrail_inactive_room_type: guardrail("the room type is switched off in MAYA", false),

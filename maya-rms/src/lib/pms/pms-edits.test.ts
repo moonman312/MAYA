@@ -189,6 +189,41 @@ describe("planPmsEdits", () => {
     expect(p).toMatchObject({ edits: [], waiting: 2 });
   });
 
+  it("takes a send whose job was never confirmed, hours on, with another rate in the PMS, as never landed (audit A17)", () => {
+    const unconfirmed = (hours: number, over: Record<string, unknown> = {}) =>
+      read({ stayDate: `2026-10-${String(5 + hours).padStart(2, "0")}`, pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(hours), ...over } });
+    const p = plan([unconfirmed(3), unconfirmed(4), unconfirmed(23)]);
+    expect(p.unlanded.map((r) => r.stayDate)).toEqual(["2026-10-08", "2026-10-09", "2026-10-28"]);
+    expect(p).toMatchObject({ edits: [], landed: [], waiting: 0 });
+  });
+
+  it("leaves every other unconfirmed send waiting, as before", () => {
+    const p = plan([
+      // Too soon: the push still asks about its job for an hour.
+      read({ pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(2.5) } }),
+      // Older than a day: it predates the stamps, and the rate may be the hotel's.
+      read({ stayDate: "2026-10-06", pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(30) } }),
+      // Think: no job to check. A batch it accepted and dropped looks the same as a hotel's change.
+      read({ stayDate: "2026-10-07", pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(5), pms_job_reference: "accepted:202" } }),
+      // No job reference at all.
+      read({ stayDate: "2026-10-08", pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(5), pms_job_reference: null } }),
+    ]);
+    expect(p.unlanded).toEqual([]);
+    expect(p.waiting).toBe(4);
+    // The PMS has MAYA's price: it landed, and is stamped.
+    const there = plan([read({ pmsRate: 220, ledger: { confirmed_at: null, pushed_at: hoursAgo(5) } })]);
+    expect(there).toMatchObject({ unlanded: [], landed: [expect.objectContaining({ stayDate: "2026-10-05" })] });
+    // A 0 MAYA cannot have sent is the hotel closing the night, as before.
+    const closed = plan([read({ pmsRate: 0, ledger: { confirmed_at: null, pushed_at: hoursAgo(5) } })]);
+    expect(closed).toMatchObject({ unlanded: [], closed: [expect.objectContaining({ stayDate: "2026-10-05" })] });
+  });
+
+  it("never waits less than the settle window for one", () => {
+    const r = read({ pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(4) } });
+    const p = planPmsEdits({ reads: [r], targets: TARGETS, manual: new Map(), nowMs: NOW, settleMs: 5 * 3_600_000 });
+    expect(p).toMatchObject({ unlanded: [], waiting: 1 });
+  });
+
   it("leaves a night whose open manual price is the PMS rate already, and brings a hold at that price in step", () => {
     const key = "2026-10-05|rt-king";
     // Typed in MAYA since the send, and in the PMS alike: not a change, and the sent row stays as it is.
@@ -383,6 +418,28 @@ describe("adoptPmsEdits", () => {
     const lines = log.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((l) => l.fn === "adoptPmsEdits");
     expect(lines).toEqual([
       { fn: "adoptPmsEdits", hotelId: "h1", pmsType: "cloudbeds", found: 1, adopted: 1, inStep: 0, landed: 0, closed: 0, heldAtZero: 0, clearedManual: 0, rebased: 0, removed: 0, overwritten: 0, suppressedRules: 1, retiredPickups: 1, waiting: 1, typedSinceSend: 0, systematic: 0 },
+    ]);
+  });
+
+  it("writes a send that never landed back as failed, so the push sends it again, and says which nights", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const d = db();
+    const res = await adoptPmsEdits(
+      d.client,
+      "h1",
+      "cloudbeds",
+      [read({ pmsRate: 200, ledger: { confirmed_at: null, pushed_at: hoursAgo(4), attempts: 2 } })],
+      TARGETS,
+      WINDOW,
+      AT,
+    );
+    expect(res).toMatchObject({ adopted: 0, landed: 0, unlandedCells: ["2026-10-05|rt-king"], movedCells: [], holdCells: [] });
+    expect(d.tables.manual_price).toEqual([]);
+    expect(d.tables.rate_updates).toEqual([
+      expect.objectContaining({
+        stay_date: "2026-10-05", room_type_id: "rt-king", status: "failed", error: "rate job never confirmed", price: 220,
+        sent_price: null, confirmed_at: null, pms_edited_at: null, pms_job_reference: "job-1", attempts: 2, pushed_at: hoursAgo(4),
+      }),
     ]);
   });
 
@@ -757,6 +814,21 @@ describe("a rate changed in the PMS, through the tick", () => {
       });
     }
 
+  });
+
+  it("sends again a Cloudbeds send whose job was never confirmed, hours on, with the old rate still in the PMS, and files it (audit A17)", async () => {
+    const lost = settledSend(220, { confirmed_at: null, pushed_at: new Date(T0 - 4 * 3_600_000).toISOString() });
+    const { d, sent, tick, setPmsRate } = setup([lost]);
+    // Cloudbeds still sells at the rate from before MAYA's send.
+    setPmsRate(200);
+    const res = await tick(T0);
+    expect(res.pmsEditsAdopted ?? 0).toBe(0);
+    expect(d.tables.manual_price).toEqual([]);
+    expect(sent).toEqual([{ price: 220, stayDate: NIGHT }]);
+    expect(d.tables.rate_updates[0]).toMatchObject({ status: "sent", price: 220, attempts: 2 });
+    // Filed under the job never confirmed, with the try it took.
+    expect(d.tables.rate_push_incidents).toEqual([expect.objectContaining({ cause: "job_unconfirmed" })]);
+    expect(d.tables.rate_push_attempts).toEqual([expect.objectContaining({ outcome: "unconfirmed", stay_date: NIGHT })]);
   });
 
   it("takes a night the hotel closed in the PMS as closed: nothing is sent to it, not even when a rule fires, until the hotel opens it", async () => {

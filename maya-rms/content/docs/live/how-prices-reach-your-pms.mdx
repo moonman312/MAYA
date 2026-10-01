@@ -3,7 +3,7 @@ title: How prices reach your property system
 summary: Every cycle MAYA sends the prices that changed, for tonight and the next 395 nights, one nightly rate per room type, to Cloudbeds or ThinkReservations, and each system confirms it in its own way.
 section: live
 order: 30
-readingTime: 26
+readingTime: 27
 keywords: [pricing run cannot finish, pricing run failed, run stopped, pricing stopped, is anyone watching, watchdog, no pricing run, alert to the team, sending, sent, push, when are prices sent, how many nights, 396 nights, 13 months, a year ahead, window, cycle, five minutes, every 5 minutes, which rate plan, base rate, best available, derived rates, packages, rate plan, landed, confirmed, job, accepted, what was sent, unchanged, re-send, sent again same price, never sent, price of 0, comp night, switched off room type, removed room type, deleted room type, no longer in cloudbeds, duplicate room type, held back, read failed, cloudbeds down, large property, first send slow, new bookings, past dates, api limits, rate limit, daily re-read, mews not sent, sending to mews now, sending to thinkreservations off, think not sending, 399 days, price beyond the window, priced past the window, booking.com, expedia, channels, channel manager, booking engine, website price, ota, channel still shows old price, booking.com old price, how long until channels update, channels not updated, channel delay, audit log, rate history, who changed the rate, which changes were MAYA, colleague changed the rate]
 questions:
   - When are prices sent to my property system? {#when-prices-are-sent/every-cycle}
@@ -109,12 +109,13 @@ Whatever your system, it is one price per room type per night. MAYA cannot send 
 
 <PmsTabs>
 <PmsTab pms="cloudbeds">
-Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. Right after sending, MAYA asks Cloudbeds how each send went, waits a few seconds for any still being applied, and keeps asking on later cycles for up to 60 minutes.
+Cloudbeds applies each price a few seconds after receiving it and tells MAYA when it is done. Right after sending, MAYA asks Cloudbeds how each send went, waits a few seconds for any still being applied, and keeps asking on later cycles for up to 60 minutes. A send missing from Cloudbeds' list of recent sends is asked about on its own.
 
 - A send Cloudbeds reports as applied cleanly counts as landed.
 - A send Cloudbeds reports as failed, or applied with a complaint, counts as refused. A cause that clears on its own is retried. A cause that needs you is held. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) lists each cause and when you are told.
+- One send can carry up to 30 nights of a room type. When Cloudbeds says which of its nights it refused, only those count as refused, and the rest count as landed. When it does not say, the whole send counts as refused.
 - A send still listed as unfinished 45 minutes after it went out is treated as not applied and the night is sent again.
-- A send Cloudbeds never reports back on is left counted as sent. It is not sent again until the night's price changes. If a price never appears in Cloudbeds, compare the night in both places and [email us](mailto:info@modern-hospitality-solutions.com?subject=Price%20not%20in%20Cloudbeds).
+- A send Cloudbeds never reports back on counts as sent at first. If MAYA's hourly read of your rates then finds Cloudbeds on a different rate for that night, 3 hours to a day after the send, MAYA treats it as not applied and sends the night again. A send older than a day is left counted as sent. If a price never appears in Cloudbeds, compare the night in both places and [email us](mailto:info@modern-hospitality-solutions.com?subject=Price%20not%20in%20Cloudbeds).
 </PmsTab>
 <PmsTab pms="thinkreservations">
 ThinkReservations answers each send with "accepted" and applies it shortly after. It tells MAYA nothing more after that. MAYA's check that the price is there comes with its next hourly read of your rates. If a price never appears, MAYA does not send it again until the night's price changes, so compare the night in both places and [email us](mailto:info@modern-hospitality-solutions.com?subject=Price%20not%20in%20ThinkReservations).

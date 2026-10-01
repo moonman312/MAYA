@@ -19,7 +19,7 @@ vi.mock("../../../supabase/functions/_shared/cloudbeds/client", () => ({
   cloudbedsPatchRate: patchRate,
 }));
 
-const { createCloudbedsRateAdapter, rateIntervalRuns } = await import(
+const { createCloudbedsRateAdapter, rateIntervalRuns, jobOutcome, JOB_LOOKUPS_PER_CALL, JOB_LOOKUPS_PER_TICK } = await import(
   "../../../supabase/functions/_shared/cloudbeds/rate-push"
 );
 const CREDS = { accessToken: "t", tokenType: "Bearer", baseUrl: "https://api.test", propertyId: "P1" } as never;
@@ -72,6 +72,117 @@ describe("cloudbeds fetchJobOutcomes", () => {
       { jobReferenceID: "SOMEONE_ELSE", status: "completed", dateCreated: null, updates: [] },
     ]);
     expect(await createCloudbedsRateAdapter(CREDS).fetchJobOutcomes!(["J1"])).toEqual({});
+  });
+});
+
+/**
+ * What Cloudbeds documents for getRateJobs: status in_progress, completed or
+ * error ("an error with 1 or more updates requested in this job"), and per
+ * update an action (in_progress, updated, created, error) with the reason in
+ * message. A job with one bad night reports that night only (audit A18).
+ */
+describe("jobOutcome, night by night", () => {
+  const update = (startDate: string, endDate: string, action: string, message: string | null = null) => ({
+    rateID: "R1",
+    action,
+    startDate,
+    endDate,
+    rate: 210,
+    message,
+  });
+
+  it("reports each stretch of an error job, so only the rejected nights fail", () => {
+    const out = jobOutcome({
+      jobReferenceID: "J1",
+      status: "error",
+      dateCreated: null,
+      updates: [
+        update("2026-10-01", "2026-10-01", "updated"),
+        update("2026-10-02", "2026-10-02", "error", "Rate is closed for this date"),
+        update("2026-10-03", "2026-10-03", "created"),
+      ],
+    });
+    expect(out).toEqual({
+      done: true,
+      ok: false,
+      message: "Rate is closed for this date",
+      intervals: [
+        { startDate: "2026-10-01", endDate: "2026-10-01", ok: true },
+        { startDate: "2026-10-02", endDate: "2026-10-02", ok: false, message: "Rate is closed for this date" },
+        { startDate: "2026-10-03", endDate: "2026-10-03", ok: true },
+      ],
+    });
+  });
+
+  it("does the same for a completed envelope carrying a failed update", () => {
+    const out = jobOutcome({
+      jobReferenceID: "J1",
+      status: "completed",
+      dateCreated: null,
+      updates: [update("2026-10-01", "2026-10-04", "updated"), update("2026-10-05", "2026-10-05", "updated", "Past the loaded rates")],
+    });
+    expect(out.ok).toBe(false);
+    expect(out.intervals?.map((i) => i.ok)).toEqual([true, false]);
+  });
+
+  it("never counts an update still in progress, or an error without words, as applied", () => {
+    const out = jobOutcome({
+      jobReferenceID: "J1",
+      status: "error",
+      dateCreated: null,
+      updates: [update("2026-10-01", "2026-10-01", "in_progress"), update("2026-10-02", "2026-10-02", "error")],
+    });
+    expect(out.intervals).toEqual([
+      { startDate: "2026-10-01", endDate: "2026-10-01", ok: false, message: "job error" },
+      { startDate: "2026-10-02", endDate: "2026-10-02", ok: false, message: "job error" },
+    ]);
+  });
+
+  it("fails the whole job when an update names no nights, or there are no updates", () => {
+    expect(
+      jobOutcome({ jobReferenceID: "J1", status: "error", dateCreated: null, updates: [{ rateID: "R1", action: "error", message: "bad" }] }),
+    ).toEqual({ done: true, ok: false, message: "bad" });
+    expect(jobOutcome({ jobReferenceID: "J1", status: "error", dateCreated: null, updates: [] })).toEqual({
+      done: true,
+      ok: false,
+      message: "job error",
+    });
+  });
+
+  it("confirms a completed job whose updates all applied", () => {
+    expect(
+      jobOutcome({ jobReferenceID: "J1", status: "completed", dateCreated: null, updates: [update("2026-10-01", "2026-10-01", "updated", "")] }),
+    ).toEqual({ done: true, ok: true });
+  });
+});
+
+describe("a job missing from the recent list (audit A17)", () => {
+  it("is asked about by its reference", async () => {
+    getRateJobs.mockReset();
+    getRateJobs.mockImplementation(async (_creds: unknown, opts?: { jobReferenceID?: string }) =>
+      opts?.jobReferenceID === "J2"
+        ? [{ jobReferenceID: "J2", status: "completed", dateCreated: null, updates: [] }]
+        : [{ jobReferenceID: "J1", status: "completed", dateCreated: null, updates: [] }],
+    );
+    const out = await createCloudbedsRateAdapter(CREDS).fetchJobOutcomes!(["J1", "J2", "J3"]);
+    expect(out).toEqual({ J1: { done: true, ok: true }, J2: { done: true, ok: true } });
+    expect(getRateJobs.mock.calls.map((c) => c[1]?.jobReferenceID ?? null)).toEqual([null, "J2", "J3"]);
+  });
+
+  it("asks about only a few per call, and a bounded number per tick", async () => {
+    getRateJobs.mockReset();
+    getRateJobs.mockResolvedValue([]);
+    const adapter = createCloudbedsRateAdapter(CREDS);
+    const refs = Array.from({ length: 50 }, (_, i) => `J${i}`);
+    await adapter.fetchJobOutcomes!(refs);
+    expect(getRateJobs).toHaveBeenCalledTimes(1 + JOB_LOOKUPS_PER_CALL);
+    for (let i = 0; i < 5; i++) await adapter.fetchJobOutcomes!(refs);
+    const lookups = getRateJobs.mock.calls.filter((c) => c[1]?.jobReferenceID).length;
+    expect(lookups).toBe(JOB_LOOKUPS_PER_TICK);
+    // A fresh tick (a new adapter) may ask again.
+    getRateJobs.mockClear();
+    await createCloudbedsRateAdapter(CREDS).fetchJobOutcomes!(refs);
+    expect(getRateJobs).toHaveBeenCalledTimes(1 + JOB_LOOKUPS_PER_CALL);
   });
 });
 

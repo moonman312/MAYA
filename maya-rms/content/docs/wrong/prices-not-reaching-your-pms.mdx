@@ -58,7 +58,7 @@ Five reasons, most common first.
 - **It has not gone yet.** A price changed in the last few minutes goes on the next cycle. The first send to a night waits for a fresh read of your rates.
 - **You are simulating.** Prices are worked out and shown, and never sent. See the check above.
 - **A problem is holding it.** Look for "Prices not reaching Cloudbeds" at the top of the change log. The item says what is wrong and what to do.
-- **Cloudbeds took it and never finished.** Cloudbeds applies a rate write as a job. If a job is still unfinished 45 minutes later, MAYA treats it as not applied and sends the night again. You are told only if it keeps happening.
+- **Cloudbeds took it and never finished.** Cloudbeds applies a rate write as a job. If a job is still unfinished 45 minutes later, or Cloudbeds never reported on it and still has a different rate there 3 hours to a day later, MAYA treats it as not applied and sends the night again. You are told only if it keeps happening.
 - **ThinkReservations applies it later.** ThinkReservations accepts a write and applies it afterwards. MAYA confirms it on the next hourly read.
 
 ## My base rate moved but my non-refundable rate did not
@@ -97,6 +97,7 @@ Your change was written over for one of these reasons:
 - **Within the hour.** You changed it less than 60 minutes after MAYA's send. MAYA reads your rates about once an hour, and again before re-sending a night it last sent to over an hour ago, so a change made inside that hour can be written over when MAYA's own price for the night changes.
 - **A night MAYA had never sent to.** Your rate there is read as the night's starting point, not as a manual price. Your rules work from it, and MAYA sends the result. This is also what happens to every rate you change while simulating.
 - **A ThinkReservations night MAYA had not read back yet.** A send to ThinkReservations counts as confirmed only once MAYA's hourly read finds it. Until then a different rate there is not read as your change.
+- **A Cloudbeds send that never landed.** When Cloudbeds never reported on a send, and 3 hours to a day later still has a different rate on that night, MAYA takes the send as not applied and sends its price again. A rate you set on that night in the meantime is written over.
 - **Nearly every night differs by the same ratio.** When 80% or more of the nights MAYA sent to (10 at least) differ from MAYA's price by one shared ratio (a system reporting prices with tax included, or a markup), MAYA reads that as your system's own arithmetic, not as edits, and keeps sending its own prices.
 
 <Callout kind="good-to-know" title="Change prices in MAYA when you can">

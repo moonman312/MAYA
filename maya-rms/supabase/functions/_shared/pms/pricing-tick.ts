@@ -366,6 +366,8 @@ export async function runPricingTick<E>(
         ...(notVouched ? { notVouched } : {}),
         holdNeverPushed: !baseReadRecently(calendar),
         ...changedInPms,
+        // Sends this tick's read found never landed: filed, and sent again.
+        ...(baseReadThisTick(calendar) && calendar.unlandedCells?.length ? { neverLanded: new Set(calendar.unlandedCells) } : {}),
       });
     } catch (e) {
       push = { error: errorText(e, "push failed") };
