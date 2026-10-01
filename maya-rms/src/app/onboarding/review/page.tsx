@@ -1,4 +1,5 @@
 import { ReviewFindings } from "@/components/onboarding/review-findings";
+import { SimulationStrip } from "@/components/simulation-strip";
 import { ArrivalFlash } from "@/components/deep-links/arrival-bits";
 import { links } from "@/lib/deep-links";
 import { queryOf } from "@/lib/deep-links/member-role";
@@ -21,6 +22,8 @@ export default async function ReviewPage({
           "starter-rules": "review.starter-rules",
         }}
       />
+      {/* A property screen like the dashboard's: which mode it is in, in the page's own column. */}
+      <SimulationStrip width="" boxed />
       <ReviewFindings initialStep={initialStep} />
     </>
   );

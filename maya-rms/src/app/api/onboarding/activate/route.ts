@@ -1,4 +1,6 @@
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
+import { pmsLabel, pmsSendsPrices } from "@/lib/price-mode";
+import { OTHER_PROPERTY, pickConnection } from "@/lib/simulation-strip";
 import { requestBaseRateRefresh } from "@/lib/pms/connection-stamps";
 import { requestIp, requestUserAgent } from "@/lib/legal/acceptance";
 import { PRIVACY_VERSION, TERMS_VERSION } from "@/lib/legal/versions";
@@ -21,6 +23,13 @@ import { NextResponse } from "next/server";
  *
  * It also makes the next scheduled tick re-read the hotel's base rates before
  * its first live push (requestBaseRateRefresh).
+ *
+ * Two refusals before anything changes. The page sends the property it shows
+ * (`hotelId`); when the active property is another one by now (switched in
+ * another tab), it says so instead of taking that one live. And a property on
+ * a system MAYA doesn't send prices to (Mews) has nothing to switch on, as
+ * the strip and the review card say; MAYA staff can still switch it in the
+ * Command Center.
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -36,6 +45,19 @@ export async function POST(request: Request) {
   const hotelId = await resolveAccessibleHotelId(supabase);
   if (!hotelId) {
     return NextResponse.json({ error: "No hotel" }, { status: 400 });
+  }
+  const body = (await request.json().catch(() => null)) as { termsVersion?: unknown; hotelId?: unknown } | null;
+  if (typeof body?.hotelId === "string" && body.hotelId !== hotelId) {
+    return NextResponse.json({ error: OTHER_PROPERTY }, { status: 409 });
+  }
+  const { data: connections } = await supabase.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
+  const conn = pickConnection((connections ?? []) as { pms_type?: unknown; status?: unknown }[]);
+  const pmsType = conn?.pms_type != null ? String(conn.pms_type) : null;
+  if (pmsType != null && !pmsSendsPrices(pmsType)) {
+    return NextResponse.json(
+      { error: `MAYA doesn't send prices to ${pmsLabel(pmsType)} yet, so there is nothing to switch on.` },
+      { status: 409 },
+    );
   }
 
   const { error, data } = await supabase
@@ -54,7 +76,7 @@ export async function POST(request: Request) {
     );
   }
 
-  await recordGoLive(request, hotelId, user.id);
+  await recordGoLive(request, body, hotelId, user.id);
   if (isAdminConfigured()) await requestBaseRateRefresh(createAdminClient(), hotelId);
   return NextResponse.json({ ok: true });
 }
@@ -63,8 +85,12 @@ export async function POST(request: Request) {
  * Evidence, not a condition: the switch has already happened, and a failed
  * write is logged rather than turned into an error for a change that stuck.
  */
-async function recordGoLive(request: Request, hotelId: string, userId: string): Promise<void> {
-  const body = (await request.json().catch(() => null)) as { termsVersion?: unknown } | null;
+async function recordGoLive(
+  request: Request,
+  body: { termsVersion?: unknown } | null,
+  hotelId: string,
+  userId: string,
+): Promise<void> {
   // What the page showed, kept beside what the server has in force. A tab
   // left open across a release is the only way the two differ.
   const shown = typeof body?.termsVersion === "string" ? body.termsVersion.slice(0, 16) : null;

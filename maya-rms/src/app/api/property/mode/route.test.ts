@@ -72,6 +72,12 @@ describe("GET /api/property/mode", () => {
     expect((await ask("u-gm")).body.windowDays).toEqual(expect.any(Number));
   });
 
+  it("names the property it answered for, so the confirm and the go-live call are about that one", async () => {
+    const { body } = await ask("u-gm", { hotels: [{ id: HOTEL, name: "Juniper Lodge" }] });
+    expect(body).toMatchObject({ hotelId: HOTEL, propertyName: "Juniper Lodge" });
+    expect((await ask("u-gm")).body.propertyName).toBeNull();
+  });
+
   it("answers no one signed out", async () => {
     expect((await ask(null)).status).toBe(401);
   });

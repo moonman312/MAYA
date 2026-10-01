@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { GoLiveConfirmation, GoLiveDialog, requestGoLive } from "@/components/go-live-dialog";
+import { usePropertyMode } from "@/components/use-property-mode";
+import { noGoLiveLine } from "@/lib/simulation-strip";
 import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
 import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { suggestionDraft, tunedDraft } from "@/lib/rule-suggestion-draft";
@@ -450,6 +452,9 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const [live, setLive] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Offered on the strip's terms (/api/property/mode): a General Manager or
+  // Hotel Admin, on a system MAYA sends prices to. Everyone else is told why.
+  const mode = usePropertyMode(status?.hotelId);
 
   // From the import that built them, not the newest job: a later "Get
   // suggestions from my data" read builds none, and taking its empty list
@@ -461,14 +466,16 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   if (rules.length === 0) return null;
   const note = status?.starterRulesNote ?? status?.job?.stats?.starterRulesNote;
 
-  const inSimulation = !live && status?.simulationMode !== false;
+  const inSimulation = !live && status?.simulationMode !== false && mode?.mode !== "live";
+  const blocked = mode ? noGoLiveLine(mode) : null;
 
   // Only the dialog's confirm calls the server; the button just asks first.
-  // The same call as the simulation strip's Go live (requestGoLive).
+  // The same call as the simulation strip's Go live (requestGoLive), for the
+  // property this page shows.
   async function goLive() {
     setGoing(true);
     setError(null);
-    const failed = await requestGoLive();
+    const failed = await requestGoLive(mode?.hotelId ?? status?.hotelId ?? null);
     if (failed) {
       setError(failed);
     } else {
@@ -501,7 +508,9 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        {inSimulation ? (
+        {inSimulation && !mode ? null : inSimulation && blocked ? (
+          <span className="text-[0.6875rem] text-slate-400">{blocked}</span>
+        ) : inSimulation ? (
           <>
             <button
               type="button"
@@ -529,12 +538,13 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
         open={inSimulation && confirming}
         pmsType={status?.pmsType ?? null}
         windowDays={status?.pushWindowDays ?? null}
+        propertyName={mode?.propertyName ?? status?.hotelName ?? null}
         busy={going}
         error={error}
         onConfirm={() => void goLive()}
         onCancel={() => setConfirming(false)}
       >
-        <GoLiveConfirmation />
+        <GoLiveConfirmation pmsType={status?.pmsType ?? null} />
       </GoLiveDialog>
     </div>
   );

@@ -14,8 +14,10 @@
  * a property they don't belong to (a platform admin's support view, God Mode
  * or not) never get it, and nor does anyone below General Manager: they are
  * told who can. A property on a system MAYA doesn't send prices to (Mews) has
- * nothing to switch on, so it gets no Go live either. With no connection at
- * all Go live is still offered; the confirm says nothing is sent until one is.
+ * nothing to switch on, so it gets no Go live either, here, on the review
+ * card or from POST /api/onboarding/activate, which refuses it. With no
+ * connection at all Go live is still offered; the confirm says nothing is
+ * sent until one is.
  *
  * Pure: the route (/api/property/mode) builds it, the strip shows it.
  */
@@ -75,6 +77,9 @@ export function simulationStripText(m: Pick<PropertyMode, "pmsType">): string {
   return `Simulation · MAYA works out prices but sends nothing to ${pmsLabel(m.pmsType)}`;
 }
 
+/** The go-live route's answer when the page shows another property than the active one (a switch in another tab). */
+export const OTHER_PROPERTY = "This page is for another property. Reload and try again.";
+
 /** Who may switch the property to live, for everyone else. */
 export const WHO_CAN_GO_LIVE = "A General Manager or Hotel Admin can switch this property to live.";
 
@@ -84,14 +89,20 @@ export function simulationHelp(m: Pick<PropertyMode, "pmsType" | "sendsPrices" |
   const lines = [
     `Your rules run as they will live, and their prices show on the calendar and in the change log. ${m.pmsType ? pms : "Your property system"} keeps its own rates.`,
   ];
-  if (m.pmsType != null && !m.sendsPrices) {
-    lines.push(`MAYA doesn't send prices to ${pms} yet, so there is nothing to switch on here.`);
-  } else if (m.canGoLive) {
-    lines.push("Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us.");
-  } else {
-    lines.push(WHO_CAN_GO_LIVE);
-  }
+  lines.push(noGoLiveLine(m) ?? "Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us.");
   return { title: "Simulation", lines };
+}
+
+/**
+ * Why there is no Go live, for someone who sees the property simulating
+ * without it: nothing to switch on (a system MAYA doesn't send prices to), or
+ * who can. Null when they can go live. The review card says it in place of
+ * its button.
+ */
+export function noGoLiveLine(m: Pick<PropertyMode, "pmsType" | "sendsPrices" | "canGoLive">): string | null {
+  if (m.canGoLive) return null;
+  if (m.pmsType != null && !m.sendsPrices) return `MAYA doesn't send prices to ${pmsLabel(m.pmsType)} yet, so there is nothing to switch on here.`;
+  return WHO_CAN_GO_LIVE;
 }
 
 /** The "?" beside the Live tag, only where it needs saying: nothing goes to a system MAYA doesn't send to. */

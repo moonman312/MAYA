@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   rpcCalls: [] as { name: string; args: Record<string, unknown> }[],
   rpcError: null as { message: string } | null,
   connectionUpdates: [] as { patch: Record<string, unknown>; hotelId: unknown }[],
+  connections: [{ pms_type: "cloudbeds", status: "connected" }] as Record<string, unknown>[],
+  updates: 0,
 }));
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -21,9 +23,11 @@ vi.mock("@/utils/supabase/server", () => ({
   createClient: () => ({
     auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) },
     from: () => ({
-      update: () => ({
-        eq: () => ({ select: async () => ({ data: state.updatedRows, error: null }) }),
-      }),
+      update: () => {
+        state.updates += 1;
+        return { eq: () => ({ select: async () => ({ data: state.updatedRows, error: null }) }) };
+      },
+      select: () => ({ eq: async () => ({ data: state.connections, error: null }) }),
     }),
   }),
 }));
@@ -63,6 +67,32 @@ beforeEach(() => {
   state.rpcCalls = [];
   state.rpcError = null;
   state.connectionUpdates = [];
+  state.connections = [{ pms_type: "cloudbeds", status: "connected" }];
+  state.updates = 0;
+});
+
+describe("what going live refuses", () => {
+  it("refuses when the page shows another property than the active one, and changes nothing", async () => {
+    const res = await goLive({ termsVersion: TERMS_VERSION, hotelId: "hotel-2" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("This page is for another property. Reload and try again.");
+    expect(state.updates).toBe(0);
+    expect(state.rpcCalls).toHaveLength(0);
+    // The property the page shows is the active one: it goes live.
+    expect((await goLive({ termsVersion: TERMS_VERSION, hotelId: "hotel-1" })).status).toBe(200);
+    expect(state.updates).toBe(1);
+  });
+
+  it("refuses a property on a system MAYA doesn't send prices to, as the strip and review card say", async () => {
+    state.connections = [{ pms_type: "mews", status: "connected" }];
+    const res = await goLive();
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: string }).error).toBe("MAYA doesn't send prices to Mews yet, so there is nothing to switch on.");
+    expect(state.updates).toBe(0);
+    // No connection yet: still allowed, the confirm said nothing is sent until one is.
+    state.connections = [];
+    expect((await goLive()).status).toBe(200);
+  });
 });
 
 describe("going live", () => {

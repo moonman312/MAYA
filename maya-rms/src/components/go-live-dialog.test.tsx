@@ -5,7 +5,7 @@
  */
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GoLiveDialog, goLiveCopy, pmsConnected } from "./go-live-dialog";
+import { GoLiveConfirmation, GoLiveDialog, WENT_LIVE_EVENT, goLiveCopy, pmsConnected, requestGoLive } from "./go-live-dialog";
 import { StarterRules } from "./onboarding/review-findings";
 import { SimulationModeToggle } from "./admin/simulation-mode-toggle";
 
@@ -57,8 +57,48 @@ describe("goLiveCopy", () => {
   it("doesn't promise to send to a PMS MAYA has no rate push for", () => {
     expect(goLiveCopy({ pmsType: "mews", windowDays: 60 })).toEqual({
       title: "Go live?",
-      lines: ["MAYA doesn't send rates to Mews yet, so nothing is sent. The hotel only shows as live."],
+      lines: ["MAYA doesn't send prices to Mews yet, so nothing is sent. The hotel only shows as live."],
     });
+  });
+
+  it("names the property it takes live", () => {
+    expect(goLiveCopy({ pmsType: "cloudbeds", windowDays: 60, propertyName: "Juniper Lodge" }).title).toBe(
+      "Send Juniper Lodge's prices to Cloudbeds?",
+    );
+    expect(goLiveCopy({ pmsType: null, windowDays: 60, connected: false, propertyName: "Juniper Lodge" }).title).toBe(
+      "Take Juniper Lodge live?",
+    );
+    expect(goLiveCopy({ pmsType: "cloudbeds", windowDays: 60, propertyName: "  " }).title).toBe("Send prices to Cloudbeds?");
+  });
+});
+
+describe("GoLiveConfirmation", () => {
+  it("says MAYA's prices go to the property system by name, not 'these rates' to 'your PMS'", () => {
+    const view = render(<GoLiveConfirmation pmsType="cloudbeds" />);
+    expect(view.container.textContent).toBe(
+      "Going live sends MAYA's prices to Cloudbeds automatically. You're confirming you've reviewed your rules and limits (Terms 3.3).",
+    );
+    view.unmount();
+    expect(render(<GoLiveConfirmation />).container.textContent).toContain("sends MAYA's prices to your property system automatically");
+  });
+});
+
+describe("requestGoLive", () => {
+  it("sends the property the page shows, and tells the page once it went live", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const heard = vi.fn();
+    window.addEventListener(WENT_LIVE_EVENT, heard);
+    expect(await requestGoLive("hotel-juniper")).toBeNull();
+    window.removeEventListener(WENT_LIVE_EVENT, heard);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ hotelId: "hotel-juniper" });
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the route's reason when it refuses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "This page is for another property. Reload and try again." }), { status: 409 })));
+    expect(await requestGoLive("hotel-juniper")).toBe("This page is for another property. Reload and try again.");
   });
 });
 
@@ -90,44 +130,80 @@ describe("GoLiveDialog", () => {
 describe("the onboarding go-live button", () => {
   const status = {
     connected: true,
+    hotelId: "hotel-1",
+    hotelName: "Juniper Lodge",
     simulationMode: true,
     pmsType: "cloudbeds",
     pushWindowDays: 60,
     job: { stats: { starterRules: [{ name: "Busy nights", explanation: "Raises busy nights." }] } },
   } as unknown as Parameters<typeof StarterRules>[0]["status"];
 
+  const modeAnswer = (over: Record<string, unknown> = {}) => ({
+    hotelId: "hotel-1",
+    propertyName: "Juniper Lodge",
+    mode: "simulation",
+    pmsType: "cloudbeds",
+    sendsPrices: true,
+    connected: true,
+    canGoLive: true,
+    windowDays: 60,
+    ...over,
+  });
+  const answer = (mode: Record<string, unknown>, activate?: Response) =>
+    fetchSpy.mockImplementation(async (input: RequestInfo | URL) =>
+      String(input) === "/api/property/mode"
+        ? new Response(JSON.stringify(mode), { status: 200 })
+        : (activate ?? new Response(JSON.stringify({ ok: true }), { status: 200 })),
+    );
+  const activateCalls = () => fetchSpy.mock.calls.filter((c) => c[0] === "/api/onboarding/activate");
+
   it("asks before it calls the server, and goes live only on the confirm", async () => {
+    answer(modeAnswer());
     const view = render(<StarterRules status={status} />);
 
-    fireEvent.click(view.getByRole("button", { name: "Turn them on for real" }));
-    expect(fetchSpy).not.toHaveBeenCalled();
-    const dialog = view.getByRole("dialog");
+    fireEvent.click(await view.findByRole("button", { name: "Turn them on for real" }));
+    expect(activateCalls()).toHaveLength(0);
+    const dialog = view.getByRole("dialog", { name: "Send Juniper Lodge's prices to Cloudbeds?" });
     expect(dialog.textContent).toContain("MAYA starts sending its prices for the next 60 nights to Cloudbeds");
     // The Terms line sits with the press it describes.
     expect(dialog.textContent).toContain("You're confirming you've reviewed your rules and limits");
 
     fireEvent.click(view.getByRole("button", { name: "Not yet" }));
     expect(view.queryByRole("dialog")).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(activateCalls()).toHaveLength(0);
 
     fireEvent.click(view.getByRole("button", { name: "Turn them on for real" }));
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Go live" }));
     });
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(fetchSpy.mock.calls[0][0]).toBe("/api/onboarding/activate");
+    expect(activateCalls()).toHaveLength(1);
+    // For the property this page shows.
+    expect(JSON.parse(String((activateCalls()[0][1] as RequestInit).body))).toMatchObject({ hotelId: "hotel-1" });
     await waitFor(() => expect(view.container.textContent).toContain("Live: your rules are now managing prices"));
     expect(view.queryByRole("dialog")).toBeNull();
   });
 
   it("keeps the dialog open with the server's reason when going live fails", async () => {
-    fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify({ error: "You need admin access on this property to go live." }), { status: 403 }));
+    answer(modeAnswer(), new Response(JSON.stringify({ error: "You need admin access on this property to go live." }), { status: 403 }));
     const view = render(<StarterRules status={status} />);
-    fireEvent.click(view.getByRole("button", { name: "Turn them on for real" }));
+    fireEvent.click(await view.findByRole("button", { name: "Turn them on for real" }));
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Go live" }));
     });
     await waitFor(() => expect(view.getByRole("dialog").textContent).toContain("You need admin access on this property to go live."));
+  });
+
+  it("offers it on the strip's terms: who can, for everyone else, and nothing to switch on for Mews", async () => {
+    answer(modeAnswer({ canGoLive: false }));
+    let view = render(<StarterRules status={status} />);
+    expect(await view.findByText("A General Manager or Hotel Admin can switch this property to live.")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Turn them on for real" })).toBeNull();
+    cleanup();
+
+    answer(modeAnswer({ pmsType: "mews", sendsPrices: false, canGoLive: false }));
+    view = render(<StarterRules status={{ ...status!, pmsType: "mews" }} />);
+    expect(await view.findByText("MAYA doesn't send prices to Mews yet, so there is nothing to switch on here.")).toBeTruthy();
+    expect(view.queryByRole("button", { name: "Turn them on for real" })).toBeNull();
   });
 });
 

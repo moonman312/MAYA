@@ -167,10 +167,11 @@ describe("GoLiveConfirmation", () => {
     const { createElement } = await import("react");
     const { renderToStaticMarkup } = await import("react-dom/server");
     const { GoLiveConfirmation } = await import("@/components/onboarding/review-findings");
-    const html = renderToStaticMarkup(createElement(GoLiveConfirmation));
+    const html = renderToStaticMarkup(createElement(GoLiveConfirmation, { pmsType: "cloudbeds" }));
     const text = html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'");
+    // MAYA's prices, named by the system they go to: not "these rates" to "your PMS".
     expect(text).toBe(
-      "Going live sends these rates to your PMS automatically. You're confirming you've reviewed your rules and limits (Terms 3.3).",
+      "Going live sends MAYA's prices to Cloudbeds automatically. You're confirming you've reviewed your rules and limits (Terms 3.3).",
     );
     expect(html).toContain('href="https://www.get-maya.com/terms"');
     expect(html).toContain('target="_blank"');

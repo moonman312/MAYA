@@ -8,9 +8,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SimulationStrip } from "./simulation-strip";
-import type { PropertyMode } from "@/lib/simulation-strip";
+import type { PropertyModeView } from "./use-property-mode";
 
-const SIMULATING: PropertyMode = {
+const SIMULATING: PropertyModeView = {
+  hotelId: "h-1",
+  propertyName: "Juniper Lodge",
   mode: "simulation",
   pmsType: "cloudbeds",
   sendsPrices: true,
@@ -20,7 +22,7 @@ const SIMULATING: PropertyMode = {
 };
 
 let fetchSpy: ReturnType<typeof vi.fn>;
-function answer(mode: PropertyMode | null, activate: { status: number; body: unknown } = { status: 200, body: { ok: true } }) {
+function answer(mode: PropertyModeView | null, activate: { status: number; body: unknown } = { status: 200, body: { ok: true } }) {
   fetchSpy = vi.fn(async (url: string) => {
     if (url === "/api/property/mode") {
       return mode ? new Response(JSON.stringify(mode), { status: 200 }) : new Response("{}", { status: 400 });
@@ -49,8 +51,9 @@ describe("SimulationStrip", () => {
     const onWentLive = vi.fn();
     render(<SimulationStrip hotelId="h-1" onWentLive={onWentLive} />);
     fireEvent.click(await screen.findByRole("button", { name: "Go live" }));
-    // The existing confirm: nothing is sent to the server yet.
-    expect(screen.getByRole("dialog").textContent).toContain("Send prices to Cloudbeds?");
+    // The existing confirm, naming the property: nothing is sent to the server yet.
+    expect(screen.getByRole("dialog").textContent).toContain("Send Juniper Lodge's prices to Cloudbeds?");
+    expect(screen.getByRole("dialog").textContent).toContain("Going live sends MAYA's prices to Cloudbeds automatically.");
     expect(screen.getByRole("dialog").textContent).toContain("for the next 396 nights");
     expect(screen.getByRole("dialog").textContent).toContain("Terms");
     expect(fetchSpy.mock.calls.some(([url]) => url === "/api/onboarding/activate")).toBe(false);
@@ -59,6 +62,8 @@ describe("SimulationStrip", () => {
     const call = fetchSpy.mock.calls.find(([url]) => url === "/api/onboarding/activate")!;
     expect(call[1]).toMatchObject({ method: "POST" });
     expect(JSON.parse(String(call[1].body))).toHaveProperty("termsVersion");
+    // The property the strip showed, so the route can refuse if the active one changed.
+    expect(JSON.parse(String(call[1].body))).toMatchObject({ hotelId: "h-1" });
     expect(onWentLive).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
@@ -107,11 +112,38 @@ describe("SimulationStrip", () => {
     expect(container.textContent).toBe("");
   });
 
-  it("reads again when the property on screen changes", async () => {
-    const { rerender } = render(<SimulationStrip hotelId="h-1" />);
+  it("reads again when the property on screen changes, showing nothing of the last one meanwhile", async () => {
+    const onMode = vi.fn();
+    const { rerender } = render(<SimulationStrip hotelId="h-1" onMode={onMode} />);
     await screen.findByTestId("mode-simulation");
-    answer({ ...SIMULATING, mode: "live", canGoLive: false });
-    rerender(<SimulationStrip hotelId="h-2" />);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    fetchSpy.mockImplementation(async (url: string) => {
+      await held;
+      return url === "/api/property/mode"
+        ? new Response(JSON.stringify({ ...SIMULATING, hotelId: "h-2", mode: "live", canGoLive: false }), { status: 200 })
+        : new Response("{}", { status: 500 });
+    });
+    rerender(<SimulationStrip hotelId="h-2" onMode={onMode} />);
+    // While h-2's mode is read, h-1's strip and its Go live are gone.
+    expect(screen.queryByTestId("mode-simulation")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Go live" })).toBeNull();
+    await waitFor(() => expect(onMode).toHaveBeenLastCalledWith(null));
+    release();
     await screen.findByTestId("mode-live");
+  });
+
+  it("stands out: a stronger amber with a dot, and a Go live big enough to tap", async () => {
+    render(<SimulationStrip hotelId="h-1" />);
+    const strip = await screen.findByTestId("mode-simulation");
+    expect(strip.className).toContain("bg-amber-500/20");
+    expect(strip.querySelector(".bg-amber-400.rounded-full")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Go live" }).className).toContain("min-h-7");
+  });
+
+  it("sits in the page's own column on the review page", async () => {
+    render(<SimulationStrip width="" boxed />);
+    const strip = await screen.findByTestId("mode-simulation");
+    expect(strip.className).toContain("rounded-md");
   });
 });

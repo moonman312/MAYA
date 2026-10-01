@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
 import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
-import { PMS_SENDS_PRICES } from "@/lib/price-mode";
+import { PMS_SENDS_PRICES, pmsLabel } from "@/lib/price-mode";
 
 /**
  * The confirm step every go-live switch shows before it calls the server.
@@ -19,7 +19,9 @@ import { PMS_SENDS_PRICES } from "@/lib/price-mode";
  * Only Cloudbeds and Think have a rate push; for anything else the dialog
  * says nothing is sent. Nor is anything sent without a connection the sync
  * picks up (none, disconnected, or pending payment), and the admin switch,
- * which can see the connection, says so.
+ * which can see the connection, says so. The owner's confirm names the
+ * property it takes live, and the call carries that property's id, so a tab
+ * left on one property never takes another live.
  */
 
 /** The PMSes with a rate push adapter (_shared/cloudbeds/rate-push.ts, _shared/think/rate-push.ts). */
@@ -45,14 +47,22 @@ export function pmsConnected(pmsType: string | null, pmsStatus: string | null): 
 
 /**
  * The dialog's sentences. `connected` is whether the hotel has a connection
- * the sync picks up; left out, it is taken as yes. Exported for tests.
+ * the sync picks up; left out, it is taken as yes. `propertyName`, when
+ * given, names the property in the title. Exported for tests.
  */
-export function goLiveCopy(p: { pmsType: string | null; windowDays: number | null; connected?: boolean }): {
+export function goLiveCopy(p: {
+  pmsType: string | null;
+  windowDays: number | null;
+  connected?: boolean;
+  propertyName?: string | null;
+}): {
   title: string;
   lines: string[];
 } {
+  const name = p.propertyName?.trim() || null;
+  const goLive = name ? `Take ${name} live?` : "Go live?";
   if (p.connected === false) {
-    return { title: "Go live?", lines: ["No PMS is connected, so nothing is sent until one is."] };
+    return { title: goLive, lines: ["No PMS is connected, so nothing is sent until one is."] };
   }
   const known = p.pmsType ? PMS_NAMES[p.pmsType] : undefined;
   const pms = known ?? "your PMS";
@@ -61,13 +71,13 @@ export function goLiveCopy(p: { pmsType: string | null; windowDays: number | nul
   // after onboarding connected one, and onboarding only connects those.
   if (p.pmsType && !PMS_WITH_RATE_PUSH.has(p.pmsType)) {
     return {
-      title: "Go live?",
-      lines: [`MAYA doesn't send rates to ${pms} yet, so nothing is sent. The hotel only shows as live.`],
+      title: goLive,
+      lines: [`MAYA doesn't send prices to ${pms} yet, so nothing is sent. The hotel only shows as live.`],
     };
   }
   const nights = p.windowDays != null && p.windowDays > 0 ? ` for the next ${p.windowDays} nights` : "";
   return {
-    title: `Send prices to ${pms}?`,
+    title: name ? `Send ${name}'s prices to ${pms}?` : `Send prices to ${pms}?`,
     lines: [
       `MAYA starts sending its prices${nights} to ${pms} on the next cycle, in about 5 minutes.`,
       `Each price it sends replaces that night's rate in ${pms}, and a night is sent again whenever its price changes.`,
@@ -75,20 +85,28 @@ export function goLiveCopy(p: { pmsType: string | null; windowDays: number | nul
   };
 }
 
+/** Fired on window once a property went live from this tab, so every way in shows it at once. */
+export const WENT_LIVE_EVENT = "maya:went-live";
+
 /**
  * The owner's go-live: POST /api/onboarding/activate, which takes the active
  * property live for a General Manager or Hotel Admin (the database refuses
  * anyone else) and records the press with the Terms version shown here.
- * Resolves to null once live, or to the reason it didn't switch.
+ * `hotelId` is the property the page shows: the route refuses when the
+ * active property is another one by now (a switch in another tab). Resolves
+ * to null once live, or to the reason it didn't switch.
  */
-export async function requestGoLive(): Promise<string | null> {
+export async function requestGoLive(hotelId?: string | null): Promise<string | null> {
   try {
     const res = await fetch("/api/onboarding/activate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ termsVersion: TERMS_VERSION }),
+      body: JSON.stringify({ termsVersion: TERMS_VERSION, ...(hotelId ? { hotelId } : {}) }),
     });
-    if (res.ok) return null;
+    if (res.ok) {
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(WENT_LIVE_EVENT, { detail: { hotelId: hotelId ?? null } }));
+      return null;
+    }
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     return body?.error ?? "Couldn't switch to live. Try again.";
   } catch (e) {
@@ -103,10 +121,10 @@ export async function requestGoLive(): Promise<string | null> {
  * button rather than left to Terms accepted weeks earlier, possibly by someone
  * else. A line, not a checkbox: the dialog is the one extra click.
  */
-export function GoLiveConfirmation() {
+export function GoLiveConfirmation({ pmsType = null }: { pmsType?: string | null }) {
   return (
     <p className="mt-2 text-[0.6875rem] leading-relaxed text-slate-400">
-      Going live sends these rates to your PMS automatically. You&apos;re confirming you&apos;ve
+      Going live sends MAYA&apos;s prices to {pmsLabel(pmsType)} automatically. You&apos;re confirming you&apos;ve
       reviewed your rules and limits (
       <a
         href={TERMS_URL}
@@ -126,6 +144,7 @@ export function GoLiveDialog({
   pmsType,
   connected,
   windowDays,
+  propertyName = null,
   busy = false,
   error = null,
   onConfirm,
@@ -139,6 +158,8 @@ export function GoLiveDialog({
   connected?: boolean;
   /** The push window in nights (pricingHorizonDays); null leaves the number out. */
   windowDays: number | null;
+  /** The property being taken live, named in the title; null leaves it out. */
+  propertyName?: string | null;
   busy?: boolean;
   error?: string | null;
   onConfirm: () => void;
@@ -160,7 +181,7 @@ export function GoLiveDialog({
   }, [open, busy, onCancel]);
 
   if (!open) return null;
-  const copy = goLiveCopy({ pmsType, windowDays, connected });
+  const copy = goLiveCopy({ pmsType, windowDays, connected, propertyName });
 
   return (
     <div

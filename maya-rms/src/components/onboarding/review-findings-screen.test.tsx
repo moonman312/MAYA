@@ -51,6 +51,10 @@ beforeEach(() => {
       completeCalls += 1;
       return completeReply();
     }
+    // A General Manager of a simulating Cloudbeds property: the go-live card offers its button.
+    if (url === "/api/property/mode") {
+      return json({ hotelId: "h1", propertyName: "Juniper", mode: "simulation", pmsType: "cloudbeds", sendsPrices: true, connected: true, canGoLive: true, windowDays: 60 });
+    }
     return json({});
   });
 });
