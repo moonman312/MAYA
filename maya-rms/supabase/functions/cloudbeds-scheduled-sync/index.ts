@@ -44,6 +44,7 @@ import { sendDuePmsChangeEmails } from "../_shared/pms/pms-change-notice.ts";
 import { recordAlertChannel } from "../_shared/pms/alerting.ts";
 import { readHealthAfterSync } from "../_shared/pms/connection-health.ts";
 import { handleTestAlertRequest, parseScheduledSyncBody } from "../_shared/pms/alert-test-request.ts";
+import { refuseWithoutCronSecret } from "../_shared/pms/cron-secret.ts";
 
 /**
  * The sync result carries live Cloudbeds credentials because the rate-push
@@ -85,22 +86,17 @@ function getEnv(name: string): string | undefined {
   return v && v !== "" ? v : undefined;
 }
 
-function unauthorized(msg: string): Response {
-  return new Response(JSON.stringify({ ok: false, error: msg }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req) => {
   const invocationStartedAt = Date.now();
   const cronSecret = getEnv("CLOUDBEDS_CRON_SECRET");
-  if (cronSecret) {
-    const header = req.headers.get("x-cloudbeds-cron-secret");
-    if (header !== cronSecret) {
-      return unauthorized("Invalid or missing x-cloudbeds-cron-secret.");
-    }
-  }
+  // Refused without the secret, and when the secret is not set at all (cron-secret.ts).
+  const refused = await refuseWithoutCronSecret(req, {
+    fn: "cloudbeds-scheduled-sync",
+    env: "CLOUDBEDS_CRON_SECRET",
+    header: "x-cloudbeds-cron-secret",
+    secret: cronSecret,
+  });
+  if (refused) return refused;
 
   const supabaseUrl = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");

@@ -13,7 +13,9 @@
 --
 -- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
 --    SUPABASE_SERVICE_ROLE_KEY   (auto in hosted projects; confirm)
---    ONBOARDING_CRON_SECRET      (same value as vault `onboarding_cron_secret`)
+--    ONBOARDING_CRON_SECRET      (same value as vault `onboarding_cron_secret`.
+--                                Required: without it the worker answers 503
+--                                to every request and no import runs.)
 --    CLOUDBEDS_CLIENT_ID / CLOUDBEDS_CLIENT_SECRET   (for token refresh)
 --    Optional: ONBOARDING_WORKER_BUDGET_MS (default 90000)
 --

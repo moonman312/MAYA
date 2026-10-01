@@ -13,8 +13,10 @@
  * what that function found about its own settings.
  *
  * The request body is `{ action: "test_alert", sent_by?: string }`. The
- * function refuses it unless its cron secret is configured: an endpoint that
- * fails open on a missing secret must not also send messages on request.
+ * function refuses it unless its cron secret is configured. Every scheduled
+ * function now refuses any request when its secret is missing
+ * (cron-secret.ts), so that check is a second guard, kept in case a function
+ * ever calls this without the first.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";

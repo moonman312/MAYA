@@ -13,7 +13,9 @@
 --
 -- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
 --    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
---    THINK_CRON_SECRET          (same value as vault `think_cron_secret`)
+--    THINK_CRON_SECRET          (same value as vault `think_cron_secret`.
+--                               Required: without it the function answers 503
+--                               to every request and nothing syncs.)
 --    THINK_CLIENT_ID / THINK_CLIENT_SECRET   (for token refresh)
 --    MAYA_PUSH_RATES_THINK      (true to send prices to Live hotels on
 --                               ThinkReservations. Off until set: MAYA_PUSH_RATES

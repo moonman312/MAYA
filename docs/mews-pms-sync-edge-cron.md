@@ -20,7 +20,7 @@ Background sync runs **in Supabase**: **`pg_cron`** invokes the Edge Function **
 ## Security model
 
 - **Edge** uses **`SUPABASE_SERVICE_ROLE_KEY`** → bypasses RLS (normal for server ETL).
-- **`verify_jwt = false`** for this function; require **`MEWS_CRON_SECRET`** in the Edge environment and send the same value as header **`x-mews-cron-secret`** from `pg_net` (stored in Vault). Without the secret, the function returns **401**.
+- **`verify_jwt = false`** for this function; require **`MEWS_CRON_SECRET`** in the Edge environment and send the same value as header **`x-mews-cron-secret`** from `pg_net` (stored in Vault). A request without the right header gets **401**. If `MEWS_CRON_SECRET` itself is not set, the function answers **503** to every request and syncs nothing (the other scheduled functions and the import worker do the same with their own secrets).
 - Never expose the service role or cron secret in client bundles or git.
 
 ## Deploy the function

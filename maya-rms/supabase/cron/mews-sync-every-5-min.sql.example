@@ -11,7 +11,9 @@
 --
 -- 2) Edge Function secrets (Dashboard → Edge Functions → Secrets):
 --    SUPABASE_SERVICE_ROLE_KEY  (auto in hosted projects; confirm)
---    MEWS_CRON_SECRET            (same value as vault `mews_cron_secret`)
+--    MEWS_CRON_SECRET            (same value as vault `mews_cron_secret`.
+--                                Required: without it the function answers 503
+--                                to every request and nothing syncs.)
 --    Optional Mews/env parity with Next: MEWS_ENV, MAYA_SYNC_DAYS_BACK, etc.
 --
 -- 3) Schedule:

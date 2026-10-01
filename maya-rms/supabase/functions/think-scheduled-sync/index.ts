@@ -43,6 +43,7 @@ import { sendDueOutageNotices } from "../_shared/pms/outage-notice.ts";
 import { sendDuePmsChangeEmails } from "../_shared/pms/pms-change-notice.ts";
 import { recordAlertChannel } from "../_shared/pms/alerting.ts";
 import { handleTestAlertRequest, parseScheduledSyncBody } from "../_shared/pms/alert-test-request.ts";
+import { refuseWithoutCronSecret } from "../_shared/pms/cron-secret.ts";
 
 type PricingTick = PricingTickResult<Awaited<ReturnType<typeof evaluateHotel>>>;
 
@@ -51,22 +52,17 @@ function getEnv(name: string): string | undefined {
   return v && v !== "" ? v : undefined;
 }
 
-function unauthorized(msg: string): Response {
-  return new Response(JSON.stringify({ ok: false, error: msg }), {
-    status: 401,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req) => {
   const invocationStartedAt = Date.now();
   const cronSecret = getEnv("THINK_CRON_SECRET");
-  if (cronSecret) {
-    const header = req.headers.get("x-think-cron-secret");
-    if (header !== cronSecret) {
-      return unauthorized("Invalid or missing x-think-cron-secret.");
-    }
-  }
+  // Refused without the secret, and when the secret is not set at all (cron-secret.ts).
+  const refused = await refuseWithoutCronSecret(req, {
+    fn: "think-scheduled-sync",
+    env: "THINK_CRON_SECRET",
+    header: "x-think-cron-secret",
+    secret: cronSecret,
+  });
+  if (refused) return refused;
 
   const supabaseUrl = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");

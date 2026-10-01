@@ -23,6 +23,7 @@ import {
   type ImportJobRow,
   type WorkerDeps,
 } from "../_shared/onboarding/worker-core.ts";
+import { refuseWithoutCronSecret } from "../_shared/pms/cron-secret.ts";
 
 function getEnv(name: string): string | undefined {
   const v = Deno.env.get(name);
@@ -76,15 +77,14 @@ const deps: WorkerDeps = {
 
 Deno.serve(async (req) => {
   const cronSecret = getEnv("ONBOARDING_CRON_SECRET");
-  if (cronSecret) {
-    const header = req.headers.get("x-onboarding-cron-secret");
-    if (header !== cronSecret) {
-      return new Response(JSON.stringify({ ok: false, error: "Invalid secret" }), {
-        status: 401,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-  }
+  // Refused without the secret, and when the secret is not set at all (cron-secret.ts).
+  const refused = await refuseWithoutCronSecret(req, {
+    fn: "onboarding-import-worker",
+    env: "ONBOARDING_CRON_SECRET",
+    header: "x-onboarding-cron-secret",
+    secret: cronSecret,
+  });
+  if (refused) return refused;
 
   const supabaseUrl = getEnv("SUPABASE_URL");
   const serviceKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
