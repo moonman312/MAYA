@@ -31,6 +31,11 @@
  *     kind of thing an owner wants to notice.
  *   - A rule that watches other room types than the ones it changed names
  *     them: "Standard and Deluxe were 92% full", on a Suite price change.
+ *   - A change recorded while the property was simulating says what would
+ *     have happened ("would have raised this night 10%"), never that a
+ *     price moved (`simulated`, from the mode at the run's time:
+ *     src/lib/price-mode.ts). What the run saw stays as it was: the night
+ *     really was 82% full.
  */
 
 import { bookingSpeedPhrase as speedPhrase, isBookingSpeed } from "@/lib/observations/booking-speed";
@@ -137,6 +142,8 @@ export type NarrativeInput = {
   ceiling_price?: number | null;
   clamped_by?: "floor" | "ceiling" | null;
   currencySymbol?: string;
+  /** Recorded while the property was simulating: every move is worded as what would have happened. */
+  simulated?: boolean;
 };
 
 function money(v: number, sym: string): string {
@@ -397,10 +404,11 @@ export function applyStep(
  * The engine clamps to the limit exactly, so "there" is almost always the
  * limit itself; if a row ever lands elsewhere, the number that shipped wins.
  */
-function stoppedAt(limit: number, final: number, sym: string): string {
+function stoppedAt(limit: number, final: number, sym: string, simulated = false): string {
+  const stopped = simulated ? "would have stopped" : "stopped";
   return Math.round(Math.abs(final - limit) * 100) < 1
-    ? "stopped there"
-    : `stopped at ${money(final, sym)}`;
+    ? `${stopped} there`
+    : `${stopped} at ${money(final, sym)}`;
 }
 
 /** "10% raise" / "$5.00 cut", from the signed delta the audit stores. */
@@ -460,13 +468,15 @@ function findingSentence(finding: CancellationFinding | null | undefined, sym: s
  * longer true, so its 10% raise came off.'), then the numbers when the
  * audit kept them.
  */
-function retirementSentences(off: NarrativeRetirement, sym: string): string[] {
+function retirementSentences(off: NarrativeRetirement, sym: string, simulated = false): string[] {
   if (off.reason === "bookings_cancelled") {
     const found = findingSentence(off.finding, sym);
-    const lead = `Cancellations meant "${off.rule_name}" was no longer true, so its ${retirementWords(off.delta)} came off.`;
+    const cameOff = simulated ? "would have come off" : "came off";
+    const lead = `Cancellations meant "${off.rule_name}" was no longer true, so its ${retirementWords(off.delta)} ${cameOff}.`;
     return found ? [lead, found] : [lead];
   }
-  const lead = `"${off.rule_name}" stopped applying an earlier ${retirementWords(off.delta)} here`;
+  const stopped = simulated ? "would have stopped" : "stopped";
+  const lead = `"${off.rule_name}" ${stopped} applying an earlier ${retirementWords(off.delta)} here`;
   return [off.reason ? `${lead}: ${RETIREMENT_REASONS[off.reason]}.` : `${lead}.`];
 }
 
@@ -477,15 +487,17 @@ function retirementSentences(off: NarrativeRetirement, sym: string): string[] {
  */
 export function narrateChange(input: NarrativeInput): string[] {
   const sym = input.currencySymbol ?? "$";
+  const sim = input.simulated === true;
   const sentences: string[] = [];
   let running = input.base_price;
 
-  for (const off of input.retirements ?? []) sentences.push(...retirementSentences(off, sym));
+  for (const off of input.retirements ?? []) sentences.push(...retirementSentences(off, sym, sim));
 
   input.applications.forEach((app, i) => {
     const before = running;
     running = applyStep(running, app.action);
-    const verb = app.action.direction === "increase" ? "raised" : "lowered";
+    const moved = app.action.direction === "increase" ? "raised" : "lowered";
+    const verb = sim ? `would have ${moved}` : moved;
     const amount =
       app.action.kind === "percent" ? `${app.action.value}%` : money(app.action.value, sym);
     // A later rule's "from" price is the price the earlier one left, which is
@@ -512,25 +524,27 @@ export function narrateChange(input: NarrativeInput): string[] {
   // room type's own limit, which the price is already past.
   if (input.clamped_by === "ceiling" && input.ceiling_price != null && input.final_price > input.ceiling_price) {
     sentences.push(
-      `That would have gone further past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym)}.`,
+      `That would have gone further past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym, sim)}.`,
     );
   } else if (input.clamped_by === "ceiling" && input.ceiling_price != null) {
     sentences.push(
-      `That would have gone past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type}, so it ${stoppedAt(input.ceiling_price, input.final_price, sym)}.`,
+      `That would have gone past your ${money(input.ceiling_price, sym)} ceiling for ${input.room_type}, so it ${stoppedAt(input.ceiling_price, input.final_price, sym, sim)}.`,
     );
   } else if (input.clamped_by === "floor" && input.floor_price != null && input.final_price < input.floor_price) {
     sentences.push(
-      `That would have gone further under your ${money(input.floor_price, sym)} floor for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym)}.`,
+      `That would have gone further under your ${money(input.floor_price, sym)} floor for ${input.room_type} than the price it started from, so it ${stoppedAt(input.base_price, input.final_price, sym, sim)}.`,
     );
   } else if (input.clamped_by === "floor" && input.floor_price != null) {
     sentences.push(
-      `That would have dropped under your ${money(input.floor_price, sym)} floor for ${input.room_type}, so it ${stoppedAt(input.floor_price, input.final_price, sym)}.`,
+      `That would have dropped under your ${money(input.floor_price, sym)} floor for ${input.room_type}, so it ${stoppedAt(input.floor_price, input.final_price, sym, sim)}.`,
     );
   }
 
   if (sentences.length === 0) {
     sentences.push(
-      `The rate moved from ${money(input.base_price, sym)} to ${money(input.final_price, sym)}.`,
+      sim
+        ? `The price would have moved from ${money(input.base_price, sym)} to ${money(input.final_price, sym)}.`
+        : `The rate moved from ${money(input.base_price, sym)} to ${money(input.final_price, sym)}.`,
     );
   }
 
@@ -555,16 +569,21 @@ export type NarrativeRevertInput = {
   /** The base before, when nothing was on the night before either, so the base itself is what moved. */
   base_from: number | null;
   currencySymbol?: string;
+  /** Recorded while the property was simulating: the move is worded as what would have happened. */
+  simulated?: boolean;
 };
 
 /**
  * What came off, then the move: 'X stopped applying an earlier 10% raise
  * here: ... That took this night from $110.00 to $100.00.' With nothing
- * named, the base changing or the plain move is the sentence.
+ * named, the base changing or the plain move is the sentence. In
+ * simulation the moves are what would have happened; a price set by hand
+ * being cleared, and the property's own rate changing, really happened.
  */
 export function narrateRevert(input: NarrativeRevertInput): string[] {
   const sym = input.currencySymbol ?? "$";
-  const sentences = [...input.retirements, ...input.rules_off].flatMap((off) => retirementSentences(off, sym));
+  const sim = input.simulated === true;
+  const sentences = [...input.retirements, ...input.rules_off].flatMap((off) => retirementSentences(off, sym, sim));
   if (input.manual_cleared) {
     sentences.push(
       input.manual_cleared.pms == null
@@ -575,11 +594,11 @@ export function narrateRevert(input: NarrativeRevertInput): string[] {
   const moved = Math.round(Math.abs(input.final_price - input.from_price) * 100) >= 1;
   const move = `${money(input.from_price, sym)} to ${money(input.final_price, sym)}`;
   if (sentences.length > 0) {
-    if (moved) sentences.push(`That took this night from ${move}.`);
+    if (moved) sentences.push(sim ? `That would have taken this night from ${move}.` : `That took this night from ${move}.`);
     return sentences;
   }
   if (input.base_from != null && moved) return [`The base rate for this night changed from ${move}.`];
-  return [`The rate moved from ${move}.`];
+  return [sim ? `The price would have moved from ${move}.` : `The rate moved from ${move}.`];
 }
 
 /** One-line headline for the entry: room, movement, direction. */

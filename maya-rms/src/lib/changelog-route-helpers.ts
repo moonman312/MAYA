@@ -13,6 +13,7 @@ import {
   narrateRevert,
 } from "@/lib/changelog-narrative";
 import { humanDate } from "@/lib/explain";
+import { modeAt, priceMoveHeadline, sendLine, type ModeTimeline, type PriceMode } from "@/lib/price-mode";
 import { measuresDifferently } from "@/lib/rule-form";
 import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
 import type {
@@ -94,7 +95,41 @@ export type ChangelogLookups = {
   ruleRoomSets?: Map<string, { signal: string[]; affected: string[] }>;
   /** Room types that count as rooms; unset means every room type does. */
   countingRoomTypeIds?: Set<string>;
+  /**
+   * The property's mode history (hotel_mode_history), so each change is worded
+   * for the mode at its run's time. Unset or empty: the mode is not known and
+   * the log reads as it always did.
+   */
+  modeTimeline?: ModeTimeline;
+  /** The property system a price would go to (pms_connections.pms_type), for "Nothing was sent to Cloudbeds." */
+  pmsType?: string | null;
 };
+
+/** The mode a change was made in, as an entry carries it: absent when not known. */
+function entryMode(mode: PriceMode): { mode?: "simulation" | "live" } {
+  return mode === "unknown" ? {} : { mode };
+}
+
+/**
+ * The bold line and, in simulation, the sending line every entry carries.
+ * A live entry's sending line comes later, from the send ledger
+ * (changelog-send-lines.ts), once the route knows which prices are still
+ * the night's.
+ */
+function entryWords(
+  mode: PriceMode,
+  p: { stayDate: string; roomType: string; from: number; to: number; changePct: number },
+  lookups: Pick<ChangelogLookups, "currencySymbol" | "pmsType">,
+): Pick<ChangelogEntry, "mode" | "headline" | "send_line" | "send_state"> {
+  const headline = priceMoveHeadline({ mode, ...p, currencySymbol: lookups.currencySymbol });
+  if (mode !== "simulation") return { ...entryMode(mode), headline };
+  return {
+    mode,
+    headline,
+    send_state: "simulated",
+    send_line: sendLine({ mode, state: null, pmsType: lookups.pmsType }) ?? undefined,
+  };
+}
 
 /**
  * Names of what a rule measures, when that is not what it changes. null for
@@ -492,6 +527,7 @@ function buildRevertEntry(row: AuditChangeRow, prior: PriorAuditRow, lookups: Ch
   const finalPrice = Number(row.final_price);
   const fromPrice = Number(prior.final_price);
   const roomType = lookups.roomTypeNames.get(row.room_type_id) ?? "Unknown room type";
+  const mode = modeAt(lookups.modeTimeline, row.evaluated_at);
   const retirements = buildRetirements(row.details, lookups.rules);
   const off = rulesOff(row, prior, lookups.rules);
   const manualCleared = prior.manual !== null && manualOverrideFor(row.details) === null;
@@ -503,13 +539,16 @@ function buildRevertEntry(row: AuditChangeRow, prior: PriorAuditRow, lookups: Ch
     manual_cleared: manualCleared ? { pms: prior.manual!.pms == null ? null : pmsOf(prior.manual!) } : null,
     base_from: prior.application_order.length === 0 && prior.manual === null ? Number(prior.base_price) : null,
     currencySymbol: lookups.currencySymbol,
+    simulated: mode === "simulation",
   });
+  const changePct = changePctOf({ base_price: fromPrice, final_price: finalPrice });
   return {
     room_type: roomType,
     rule_name: retirements[0]?.rule_name ?? off[0]?.rule_name ?? (manualCleared ? "Manual price cleared" : "Price update"),
     original_rate: fromPrice,
     new_rate: finalPrice,
-    change_pct: changePctOf({ base_price: fromPrice, final_price: finalPrice }),
+    change_pct: changePct,
+    ...entryWords(mode, { stayDate: row.stay_date, roomType, from: fromPrice, to: finalPrice, changePct }, lookups),
     occupancy_pct: 0,
     stay_date: row.stay_date,
     narrative,
@@ -533,6 +572,7 @@ export function buildEntry(
   const firstOccupancy = applications[0]?.metrics?.occupancy;
   const clampedBy = clampedByFor(row.details);
   const override = manualOverrideFor(row.details);
+  const mode = modeAt(lookups.modeTimeline, row.evaluated_at);
 
   const retirements = buildRetirements(row.details, lookups.rules);
   let narrative = narrateChange({
@@ -545,17 +585,22 @@ export function buildEntry(
     ceiling_price: Number(row.ceiling_price),
     clamped_by: clampedBy,
     currencySymbol: lookups.currencySymbol,
+    simulated: mode === "simulation",
   });
 
   if (override) {
     const setter =
       (override.set_by ? lookups.setterNames?.get(override.set_by) : null) ?? "A manager";
     const amount = `${lookups.currencySymbol}${basePrice.toFixed(2)}`;
-    // A rate the hotel changed in its PMS names no person: nobody typed it in MAYA.
+    // A rate the hotel changed in its PMS names no person: nobody typed it in
+    // MAYA. A price typed while simulating was typed, and that is all: it
+    // went nowhere, so it is not called a rate.
     const lead =
       override.pms != null
         ? `The base rate was changed in ${pmsOf(override)} to ${amount}.`
-        : `${setter} set the base rate to ${amount}.`;
+        : mode === "simulation"
+          ? `${setter} typed a price of ${amount}.`
+          : `${setter} set the base rate to ${amount}.`;
     // With nothing stacked on the typed number, narrateChange's only sentence
     // is the "moved from X to X" fallback, which the lead already says better.
     narrative =
@@ -564,6 +609,7 @@ export function buildEntry(
         : [lead, ...narrative];
   }
 
+  const changePct = basePrice > 0 ? Math.round(((finalPrice - basePrice) / basePrice) * 1000) / 10 : 0;
   return {
     room_type: roomType,
     rule_name:
@@ -571,10 +617,8 @@ export function buildEntry(
       (override ? manualPriceTitle(override) : retirements[0]?.rule_name ?? "Price update"),
     original_rate: basePrice,
     new_rate: finalPrice,
-    change_pct:
-      basePrice > 0
-        ? Math.round(((finalPrice - basePrice) / basePrice) * 1000) / 10
-        : 0,
+    change_pct: changePct,
+    ...entryWords(mode, { stayDate: row.stay_date, roomType, from: basePrice, to: finalPrice, changePct }, lookups),
     occupancy_pct: firstOccupancy != null ? Math.round(firstOccupancy * 100) : 0,
     stay_date: row.stay_date,
     narrative,
@@ -641,6 +685,7 @@ export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookup
       has_changes: run.hasChanges,
       changes,
       ...changeTotal(run.totalChanges, changes.length, run.countedAll === false),
+      ...entryMode(modeAt(lookups.modeTimeline, run.timestamp)),
     };
   });
 }
@@ -685,6 +730,7 @@ export function buildCyclesFromAudit(
       has_changes: changeRows.length > 0,
       changes,
       ...changeTotal(changeRows.length, changes.length, run.evaluation_run_id === cutShort),
+      ...entryMode(modeAt(lookups.modeTimeline, run.timestamp)),
     };
   });
 }
@@ -888,7 +934,7 @@ function nightsWord(n: number): string {
  */
 export function buildAlertChoices(
   rows: AlertChoiceRow[],
-  lookups: Pick<ChangelogLookups, "rules"> & Partial<Pick<ChangelogLookups, "setterNames">>,
+  lookups: Pick<ChangelogLookups, "rules"> & Partial<Pick<ChangelogLookups, "setterNames" | "modeTimeline">>,
 ): ChangelogRuleAlertChoice[] {
   // Ticked unless the rule says otherwise; a rule this log can't find any
   // more gets the first half of the stop line only.
@@ -910,6 +956,10 @@ export function buildAlertChoices(
     const ruleName = lookups.rules.get(first.rule_id)?.name ?? "A rule";
     const who = (first.by ? lookups.setterNames?.get(first.by) : null) ?? "A manager";
     const where = list.length === 1 ? humanDate(dates[0]) : nightsWord(list.length);
+    // Answered while simulating, what the rule did was simulated too: it
+    // changed no price, so the stop line says so.
+    const mode = modeAt(lookups.modeTimeline, first.at);
+    const stays = mode === "simulation" ? "Its simulated changes so far stay" : "What it already changed stays";
     out.push({
       kind: "rule_alert_choice",
       id: key,
@@ -924,9 +974,10 @@ export function buildAlertChoices(
           ? `${who} let "${ruleName}" run again on ${where}. It can start adjusting again from the next pricing run.`
           : first.choice === "stop"
             ? undoes(first.rule_id)
-              ? `${who} stopped "${ruleName}" on ${where}. What it already changed stays, unless cancellations mean the rule is no longer true.`
-              : `${who} stopped "${ruleName}" on ${where}. What it already changed stays.`
+              ? `${who} stopped "${ruleName}" on ${where}. ${stays}, unless cancellations mean the rule is no longer true.`
+              : `${who} stopped "${ruleName}" on ${where}. ${stays}.`
             : `${who} told "${ruleName}" to carry on with ${where}.`,
+      ...entryMode(mode),
     });
   }
   return out.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));

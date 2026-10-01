@@ -1,3 +1,4 @@
+import type { SendState } from "@/lib/price-mode";
 import type { ChangelogItem, ChangelogPmsChange } from "@/types/domain";
 import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
 
@@ -14,7 +15,14 @@ import { pmsName } from "../../supabase/functions/_shared/pms/push-failure";
  *
  * The log lists every warning and the newest MAX_PMS_CHANGES overwrites in
  * the history it covers; more overwrites than that are counted on one line
- * where the oldest listed one sits, as the times MAYA sent its price again.
+ * where the oldest listed one sits.
+ *
+ * An overwrite is written when the refresh decides to send MAYA's price
+ * again, before the push sends it. So it says the price was sent only when
+ * the send ledger shows the send (changelog-send-lines.ts,
+ * overwriteSendState); otherwise that it is waiting, couldn't be sent, was
+ * held back, or, where the ledger no longer speaks for it, that it was due to
+ * go out.
  */
 
 export function isPmsChange(item: ChangelogItem): item is ChangelogPmsChange {
@@ -57,9 +65,34 @@ export function nightWords(ymd: string): string {
 
 const money = (v: number, sym: string) => `${sym}${v.toFixed(2)}`;
 
-export function overwriteTitle(p: { pms: string; night: string; roomType: string; pmsRate: number | null; mayaPrice: number; currencySymbol: string }): string {
+/** What became of MAYA's price, by what the send ledger says (null: it no longer says). */
+function overwriteOutcome(price: string, sent: SendState | null | undefined): string {
+  switch (sent) {
+    case "sent":
+      return `MAYA sent its price, ${price}, again.`;
+    case "waiting":
+      return `MAYA's price, ${price}, is waiting to be sent again.`;
+    case "failed":
+      return `MAYA's price, ${price}, couldn't be sent again.`;
+    case "held":
+      return `MAYA's price, ${price}, was held back, not sent.`;
+    default:
+      return `MAYA's price, ${price}, was due to go out again.`;
+  }
+}
+
+export function overwriteTitle(p: {
+  pms: string;
+  night: string;
+  roomType: string;
+  pmsRate: number | null;
+  mayaPrice: number;
+  currencySymbol: string;
+  /** What the send ledger says became of MAYA's price; left out, nothing is claimed. */
+  sent?: SendState | null;
+}): string {
   const what = p.pmsRate == null ? `the rate was removed in ${p.pms}` : `changed in ${p.pms} to ${money(p.pmsRate, p.currencySymbol)}`;
-  return `${nightWords(p.night)}, ${p.roomType}: ${what}. MAYA sent its price, ${money(p.mayaPrice, p.currencySymbol)}, again.`;
+  return `${nightWords(p.night)}, ${p.roomType}: ${what}. ${overwriteOutcome(money(p.mayaPrice, p.currencySymbol), p.sent)}`;
 }
 
 export function otherToolTitle(pms: string, rates: number): string {
@@ -70,9 +103,9 @@ export function otherToolTitle(pms: string, rates: number): string {
   );
 }
 
-/** The line counting the overwrites not listed: each is one time MAYA sent its price again. */
+/** The line counting the overwrites not listed, which the log has not checked against the ledger. */
 export function moreTitle(pms: string, n: number): string {
-  return `And ${n} more ${n === 1 ? "time" : "times"} MAYA sent its price again over a rate changed in ${pms}.`;
+  return `And ${n} more ${n === 1 ? "time" : "times"} MAYA's price was due to go out again over a rate changed in ${pms}.`;
 }
 
 /**
@@ -83,7 +116,14 @@ export function moreTitle(pms: string, n: number): string {
  */
 export function buildPmsChanges(
   rows: PmsChangeRow[],
-  opts: { roomTypeNames: Map<string, string>; currencySymbol: string; settingOn: boolean; overwriteTotal?: number },
+  opts: {
+    roomTypeNames: Map<string, string>;
+    currencySymbol: string;
+    settingOn: boolean;
+    overwriteTotal?: number;
+    /** What became of MAYA's price for each overwrite, by row id (overwriteSendState). */
+    sendStates?: Map<string, SendState | null>;
+  },
 ): ChangelogPmsChange[] {
   const newest = (a: PmsChangeRow, b: PmsChangeRow) => Date.parse(b.found_at) - Date.parse(a.found_at);
   const overwriteRows = rows.filter((r) => r.kind === "overwrite").sort(newest);
@@ -116,7 +156,15 @@ export function buildPmsChanges(
       timestamp: r.found_at,
       change: "overwrite",
       pms,
-      title: overwriteTitle({ pms, night: r.stay_date, roomType, pmsRate, mayaPrice, currencySymbol: opts.currencySymbol }),
+      title: overwriteTitle({
+        pms,
+        night: r.stay_date,
+        roomType,
+        pmsRate,
+        mayaPrice,
+        currencySymbol: opts.currencySymbol,
+        sent: opts.sendStates?.get(String(r.id)) ?? null,
+      }),
       stay_date: r.stay_date.slice(0, 10),
       room_type: roomType,
       pms_rate: pmsRate,

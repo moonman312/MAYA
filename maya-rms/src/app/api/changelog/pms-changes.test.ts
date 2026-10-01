@@ -1,8 +1,8 @@
 /**
  * Rates changed in the property system, in the change log: one item per
- * night and room type MAYA sent its price to again under "MAYA's price wins"
+ * night and room type MAYA sends its price to again under "MAYA's price wins"
  * (naming the night, the room type, the property system's rate or that it was
- * removed, and MAYA's price), and the warning that something other than MAYA
+ * removed, and MAYA's price, sent only when the send ledger says so), and the warning that something other than MAYA
  * seems to be changing rates, with a button to the setting. Each sits where
  * it was found. A database without the table yet shows none and never fails
  * the log.
@@ -74,7 +74,7 @@ describe("the items", () => {
   it("names the night, the room type, the rate there or that it was removed, and MAYA's price", () => {
     const items = buildPmsChanges(
       [row("a"), row("b", { pms_rate: null, found_at: "2026-10-05T11:00:00Z", pms_type: "think" })],
-      { roomTypeNames: names, currencySymbol: "$", settingOn: true },
+      { roomTypeNames: names, currencySymbol: "$", settingOn: true, sendStates: new Map([["a", "sent"], ["b", "sent"]]) },
     );
     expect(items.map((i) => i.title)).toEqual([
       "Fri, Nov 13, Standard: the rate was removed in Think Reservations. MAYA sent its price, $165.00, again.",
@@ -95,13 +95,25 @@ describe("the items", () => {
     expect(buildPmsChanges([warn], { roomTypeNames: names, currencySymbol: "$", settingOn: true })[0].setting_on).toBe(true);
   });
 
-  it("lists the newest overwrites and counts the rest on one line, as the times MAYA sent its price again", () => {
+  it("says MAYA's price went out again only when the send ledger shows it", () => {
+    const title = (sent: Parameters<typeof overwriteTitle>[0]["sent"]) =>
+      overwriteTitle({ pms: "Cloudbeds", night: "2026-11-13", roomType: "Standard", pmsRate: 175, mayaPrice: 165, currencySymbol: "$", sent });
+    expect(title("sent")).toBe("Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again.");
+    expect(title("waiting")).toBe("Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA's price, $165.00, is waiting to be sent again.");
+    expect(title("failed")).toBe("Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA's price, $165.00, couldn't be sent again.");
+    expect(title("held")).toBe("Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA's price, $165.00, was held back, not sent.");
+    expect(title(null)).toBe("Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA's price, $165.00, was due to go out again.");
+    // Built without the ledger's word, nothing is claimed.
+    expect(buildPmsChanges([row("a")], { roomTypeNames: names, currencySymbol: "$", settingOn: true })[0].title).toBe(title(null));
+  });
+
+  it("lists the newest overwrites and counts the rest on one line, without claiming they went", () => {
     const rows = Array.from({ length: MAX_PMS_CHANGES }, (_, i) => row(`r${i}`, { found_at: new Date(Date.parse("2026-10-05T00:00:00Z") + i * 60_000).toISOString() }));
     const items = buildPmsChanges(rows, { roomTypeNames: names, currencySymbol: "$", settingOn: true, overwriteTotal: MAX_PMS_CHANGES + 7 });
     expect(items).toHaveLength(MAX_PMS_CHANGES + 1);
     expect(items.at(-1)).toMatchObject({ change: "more", count: 7, title: moreTitle("Cloudbeds", 7), timestamp: items.at(-2)!.timestamp });
-    expect(moreTitle("Cloudbeds", 7)).toBe("And 7 more times MAYA sent its price again over a rate changed in Cloudbeds.");
-    expect(moreTitle("Cloudbeds", 1)).toBe("And 1 more time MAYA sent its price again over a rate changed in Cloudbeds.");
+    expect(moreTitle("Cloudbeds", 7)).toBe("And 7 more times MAYA's price was due to go out again over a rate changed in Cloudbeds.");
+    expect(moreTitle("Cloudbeds", 1)).toBe("And 1 more time MAYA's price was due to go out again over a rate changed in Cloudbeds.");
   });
 
   it("lists a warning whatever the overwrites around it, and never counts it as one", () => {
@@ -139,8 +151,9 @@ describe("GET /api/changelog with rates changed in the property system", () => {
     expect(res.status, JSON.stringify(body)).toBe(200);
     const order = body.map((i) => (i.kind === "pms_change" ? `${i.change}:${i.id}` : i.kind ?? "run"));
     expect(order).toEqual(["other_tool:n3", "overwrite:n1", "overwrite:n2", "run"]);
+    // Without the service role the ledger can't be read, so nothing is claimed.
     expect(body.find((i) => i.id === "n2")).toMatchObject({
-      title: "Fri, Nov 13, Suite: the rate was removed in Cloudbeds. MAYA sent its price, $240.00, again.",
+      title: "Fri, Nov 13, Suite: the rate was removed in Cloudbeds. MAYA's price, $240.00, was due to go out again.",
     });
     expect(body.find((i) => i.id === "n3")).not.toHaveProperty("setting_on");
   });

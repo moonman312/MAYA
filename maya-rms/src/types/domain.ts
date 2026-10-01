@@ -530,6 +530,22 @@ export type ChangelogEntry = {
   room_type_id?: string;
   /** True when the audit row carries booking-speed observation snapshots — the "Show the numbers" expander only shows then. */
   has_booking_speed_details?: boolean;
+  /**
+   * The mode the property was in when the run made this change
+   * (hotel_mode_history, src/lib/price-mode.ts). Absent when it is not known:
+   * the entry then reads as the log always did.
+   */
+  mode?: "simulation" | "live";
+  /** The bold line, worded for the mode ("Simulation: the price for Fri Nov 13, Queen would have gone from ..."). */
+  headline?: string;
+  /**
+   * Where the price went, in one short line: "Nothing was sent to Cloudbeds."
+   * in simulation; live, "Sent to Cloudbeds." only when the send ledger
+   * shows it, else waiting, couldn't be sent, or held back. Absent when
+   * there is nothing honest to say (a later price has replaced this one).
+   */
+  send_line?: string;
+  send_state?: "simulated" | "sent" | "waiting" | "failed" | "held" | "not_sent";
 };
 
 export type ChangelogCycle = {
@@ -542,6 +558,8 @@ export type ChangelogCycle = {
   total_changes?: number;
   /** total_changes is a minimum: some nights were not checked. */
   total_is_minimum?: boolean;
+  /** The mode the property was in at the run's time; absent when not known. */
+  mode?: "simulation" | "live";
 };
 
 /** Tries at a push problem that went the same way, condensed to one line. */
@@ -606,6 +624,8 @@ export type ChangelogRuleAlertChoice = {
   title: string;
   /** The answer was given by MAYA support (a platform admin), not by someone on the property. */
   by_support?: boolean;
+  /** The mode the property was in when the answer was given; absent when not known. */
+  mode?: "simulation" | "live";
 };
 
 /**
