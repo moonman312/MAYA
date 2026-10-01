@@ -94,7 +94,7 @@ ThinkReservations sends guest details with every booking even though MAYA does n
 
 ## Which bookings count
 
-MAYA keeps a booking when ThinkReservations lists it as **scheduled**, **checked in** or **checked out**. A booking marked **cancelled** or **no show** is removed on the next read, and its nights come off the count. Cancelling changes the booking, so the cancellation arrives in the same five-minute read as everything else.
+MAYA keeps a booking when ThinkReservations lists it as **scheduled**, **checked in** or **checked out**. A booking marked **cancelled** or **no show** is removed on the next read, and its nights come off the count, every room it held included. Cancelling changes the booking, so the cancellation arrives in the same five-minute read as everything else. A room taken off a booking that holds several comes off on the next read too, and the booking's other rooms stay. A booking deleted in ThinkReservations is no longer in anything it returns, so it comes off at the daily re-read: MAYA asks again for just that booking's nights, and once the answer comes back without it, its nights from today on come off the count. [Every change, and when MAYA picks it up](/docs/connect/what-maya-picks-up-from-your-system#every-change-and-when-maya-picks-it-up) has the details.
 
 Nights run from check-in up to, but not including, check-out. A same-day booking is one night. Each room in a booking is one booked room on each of its nights.
 

@@ -393,9 +393,26 @@ function roomChargesFor(
     : [];
 }
 
+/**
+ * One reservation as this parse saw it, for the sync to compare with what
+ * is stored under it. `rowKeys` are the per-booking keys it wrote rows for.
+ * `whole` says the answer accounts for every room of the reservation: each
+ * booking either wrote rows or was cancelled. Only then is a stored key the
+ * answer lacks a room that left the reservation. A cancelled reservation
+ * says nothing about its rooms but that all of them go.
+ */
+export type ThinkSeenReservation = {
+  id: string;
+  canceled: boolean;
+  rowKeys: string[];
+  whole: boolean;
+};
+
 export type ParsedThink = {
   rows: ThinkParsedRow[];
   canceledExternalIds: string[];
+  /** Every reservation the page returned with an id, in order. */
+  seen: ThinkSeenReservation[];
   stats: ThinkParseStats;
 };
 
@@ -420,6 +437,7 @@ export function parseThinkReservations(
   const stats = emptyStats();
   const byStayNight = new Map<string, ThinkParsedRow>();
   const canceled = new Set<string>();
+  const seen: ThinkSeenReservation[] = [];
 
   for (const entry of reservations) {
     const res = asJson(entry);
@@ -441,13 +459,19 @@ export function parseThinkReservations(
       canceled.add(rid);
       bookings.forEach((b, idx) => canceled.add(`${rid}:${bookingIdAt(b, idx)}`));
       stats.skippedCanceled += 1;
+      seen.push({ id: rid, canceled: true, rowKeys: [], whole: true });
       continue;
     }
 
     if (bookings.length === 0) {
       stats.skippedNoStayNights += 1;
+      // No rooms listed is no word about the rooms stored under it.
+      seen.push({ id: rid, canceled: false, rowKeys: [], whole: false });
       continue;
     }
+
+    const seenRes: ThinkSeenReservation = { id: rid, canceled: false, rowKeys: [], whole: true };
+    seen.push(seenRes);
 
     // Same calendar as the stay nights, or an evening booking would read as
     // one day later than it was and shorten every lead time on the stay.
@@ -467,6 +491,8 @@ export function parseThinkReservations(
       const startDate = LEADING_YMD.exec(str(booking.startDate) ?? "")?.[1] ?? null;
       if (!startDate) {
         stats.skippedNoStayNights += 1;
+        // A room the answer could not read: what is stored for it stays.
+        seenRes.whole = false;
         continue;
       }
       const endDate = LEADING_YMD.exec(str(booking.endDate) ?? "")?.[1] ?? null;
@@ -474,6 +500,7 @@ export function parseThinkReservations(
 
       const externalId = externalIdAt(booking, idx);
       const roomTypeId = str(booking.roomTypeId);
+      if (!seenRes.rowKeys.includes(externalId)) seenRes.rowKeys.push(externalId);
 
       // `actualAmount` is the post-discount charge — the rate the night really
       // sold at; `amount` is the pre-discount list price, kept as fallback.
@@ -518,6 +545,7 @@ export function parseThinkReservations(
   return {
     rows: [...byStayNight.values()],
     canceledExternalIds: [...canceled],
+    seen,
     stats,
   };
 }

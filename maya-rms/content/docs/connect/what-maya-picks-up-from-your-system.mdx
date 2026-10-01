@@ -79,7 +79,9 @@ Three clocks set how soon a change in your system reaches MAYA. This page names 
 | You do this in ThinkReservations | MAYA picks it up |
 |---|---|
 | Make a booking | Next read |
-| Cancel a booking, or mark it no-show | Next read. Cancelling changes the booking, so it arrives with everything else |
+| Cancel a booking, or mark it no-show | Next read. Cancelling changes the booking, so it arrives with everything else. Every room it held comes off the count, one taken off it earlier included |
+| Take a room off a booking that holds several, or cancel one of its rooms | Next read. That room's nights come off the count. The booking's other rooms stay as they were |
+| Delete a booking | At the daily re-read, so up to a day later, when the re-read finishes in one go. A deleted booking is no longer in what ThinkReservations returns, so MAYA asks ThinkReservations again for the bookings on just that booking's nights. Once that answer comes back without it, its nights from today on come off the count. A booking found again, any other answer, or a re-read that returned no bookings at all, leaves it as it is until the next re-read. Nights already past stay in your history |
 | Change a booking's dates | Next read. New nights are added and dropped nights removed |
 | A guest checks out early (stay shortened) | Next read, once ThinkReservations shows the shorter stay. The nights it no longer covers count as free rooms again. If the booking still shows the old check-out date, MAYA still counts those nights as booked |
 | Move a booking to another room type | Next read |

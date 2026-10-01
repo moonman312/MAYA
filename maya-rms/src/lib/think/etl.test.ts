@@ -548,3 +548,33 @@ describe("think etl", () => {
     });
   });
 });
+
+describe("parseThinkReservations: what each answer vouches for", () => {
+  const booking = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    roomTypeId: "rt_king",
+    startDate: "2026-08-02",
+    endDate: "2026-08-04",
+    status: "scheduled",
+    ...extra,
+  });
+
+  it("names the room keys an answer wrote, and is whole when every room was read or cancelled", () => {
+    const { seen } = parseThinkReservations(
+      [
+        { id: "r1", status: "scheduled", bookings: [booking("b1"), booking("b2", { status: "canceled" })] },
+        { id: "r2", status: "canceled", bookings: [booking("b1")] },
+        { id: "r3", status: "scheduled", bookings: [booking("b1"), booking("b2", { startDate: null })] },
+        { id: "r4", status: "scheduled", bookings: [] },
+      ],
+      { hotelTimeZone: "UTC" },
+    );
+    expect(seen).toEqual([
+      { id: "r1", canceled: false, rowKeys: ["r1:b1"], whole: true },
+      { id: "r2", canceled: true, rowKeys: [], whole: true },
+      // A room it could not read: its stored rows are not the answer's to drop.
+      { id: "r3", canceled: false, rowKeys: ["r3:b1"], whole: false },
+      { id: "r4", canceled: false, rowKeys: [], whole: false },
+    ]);
+  });
+});

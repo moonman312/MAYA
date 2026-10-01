@@ -122,6 +122,10 @@ function makeSupabaseStub(
         preds.push((r) => r[col] === val);
         return builder;
       },
+      gte(col: string, val: string) {
+        preds.push((r) => String(r[col]) >= val);
+        return builder;
+      },
       in(col: string, vals: unknown[]) {
         preds.push((r) => vals.includes(r[col]));
         return builder;
@@ -142,6 +146,27 @@ function makeSupabaseStub(
     const builder = {
       eq(col: string, val: unknown) {
         preds.push((r) => r[col] === val);
+        return builder;
+      },
+      gte(col: string, val: string) {
+        preds.push((r) => String(r[col]) >= val);
+        return builder;
+      },
+      lte(col: string, val: string) {
+        preds.push((r) => String(r[col]) <= val);
+        return builder;
+      },
+      // The two shapes the stored-rows read sends: `col.eq.value` and
+      // `col.like."prefix*"`, `*` for any run of characters and `_` for one.
+      or(expr: string) {
+        const terms = expr.split(/,(?=[a-z_]+\.(?:eq|like)\.)/).map((t) => {
+          const m = /^([a-z_]+)\.(eq|like)\.(.*)$/.exec(t)!;
+          const value = m[3].replace(/^"(.*)"$/, "$1");
+          if (m[2] === "eq") return (r: Row) => String(r[m[1]]) === value;
+          const re = new RegExp(`^${value.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/_/g, ".")}$`);
+          return (r: Row) => re.test(String(r[m[1]]));
+        });
+        preds.push((r) => terms.some((t) => t(r)));
         return builder;
       },
       in(col: string, vals: unknown[]) {
@@ -692,5 +717,158 @@ describe("runThinkSyncForHotel connection status", () => {
 
   it("never resurrects a disconnected connection", async () => {
     expect((await syncOnce("disconnected")).status).toBe("disconnected");
+  });
+});
+
+/**
+ * Audit A2 on ThinkReservations' side, as the Cloudbeds sync already does it:
+ * a room that leaves a reservation, a cancellation of a reservation whose
+ * rooms changed, and a reservation deleted in Think all stop counting as
+ * booked. Rows are keyed `<reservationId>:<bookingId>`.
+ */
+describe("runThinkSyncForHotel rooms and reservations that leave", () => {
+  const NOW = Date.parse("2026-08-01T12:00:00.000Z");
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(NOW));
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const night = (key: string, stay_date: string) => ({ external_reservation_id: key, stay_date, current_rate: 100 });
+  const keysOf = (supabase: { reservations: Row[] }) =>
+    supabase.reservations.map((r) => `${r.external_reservation_id}|${r.stay_date}`).sort();
+  /** An incremental run: a watermark and a recent full sweep. */
+  const INCREMENTAL = {
+    id: "conn-1",
+    reservations_modified_through: "2026-08-01T11:50:00.000Z",
+    last_full_sync_at: "2026-08-01T02:00:00.000Z",
+  };
+
+  it("removes every night of a room the reservation no longer lists, and the bare key of an older keying", async () => {
+    const supabase = makeSupabaseStub([], undefined, [
+      night("res_1:b2", "2026-08-02"),
+      night("res_1:b2", "2026-08-03"),
+      night("res_1", "2026-08-02"),
+      // Another reservation whose id the LIKE pattern would also match.
+      night("resX1:b2", "2026-08-02"),
+    ], INCREMENTAL);
+
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(keysOf(supabase)).toEqual(["resX1:b2|2026-08-02", "res_1:b1|2026-08-02"]);
+    if (res.ok) expect(res.ingest.roomsGone).toBe(2);
+  });
+
+  it("keeps what is stored for a reservation whose answer could not read one of its rooms", async () => {
+    client.state.pages = [[{
+      ...client.activeReservation,
+      bookings: [...(client.activeReservation as { bookings: Row[] }).bookings, { id: "b3", roomTypeId: "rt_king", status: "scheduled" }],
+    }]];
+    const supabase = makeSupabaseStub([], undefined, [night("res_1:b2", "2026-08-02")], INCREMENTAL);
+
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(keysOf(supabase)).toEqual(["res_1:b1|2026-08-02", "res_1:b2|2026-08-02"]);
+  });
+
+  it("clears every room stored for a cancelled reservation, one that left it before the cancellation included", async () => {
+    client.state.pages = [[
+      client.activeReservation,
+      { id: "res_2", status: "canceled", bookings: [{ id: "b1", startDate: "2026-08-10", endDate: "2026-08-11", status: "canceled" }] },
+    ]];
+    const supabase = makeSupabaseStub([], undefined, [
+      night("res_2:b1", "2026-08-10"),
+      // Taken off the reservation before it was cancelled: only in the table.
+      night("res_2:b9", "2026-08-10"),
+      night("res_2:b9", "2026-07-20"),
+    ], INCREMENTAL);
+
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(keysOf(supabase)).toEqual(["res_1:b1|2026-08-02"]);
+  });
+
+  it("asks again about a reservation a whole sweep left out, and removes its nights to come when Think no longer has it", async () => {
+    const supabase = makeSupabaseStub([], undefined, [
+      night("res_9:b1", "2026-07-30"),
+      night("res_9:b1", "2026-08-05"),
+      night("res_9:b1", "2026-08-06"),
+    ]);
+
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    // The night already past is history.
+    expect(keysOf(supabase)).toEqual(["res_1:b1|2026-08-02", "res_9:b1|2026-07-30"]);
+    if (res.ok) {
+      // Stored with nights to come: the one the sweep wrote, and the one it left out.
+      expect(res.ingest.missingReservations).toEqual({ checked: true, stored: 2, missing: 1, removed: 1, stillHeld: 0, unconfirmed: 0 });
+    }
+    // The second read asked only for its own nights, a day on.
+    const narrow = client.thinkGetReservationsPage.mock.calls.at(-1)![2] as Record<string, string>;
+    expect(narrow).toMatchObject({ stay_on_start_date: "2026-08-05", stay_on_end_date: "2026-08-07" });
+  });
+
+  it("leaves a reservation the narrow read still finds, and removes all of one it finds cancelled", async () => {
+    const held = { id: "res_8", status: "scheduled", bookings: [{ id: "b1", roomTypeId: "rt_king", startDate: "2026-08-05", endDate: "2026-08-06", status: "scheduled" }] };
+    const cancelled = { id: "res_7", status: "canceled", bookings: [] };
+    client.thinkGetReservationsPage.mockImplementation(async (creds: unknown, hotelId: unknown, range: unknown, page: number) => {
+      const r = range as Record<string, string>;
+      if (r.stay_on_start_date === "2026-08-05") return { content: [held], totalPages: 1, last: true, number: page };
+      if (r.stay_on_start_date === "2026-08-08") return { content: [cancelled], totalPages: 1, last: true, number: page };
+      return client.servePage(creds, hotelId, range, page);
+    });
+    const supabase = makeSupabaseStub([], undefined, [
+      night("res_8:b1", "2026-08-05"),
+      night("res_7:b1", "2026-07-25"),
+      night("res_7:b1", "2026-08-08"),
+    ]);
+
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+
+    expect(res.ok).toBe(true);
+    expect(keysOf(supabase)).toEqual(["res_1:b1|2026-08-02", "res_8:b1|2026-08-05"]);
+    if (res.ok) expect(res.ingest.missingReservations).toMatchObject({ checked: true, missing: 2, removed: 1, stillHeld: 1 });
+  });
+
+  it("removes nothing when the sweep left out more than a fifth of the book, or returned nothing at all", async () => {
+    const stored = Array.from({ length: 6 }, (_, i) => night(`res_${20 + i}:b1`, "2026-08-05"));
+    const supabase = makeSupabaseStub([], undefined, stored);
+    const res = await runThinkSyncForHotel(supabase, "hotel-1");
+    expect(res.ok).toBe(true);
+    expect(supabase.reservations).toHaveLength(7);
+    if (res.ok) expect(res.ingest.missingReservations).toMatchObject({ checked: true, missing: 6, removed: 0, unconfirmed: 6, overLimit: true });
+
+    client.state.pages = [[]];
+    const empty = makeSupabaseStub([], undefined, [night("res_9:b1", "2026-08-05")]);
+    const res2 = await runThinkSyncForHotel(empty, "hotel-1");
+    expect(empty.reservations).toHaveLength(1);
+    if (res2.ok) expect(res2.ingest.missingReservations).toMatchObject({ overLimit: true, emptyRead: true });
+  });
+
+  it("never looks for missing reservations on an incremental, resumed or cut-short read", async () => {
+    const incremental = makeSupabaseStub([], undefined, [night("res_9:b1", "2026-08-05")], INCREMENTAL);
+    const res = await runThinkSyncForHotel(incremental, "hotel-1");
+    expect(incremental.reservations.some((r) => r.external_reservation_id === "res_9:b1")).toBe(true);
+    if (res.ok) expect(res.ingest.missingReservations).toEqual({ checked: false, why: "incremental_read" });
+
+    const resumed = makeSupabaseStub([], undefined, [night("res_9:b1", "2026-08-05")], {
+      id: "conn-1",
+      full_sweep_after_id: "0",
+      full_sweep_started_at: "2026-08-01T11:00:00.000Z",
+    });
+    client.state.pages = [[], [client.activeReservation]];
+    const res2 = await runThinkSyncForHotel(resumed, "hotel-1");
+    expect(resumed.reservations.some((r) => r.external_reservation_id === "res_9:b1")).toBe(true);
+    if (res2.ok) expect(res2.ingest.missingReservations).toEqual({ checked: false, why: "read_resumed" });
   });
 });
