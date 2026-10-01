@@ -2,8 +2,9 @@
 -- MAYA: the #maya-signups feed, v2
 -- ============================================================================
 --
--- Two fixes to 99_supabase_migration_signups_feed_v1.sql, both restated whole
--- from that file with only the change below:
+-- Fixes and Jake's calls on top of 99_supabase_migration_signups_feed_v1.sql.
+-- Its two functions are restated whole from that file with only the changes
+-- below, and three small helpers are new:
 --
 -- 1. signup_feed_line: a subscription that ends gets its "cancelled" line
 --    unless the line for its scheduled cancellation was actually posted.
@@ -14,6 +15,23 @@
 -- 2. signup_feed_test: the test line no longer names the admin who sent it.
 --    The feed never carries an email: "Test line from the Command Center.
 --    Real signups post here."
+--
+-- 3. signup_feed_line: no "New account" line for an account on one of MAYA's
+--    own email domains, case aside. The list is signup_feed_staff_domains()
+--    (modern-hospitality-solutions.com, maya-rms.com), the one place to
+--    change it. A staffer who signs up is given the staff role only after
+--    the email is confirmed, so the role alone can't tell.
+--
+-- 4. signup_feed_line: no line at all for a property on MAYA's internal plan
+--    (hotel_subscriptions.plan_kind = 'internal': sandbox, demo), its
+--    connected and went-live lines included, and no "joined" line for an
+--    invitation to one. v1 left out only its billing lines.
+--
+-- Unchanged, on purpose: a property's lines follow the property alone (its
+-- test flag and now its plan), never its owner's address or role. MAYA staff
+-- own real client properties, often under a + address, and those post. To
+-- silence a property, flag it test (the Command Center toggle, or a
+-- test-property signup code).
 --
 -- Run after 99_supabase_migration_signups_feed_v1.sql. One transaction.
 -- Idempotent: safe to run twice. Nothing in the app changes with it.
@@ -29,11 +47,73 @@ begin
 end
 $$;
 
+-- MAYA's own email domains, lower case, without the "@". An account on one
+-- of them is MAYA staff, not a signup, so it gets no "New account" line. The
+-- one place to change the list: restate this function.
+create or replace function public.signup_feed_staff_domains()
+returns text[]
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select array['modern-hospitality-solutions.com', 'maya-rms.com']::text[]
+$$;
+
+comment on function public.signup_feed_staff_domains() is
+  'MAYA''s own email domains (lower case, no @). An account on one gets no New account line in #maya-signups.';
+
+revoke all on function public.signup_feed_staff_domains() from public, anon, authenticated;
+grant execute on function public.signup_feed_staff_domains() to service_role;
+
+-- Whether this account's email is on one of MAYA's own domains, case aside.
+-- Owner's rights, to read auth.users; only the feed and the service role.
+create or replace function public.signup_feed_staff_email(p_user_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select coalesce((
+    select lower(substring(u.email from '@([^@]+)$')) = any (public.signup_feed_staff_domains())
+      from auth.users u
+     where u.id = p_user_id
+  ), false)
+$$;
+
+comment on function public.signup_feed_staff_email(uuid) is
+  'Whether the account''s email is on one of signup_feed_staff_domains(), case aside. For signup_feed_line.';
+
+revoke all on function public.signup_feed_staff_email(uuid) from public, anon, authenticated;
+grant execute on function public.signup_feed_staff_email(uuid) to service_role;
+
+-- Whether the property is on MAYA's internal plan (sandbox, demo): it posts
+-- nothing to #maya-signups.
+create or replace function public.signup_feed_internal_plan(p_hotel_id uuid)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1 from public.hotel_subscriptions s
+     where s.hotel_id = p_hotel_id
+       and s.plan_kind = 'internal'
+  )
+$$;
+
+comment on function public.signup_feed_internal_plan(uuid) is
+  'Whether the property is on MAYA''s internal plan (sandbox, demo), which posts nothing to #maya-signups.';
+
+revoke all on function public.signup_feed_internal_plan(uuid) from public, anon, authenticated;
+grant execute on function public.signup_feed_internal_plan(uuid) to service_role;
+
 -- The line #maya-signups gets for this event, or null when it gets none:
 --
 --   account.created               New account: email confirmed.
 --                                 New account: joined Harbour Inn.  (an
 --                                 invitation to a property, accepted)
+--                                 (nothing on MAYA's own email domains)
 --   subscription.trialing         Harbour Inn (Cloudbeds) started a 14-day trial: 24 rooms, monthly.
 --   subscription.active           Harbour Inn (Cloudbeds) started paying: 24 rooms, monthly.
 --                                 ... moved from the trial to paying: ...
@@ -46,8 +126,10 @@ $$;
 --                                 "during the trial" when it was trialing)
 --
 -- A property still on checkout's placeholder name reads "A new signup".
--- Nothing for a test event, MAYA's internal plan, or any other event. Plain
--- SQL, so the owner can preview lines: select public.signup_feed_line(e)
+-- Nothing for a test event, any event of a property on MAYA's internal
+-- plan, or any other event. A property's owner (a + address, MAYA staff)
+-- never silences it: only the property's test flag or plan does. Plain SQL,
+-- so the owner can preview lines: select public.signup_feed_line(e)
 -- from public.product_events e order by e.id desc limit 20;
 create or replace function public.signup_feed_line(p_event public.product_events)
 returns text
@@ -76,22 +158,31 @@ begin
   if p_event.event like 'subscription.%' and v_props->>'plan_kind' = 'internal' then
     return null;
   end if;
+  -- v2: a property on MAYA's internal plan posts nothing, whatever the event.
+  if p_event.hotel_id is not null and public.signup_feed_internal_plan(p_event.hotel_id) then
+    return null;
+  end if;
 
   if p_event.event = 'account.created' then
+    -- v2: MAYA's own people, by email domain (signup_feed_staff_domains).
+    if public.signup_feed_staff_email(p_event.user_id) then
+      return null;
+    end if;
     -- An invitation accepted: the person already belongs to a property. Only
-    -- to test properties: not a customer, nothing to say.
+    -- to test or internal-plan properties: not a customer, nothing to say.
     select h.name into v_joined
       from public.hotel_memberships hm
       join public.hotels h on h.id = hm.hotel_id
      where hm.user_id = p_event.user_id
        and hm.status = 'active'
        and not h.is_test
+       and not public.signup_feed_internal_plan(h.id)
      order by hm.created_at
      limit 1;
     if v_joined is null and exists (
       select 1 from public.hotel_memberships hm
         join public.hotels h on h.id = hm.hotel_id
-       where hm.user_id = p_event.user_id and hm.status = 'active' and h.is_test
+       where hm.user_id = p_event.user_id and hm.status = 'active' and (h.is_test or public.signup_feed_internal_plan(h.id))
     ) then
       return null;
     end if;
@@ -207,7 +298,8 @@ $$;
 
 comment on function public.signup_feed_line(public.product_events) is
   'The line #maya-signups gets for a product event, or null: a real account, trial, payment, connection, '
-  'first go-live or cancellation. Never an email, a guest or a card. See signup_feed_post.';
+  'first go-live or cancellation. Nothing for MAYA''s own email domains or a property on the internal plan. '
+  'Never an email, a guest or a card. See signup_feed_post.';
 
 revoke all on function public.signup_feed_line(public.product_events) from public, anon, authenticated;
 grant execute on function public.signup_feed_line(public.product_events) to service_role;

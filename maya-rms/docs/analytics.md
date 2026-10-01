@@ -451,14 +451,14 @@ like every `analytics_*` function).
 One short Slack line for each real signup milestone, posted by the database:
 an AFTER INSERT trigger on `product_events` (`signup_feed_post`,
 `99_supabase_migration_signups_feed_v1.sql`; `signup_feed_line` and
-`signup_feed_test` as `..._v2.sql` restates them) sends it through pg_net to the
+`signup_feed_test` as `..._v2.sql` restates them, with its three helpers) sends it through pg_net to the
 incoming webhook stored in Vault as `maya_signups_webhook`, the same way
 `pricing_watchdog` posts to `maya_alert_webhook`. The app never holds the
 address.
 
 | event | line |
 |---|---|
-| `account.created` | `New account: email confirmed.`, or `New account: joined Harbour Inn.` for an invitation to a real property |
+| `account.created` | `New account: email confirmed.`, or `New account: joined Harbour Inn.` for an invitation to a real property; nothing on MAYA's own email domains |
 | `subscription.trialing` | `Harbour Inn (Cloudbeds) started a 14-day trial: 24 rooms, monthly.` |
 | `subscription.active` | `... started paying: 24 rooms, monthly.`, or `... moved from the trial to paying: ...`; nothing for a return from `past_due`, `unpaid` or `paused` |
 | `pms.connected` | `Harbour Inn connected Cloudbeds.` |
@@ -468,14 +468,18 @@ address.
 
 Only events with `is_test` false, written by a trigger (never a backfill or
 the sweep). For a property's events (billing, connected, went live) that is
-the property's own test flag and nothing else: a property owned by a `+`
-address or a MAYA staff login posts like any other until it is flagged test
-(the Command Center toggle, or a test-property code). For an account with no
+the property's own test flag, never its owner: a property owned by a `+`
+address or a MAYA staff login posts like any other, since MAYA staff own real
+client properties, until it is flagged test (the Command Center toggle, or a
+test-property code). A property on MAYA's internal plan
+(`plan_kind = 'internal'`: sandbox, demo) posts nothing at all, connected and
+went live included (`signup_feed_internal_plan`). For an account with no
 property it is a `+` address or a MAYA staff login at the moment the email is
-confirmed, so a staffer who signs up and is given a staff role afterwards
-gets a `New account` line. Never a billing line for `plan_kind = 'internal'`;
-an internal-plan property's connected and went-live lines still post unless
-it is flagged test. An invitation to test properties only says nothing. A property still on checkout's placeholder name reads
+confirmed, and an address on one of MAYA's own email domains never gets a
+`New account` line, so neither does a staffer who signs up and is given the
+staff role afterwards. The domains are `modern-hospitality-solutions.com` and
+`maya-rms.com`, case aside, listed once in `signup_feed_staff_domains()`. An
+invitation to test or internal-plan properties only says nothing. A property still on checkout's placeholder name reads
 "A new signup"; its system is named once it has one. Lines carry the
 property's name and system and, for billing, the rooms, monthly or yearly,
 the trial's days, a cancellation's end date and Stripe's reason or the
