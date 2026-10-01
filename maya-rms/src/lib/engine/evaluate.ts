@@ -260,9 +260,19 @@ export type DryRun = {
    * a new one, and is on.
    */
   rule?: Record<string, unknown>;
-  /** The rule whose part in the run is recorded in the capture. */
-  watch?: string;
-  /** Run only the watched rule's ladder part and stop (its decisions are all the capture holds). */
+  /**
+   * Several new rules at once, the same way (rules imported together, which
+   * one popup covers): each joins the run, on.
+   */
+  rules?: Record<string, unknown>[];
+  /**
+   * Floors and ceilings the owner is about to set, by room type: the run
+   * clamps to these instead of the stored ones.
+   */
+  roomTypeLimits?: Record<string, { floor_price?: number; ceiling_price?: number }>;
+  /** The rule (or rules) whose part in the run is recorded in the capture. */
+  watch?: string | readonly string[];
+  /** Run only the watched rules' ladder part and stop (their decisions are all the capture holds). */
   ladderOnly?: boolean;
   capture: DryRunCapture;
 };
@@ -273,13 +283,13 @@ export type DryRunCapture = {
   /** Cells whose published price the run would take away. */
   unpriced: Set<string>;
   /**
-   * Nights the watched rule had a part in: a change of it already on the
+   * Nights a watched rule had a part in: a change of it already on the
    * night (a ladder row that is on, a fire still on the price, any version),
    * a ladder decision it made, or its condition met there (a fire, a hold).
    * Anywhere else it can move no price.
    */
   touched: Set<string>;
-  /** The watched rule's ladder decisions, in order. */
+  /** The watched rules' ladder decisions, in order. */
   ladderOps: LadderOp[];
 };
 
@@ -322,7 +332,12 @@ export async function evaluateHotel(
   const runId = crypto.randomUUID();
   const report = opts.report;
   const dry = opts.dryRun;
-  const watch = dry?.watch ?? null;
+  // The rules whose part the capture records: none, one, or several.
+  const watched = new Set<string>(dry?.watch == null ? [] : typeof dry.watch === "string" ? [dry.watch] : dry.watch);
+  const watch = watched.size > 0;
+  // The dry run's own rules (the owner's draft, or rules imported together).
+  const drafts = dry ? [...(dry.rule ? [dry.rule] : []), ...(dry.rules ?? [])] : [];
+  const draftIds = new Set(drafts.map((r) => String(r.id)));
 
   const { data: hotelRow, error: hotelErr } = await supabase
     .from("hotels")
@@ -383,6 +398,13 @@ export async function evaluateHotel(
     ceiling_price: Number(r.ceiling_price),
     counts_as_room: typeof r.counts_as_room === "boolean" ? r.counts_as_room : null,
   }));
+  // A dry run for limits about to be set clamps to those.
+  for (const rt of roomTypes) {
+    const limits = dry?.roomTypeLimits?.[rt.id];
+    if (!limits) continue;
+    if (limits.floor_price !== undefined && Number.isFinite(limits.floor_price)) rt.floor_price = Number(limits.floor_price);
+    if (limits.ceiling_price !== undefined && Number.isFinite(limits.ceiling_price)) rt.ceiling_price = Number(limits.ceiling_price);
+  }
   const activeRoomTypeIds = new Set(roomTypes.map((rt) => rt.id));
 
   // The room-count denominator, everywhere: only types that count as rooms
@@ -531,11 +553,10 @@ export async function evaluateHotel(
   // that rule.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let rulesData: any[] = rulesRes.data ?? [];
-  if (dry?.rule) {
-    const draftId = String(dry.rule.id);
-    rulesData = [...rulesData.filter((r) => String(r.id) !== draftId), { ...dry.rule, is_active: true }];
+  if (drafts.length > 0) {
+    rulesData = [...rulesData.filter((r) => !draftIds.has(String(r.id))), ...drafts.map((d) => ({ ...d, is_active: true }))];
   }
-  if (dry?.ladderOnly) rulesData = rulesData.filter((r) => String(r.id) === watch);
+  if (dry?.ladderOnly) rulesData = rulesData.filter((r) => watched.has(String(r.id)));
 
   const rules: EngineRule[] = rulesData.map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -983,7 +1004,7 @@ export async function evaluateHotel(
   );
   const touched = dry?.capture.touched;
   if (touched && watch) {
-    for (const row of ladderBatch.activeRows(watch)) if (stayDateSet.has(row.stayDate)) touched.add(row.stayDate);
+    for (const id of watched) for (const row of ladderBatch.activeRows(id)) if (stayDateSet.has(row.stayDate)) touched.add(row.stayDate);
   }
 
   // The owner's Skip holds on this run's nights (rule_skip_hold, see SKIP in
@@ -1181,7 +1202,7 @@ export async function evaluateHotel(
   await ladderBatch.flush();
   if (dry && watch) {
     for (const op of ladderBatch.ops()) {
-      if (op.rule.id !== watch) continue;
+      if (!watched.has(op.rule.id)) continue;
       dry.capture.ladderOps.push(op);
       touched?.add(op.stayDate);
     }
@@ -1218,7 +1239,7 @@ export async function evaluateHotel(
   );
   const rulesById = new Map(rules.map((r) => [r.id, r]));
   if (touched && watch) {
-    for (const fire of openFires) if (fire.rule_id === watch) touched.add(fire.stay_date);
+    for (const fire of openFires) if (watched.has(fire.rule_id)) touched.add(fire.stay_date);
   }
   // Taking fires off: a dry run takes off every one it would.
   const retire = (reasons: ReadonlyMap<string, PickupRetireReason>) =>
@@ -1249,7 +1270,7 @@ export async function evaluateHotel(
   const firedRuleIds = new Set(openFires.map((f) => f.rule_id));
   const pausedEventRules =
     pickupRules.length > 0
-      ? (await loadPausedEventRules(supabase, hotelId, firedRuleIds)).filter((r) => !dry?.rule || r.id !== String(dry.rule.id))
+      ? (await loadPausedEventRules(supabase, hotelId, firedRuleIds)).filter((r) => !draftIds.has(r.id))
       : [];
   // Every rule that can move where an event rule counts from.
   const rankedEventRules = [
@@ -2031,7 +2052,7 @@ export async function evaluateHotel(
 
   // The nights the watched rule's condition was met on, fire or hold.
   if (touched && watch) {
-    for (const rn of ruleNights) if (rn.rule.id === watch && rn.matched) touched.add(rn.stayDate);
+    for (const rn of ruleNights) if (watched.has(rn.rule.id) && rn.matched) touched.add(rn.stayDate);
   }
 
   // The signature of the last audit row per cell, so writeAudit can skip
