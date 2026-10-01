@@ -1105,7 +1105,7 @@
       "other": ""
     },
     "panels": {
-      "rule-fires": "rules/off-delete-or-change#the-list",
+      "rule-fires": "rules/off-delete-or-change#the-fire-log",
       "stopped-nights": "rules/rules-that-keep-adjusting#stopped-on-n-nights-and-letting-it-run-again",
       "booking-speed": "rules/booking-speed#measured-over",
       "booking-speed-wait": "rules/booking-speed#then-waits",

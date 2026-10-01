@@ -29,7 +29,7 @@ updated: 2026-10-01
 ---
 
 <InPlainWords>
-The calendar colours compare each night's room revenue per room with your own other nights, so a busy night can be red, and every day is amber when there are fewer than 10 nights to compare. The calendar, the price box, the Rate Simulator and the sentences under each change use your currency's symbol. The bold line of each change in the change log shows $ whatever your currency. The change log holds the 10 most recent runs (roughly the last 50 minutes) and 40 changes per run, in your browser's time zone, and hides quiet runs unless you press <Ui>Show All Cycles</Ui>.
+The calendar colours compare each night's room revenue per room with your own other nights, so a busy night can be red, and every day is amber when there are fewer than 10 nights to compare. The calendar, the price box, the Rate Simulator and the change log use your currency's symbol. The change log opens on the 10 most recent runs that changed a price, with <Ui>Older</Ui> at the bottom for the ones before, back through 90 days, and 40 changes per run, in your browser's time zone, and hides quiet runs unless you press <Ui>Show All Cycles</Ui>.
 </InPlainWords>
 
 ## Why is every day amber?
@@ -46,7 +46,7 @@ The booked counts and revenue on the visible month are always fresh, but the ran
 
 ## Why does the calendar show $ when my currency is euro?
 
-The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its <Ui>Manual</Ui> badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
+The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its <Ui>Manual</Ui> badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), a rule's fire log, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
 
 Two places still show $ whatever your currency: the <Ui>Price Change</Ui> column on the <Ui>Rules</Ui> tab and the rule builder's fixed amount box. The numbers there are in your own currency. Only that symbol is off. Your currency comes from your property system when you connect and cannot be changed in the app.
 
@@ -88,11 +88,11 @@ Simulation is not a reason: while simulating, every run happens and is written d
 
 ## Why did an older change disappear?
 
-The change log holds the 10 most recent runs that changed a price, with the quiet runs between them counted into lines. An older run drops off the bottom as new changes arrive, so on a busy day a change from this morning may already be gone.
+The change log opens on the 10 most recent runs that changed a price, with the quiet runs between them counted into lines. An older run moves down as new changes arrive, so on a busy day a change from this morning may already be below the newest 10. Click <Ui>Older</Ui> at the bottom to add the 10 runs before them, as many times as you need.
 
-A sending problem that is still going on stays at the top of the log until it ends, however long ago it started. Once it has ended, it shows only while it ended within the time those 10 runs cover. Your answers to the amber banner work the same way: each one shows only while it falls within that time.
+A sending problem that is still going on stays at the top of the log until it ends, however long ago it started. Once it has ended, it shows where it ended, among the runs that cover that time, so it may be on an older page. Your answers to the amber banner work the same way.
 
-For an older change, check the night's <Ui>Current price</Ui> and any <Ui>Manual</Ui> badge on the calendar, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type. The detail behind every change is kept for 90 days, and we can read it for you.
+Runs, and the detail behind every change, are kept for 90 days, and the log ends there with "Nothing older. History is kept for 90 days." For a change older than that, check the night's <Ui>Current price</Ui> and any <Ui>Manual</Ui> badge on the calendar. Within the 90 days, if you cannot find a change, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type and we can read it for you.
 
 ## Why are only some of a run's changes listed?
 
@@ -112,7 +112,7 @@ The button is missing when that run took no booking speed reading for the night.
 
 ## Whose time zone are the log times in?
 
-Your browser's. "Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. <Ui>Last sync</Ui> and the request times on the <Ui>PMS</Ui> tab use your clock too. Pricing itself works in your property's own time zone, and the "Updated 3:05:12 PM · live" time on the calendar is also your browser's clock.
+Your browser's. "Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. <Ui>Last sync</Ui> and the request times on the <Ui>PMS</Ui> tab use your clock too. Pricing itself works in your property's own time zone, and the "Updated 3:05:12 PM · live" time on the calendar is also your browser's clock. A rule's fire log is the one place that shows your property's time instead: "Oct 3, 2:05 PM" there is the clock at the property, and hovering it shows the zone.
 
 ## Why does the PMS tab say "Not tracked for this system" on ThinkReservations or Mews?
 

@@ -3,8 +3,8 @@ title: Find out why a price changed
 summary: Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open "Show the numbers" when a booking speed rule acted.
 section: recipes
 order: 10
-readingTime: 7
-keywords: [why did the price change, why did my price change, change log, which rule, who changed the price, reason, explanation, show the numbers, pricing run, dropped, jumped, cut, raised, base rate changed, pricing rule, show all cycles, prices checked, stay, up to, down to, stronger one's latest raise, latest raise still on this night, latest cut, up to yesterday, bookings not rooms, cancellations meant, no longer true, came off, how far back, older change, change is gone, disappeared, 10 runs, 40 changes, empty log, yesterday, this morning, 90 days, manual badge, current price]
+readingTime: 8
+keywords: [why did the price change, why did my price change, change log, older, older button, older changes, fire log, every night a rule changed, which rule, who changed the price, reason, explanation, show the numbers, pricing run, dropped, jumped, cut, raised, base rate changed, pricing rule, show all cycles, prices checked, stay, up to, down to, stronger one's latest raise, latest raise still on this night, latest cut, up to yesterday, bookings not rooms, cancellations meant, no longer true, came off, how far back, older change, change is gone, disappeared, 10 runs, 40 changes, empty log, yesterday, this morning, 90 days, manual badge, current price]
 questions:
   - Why did the price change on a night? {#in-plain-words}
   - How do I tell why a night's price moved? {#in-plain-words}
@@ -14,12 +14,13 @@ questions:
   - Why does the change log say "Prices checked" so often? {#if-nothing-is-listed-for-the-night/if-the-price}
   - Why did a price change with no rule named? {#what-the-sentences-mean}
   - How far back does the change log go? {#how-far-back-the-log-goes}
-  - The price changed a while ago and the log no longer shows it. How do I find out why? {#if-nothing-is-listed-for-the-night/when-the-price}
+  - The price changed a while ago and the log no longer shows it. How do I find out why? {#how-far-back-the-log-goes}
+  - How do I see when one rule changed prices? {#how-far-back-the-log-goes}
 updated: 2026-10-01
 ---
 
 <InPlainWords>
-Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price moved, one bold line per room type and night, followed by a sentence that names the rule and the reason. For a booking speed change, click <Ui>Show the numbers</Ui> under the entry to see the counts behind it. The change log covers your 10 most recent runs that changed a price. For an older change, check the night on the <Ui>Calendar</Ui> tab first: a badge means the price was typed in MAYA or changed in your system, and <Ui>Current price</Ui> shows where your rules have taken your rate. For the exact reason, email us the night and room type within 90 days.
+Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price moved, one bold line per room type and night, followed by a sentence that names the rule and the reason. For a booking speed change, click <Ui>Show the numbers</Ui> under the entry to see the counts behind it. The change log opens on your 10 most recent runs that changed a price, and <Ui>Older</Ui> at the bottom adds the 10 before them, back through 90 days. For a change older than that, check the night on the <Ui>Calendar</Ui> tab: a badge means the price was typed in MAYA or changed in your system, and <Ui>Current price</Ui> shows where your rules have taken your rate.
 </InPlainWords>
 
 ## Open the change log
@@ -58,26 +59,28 @@ When a booking speed rule acted, a <Ui>Show the numbers</Ui> link sits under the
 
 ## How far back the log goes
 
-The tab covers the 10 most recent runs that changed a price, however long ago they ran. On a busy day that may be the last hour, on a quiet week several days. A change older than the tenth is no longer listed. The runs in between that changed nothing are counted into one quiet line per stretch, shown under <Ui>Show All Cycles</Ui>.
+The tab opens on the 10 most recent runs that changed a price, however long ago they ran. On a busy day that may be the last hour, on a quiet week several days. Click <Ui>Older</Ui> under the last entry to add the 10 runs before them, and again for the 10 before those, back through the 90 days MAYA keeps. Once there is nothing older, "Nothing older. History is kept for 90 days." shows instead. The runs in between that changed nothing are counted into one quiet line per stretch, shown under <Ui>Show All Cycles</Ui>.
+
+To see every night one rule changed, click its number in the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab: its fire log lists each time it acted in the last 90 days, with the price before and after and why. Read [The fire log](/docs/rules/off-delete-or-change#the-fire-log).
 
 If no run has changed a price yet, no runs are listed. Within a run you see the 40 biggest moves. When a run had more, a line under them counts the rest, such as "And 23 more changes in this run."
 
 ## If nothing is listed for the night
 
-When the price moved before the oldest run on screen, its run has dropped off the list (see above). You can still narrow it down yourself. Open the night on the <Ui>Calendar</Ui> tab and check three things:
+When the price moved before the oldest run on screen, click <Ui>Older</Ui> until its run shows (see above). A change older than 90 days is gone from the log, and you can still narrow it down yourself. Open the night on the <Ui>Calendar</Ui> tab and check three things:
 
 - **A badge on the room type's card.** "Manual · $180.00" means someone typed that price in MAYA. "Changed in Cloudbeds · $180.00" (or your system's name) means the rate was changed in your property system and MAYA kept it. Either way, the starting price did not come from your rules. Hover the badge for the time it was set (or, for a rate changed in your system, when MAYA read it).
 - **<Ui>Current price</Ui> against your own rate.** Current price is your rate for that night after your rules and your floor and ceiling. A gap between the two is what they added or took off. (MAYA reads no Mews rates, so on Mews the starting point is always a price you typed.)
 - **Which of your rules could apply.** On the <Ui>Rules</Ui> tab, hold each rule that is <Ui>On</Ui> up against the night: how full it is, how many days away it is, and whether the rule changes that room type.
 
-For the exact reason, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type within 90 days. The detail behind every change is kept for 90 days, and we can read it for you.
+The detail behind every change is kept for 90 days, the same time the log reaches back. If you cannot find a change within that time, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) the night and room type and we can read it for you.
 
 If the price did not move, most runs change nothing. Click <Ui>Show All Cycles</Ui> to include the quiet lines, such as "Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change". That is normal: about every five minutes MAYA reads your bookings and runs your rules on the nights that changed, and a price only moves when a rule's condition changes.
 
 A night 396 or more nights away, past tonight and the next 395, is not priced yet, so it has no entries. A night before today is never priced.
 
 <Callout kind="not-yet">
-There is no search box, no filter by night or room type, no way to page back to older runs, and no export. For a change older than the runs on screen, check the calendar as above, then email us the night and room type within 90 days and we read the detail for you.
+There is no search box, no filter by night or room type, and no export: to reach an older run, click <Ui>Older</Ui> until it shows. For a change older than 90 days, check the calendar as above.
 </Callout>
 
 <OpenInMaya to="changelog" view="all" words="Open the Change Log on Show All Cycles" />

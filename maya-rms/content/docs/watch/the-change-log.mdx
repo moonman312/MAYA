@@ -1,10 +1,10 @@
 ---
 title: The change log
-summary: Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.
+summary: Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.
 section: watch
 order: 20
-readingTime: 27
-keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote, simulation, simulated run, would have, would have gone, would have raised, would have lowered, would have been, nothing was sent, nothing was sent to cloudbeds, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, typed a price, did it reach cloudbeds, was it sent, its simulated changes, due to go out again]
+readingTime: 28
+keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, older button, see older, page back, older history, nothing older, couldn't load older history, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote, simulation, simulated run, would have, would have gone, would have raised, would have lowered, would have been, nothing was sent, nothing was sent to cloudbeds, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, typed a price, did it reach cloudbeds, was it sent, its simulated changes, due to go out again]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
   - 'What is the change log?' {#in-plain-words}
@@ -12,15 +12,17 @@ questions:
   - 'How do I see only the changes in the change log?' {#the-two-views}
   - 'How far back does the change log go?' {#how-much-the-log-shows}
   - 'Why is the change log empty?' {#the-two-views}
-  - 'A change from this morning is missing from the change log. Where did it go?' {#a-change-that-has-left-the-log}
+  - 'A change from this morning is missing from the change log. Where did it go?' {#finding-an-older-change}
+  - 'How do I see older changes in the change log?' {#finding-an-older-change}
+  - 'What does the Older button under the change log do?' {#how-much-the-log-shows}
   - 'Why are only some of a run''s changes listed?' {#moves-the-log-does-not-list/the-log-lists}
   - 'What does "And 23 more changes in this run" mean?' {#a-run-entry/under-the-first}
   - 'A price went back down. What does the change log say?' {#moves-the-log-does-not-list/a-price-going}
   - 'What does "Prices checked 47 times, nothing needed to change" mean?' {#the-two-views}
   - 'What does "Cancellations meant ... was no longer true" mean?' {#a-change-line-by-line/then-come-the}
   - 'Why does the bold line start from a different price than the night had before?' {#a-change-line-by-line/each-change-starts}
-  - 'A price changed weeks ago and is gone from the log. How do I find out why?' {#a-change-that-has-left-the-log}
-  - 'Can I see a night''s price history?' {#a-change-that-has-left-the-log}
+  - 'A price changed weeks ago and is gone from the log. How do I find out why?' {#finding-an-older-change}
+  - 'Can I see a night''s price history?' {#finding-an-older-change}
   - 'What do the sentences in the change log mean?' {#the-sentences-by-kind-of-rule}
   - 'What does "It was 82% full, past the 70% mark you set" mean?' {#occupancy-and-booking-window}
   - 'What does "Bookings came in faster than normal this past week" mean?' {#booking-speed/the-sentence-opens}
@@ -51,7 +53,7 @@ updated: 2026-10-01
 ---
 
 <InPlainWords>
-The <Ui>Change Log</Ui> tab shows your 10 most recent pricing runs that changed a price, newest first, however long ago they ran. Each listed night shows its starting price and new price, a short line saying where that price went, then plain sentences saying what each rule on it did and why. A run made while your property was simulating is tagged <Ui>Simulation</Ui> and says what would have happened, and that nothing was sent. A price going back to its starting point is listed too, with what came off. The runs in between that changed nothing are counted, not listed: <Ui>Show All Cycles</Ui> shows each stretch of them as one line, such as "Prices checked 47 times, nothing needed to change".
+The <Ui>Change Log</Ui> tab shows your 10 most recent pricing runs that changed a price, newest first, however long ago they ran, and <Ui>Older</Ui> at the bottom adds the 10 before them, back through the 90 days MAYA keeps. Each listed night shows its starting price and new price, a short line saying where that price went, then plain sentences saying what each rule on it did and why. A run made while your property was simulating is tagged <Ui>Simulation</Ui> and says what would have happened, and that nothing was sent. A price going back to its starting point is listed too, with what came off. The runs in between that changed nothing are counted, not listed: <Ui>Show All Cycles</Ui> shows each stretch of them as one line, such as "Prices checked 47 times, nothing needed to change".
 </InPlainWords>
 
 ## What a pricing run is
@@ -285,7 +287,7 @@ When you are live and a price cannot be delivered, the log carries an amber item
 
 A few holds MAYA applies itself never appear here.
 
-While the problem lasts it sits at the very top, above every run. Once it ends it drops to where it ended, and only stays while that moment is within the runs shown. Mews never has these items, because nothing is sent to Mews.
+While the problem lasts it sits at the very top, above every run. Once it ends it drops to where it ended: among the runs shown when that moment is within them, or further down once <Ui>Older</Ui> has added the runs around it. Mews never has these items, because nothing is sent to Mews.
 
 The item names the cause in one sentence, counts the nights and room types affected, says "Still happening" or when it was resolved, and tells you what to do when there is something to do. <Ui>Show 12 tries</Ui> opens the attempts behind it. [When your property system does not accept a price](/docs/live/when-your-pms-does-not-accept-a-price) walks through every cause.
 
@@ -293,14 +295,15 @@ The item names the cause in one sentence, counts the nights and room types affec
 
 | Limit | Value |
 |---|---|
-| Runs on screen | The 10 most recent that changed a price, however long ago. Quiet runs between them are counted into one line per stretch, shown under <Ui>Show All Cycles</Ui>. |
+| Runs on screen | The 10 most recent that changed a price, however long ago. Each click of <Ui>Older</Ui> adds the 10 before them. Quiet runs between them are counted into one line per stretch, shown under <Ui>Show All Cycles</Ui>. |
+| How far back | 90 days. Runs, and the detail behind them, are kept that long, so the oldest page ends there. |
 | Changes per run | The 40 biggest moves, largest first, each measured as the whole move from the night's starting point. A run with more changes shows its 40 biggest, then a line under them such as "And 23 more changes in this run." In a very large run, where more than about 1,000 nights ended at their starting point and not every one was checked for a move back, the count is a minimum and the line reads "And at least 23 more changes in this run." |
 | What counts as a change | A night whose price differs from its starting point by at least one cent, has a rule still on it, or has a price someone set, and a night put back at its starting point. |
-| Problems and answers | Up to 20 problems still happening, and up to 20 that have ended and 20 answers within the span of the runs shown. |
-| Rates changed in your system | Every warning, and the newest 50 overwrites within the span of the runs shown, with a line counting the rest. Kept for 180 days. |
+| Problems and answers | Up to 20 problems still happening, at the top of the first page, and up to 20 that have ended and 20 answers within the span of each page of runs. |
+| Rates changed in your system | Every warning, and the newest 50 overwrites within the span of each page of runs, with a line counting the rest. Kept for 180 days. |
 | Detail behind a change | Kept for 90 days. That is how long <Ui>Show the numbers</Ui> can open for a change. |
 
-How far back 10 changes reach depends on your property: on a busy day perhaps an hour, on a quiet week several days. Older runs are not lost the moment they leave the screen, but there is no way to page back to them in the app.
+How far back 10 changes reach depends on your property: on a busy day perhaps an hour, on a quiet week several days. <Ui>Older</Ui>, under the last item, adds the next 10 runs that changed a price below them, with the quiet lines between them and everything else that happened in that stretch: problems that ended, your answers, changes by MAYA support and rates changed in your system. A problem still going on stays at the top only. Click it again for the 10 before those, and so on. While a page loads the button reads "Loading…"; if it cannot load, "Couldn't load older history." shows beside it, and clicking it tries again. Once the oldest run kept is on screen the button goes, and "Nothing older. History is kept for 90 days." shows in its place. <Ui>Show Changes Only</Ui> and <Ui>Show All Cycles</Ui> apply to every page shown. Opening the tab again, or switching property, starts again from the newest 10.
 
 ## Moves the log does not list
 
@@ -311,9 +314,11 @@ The log lists nearly every price move:
 
 Two things are left out: moves past the 40 biggest of a run, which are only counted ("And 23 more changes in this run."), and a night arriving in the 396-night window at its starting point with nothing on it. To see where a night stands now, open the <Ui>Calendar</Ui> tab.
 
-## A change that has left the log
+## Finding an older change
 
-The log shows only the 10 most recent runs that changed a price. On a busy day a change from this morning may already have left it. MAYA keeps the detail behind every change for 90 days: the night's starting price and the price published, which rules acted, and the numbers each one saw. [Email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) with the room type, the night and roughly when the price moved, and we can look the change up for you within those 90 days. After 90 days the detail is gone.
+The log opens on the 10 most recent runs that changed a price, so on a busy day a change from this morning may already be below them. Click <Ui>Older</Ui> at the bottom until it shows: each click adds the 10 runs before. MAYA keeps every run and the detail behind each change for 90 days: the night's starting price and the price published, which rules acted, and the numbers each one saw. After 90 days the detail is gone, and the log ends there. If you cannot find a change, [email us](mailto:info@modern-hospitality-solutions.com?subject=Why%20did%20a%20price%20change) with the room type, the night and roughly when the price moved, and we can look it up for you within those 90 days.
+
+To see every time one rule acted, click its count in the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab. Read [The fire log](/docs/rules/off-delete-or-change#the-fire-log).
 
 There is no screen that shows one night's price history. The <Ui>Calendar</Ui> tab shows each night's current price, with a badge while a price typed in MAYA or changed in your system is in place. It does not show the prices the night had before. To keep your own record, copy the entries you care about while they are still in the log.
 
@@ -328,7 +333,7 @@ Everyone on the property can read the change log, whatever their role.
 <SentenceBuilder />
 
 <Callout kind="not-yet">
-The log cannot be exported, and MAYA does not email it or send notifications when a price changes. The only emails near it are about rates changed in your system: the day's overwrites under <Ui>MAYA's price wins</Ui>, and the warning that something else seems to be changing your rates. You cannot see more than the 10 most recent runs that changed a price, or page back through older ones. To keep a record, open the log and copy what you need.
+The log cannot be exported, and MAYA does not email it or send notifications when a price changes. The only emails near it are about rates changed in your system: the day's overwrites under <Ui>MAYA's price wins</Ui>, and the warning that something else seems to be changing your rates. There is no search, and no filter by night or room type: to reach an older change, click <Ui>Older</Ui> until it shows. To keep a record past 90 days, open the log and copy what you need.
 </Callout>
 
 <Related>

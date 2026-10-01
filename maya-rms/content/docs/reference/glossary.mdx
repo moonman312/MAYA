@@ -56,7 +56,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Ceiling** (screen). The highest price MAYA will publish for a room type. Setup fills it from your answer to the five questions where it fits, or else from your own rates if the room type has at least 200 room nights sold. Otherwise it stays at $99,999.99 (a number in your own currency), which stops nothing in most currencies, until you set one. Where rooms sell above 99,999.99, as they can in yen or rupiah, the default ceiling holds prices down, so set one before you go live. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
-**Change Log** (screen). The tab that shows the 10 most recent pricing runs and, for each change, which rule acted and why. A run happens about every five minutes and quiet runs count toward the 10, so it covers about the last 50 minutes. By default it lists only the runs among them that changed a price. Read [The change log](/docs/watch/the-change-log).
+**Change Log** (screen). The tab that shows your pricing runs that changed a price, the 10 most recent first and 10 more each time you click <Ui>Older</Ui>, back through 90 days, and for each change, which rule acted and why. The quiet runs between them are counted into lines, shown under <Ui>Show All Cycles</Ui>. Read [The change log](/docs/watch/the-change-log).
 
 **Changed in Cloudbeds** (screen: Changed in Cloudbeds · $123.00). The badge on a room type card for a rate you changed in your property system on a night MAYA had already sent to. MAYA keeps it like a manual price, while your setting is <Ui>Keep the change as your price</Ui>. The same words head a change log item when MAYA sent its price again over such a change. Read [Rates changed in your property system](/docs/watch/rates-changed-in-your-pms).
 
@@ -86,7 +86,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Error** (screen, on the PMS tab). Your property system refused MAYA's saved access, so reading has stopped for now. MAYA keeps trying, up to an hour between tries, and the card goes back to Connected by itself once a try works. If it does not clear, a General Manager or Hotel Admin reconnects. Read [Connection lost](/docs/wrong/connection-lost).
 
-**Fired** (screen). The number of times a rule acted, counted once per night and room type, including changes that later came off. A booking speed or pickup rule can act on the same night more than once. Read [The rule builder](/docs/rules/the-rule-builder).
+**Fired** (screen). The number of times a rule acted in the last 90 days, counted once per night and room type, including changes that later came off. A booking speed or pickup rule can act on the same night more than once. Click the number for the rule's fire log, which lists each one. Read [The rule builder](/docs/rules/the-rule-builder) and [The fire log](/docs/rules/off-delete-or-change#the-fire-log).
 
 **Floor** (screen). The lowest price MAYA will publish for a room type. Setup fills it from your answer to the five questions, or else from your own rates if the room type has at least 30 room nights sold. Otherwise it stays at $1.00, which stops nothing, until you set one (a floor cannot be 0). Read [Floors and ceilings](/docs/review/floors-and-ceilings).
 
@@ -140,7 +140,7 @@ MAYA uses a small set of words on screen and in these docs. Each is defined here
 
 **Price and rate.** In these docs, a price is what MAYA works out and sends. A rate is what lives in your property system, such as your base rate or a rate you changed there.
 
-**Pricing run** (screen). One evaluation of every night and every rule for your property. The change log shows the 10 most recent, one entry per run. Read [The change log](/docs/watch/the-change-log).
+**Pricing run** (screen). One evaluation of every night and every rule for your property. The change log shows those that changed a price, one entry per run, 10 at a time. Read [The change log](/docs/watch/the-change-log).
 
 ## R to S
 

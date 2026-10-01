@@ -14,7 +14,7 @@ questions:
   - Do I need to understand revenue management to use MAYA? {#before-you-start}
   - Why does a new rule's Fired count jump so fast? {#what-you-see-in-the-list-afterwards}
   - How much should I raise or cut by? Is 10% a sensible amount? {#choosing-the-amount/how-much-a}
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -79,13 +79,13 @@ The list has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, 
 | Column | What it shows for "Busy nights" |
 |---|---|
 | Name | Busy nights |
-| Fired | A dash until the rule has acted, then a count such as 3× |
+| Fired | A dash until the rule has acted, then a count such as 3×, which opens the rule's fire log |
 | Conditions | Occupancy above 80% |
 | Room Types | Standard, Deluxe, Suite |
 | Price Change | +10% |
 | Status | On |
 
-The <Ui>Fired</Ui> count goes up once for every night and room type the rule acts on. So if "Busy nights" raises two Fridays for Standard, Deluxe and Suite, <Ui>Fired</Ui> reads 6×. A new rule whose condition already holds on many nights can show a big number within minutes: 20 nights across 3 room types is 60×. It keeps counting changes that later come off. The list is sorted with the most fired rule first, then rules that are on before rules that are off, then by name. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) for the rest of the list.
+The <Ui>Fired</Ui> count goes up once for every night and room type the rule acts on. So if "Busy nights" raises two Fridays for Standard, Deluxe and Suite, <Ui>Fired</Ui> reads 6×. A new rule whose condition already holds on many nights can show a big number within minutes: 20 nights across 3 room types is 60×. It keeps counting changes that later come off, for 90 days: a fire older than that drops out of the count. Click the count to see each fire, with the night, the price before and after, and why. The list is sorted with the most fired rule first, then rules that are on before rules that are off, then by name. Read [Turning a rule off, deleting it, or changing it](/docs/rules/off-delete-or-change) for the rest of the list.
 
 ## Watch it in the change log
 

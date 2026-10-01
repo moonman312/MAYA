@@ -1,10 +1,10 @@
 ---
 title: Turning a rule off, deleting it, or changing it
-summary: What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, and how to read the rules list.
+summary: What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, how to read the rules list, and each rule's fire log behind its Fired count.
 section: rules
 order: 110
-readingTime: 9
-keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, edit button, save changes, cancel editing, reload, changed in another tab, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
+readingTime: 14
+keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, edit button, save changes, cancel editing, reload, changed in another tab, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, fire log, every time a rule fired, when did this rule fire, which nights did it change, click the count, 12×, last 90 days, fires in the last 90 days, nothing older, fires are kept for 90 days, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
 questions:
   - How do I edit a rule? {#changing-a-rule}
   - What does turning a rule Off do to the prices it already changed? {#the-onoff-switch/each-rule-on}
@@ -18,11 +18,15 @@ questions:
   - How do I filter my rules list, and what order is it in? {#the-list/filter}
   - Why does the Price Change column show a dollar sign when my currency is euro? {#the-list/price-change}
   - The Fired count is higher than the changes I can see. {#the-list/fired}
+  - How do I see every time a rule fired? {#the-fire-log}
+  - What does the fire log show when I click a row? {#the-fire-log/click-a-row}
+  - Why does the fire log say a price was not sent? {#the-fire-log/click-a-row}
+  - Why did the Fired count go down? {#the-list/fired}
   - Who created this rule, and who switched it off or deleted it? {#who-did-what}
   - Can I change the undo box on a rule I already saved? {#changing-a-rule}
   - What happens to a rule's changes when I edit it? {#changing-a-rule/what-an-edit}
   - Why did a window with a calendar open when I switched a rule on? {#the-onoff-switch}
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -86,11 +90,11 @@ You cannot copy or duplicate a rule, or copy one to another property. For those,
 
 The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions</Ui>, <Ui>Room Types</Ui>, <Ui>Price Change</Ui>, <Ui>Status</Ui>, and the <Ui>Edit</Ui> and <Ui>Delete</Ui> buttons. On a narrow screen it scrolls sideways.
 
-**Order.** Most fired first, then rules that are on before rules that are off, then by name.
+**Order.** Most fired in the last 90 days first, then rules that are on before rules that are off, then by name.
 
 **Filter.** The pills above the table, <Ui>All</Ui>, <Ui>Enabled</Ui> and <Ui>Disabled</Ui>, show every rule, only the ones that are on, or only the ones that are off.
 
-**Fired.** How many times the rule has acted, counted once per night and room type. A dash means never. A "?" beside the heading explains that a booking speed or pickup rule can act on the same night more than once, and each time counts, and that a change that came off later still counts. So the count is usually higher than the changes you can see on the calendar now, and higher than the change log shows, which lists the 40 biggest moves of each run and only counts the rest.
+**Fired.** How many times the rule acted in the last 90 days, counted once per night and room type. A dash means not once in that time. A "?" beside the heading explains that a booking speed or pickup rule can act on the same night more than once, and each time counts, and that a change that came off later still counts. So the count is usually higher than the changes you can see on the calendar now, and higher than the change log shows, which lists the 40 biggest moves of each run and only counts the rest. A fire older than 90 days drops out of the count, so a rule that has not acted lately can go down, or back to a dash. Click the number to see each fire it counts ([The fire log](#the-fire-log)).
 
 **Conditions.** In words: "Occupancy above 80%", "Booking window below 7 days", "Pickup above 5 bookings (past 3 days), then waits 3 days", "booking speed at least Faster Than Normal (past week), then waits 1 week". Several are joined with a dot.
 
@@ -101,6 +105,29 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 **Stopped on N nights.** An amber chip under the switch when you have told the rule to stop on some upcoming nights, with a "?" and a <Ui>Let it run again</Ui> link. Read [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting).
 
 <OpenInMaya to="rules.list" filter="enabled" words="Open the Rules tab on the rules that are on" />
+
+## The fire log
+
+Click a rule's number in the <Ui>Fired</Ui> column ("12×") and a window opens with the rule's name at the top, "12 fires in the last 90 days" under it and the same "?". It lists exactly the fires the number counts, newest first, 25 at a time, one row each:
+
+- when it fired, in your property's time zone: "Oct 3, 2:05 PM", with the year when it was not this year. Hover it for the exact second and the zone.
+- the night it changed: "Fri Nov 13".
+- what it did, in your currency: "+10%", "+$15". A small amber <Ui>Simulation</Ui> tag sits beside it when your property was simulating at the time.
+
+If a fire landed since the rules list loaded, the window's count is the newer one, and the list's number changes to match it.
+
+**Click a row** to open it, and click again to close it. It shows:
+
+- **The price.** The room type and the night's price before and after the run that made the fire: "Queen: $150.00 to $165.00." It is the night's whole price, so another rule acting in the same run is in it too. With no earlier price on record (a night new to the window) it reads "Queen: $165.00 after this run.", and when the price did not move, "Queen: stayed at $165.00." A fire made while simulating reads "Simulation: the price for Fri Nov 13, Queen would have gone from $150.00 to $165.00." When your floor or ceiling held the price, "It stopped at your ceiling." follows ("It would have stopped" in simulation). When the record of that run is not there, it says "The prices for this run aren't on record."
+- **Where the price went**, in the change log's words. A fire made while simulating says "Nothing was sent to Cloudbeds.", and still does after you go live. A live fire whose price is still the night's latest says "Sent to Cloudbeds.", "Waiting to be sent to Cloudbeds.", "Couldn't be sent to Cloudbeds." or "Held back, not sent to Cloudbeds.", from MAYA's record of its sends. A fire whose price a later run replaced has no such line: MAYA's record keeps only each night's latest send, so it cannot say. On Mews a live fire says "Nothing was sent to Mews. MAYA doesn't send prices there yet." With no record of which mode your property was in at the time, nothing is said about sending.
+- **Why it fired**, in the change log's sentences with the numbers it saw: "It was 72% full, past the 70% mark you set." For a booking speed or pickup rule the numbers come from the run that fired it, and if that record is missing, from what the fire kept itself, numbers only: "6 bookings arrived in its count." If you have edited the rule since, only the numbers show, then "The rule has been edited since.", because its marks at the time are not on record.
+- **What happened later**, when anything did, oldest first: "Came off Oct 5, 9:10 AM." (a standard rule's change, when its conditions stopped holding or an edit took it off), "Came off Oct 5, 9:10 AM: bookings behind it cancelled.", ": a price was set by hand." or ": the rule was edited.", "Moved to the rule's new amount Oct 5, 9:10 AM." (an edit kept the change at the rule's new amount), "A price set by hand took over Oct 5, 9:10 AM." and "Told to stop on this night Oct 5, 9:10 AM." A rate changed in your property system on a night MAYA sent counts as a price set by hand. Each is worded for the mode at its own time: a change that came off while simulating "Would have come off".
+
+When the rule is off, "This rule is off. Its changes stay where they are." shows under its name. A rule with no fires in the last 90 days shows a dash in the list, with nothing to click.
+
+**Older** under the rows adds the 25 fires before them. While they load it reads "Loading…", and if they cannot load, "Couldn't load older fires." shows beside it. Once the oldest is on screen, "Nothing older. Fires are kept for 90 days." shows instead. If the window cannot load at all it says "Couldn't load this rule's fires." with a <Ui>Try again</Ui> link. Close it with the × at the top right, the Escape key, or a click outside it.
+
+**What a fire is.** The count and the window read the same list, so they always agree: each time a standard rule's change went on a night and room type, and each raise or cut a booking speed or pickup rule made, in the last 90 days. That is how long MAYA keeps the record that explains a fire. Nothing is read until you click, so the rules list loads as fast as before. Everyone who can see the rules list sees the same window, whatever their role, and there is nothing in it to change.
 
 ## How many rules you can have
 

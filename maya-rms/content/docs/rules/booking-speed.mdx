@@ -25,7 +25,7 @@ questions:
   - Can bookings that later cancel move my prices? {#questions-people-ask/can-bookings-that}
   - Should I use booking speed or pickup count? {#booking-speed-or-pickup-count}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -187,7 +187,7 @@ In the Rate Simulator, the <Ui>Booking speed</Ui> dropdown starts at <Ui>Not eno
 
 **Can I see a night's booking speed before a rule acts on it?** Not yet. The calendar does not show it, and the <Ui>Rate Simulator</Ui> works on a night you make up, so it counts nothing. A real night's reading shows under <Ui>Show the numbers</Ui> in the change log, under a change on that night, when a booking speed rule was checked there.
 
-To watch for a level while your property is in simulation, add a rule set to the level you are curious about. When a night reads that level or beyond, the rule fires there (unless a stronger rule holds the night), and the change log shows the reading under the change without sending anything. The change log keeps about the last 50 minutes on screen, so look soon after. Delete the rule before you go live. Read [When the reading shows](/docs/rules/booking-speed-in-detail#when-the-reading-shows).
+To watch for a level while your property is in simulation, add a rule set to the level you are curious about. When a night reads that level or beyond, the rule fires there (unless a stronger rule holds the night), and the change log shows the reading under the change without sending anything. The change log opens on the 10 most recent runs that changed a price, and <Ui>Older</Ui> at the bottom reaches the runs before them for 90 days; the rule's fire log, behind its number under <Ui>Fired</Ui>, lists each night it fired. Delete the rule before you go live. Read [When the reading shows](/docs/rules/booking-speed-in-detail#when-the-reading-shows).
 
 **Can bookings that later cancel move my prices?** For a while, and only inside your floors and ceilings. Every booking still on the books counts for booking speed, whatever channel it came from, so bookings that are made and later cancelled (speculative bookings, test bookings or fake ones) can make a raise rule fire before they cancel. On Mews, enquiries and optional reservations count too. Here is what keeps that in check:
 

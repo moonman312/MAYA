@@ -2520,7 +2520,7 @@
   "summary": "A five-minute walkthrough of the Rules tab, from + Add a rule to seeing your rule in the change log, with three more rules to try next.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -2582,7 +2582,7 @@
   "summary": "Every field in + Add a rule, what each one accepts, editing a saved rule, what happens when you click Add Rule or Save changes, and every message the form can show.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -2812,7 +2812,7 @@
   "summary": "How a night's recent bookings are compared with your own similar past nights, the seven levels you build a rule on, which level to pick, what a rule counts after it acts, and why a rule stays quiet.",
   "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3473,10 +3473,10 @@
   "slug": "off-delete-or-change",
   "order": 110,
   "title": "Turning a rule off, deleting it, or changing it",
-  "summary": "What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, and how to read the rules list.",
-  "readingTime": 9,
+  "summary": "What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, how to read the rules list, and each rule's fire log behind its Fired count.",
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -3498,6 +3498,11 @@
     "depth": 2,
     "text": "The list",
     "id": "the-list"
+   },
+   {
+    "depth": 2,
+    "text": "The fire log",
+    "id": "the-fire-log"
    },
    {
     "depth": 2,
@@ -3528,6 +3533,10 @@
    "How do I filter my rules list, and what order is it in?",
    "Why does the Price Change column show a dollar sign when my currency is euro?",
    "The Fired count is higher than the changes I can see.",
+   "How do I see every time a rule fired?",
+   "What does the fire log show when I click a row?",
+   "Why does the fire log say a price was not sent?",
+   "Why did the Fired count go down?",
    "Who created this rule, and who switched it off or deleted it?",
    "Can I change the undo box on a rule I already saved?",
    "What happens to a rule's changes when I edit it?",
@@ -3941,8 +3950,8 @@
   "slug": "the-change-log",
   "order": 20,
   "title": "The change log",
-  "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.",
-  "readingTime": 27,
+  "summary": "Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.",
+  "readingTime": 28,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4048,8 +4057,8 @@
    },
    {
     "depth": 2,
-    "text": "A change that has left the log",
-    "id": "a-change-that-has-left-the-log"
+    "text": "Finding an older change",
+    "id": "finding-an-older-change"
    },
    {
     "depth": 2,
@@ -4069,6 +4078,8 @@
    "How far back does the change log go?",
    "Why is the change log empty?",
    "A change from this morning is missing from the change log. Where did it go?",
+   "How do I see older changes in the change log?",
+   "What does the Older button under the change log do?",
    "Why are only some of a run's changes listed?",
    "What does \"And 23 more changes in this run\" mean?",
    "A price went back down. What does the change log say?",
@@ -4117,7 +4128,7 @@
   "summary": "The numbers behind a booking speed reading, opened from a button under a change in the change log. Three layers you can open one at a time, down to the past nights the night was compared with.",
   "readingTime": 18,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -4194,7 +4205,7 @@
   "summary": "How to tell MAYA that a past night it compared with was not a normal night, so it drops out of every comparison from the next run, and how a pattern that repeats every year is handled.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -5908,7 +5919,7 @@
   "order": 10,
   "title": "Find out why a price changed",
   "summary": "Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open \"Show the numbers\" when a booking speed rule acted.",
-  "readingTime": 7,
+  "readingTime": 8,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [],
@@ -5943,7 +5954,8 @@
    "Why does the change log say \"Prices checked\" so often?",
    "Why did a price change with no rule named?",
    "How far back does the change log go?",
-   "The price changed a while ago and the log no longer shows it. How do I find out why?"
+   "The price changed a while ago and the log no longer shows it. How do I find out why?",
+   "How do I see when one rule changed prices?"
   ],
   "faq": []
  },
@@ -6197,7 +6209,7 @@
   "summary": "Click Edit on the rule, change what you want in the rule builder and click Save changes. A rule that is on shows the days the change will affect first, and you apply or skip the price adjustments.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6739,7 +6751,7 @@
   "summary": "MAYA uses 17 US holidays for every property, wherever it is, and has no screen to add one or switch one off. Set a past night on your holiday aside with the reason Holiday Not on MAYA's List (first in the list) and the yearly scope. After reports from 2 different years, the days around it are left out of comparisons every year, for as long as those reports are under 3 years old.",
   "readingTime": 6,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -7164,7 +7176,7 @@
   "order": 10,
   "title": "Start here: the four questions people ask first",
   "summary": "Short answers to the four things owners ask when a price surprises them, with a link to the long answer for each, and a map of the rest of this section.",
-  "readingTime": 11,
+  "readingTime": 12,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -7210,7 +7222,7 @@
   "faq": [
    {
     "q": "Did a rule cut my price for the wedding weekend?",
-    "a": "One of your rules may have. Open the Change Log tab and find the night. Each change names the rule that acted and the reason, in one or two sentences. The change log only reaches back about 50 minutes. For an older change, check the night's Current price and any Manual badge on the calendar, and email us the night and room type: the detail behind every change is kept for 90 days, and we can read it for you. If a booking speed rule cut the night, the sentence reads something like \"Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now.\""
+    "a": "One of your rules may have. Open the Change Log tab and find the night. Each change names the rule that acted and the reason, in one or two sentences. The change log opens on the 10 most recent runs that changed a price; click Older at the bottom for the ones before, back through 90 days. For a change older than that, check the night's Current price and any Manual badge on the calendar. Within the 90 days, if you cannot find it, email us the night and room type and we can read the detail for you. If a booking speed rule cut the night, the sentence reads something like \"Bookings came in much slower than normal this past month: 1, against the 5 a night like this usually has by now.\""
    },
    {
     "q": "Why did nothing change today?",
@@ -7395,9 +7407,9 @@
   "order": 30,
   "title": "A rule did not fire (or fired when you did not expect it)",
   "summary": "The checklist for a rule that looks true but did nothing, a rule that fired on one room type and not another, the 396-night window, room types that are not rooms, the Rate Simulator's reasons, and what a Viewer can and cannot do.",
-  "readingTime": 11,
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8137,7 +8149,7 @@
    },
    {
     "q": "Why does the calendar show $ when my currency is euro?",
-    "a": "The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its Manual badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check Time zone and currency on the PMS tab, and email us to correct it."
+    "a": "The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its Manual badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), a rule's fire log, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check Time zone and currency on the PMS tab, and email us to correct it."
    },
    {
     "q": "Why does ADR show a dash when nothing is booked?",
@@ -8165,7 +8177,7 @@
    },
    {
     "q": "Why did an older change disappear?",
-    "a": "The change log holds the 10 most recent runs that changed a price, with the quiet runs between them counted into lines. An older run drops off the bottom as new changes arrive, so on a busy day a change from this morning may already be gone."
+    "a": "The change log opens on the 10 most recent runs that changed a price, with the quiet runs between them counted into lines. An older run moves down as new changes arrive, so on a busy day a change from this morning may already be below the newest 10. Click Older at the bottom to add the 10 runs before them, as many times as you need."
    },
    {
     "q": "Why are only some of a run's changes listed?",
@@ -8177,7 +8189,7 @@
    },
    {
     "q": "Whose time zone are the log times in?",
-    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. Last sync and the request times on the PMS tab use your clock too. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock."
+    "a": "Your browser's. \"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT\" is the time on your computer's clock, with its zone abbreviation. Hover the time for the exact moment, to the second, on the same clock. Last sync and the request times on the PMS tab use your clock too. Pricing itself works in your property's own time zone, and the \"Updated 3:05:12 PM · live\" time on the calendar is also your browser's clock. A rule's fire log is the one place that shows your property's time instead: \"Oct 3, 2:05 PM\" there is the clock at the property, and hovering it shows the zone."
    },
    {
     "q": "Why does the PMS tab say \"Not tracked for this system\" on ThinkReservations or Mews?",
@@ -8395,7 +8407,7 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 64,
+  "readingTime": 66,
   "readingNote": "Type a few words of the message to jump to it",
   "updated": "2026-10-01",
   "pms": [
@@ -8697,7 +8709,7 @@
   "summary": "Every number MAYA works by, in one place, grouped by the cycle, the window, rules, booking speed, floors and ceilings, history, the change log, how often you can do things, billing and the connection, each with the page that explains it.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
