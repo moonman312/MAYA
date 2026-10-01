@@ -115,21 +115,19 @@ Your property can reverse the colours in [Settings](/docs/watch/settings#colours
 
 Here is how the colour is set:
 
-- For each night, MAYA adds up the latest rate it has read for each booked room. A booked room with no rate adds nothing.
-- It divides that total by the number of rooms in room types that count as rooms. That is revenue per room.
+- For each night, MAYA adds up the room revenue of the room types ticked as rooms, the same way the day card counts its revenue: the rate MAYA imported with each booking, or its latest rate when none was imported. A booked room with neither adds nothing.
+- It divides that total by the rooms you could sell that night: the rooms in room types ticked as rooms, less any rooms out of service. That is the night's revenue per room, its RevPAR.
 - Nights before today are compared only with other past nights. Today and later are compared only with other upcoming nights. Revenue for a future night keeps growing as bookings land, so mixing the two would paint every future night red.
 - Each group is cut into thirds. A night in the bottom third is red, the middle third is amber, and the top third is green. With reversed colours, the bottom third is green and the top third red.
 - A group needs at least 10 nights to be cut into thirds. With fewer, MAYA uses both groups together, and if that is still under 10 nights every night on that side is amber.
 - Nights inside a closed period you confirmed on the review are left out when the thirds are worked out, but they still get a colour.
 
-The total behind the colour can differ from the revenue figure on the day card. The card uses the rate MAYA imported with each booking, so the two differ when a booking's rate has changed in your system since it was imported.
-
-For the same reasons, the colour can differ from a RevPAR your property shows on each day. That RevPAR counts only room types ticked as rooms and takes rooms out of service off first, while the colour counts every room type's revenue and keeps rooms out of service in. When the days show RevPAR, the key's <Ui>?</Ui> says so in one more line.
+So a night's colour ranks exactly the RevPAR the day shows when your property picks RevPAR in [Settings](/docs/watch/settings#the-numbers-you-can-pick). The revenue figure on the day card can be higher than the total behind the colour, because the card's figure also counts room types that are not rooms, such as a meeting room.
 
 The colour is not occupancy. A night can be 90% full and still red if those rooms sold cheaply against your other nights, and a half-full night with strong rates can be green.
 
 <Callout kind="good-to-know" title="Colours can lag by a few minutes">
-The booked counts and revenue figures are always fresh, but a new booking can take up to 5 minutes to change a colour.
+Each day's figures are always fresh, and so is the RevPAR its colour uses. The thirds it is compared against are kept for up to 5 minutes, so a new booking can take that long to show in the colours of other nights.
 </Callout>
 
 ## Click a day: the day detail

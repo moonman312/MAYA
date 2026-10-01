@@ -82,6 +82,22 @@ describe("POST /api/admin/signup-codes", () => {
     });
   });
 
+  it("writes a test-property code with its box ticked, and leaves the column out of an ordinary one", async () => {
+    const res = await post({ code: "walkthrough", kind: "trial", trial_days: 14, test_property: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "WALKTHROUGH", testProperty: true });
+    expect(state.inserted).toMatchObject({ code: "WALKTHROUGH", test_property: true });
+    await post({ code: "DRIFTWOOD", kind: "trial", trial_days: 14 });
+    expect(state.inserted).not.toHaveProperty("test_property");
+  });
+
+  it("says which migration a test-property code needs, before it has run", async () => {
+    state.insertError = { code: "PGRST204", message: "Could not find the 'test_property' column of 'signup_codes' in the schema cache" };
+    const res = await post({ code: "WALKTHROUGH", kind: "trial", trial_days: 14, test_property: true });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toContain("99_supabase_migration_signups_feed_v1.sql");
+  });
+
   it("records who minted it in the platform audit log", async () => {
     await post({ code: "MHSFOUNDER", kind: "trial", trial_days: 14 });
     expect(state.events).toEqual([{ type: "signup_code.created", entity: "code-1" }]);

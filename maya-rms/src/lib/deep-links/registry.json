@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "about": "Every place a link may open in MAYA, and every parameter it may carry. Read by /go/<destination>, by the dashboard and account pages when a link lands, and by the docs build, which refuses any docs link this file does not allow. Keys are forever: never rename a destination or a parameter or give one a new meaning; retire it with \"retired\": true instead. See src/lib/deep-links/README.md.",
   "limits": {
     "rawQueryChars": 1024,
@@ -39,7 +39,8 @@
       "values": [
         "builder",
         "test-rule",
-        "corrections"
+        "corrections",
+        "import-pie"
       ],
       "use": "place",
       "go": false
@@ -591,6 +592,25 @@
         }
       ]
     },
+    "rules.import-pie": {
+      "label": "Open Import from PIE",
+      "opens": "Rules tab with Import from PIE open, ready for a screenshot. Nothing is read or added until the owner adds one and chooses.",
+      "target": {
+        "path": "/",
+        "set": {
+          "tab": "rules",
+          "panel": "import-pie"
+        }
+      },
+      "params": [],
+      "role": "revenue_manager",
+      "belowRole": {
+        "to": "rules.list",
+        "note": "role-rules"
+      },
+      "docs": "rules/import-your-rules-from-pie",
+      "docsLinkable": true
+    },
     "suggestions": {
       "label": "Open Get suggestions from my data",
       "opens": "Rules tab scrolled to Get suggestions from my data and highlighted, never pressed. When suggestions are already waiting, the same spot shows the link to them.",
@@ -1131,7 +1151,8 @@
       "calendar-colors": "watch/the-calendar#what-the-colours-mean",
       "settings-colours": "watch/settings#colours",
       "settings-pms-changes": "watch/settings#changes-made-in-your-property-system",
-      "pms-removed": "watch/rates-changed-in-your-pms#a-rate-removed-in-your-system"
+      "pms-removed": "watch/rates-changed-in-your-pms#a-rate-removed-in-your-system",
+      "pie-import": "rules/import-your-rules-from-pie"
     }
   }
 }

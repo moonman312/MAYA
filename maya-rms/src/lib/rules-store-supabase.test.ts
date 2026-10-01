@@ -249,6 +249,31 @@ describe("listRules: occupancy percentage display does not show float noise", ()
   });
 });
 
+describe("listRules: a rule that covers only some nights says which", () => {
+  const rule = (start: string | null, end: string | null) => ({
+    id: "r1",
+    hotel_id: "h1",
+    name: "Autumn",
+    is_active: true,
+    version: 1,
+    start_date: start,
+    end_date: end,
+    action_type: "percent",
+    action_direction: "increase",
+    action_value: 6,
+    is_pickup_rule: false,
+    rule_condition: { occupancy_operator: "gt", occupancy_threshold: 0.25 },
+  });
+  it("names the nights after its conditions, and says nothing for every night", async () => {
+    const shown = async (start: string | null, end: string | null) =>
+      formatRuleConditionsDisplay((await listRules(fakeSupabase({ pricing_rules: [rule(start, end)] }).client, "h1"))[0].conditions);
+    expect(await shown("2026-10-15", "2026-11-30")).toBe("Occupancy above 25% · Nights Oct 15, 2026 to Nov 30, 2026");
+    expect(await shown("2026-10-15", null)).toBe("Occupancy above 25% · Nights from Oct 15, 2026");
+    expect(await shown(null, "2026-11-30")).toBe("Occupancy above 25% · Nights until Nov 30, 2026");
+    expect(await shown(null, null)).toBe("Occupancy above 25%");
+  });
+});
+
 describe("listRules: a booking speed rule's card says how long it waits", () => {
   const card = async (cooldown: number | null, pickup?: { operator: string; windowDays: number }) => {
     const { client } = fakeSupabase({

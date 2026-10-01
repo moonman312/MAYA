@@ -15,6 +15,8 @@ type Draft = {
   maxRedemptions: string;
   expiresOn: string;
   notes: string;
+  /** Whoever signs up with it is flagged a test property, left out of analytics. */
+  testProperty: boolean;
 };
 
 const EMPTY: Draft = {
@@ -27,6 +29,7 @@ const EMPTY: Draft = {
   maxRedemptions: "",
   expiresOn: "",
   notes: "",
+  testProperty: false,
 };
 
 const KINDS: { value: SignupCodeKind; label: string }[] = [
@@ -65,6 +68,7 @@ export function SignupCodeForm() {
       max_redemptions: draft.maxRedemptions || null,
       expires_at: expiryIso(draft.expiresOn),
       notes: draft.notes,
+      test_property: draft.testProperty,
     };
     if (draft.kind === "trial") {
       body.trial_days = draft.trialDays;
@@ -89,6 +93,7 @@ export function SignupCodeForm() {
       const result = (await res.json().catch(() => ({}))) as {
         code?: string;
         grants?: string;
+        testProperty?: boolean;
         error?: string;
       };
       if (!res.ok) {
@@ -98,7 +103,7 @@ export function SignupCodeForm() {
       // The deal usually repeats across a batch of codes; the code and the note
       // never do.
       setDraft((d) => ({ ...d, code: "", notes: "" }));
-      setCreated(`${result.code} — ${result.grants ?? ""}`);
+      setCreated(`${result.code}: ${result.grants ?? ""}${result.testProperty ? " (test property)" : ""}`);
       router.refresh();
     });
   }
@@ -275,6 +280,16 @@ export function SignupCodeForm() {
           className="w-full rounded border border-slate-700 bg-slate-950 p-2 text-sm text-slate-100"
         />
       </Field>
+
+      <label className="flex items-center gap-2 text-sm text-slate-300">
+        <input
+          type="checkbox"
+          checked={draft.testProperty}
+          onChange={(e) => set("testProperty", e.target.checked)}
+          className="h-4 w-4 rounded border-slate-600 bg-slate-950"
+        />
+        Test property (left out of analytics)
+      </label>
 
       {error && (
         <p className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">

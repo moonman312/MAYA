@@ -3,7 +3,7 @@ title: Checking what MAYA found
 summary: The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.
 section: review
 order: 40
-readingTime: 13
+readingTime: 14
 keywords: [review, finding was already resolved, only a revenue manager or above can answer this, can't answer card, card won't answer, viewer, staff, finish didn't work, only a revenue manager or above can finish the review, couldn't finish the review, go to my dashboard, banner won't go away, what was done without asking, does this match reality, were you closed, normally closed, closure, seasonal closure, different years, same closure every year, closed for renovation, is x actually a room, not a room, exclude it, real room, hid duplicate room type, bring it back, rates look like typos, probably a typo, those are real, $0 rate, zero rate, deleted room types, got it, room count strip, we're counting, counts as a room, needs your answer, meeting room, spa, court, parking, continue to recommendations, no new recommendations, nothing left to review, already handled, finish, take me to my dashboard, review banner, booking history ready, blue banner, worth a quick look, worth a quick look, dismissed by mistake, answered wrong, card came back, asked again, that didn't save, needs revenue manager access, ceiling not applied, ceiling missing, typo ceiling, "9999", lot of room-type changes at once, rate limit]
 questions:
   - What does "Is X actually a room?" mean? {#is-x-actually-a-room/property-systems-list}
@@ -20,7 +20,7 @@ questions:
   - I answered a review card wrong. Can I change it? {#coming-back-and-changing-an-answer/you-can-leave}
   - Where is the "?" help on the review? {#how-you-get-here}
   - Who can answer the review cards? {#how-you-get-here}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -73,7 +73,7 @@ A type that is a tiny share of your bookings (under half a percent) at an unusua
 
 Buttons: <Ui>Not a room</Ui>, which takes the type out of your counts, and <Ui>It's a real room</Ui>.
 
-- **Not a room**: the type leaves your sellable occupancy, your RevPAR (revenue per available room: a night's room revenue divided by your rooms, which sets the calendar's colours) and the room count you are billed for. A rule that changes it still prices it.
+- **Not a room**: the type leaves your sellable occupancy, your RevPAR (revenue per available room: a night's room revenue divided by the rooms you can sell, which sets the calendar's colours) and the room count you are billed for. A rule that changes it still prices it.
 - **It's a real room**: the type is recorded as a room, in your name, and MAYA does not ask again.
 
 Either answer needs a Revenue Manager or higher. Below that, the button shows "Only a Revenue Manager or above can answer this." and the card stays. You can change the answer any time on the <Ui>PMS</Ui> tab under <Ui>Room types</Ui>. Read [Room types and rooms out of service](/docs/watch/room-types-and-rooms-out-of-service).
@@ -120,7 +120,8 @@ Then, in order:
 
 1. **The room count strip** (next section).
 2. **Your starter rules**, in a box headed "While you were here, we built your first pricing rules", with the <Ui>Turn them on for real</Ui> button for a General Manager or Hotel Admin (anyone else sees who can go live in its place). The box lists the starter rules your import built, and it stays after anyone on your team runs <Ui>Get suggestions from my data</Ui>. Read [Your starter rules](/docs/review/your-starter-rules) and [Going live](/docs/live/going-live).
-3. <Ui>Finish</Ui>, to go to your dashboard. It marks the review as done, and opens the dashboard only once that is saved. It reads "Finishing up…" while it works. Finishing needs a Revenue Manager or higher. Below that you stay on the review and see "Only a Revenue Manager or above can finish the review." with a <Ui>Go to my dashboard</Ui> link beside it. The review is not marked done and the banner stays. If the save fails you stay on the review and see "Couldn't finish the review. Try again." Press <Ui>Finish</Ui> again. If it reads "Your review couldn't be marked as finished. Reload the page and try again.", reload first.
+3. **On a Cloudbeds property**, the line "Have rules in PIE? Import from PIE". The link opens the <Ui>Rules</Ui> tab with <Ui>Import from PIE</Ui> open, to bring your PIE rules and price limits across from a screenshot. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie).
+4. <Ui>Finish</Ui>, to go to your dashboard. It marks the review as done, and opens the dashboard only once that is saved. It reads "Finishing up…" while it works. Finishing needs a Revenue Manager or higher. Below that you stay on the review and see "Only a Revenue Manager or above can finish the review." with a <Ui>Go to my dashboard</Ui> link beside it. The review is not marked done and the banner stays. If the save fails you stay on the review and see "Couldn't finish the review. Try again." Press <Ui>Finish</Ui> again. If it reads "Your review couldn't be marked as finished. Reload the page and try again.", reload first.
 
 You do not have to press <Ui>Finish</Ui>. Close the page whenever you like and everything you answered is kept.
 

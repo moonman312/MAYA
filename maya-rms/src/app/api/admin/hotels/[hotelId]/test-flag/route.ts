@@ -4,7 +4,11 @@
  * Flagged hotels drop out of analytics: a Stripe test-mode checkout writes a
  * real subscription row, so nothing else distinguishes a walkthrough from a
  * customer. Historical snapshot rows are re-stamped too, so flagging today
- * also corrects last week's chart.
+ * also corrects last week's chart. After 99_supabase_migration_signups_feed_v1.sql
+ * the database does that itself for every change of the flag (its product
+ * events too, hotels_test_flag_follows), and a signup code marked "Test
+ * property" sets the flag on its own; the snapshot write here is then a
+ * no-op, kept for a database before the file.
  */
 
 import { recordSupportChange, requireGodMode } from "@/lib/admin/god-mode";

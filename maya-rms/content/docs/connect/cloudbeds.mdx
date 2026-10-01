@@ -3,8 +3,8 @@ title: Cloudbeds
 summary: How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.
 section: connect
 order: 20
-readingTime: 8
-keywords: [Cloudbeds, Marketplace, Connect App, My Apps, permissions, write reservations, access code, link expired, 24 hours, 15 minutes, covers properties, group, base rate, derived rate, package, rate plan, virtual room type, blocked rooms, allotment, Confirmation Pending, unassigned, password, second user, snag, booking date, day off, time zone, choose rate plan, pick rate plan, different rate plan, user left, employee left, staff left, deactivated user, deleted user, removed user, installer left, group login, stopped syncing, Last sync, second property, new property, Create your MAYA account, took too long, paid without a code, uninstall, disconnect, availability, restrictions, minimum stay, guest names, untick virtual room type]
+readingTime: 9
+keywords: [PIE, Price Intelligence Engine, import from PIE, Cloudbeds, Marketplace, Connect App, My Apps, permissions, write reservations, access code, link expired, 24 hours, 15 minutes, covers properties, group, base rate, derived rate, package, rate plan, virtual room type, blocked rooms, allotment, Confirmation Pending, unassigned, password, second user, snag, booking date, day off, time zone, choose rate plan, pick rate plan, different rate plan, user left, employee left, staff left, deactivated user, deleted user, removed user, installer left, group login, stopped syncing, Last sync, second property, new property, Create your MAYA account, took too long, paid without a code, uninstall, disconnect, availability, restrictions, minimum stay, guest names, untick virtual room type]
 questions:
   - How do I connect Cloudbeds to MAYA? {#way-1-from-the-cloudbeds-marketplace}
   - Can I connect Cloudbeds from inside MAYA instead of the Marketplace? {#way-2-from-inside-maya}
@@ -20,6 +20,7 @@ questions:
   - I changed my Cloudbeds password, does MAYA still work? {#disconnecting-and-reconnecting/you-disconnect-in}
   - Can a second Cloudbeds user reconnect MAYA? {#disconnecting-and-reconnecting/when-the-person}
   - Can I reconnect with a Cloudbeds group login? {#disconnecting-and-reconnecting/to-reconnect-a}
+  - We use PIE. Can we import its rules, and do we turn it off when MAYA is live? {#pie-and-maya}
   - I took too long signing in at Cloudbeds and the sign-in link ran out {#way-2-from-inside-maya/you-land-on}
   - How does MAYA date a Cloudbeds booking made late in the evening? {#what-maya-reads-from-cloudbeds/about-every-five}
   - Can I choose which rate plan MAYA writes to in Cloudbeds? {#what-maya-writes-the-base-rate/once-you-go}
@@ -124,6 +125,12 @@ MAYA never writes bookings, availability, restrictions, minimum stays, close-out
 <Example title="The Harbour Inn goes live on Cloudbeds">
 The Harbour Inn's Standard rate in Cloudbeds is $150 for Fri, Nov 13 2026. "Busy nights" fires and raises the price to $165. On the next cycle, MAYA sends $165 to "Standard Rate". Cloudbeds reports it done. Nothing in MAYA marks a successful send: the change log shows the price change, and the rate in Cloudbeds now reads $165.
 </Example>
+
+## PIE and MAYA
+
+If you use Cloudbeds PIE (Price Intelligence Engine), <Ui>Import from PIE</Ui> on the <Ui>Rules</Ui> tab brings its occupancy rules and price limits into MAYA from a screenshot of PIE's Rules and Alerts page. MAYA never reads or changes PIE itself. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie).
+
+Once you are live, PIE and MAYA should not both change the same rates: each would write over the other's base rate, and you could not be sure which set the price a guest sees. After importing, turn PIE's rules off in Cloudbeds before you go live. If PIE has to stay on, choose <Ui>MAYA's price wins</Ui> in Settings, so MAYA sends its own price again whenever a rate it sent is changed. Read [Settings](/docs/watch/settings#changes-made-in-your-property-system).
 
 ## Disconnecting and reconnecting
 

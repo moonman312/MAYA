@@ -1,0 +1,163 @@
+---
+title: Import your rules from PIE
+summary: How a Cloudbeds property brings its PIE (Price Intelligence Engine) rules and price limits into MAYA from a screenshot, read in your browser: where the link is, the screenshot to take, how each PIE rule becomes a MAYA rule that prices the same, what is not imported, floors and ceilings, adding them, and turning PIE's rules off once you are live.
+section: rules
+order: 107
+readingTime: 15
+keywords: [pie, price intelligence engine, cloudbeds pie, import, import from pie, import rules, bring my rules, move my rules, copy my rules, switch from pie, migrate, screenshot, rules and alerts, reading your screenshot, uploaded, kept, browser, minimum price, maximum price, price limits by accommodation type, floors, ceilings, auto, manual, restriction, compset, cut off, rounding, stacking, two rules, beyond, these rules, add rules, turn them on, overall occupancy, individual, combined, start date, end date, nights, maya's price wins, turn pie off, misread, check it against pie, numbers may be misread, put together from two screenshots, showing entries, rules missing, smaller screen, windows, blurry screenshot, not an image, amber days]
+questions:
+  - How do I bring my PIE rules into MAYA? {#in-plain-words}
+  - Where is Import from PIE? {#where-to-find-it}
+  - What screenshot do I need, and what if my rules don't fit on one screen? {#take-the-screenshot}
+  - Is my screenshot uploaded or kept? {#what-maya-reads}
+  - How does a PIE rule become a MAYA rule? {#how-each-pie-rule-becomes-a-maya-rule}
+  - Will my prices come out the same as in PIE? {#rules-stack-the-same-way}
+  - Why did one PIE rule become two MAYA rules? {#a-window-bounded-at-both-ends}
+  - Which PIE rules are not imported? {#what-is-not-imported}
+  - What happens to PIE's Minimum Price, Maximum Price and price limits? {#floors-and-ceilings}
+  - A rule says it was cut off. What do I do? {#what-is-not-imported}
+  - Why is a rule or a limit unticked with "Check it against PIE"? {#rules-and-limits-to-check}
+  - Why does the import say PIE lists more rules than are here? {#take-the-screenshot}
+  - Should I turn PIE off after importing? {#once-you-are-live}
+pms: [cloudbeds]
+updated: 2026-09-30
+---
+
+<InPlainWords>
+On the <Ui>Rules</Ui> tab, click <Ui>Import from PIE</Ui> and drop in a screenshot of PIE's Rules and Alerts page. MAYA reads it in your browser, never uploading or keeping it, and lists each PIE rule beside the MAYA rule it becomes, with PIE's price limits as floors and ceilings. Untick what you don't want, open any rule in the rule builder first if you like, and click <Ui>Add</Ui>. Rules that were on in PIE are added on, through one window for all of them, and rules that were off are added off. MAYA puts true rules on top of each other the way PIE does, so your prices come out the same. Once you go live, turn PIE's rules off.
+</InPlainWords>
+
+## Where to find it
+
+On the <Ui>Rules</Ui> tab of a Cloudbeds property, <Ui>Import from PIE</Ui> is a small link beside the <Ui>Pricing Rules</Ui> heading. At the end of the setup review, above the button that finishes it, a line reads "Have rules in PIE? Import from PIE", which opens the <Ui>Rules</Ui> tab with the import open.
+
+Importing is for anyone who can add rules: a Revenue Manager, General Manager or Hotel Admin. Anyone else can read the list, and adding is refused with "Only a Revenue Manager or above can change this."
+
+<OpenInMaya to="rules.import-pie" words="Open Import from PIE" />
+
+## Take the screenshot
+
+In Cloudbeds, open PIE and go to <Ui>Rules and Alerts</Ui>. Take a screenshot that has the rules table's column headings in it: <Ui>ACTIVE</Ui>, <Ui>NAME</Ui>, <Ui>MODE</Ui>, <Ui>TYPE</Ui>, <Ui>DESCRIPTION</Ui>, <Ui>START DATE</Ui> and <Ui>END DATE</Ui>. For your floors and ceilings too, include the <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui> and the <Ui>PRICE LIMITS BY ACCOMMODATION TYPE</Ui> table above it.
+
+In the import, drop the screenshot on the box, paste it, or click <Ui>choose a file</Ui>. "Reading your screenshot…" shows while MAYA reads it, usually a few seconds. A file that isn't a picture gets "That file isn't an image MAYA can read."
+
+A screenshot from a high resolution screen, such as a Mac's, reads best. One from a smaller screen (a Windows laptop at 100%, say) has smaller text, so MAYA reads it closer; anything it may have misread is left unticked for you to check (read [Rules and limits to check](#rules-and-limits-to-check)).
+
+**More rules than fit on one screen.** Scroll and take another screenshot, and add them all: drop several at once, or click <Ui>Add a screenshot</Ui> on the review. A rule that shows in two screenshots counts once (the same name, description, dates, mode and type is the same rule; two rules alike but for their dates stay two). A screenshot scrolled past the headings is read with the headings of an earlier one, when it is the same width.
+
+A rule one screenshot ends part way through and the next one starts with is put back together from its two halves and listed once, unticked, with "Put together from two screenshots. Check it, then tick it." When PIE's "Showing 1 to 9 of 9 entries" is in a screenshot and fewer rules are in the review, it says so, such as "PIE lists 9 rules, and 7 are here. Add a screenshot that shows the rest."
+
+## What MAYA reads
+
+The screenshot is read on your computer, in your browser, and never leaves it: it is not uploaded, sent or kept. The first time, your browser loads the reader from MAYA, a few megabytes. Nothing goes to any other company.
+
+From each row of the rules table MAYA reads the name, the <Ui>MODE</Ui> (Auto or Manual), the <Ui>TYPE</Ui>, the description, the start and end dates, and whether the <Ui>ACTIVE</Ui> switch is on (green) or off. From the top of the page it reads the <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui>, and each row of the price limits table: the accommodation type, its MIN and its MAX. It reads each rule's numbers and the price limits twice, the second time closer, and compares the two.
+
+When a screenshot shows rules but none of them could be read, the review says "The rules in one screenshot couldn't be read. Try a sharper or bigger screenshot.", even when its floors and ceilings were read.
+
+PIE shows a rule's rounding only inside the rule, not in the list, so rounding is not read or imported. The review says so in a line at the bottom.
+
+## The review
+
+Each PIE rule is listed with its name and description, and under it the MAYA rule it becomes, in one sentence such as "Raise the price 10% when sellable occupancy is over 31%, 80 or more days before arrival.", marked <Ui>On</Ui> or <Ui>Off</Ui>. Untick a rule to leave it out. Lines in amber say what to know before adding it, and a grey line says why a rule is not imported.
+
+### Rules and limits to check
+
+A rule or a floor and ceiling MAYA may have misread starts unticked, with a line saying so. Look at it in PIE, and tick it if it reads right, or <Ui>Edit</Ui> the rule:
+
+- "Its numbers may be misread. Check them against PIE, then tick it.": a number PIE wouldn't print (PIE writes every one with two decimals, so 1000 % or 55 % was misread), a raise of 100% or more, or a lowering by 100%, or the two reads of the rule's numbers that differ.
+- "Read as a fixed amount, not a percent. Check it against PIE, then tick it.": an amount with no % and no currency sign, as a dropped % reads the same.
+- "Put together from two screenshots. Check it, then tick it.": a rule two screenshots cut between them.
+- "This may be misread. Check it against PIE, then tick it.", under a floor and ceiling: read without full confidence, read differently twice, only its MIN or only its MAX read, or more than ten times (or under a tenth of) the rest of PIE's table or what the room type has now.
+
+<Ui>Edit</Ui> beside a rule opens it in the rule builder, headed "Change before importing". Change anything the builder has, then click <Ui>Use in the import</Ui> to bring it back to the review as changed, or <Ui>Back to the import</Ui> to leave it as it was. Nothing is saved until you add the rules.
+
+Under the rules, <Ui>Floors and ceilings</Ui> lists the limits the import would set (read [Floors and ceilings](#floors-and-ceilings)). The button says what it adds, such as <Ui>Add 5 rules and 3 limits</Ui>.
+
+A property can have 40 rules on. When the rules that would be added on take you past that, the review says, for example, "That makes 43 rules on, and a property can have 40. Untick 3 to fit.", and the button waits until they fit. Rules that were off in PIE don't count.
+
+## How each PIE rule becomes a MAYA rule
+
+PIE writes every occupancy rule the same way, and each part becomes a part of a MAYA rule:
+
+| In PIE's description | In the MAYA rule |
+|---|---|
+| "Raise rate by 10.00 %" | <Ui>Increase the rate</Ui>, <Ui>Adjust by percent (%)</Ui> 10 |
+| "Lower rate by 5.00" (no %) | <Ui>Decrease the rate</Ui>, <Ui>Adjust by fixed amount ($)</Ui> 5, left unticked to check (read [Rules and limits to check](#rules-and-limits-to-check)) |
+| "when occupancy is greater than 31.00 %" | <Ui>Sellable occupancy (%)</Ui> <Ui>Greater than</Ui> 31 |
+| "lower than 20.00 %" or "less than 20.00 %" | <Ui>Less than</Ui> 20 |
+| "greater than or equal to 60.00 %" | <Ui>Greater than</Ui> 59.99, said in amber |
+| "and when booking 80-800 days in advance" | <Ui>Booking window (days to stay)</Ui> <Ui>Greater than</Ui> 79: 80 or more days before arrival. 800 is past the last night MAYA prices, so there is no upper end. |
+| "and when booking today-28 days in advance" | <Ui>Booking window (days to stay)</Ui> <Ui>Less than</Ui> 29: 28 or fewer days before arrival. Today is 0. |
+| "and when booking 14-60 days in advance" | two rules (read [A window bounded at both ends](#a-window-bounded-at-both-ends)) |
+| START DATE and END DATE | the nights the rule covers. The rules list shows them after the conditions, such as "Nights Oct 15, 2026 to Nov 30, 2026". The rule builder has no field for them, and an edit keeps them. |
+
+PIE measures occupancy over the whole property unless a rule says otherwise, so a MAYA rule from it reads and changes the room types that count as rooms, the same ones <Ui>+ Add a rule</Ui> starts with. A description that names room types, for each one on its own or together, becomes rules on those room types, matched by name. Read [Sellable occupancy](/docs/rules/sellable-occupancy) for how MAYA counts.
+
+Each rule keeps PIE's name, and is added with its undo box ticked, as every new rule is. With the box ticked, a raise comes off when occupancy falls back under the mark.
+
+**Manual rules.** A rule on Manual in PIE only suggested rates. In MAYA it changes prices, so its review line says so. While your property is in simulation, nothing is sent to Cloudbeds either way.
+
+**On and off.** A rule whose switch was on in PIE is added on, and one that was off is added off, ready to switch on from the rules list. When the switch could not be seen, the rule is added off and the review says so.
+
+### Rules stack the same way
+
+When several of PIE's rules are true for a night, PIE applies each one to the rate the ones before it left: a percent multiplies, an amount adds. MAYA's occupancy and booking window rules do the same: every one that is true applies, percents multiply, amounts add, and the floor and ceiling hold the result once, at the end. So each PIE rule becomes one MAYA rule with the same condition and amount, and the price comes out the same for every occupancy and every day before arrival.
+
+<Example title="Two raises at once">
+A night's rate is $100. "Busy" raises 10% over 60% full and "Very busy" another 10% over 80%. At 90% full both are true: $100, then $110, then $121, in PIE and in MAYA. Two amounts, $5 and then $10, come to $115 either way.
+</Example>
+
+The one case that can differ: a percent rule and an amount rule true on the same night. The order matters there ($100 raised 10% and then $20 is $130, but $20 and then 10% is $132). PIE applies them in the order they were triggered, which the list doesn't show, and MAYA applies imported rules in the order PIE listed them. The review marks such an amount rule with "With a % rule on the same night the price can differ a little from PIE's rate, as PIE applies them in the order they were triggered."
+
+These rules add to the MAYA rules you already have on, your starter rules included, and stack with them the same way. Read [How rules run](/docs/rules/how-rules-run#putting-the-price-together).
+
+### A window bounded at both ends
+
+A MAYA rule has one booking window condition, so a PIE window with both a start and an end inside the nights MAYA prices, such as "14-60 days in advance", becomes two rules. The first makes the change from 14 days before arrival on. The second, named for the first with ", beyond 60 days", takes it back off more than 60 days out. Together they change only 14 to 60 days out.
+
+An amount comes back off exactly: $20 up, then $20 down. A percent comes off to 4 places: 10% up is taken back off by lowering 9.0909%, which can leave a price a cent different from PIE's, and the review says so on that rule.
+
+## What is not imported
+
+Each of these is listed with a short reason and no tick:
+
+- **Restriction rules**, such as a minimum stay: "Not imported: MAYA doesn't set restrictions." Keep them in PIE or Cloudbeds.
+- **Compset rules**: "Not imported: MAYA doesn't price from competitors' rates."
+- **Any other kind of rule**, and **"equal to"** an exact occupancy, which MAYA can't match.
+- **A description that could not be read**, including an Occupancy rule's that doesn't read as PIE writes it: "Couldn't read its description. Add it yourself in the rule builder."
+- **Dates that could not be read.**
+
+A few are listed without a tick until you look at them:
+
+- **A row cut off at the edge of a screenshot**, top or bottom: "Cut off at the edge of the screenshot. Add a screenshot that shows it whole, or finish it in the rule builder." Add one that shows it, and the whole read takes its place, or click <Ui>Edit</Ui> and finish it. A row the edge cut through is always listed, even when none of it could be read (then as "PIE rule 4", say), so no rule goes missing without a word.
+- **Room types to pick**: a rule that names room types MAYA has no match for, or measures only some room types without naming them. Click <Ui>Edit</Ui> and pick them.
+- **Dates read month first** when they could be either way round, such as 03/04/2027, and **dates that have passed.** Check them, then tick the rule.
+
+## Floors and ceilings
+
+Each room type with a row of its own in <Ui>PRICE LIMITS BY ACCOMMODATION TYPE</Ui> gets that row's MIN as its floor and MAX as its ceiling. Names are matched case and spacing aside, so "Tree House - ADA" in PIE matches "tree house-ada" in MAYA. Every other room type gets PIE's <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui>, when they are in the screenshot.
+
+The review lists only the room types whose limits would change, each with the floor and ceiling it would get and what it has now, such as "Garden Room: $100 to $500 (now $80 to $600)". They start ticked, as they are your own limits, unless one may be misread: then it starts unticked with "This may be misread. Check it against PIE, then tick it." (read [Rules and limits to check](#rules-and-limits-to-check)). Untick one to keep what it has. A pair whose minimum is above its maximum can't be set and has no tick, and a name with no room type in MAYA is listed under them.
+
+The limits are set as the rules are added: when you choose in the window below, or at once when no rule was on in PIE. They hold every price on every night, as floors and ceilings always do. If the rules then can't be added, the import says the limits were set, such as "Set 3 floors and ceilings, but the rules couldn't be added.", with each rule's reason and <Ui>Try again</Ui>. Read [Floors and ceilings](/docs/review/floors-and-ceilings).
+
+## Adding them
+
+When some of the rules were on in PIE, one window opens for all of them, headed for example "Add 5 rules from PIE?". It is the window every rule goes through before it starts acting, with the days these rules change on the calendar and a line such as "41 days will be affected by these rules.", worked out on the floors and ceilings being set. <Ui>Apply price adjustments</Ui> adds them and changes those days on the next pricing run. <Ui>Skip price adjustments</Ui> adds them with those days held, each until a rule stops being true there and then becomes true again. When nothing would change, "0 prices will be affected by these rules." and <Ui>Turn them on</Ui>. When the days can't be worked out, "We weren't able to calculate how many days would be affected by these rules." with <Ui>Try again</Ui>, <Ui>Skip price adjustments</Ui> and <Ui>Cancel</Ui>. <Ui>Cancel</Ui> adds nothing and sets no limits. Read [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on).
+
+The floors and ceilings being set can change prices by themselves too, on days these rules don't. Those days are amber on the calendar, under a line such as "The new floors and ceilings change prices on 12 more days, whether you apply or skip.": <Ui>Skip price adjustments</Ui> holds only what the rules change, so the floors and ceilings apply either way. When the days can't be worked out, the line reads "The new floors and ceilings change prices too, whether you apply or skip."
+
+When every rule was off in PIE, or you are setting limits alone, they are added at once.
+
+Afterwards the import says what it did, such as "Added 5 rules (4 on, 1 off) and set 3 floors and ceilings.", and the rules appear in the list. A rule that could not be added is named with the reason, and <Ui>Try again</Ui> adds it without adding the others twice.
+
+## Once you are live
+
+PIE and MAYA should not both change the same rates in Cloudbeds. In simulation MAYA sends nothing, so they can run side by side while you watch. Before you go live, turn your PIE rules off in Cloudbeds, or, if PIE has to stay on, choose <Ui>MAYA's price wins</Ui> in Settings so MAYA sends its own price again when a rate it sent is changed. Read [Settings](/docs/watch/settings#changes-made-in-your-property-system) and [Going live](/docs/live/going-live).
+
+<Related>
+- [Turning a rule on, Apply or Skip](/docs/rules/turning-a-rule-on)
+- [How rules run](/docs/rules/how-rules-run)
+- [MAYA with Cloudbeds, start to finish](/docs/connect/maya-with-cloudbeds)
+</Related>

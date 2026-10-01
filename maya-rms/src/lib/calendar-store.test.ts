@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { clearCalendarHistoryCache, countingCapacity, getCalendar, isCountingRoom } from "./calendar-store";
+import { clearCalendarHistoryCache, getCalendar, isCountingRoom, sellableRevparSeries } from "./calendar-store";
 import { FakeRpcError, fakeSupabase, missingColumn, missingRelation, type FakeCall, type FakeError, type FakeRow } from "./engine/fake-supabase.test";
-import { calendarDailyRevenue } from "./engine/scale-rpc-model.test";
+import { calendarDailyRevenue, calendarDailyRevenueV2 } from "./engine/scale-rpc-model.test";
 
 vi.mock("@/lib/hotel-context", () => ({ resolveAccessibleHotelId: async () => "h1" }));
 
@@ -560,38 +560,82 @@ describe("getCalendar (Supabase): revenue and average rate", () => {
   });
 });
 
-describe("countingCapacity — the RevPAR / sellable occupancy denominator", () => {
-  it("sums total_rooms over types that count as rooms", () => {
-    expect(
-      countingCapacity([
-        { total_rooms: 40, counts_as_room: true },
-        { total_rooms: 30, counts_as_room: true },
-      ]),
-    ).toBe(70);
-  });
+describe("sellableRevparSeries: what the colours rank", () => {
+  const types = [
+    { id: "king", total_rooms: 10, counts_as_room: true },
+    { id: "court", total_rooms: 2, counts_as_room: false }, // the pickleball court
+    { id: "suite", total_rooms: 5, counts_as_room: null }, // never classified: still a room
+  ];
 
-  it("leaves out a type flagged as not a room", () => {
-    expect(
-      countingCapacity([
-        { total_rooms: 40, counts_as_room: true },
-        { total_rooms: 2, counts_as_room: false }, // the pickleball court
+  it("divides each night's revenue by the rooms it could sell: rooms only, less rooms out of service", () => {
+    const series = sellableRevparSeries(
+      new Map([
+        ["2026-10-01", 1500],
+        ["2026-10-02", 1500],
       ]),
-    ).toBe(40);
-  });
-
-  it("treats an unclassified type as a room — pre-migration rows still count", () => {
-    expect(
-      countingCapacity([
-        { total_rooms: 40, counts_as_room: null },
-        { total_rooms: 15 },
-      ]),
-    ).toBe(55);
+      types,
+      [{ room_type_id: "king", start_date: "2026-10-02", end_date: "2026-10-02", units: 5 }],
+      [],
+    );
+    expect(series).toEqual([
+      { date: "2026-10-01", revpar: 100, closed: false },
+      { date: "2026-10-02", revpar: 150, closed: false },
+    ]);
     expect(isCountingRoom(undefined)).toBe(true);
     expect(isCountingRoom({ counts_as_room: false })).toBe(false);
   });
 
-  it("is zero for an empty list, so RevPAR falls back to its no-rooms branch", () => {
-    expect(countingCapacity([])).toBe(0);
+  it("marks a closed night, and is 0 for a night with nothing to sell", () => {
+    expect(
+      sellableRevparSeries(new Map([["2026-12-25", 400]]), [{ id: "king", total_rooms: 4 }], [{ room_type_id: "king", start_date: "2026-12-20", end_date: "2026-12-31", units: 9 }], [
+        { start_date: "2026-12-24", end_date: "2026-12-26" },
+      ]),
+    ).toEqual([{ date: "2026-12-25", revpar: 0, closed: true }]);
+  });
+});
+
+describe("getCalendar (Supabase): the colours rank the RevPAR each day shows", () => {
+  afterEach(() => {
+    clearCalendarHistoryCache();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** One night's bookings: n rooms of a type, each at `each`. */
+  const nightOf = (stay: string, rt: string, n: number, each: number) =>
+    Array.from({ length: n }, (_, i) => ({ id: `${stay}-${rt}-${i}`, hotel_id: "h1", stay_date: stay, room_type_id: rt, base_rate: each, current_rate: each }));
+
+  it("colours a night by its sellable RevPAR, past and future alike, not by every room type over every room", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-01T12:00:00Z"), toFake: ["Date"] });
+    const reservations = [
+      // Ten ordinary nights ahead: King at 60 to 105 per room.
+      ...Array.from({ length: 10 }, (_, i) => nightOf(`2026-10-${String(5 + i).padStart(2, "0")}`, "rt1", 5, 120 + 10 * i)).flat(),
+      // The 15th: 500 of King with 6 of the 10 out of service, so 125 per room it could sell.
+      ...nightOf("2026-10-15", "rt1", 4, 125),
+      // The 16th: 550 of King, and a 2,000 court booking that is not a room.
+      ...nightOf("2026-10-16", "rt1", 5, 110),
+      ...nightOf("2026-10-16", "rt2", 1, 2000),
+      // A past night, coloured the same way.
+      ...nightOf("2026-09-28", "rt1", 2, 100),
+    ];
+    const { client } = fakeSupabase({
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [
+        { id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 10, counts_as_room: true },
+        { id: "rt2", hotel_id: "h1", name: "Court", is_active: true, total_rooms: 2, counts_as_room: false },
+      ],
+      room_type_out_of_service: [
+        { id: "o1", hotel_id: "h1", room_type_id: "rt1", start_date: "2026-10-15", end_date: "2026-10-15", units: 6, cleared_at: null },
+      ],
+      reservations,
+    });
+    const cal = await getCalendar(2026, 10, client as unknown as SupabaseClient);
+    expect(cal.days["15"]).toMatchObject({ total: 4, sellable_revpar: 125, revpar: 125, color: "green" });
+    expect(cal.days["16"]).toMatchObject({ total: 10, sellable_revpar: 55, revpar: 55, color: "red" });
+    // Every day is coloured by the RevPAR it shows.
+    for (const day of Object.values(cal.days)) expect(day.revpar).toBe(day.sellable_revpar ?? 0);
+    const sept = await getCalendar(2026, 9, client as unknown as SupabaseClient);
+    expect(sept.days["28"]).toMatchObject({ sellable_revpar: 20, revpar: 20, color: "red" });
   });
 });
 
@@ -652,13 +696,15 @@ describe("getCalendar (Supabase) revenue series", () => {
     vi.restoreAllMocks();
   });
 
-  it("reads the same series through calendar_daily_revenue_v2 as through the v1 fallback, past 1,000 dates", async () => {
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it("reads the same series through calendar_daily_revenue_v3 as through the v2 and v1 fallbacks, past 1,000 dates", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const reservations: FakeRow[] = [];
     for (let d = 0; d < 1500; d++) {
       const stay = new Date(Date.UTC(2023, 0, 1) + d * 86_400_000).toISOString().slice(0, 10);
       for (let k = 0; k < 1 + (d % 3); k++) {
-        reservations.push({ id: `r${d}-${k}`, hotel_id: "h1", stay_date: stay, room_type_id: "rt1", base_rate: 100, current_rate: k === 1 ? null : 90 + (d % 50) + 0.33 });
+        // One rate per booking, on a type that counts: all three read the same revenue.
+        const rate = k === 1 ? null : 90 + (d % 50) + 0.33;
+        reservations.push({ id: `r${d}-${k}`, hotel_id: "h1", stay_date: stay, room_type_id: "rt1", base_rate: rate, current_rate: rate });
       }
     }
     const seed = {
@@ -666,22 +712,35 @@ describe("getCalendar (Supabase) revenue series", () => {
       room_types: [{ id: "rt1", hotel_id: "h1", name: "King", is_active: true, total_rooms: 20, counts_as_room: true }],
       reservations,
     };
-    const v2 = fakeSupabase(seed, { maxRows: 1000 });
+    const missing = (fn: string) => new FakeRpcError({ code: "PGRST202", message: `Could not find the function public.${fn}` });
+    const v3 = fakeSupabase(seed, { maxRows: 1000 });
+    const viaV3 = await getCalendar(2026, 1, v3.client);
+    clearCalendarHistoryCache();
+    const v2 = fakeSupabase(seed, {
+      maxRows: 1000,
+      rpc: (fn, args, tables) =>
+        fn === "calendar_daily_revenue_v3" ? missing(fn) : fn === "calendar_daily_revenue_v2" ? calendarDailyRevenueV2(tables.reservations, args as Record<string, unknown>) : undefined,
+    });
     const viaV2 = await getCalendar(2026, 1, v2.client);
     clearCalendarHistoryCache();
     const v1 = fakeSupabase(seed, {
       maxRows: 1000,
       rpc: (fn, args, tables) =>
-        fn === "calendar_daily_revenue_v2"
-          ? new FakeRpcError({ code: "PGRST202", message: "Could not find the function public.calendar_daily_revenue_v2" })
+        fn === "calendar_daily_revenue_v3" || fn === "calendar_daily_revenue_v2"
+          ? missing(fn)
           : fn === "calendar_daily_revenue"
             ? calendarDailyRevenue(tables.reservations, args as Record<string, unknown>)
             : undefined,
     });
     const viaV1 = await getCalendar(2026, 1, v1.client);
-    expect(viaV2).toEqual(viaV1);
-    expect(viaV2.range.min).toBe("2023-01");
+    expect(viaV3).toEqual(viaV2);
+    expect(viaV3).toEqual(viaV1);
+    expect(viaV3.range.min).toBe("2023-01");
+    expect(v3.calls.filter((c) => c.table === "rpc:calendar_daily_revenue_v3").length).toBe(2);
+    expect(v3.calls.some((c) => c.table === "rpc:calendar_daily_revenue_v2")).toBe(false);
     expect(v2.calls.filter((c) => c.table === "rpc:calendar_daily_revenue_v2").length).toBe(2);
+    // The missing v3 is said once, with the file to run.
+    expect(errors.mock.calls.filter((c) => String(c[0]).includes("calendar_daily_revenue_v3")).length).toBe(1);
   });
 });
 

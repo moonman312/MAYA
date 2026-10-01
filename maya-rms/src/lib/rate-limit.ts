@@ -54,6 +54,8 @@ export const RATE_LIMITS = {
    * each for a booking speed or pickup rule.
    */
   rulePreview: { limit: 60, windowSeconds: 300 },
+  /** Creating the rules (and limits) an import from PIE read: one click each, a few retries. */
+  ruleImport: { limit: 10, windowSeconds: 600 },
   /**
    * The post-checkout screen asking whether the webhook landed. The client
    * backs off on its own; this is the ceiling for the ones that don't.
@@ -81,6 +83,8 @@ export const RATE_LIMITS = {
   docsTally: { limit: 3000, windowSeconds: 3600 },
   /** The Command Center's "Send a test alert", per admin: enough to check twice, not to flood the channel. */
   testAlert: { limit: 5, windowSeconds: 600 },
+  /** The same for the #maya-signups feed's test line. */
+  signupsFeedTest: { limit: 5, windowSeconds: 600 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

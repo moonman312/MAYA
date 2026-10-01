@@ -15,6 +15,7 @@ questions:
   - My property is brand new with no history. Is MAYA useful? {#brand-new-properties/maya-is-useful}
   - Is there a demo I can look at? {#support-and-onboarding}
   - We use another revenue tool. Can we run both, and can we import its rules or history? {#switching-from-another-revenue-tool/nothing-is-imported}
+  - We use Cloudbeds PIE. Can we bring its rules across? {#switching-from-another-revenue-tool/nothing-is-imported}
   - Do we have to switch our old revenue tool off before going live? {#switching-from-another-revenue-tool/nothing-is-imported}
   - We use Cloudbeds' own automatic pricing or yield rules. Do we need to switch them off before going live? {#switching-from-another-revenue-tool/a-rate-the}
   - Can we use MAYA for some room types and the old tool for the rest? {#switching-from-another-revenue-tool/when-you-go}
@@ -75,7 +76,7 @@ So yes, your rules change what guests see on Booking.com and Expedia, but only t
 
 ## Switching from another revenue tool
 
-Nothing is imported from another revenue tool: no rules, no settings, no history. MAYA reads your booking history from your property system, and you build your rules fresh: your own, plus the starter rules MAYA adds from that history with Cloudbeds and ThinkReservations.
+Nothing is imported from another revenue tool (no rules, settings or history), with one exception: the occupancy rules and price limits of Cloudbeds PIE (Price Intelligence Engine) come across from a screenshot of its Rules and Alerts page. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie). Otherwise MAYA reads your booking history from your property system, and you build your rules fresh: your own, plus the starter rules MAYA adds from that history with Cloudbeds and ThinkReservations.
 
 While MAYA is in simulation, the two can run side by side. MAYA sends nothing in simulation, so it cannot clash with the old tool. With Cloudbeds and ThinkReservations, MAYA reads the rates in your system about once an hour as the starting point for your rules. So what you watch in simulation is your rules working on top of the old tool's prices.
 
@@ -90,7 +91,7 @@ Either way, you cannot be sure which tool set the price a guest sees. [Rates you
 
 If the old tool has to keep running, turn on <Ui>MAYA's price wins</Ui> in <Ui>Settings</Ui>. Then no rate the old tool writes on a night MAYA sent to is kept: MAYA sends its own price again on its next run, lists each night in the change log, and emails your General Managers and Hotel Admins once a day. Guests can still see the old tool's rate until MAYA's next send, so switching the old tool off is the surer way. [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins) has the details.
 
-Automatic pricing built into your property system counts too. Any feature inside Cloudbeds or ThinkReservations that changes the base rate by itself, such as automatic pricing or yield rules, is another tool writing the same rate. Leave it on while you simulate if you like, and switch it off before you go live, for the same two reasons.
+Automatic pricing built into your property system counts too. Any feature inside Cloudbeds or ThinkReservations that changes the base rate by itself, such as automatic pricing, PIE or yield rules, is another tool writing the same rate. Leave it on while you simulate if you like, and switch it off before you go live, for the same two reasons.
 
 When you go live, MAYA reads your rates once more before its first send. The rates the old tool last left in your system become the starting point your rules work from, so if you would rather start from rates of your own, load them in your system before you go live.
 

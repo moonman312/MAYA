@@ -95,6 +95,7 @@ vi.mock("@/lib/admin/docs-tally", () => ({
 }));
 vi.mock("@/components/admin/docs-tally-panels", () => ({ DocsTallyTile: () => <i data-c="docs-tally" /> }));
 vi.mock("@/components/admin/test-alert-button", () => ({ TestAlertButton: () => <i data-c="test-alert" /> }));
+vi.mock("@/components/admin/signups-feed-test-button", () => ({ SignupsFeedTestButton: () => <i data-c="signups-feed-test" /> }));
 vi.mock("@/components/admin/staff-role-picker", () => ({
   StaffRolePicker: ({ role }: { role: string }) => <i data-c="role-picker" data-role={role} />,
 }));
@@ -198,13 +199,14 @@ beforeEach(() => {
 });
 
 describe("the home page", () => {
-  it("gives a platform admin every tile, New hotel and the test alert", async () => {
+  it("gives a platform admin every tile, New hotel, the test alert and the signups feed test", async () => {
     const out = await html("platform_admin", () => HomePage());
     for (const label of ["Hotels", "PMS connected", "Users", "Pending invites", "Stale syncs", "Signup codes"]) {
       expect(out).toContain(`>${label}</div>`);
     }
     expect(out).toContain("+ New hotel");
     expect(out).toContain('data-c="test-alert"');
+    expect(out).toContain('data-c="signups-feed-test"');
     expect(out).toContain('data-c="docs-tally"');
   });
 
@@ -214,6 +216,7 @@ describe("the home page", () => {
     for (const label of ["Pending invites", "Signup codes"]) expect(out).not.toContain(`>${label}</div>`);
     expect(out).not.toContain("+ New hotel");
     expect(out).not.toContain('data-c="test-alert"');
+    expect(out).not.toContain('data-c="signups-feed-test"');
     expect(out).not.toMatch(/\$\d|MRR|revenue/i);
     expect(out).toContain('data-c="docs-tally"');
     expect(state.calls).not.toContain("listPendingInvites");
@@ -224,6 +227,7 @@ describe("the home page", () => {
     const out = await html("sales", () => HomePage());
     expect(out).not.toContain(">Users</div>");
     expect(out).toContain(">Hotels</div>");
+    expect(out).not.toContain('data-c="signups-feed-test"');
     expect(state.calls).not.toContain("countPlatformUsers");
     expect(state.calls).not.toContain("listPendingInvites");
   });

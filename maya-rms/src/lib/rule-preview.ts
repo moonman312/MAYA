@@ -150,6 +150,12 @@ export type PreviewResult = {
   farOutCut: FarOutCutFacts | null;
   kind: "standard" | "event";
   ms: number;
+  /**
+   * Several new rules with floors and ceilings set alongside (an import):
+   * the nights those limits change by themselves, the hotel's rules as they
+   * are, whether the new rules are applied or skipped. Absent otherwise.
+   */
+  limitsAffected?: string[];
 };
 
 /** farOutCutFacts for a rule in the engine's read shape. */
@@ -738,4 +744,164 @@ export function readOnlyClient(client: SupabaseClient): SupabaseClient {
       return typeof v === "function" ? v.bind(target) : v;
     },
   }) as SupabaseClient;
+}
+
+/* ── Several new rules at once ────────────────────────────────── */
+
+/** Floors and ceilings about to be set with the rules, by room type (an import's limits). */
+export type LimitOverrides = Record<string, { floor_price?: number; ceiling_price?: number }>;
+
+export type SetPreviewInput = {
+  hotelId: string;
+  /** The new rules, as they will be after Apply, in the engine's shape. Taken as on, with no Skip. */
+  rules: EngineRuleRow[];
+  /**
+   * Floors and ceilings saved with them. Both runs clamp to these, so the
+   * days are the ones the rules change on the limits they will have; and
+   * the nights the limits change by themselves are worked out apart
+   * (limitsAffected), as Skip doesn't hold them.
+   */
+  limits?: LimitOverrides;
+  at: string;
+  horizonDays: number;
+  from?: string;
+  to?: string;
+};
+
+/**
+ * The nights Apply would change when several new rules are switched on
+ * together (an import from PIE): the popup's one count and calendar for all
+ * of them. The same method as previewRule, for a set: a night is affected
+ * when a full dry run with every one of them on prices any room type
+ * differently, to the cent, from a full dry run of the hotel as it is
+ * (both on the limits about to be set). Only nights where one of them can
+ * have a part are run: for standard rules, where a ladder-only run of them
+ * finds their change on the price moving; otherwise where any of them was
+ * in scope, then "before" where any had a part.
+ */
+export async function previewRuleSet(
+  client: SupabaseClient,
+  input: SetPreviewInput,
+  evaluate: EvaluateFn = evaluateHotel,
+  historyOpts: PreviewHistory = {},
+): Promise<PreviewResult> {
+  const started = Date.now();
+  const ids = input.rules.map((r) => String(r.id));
+  const horizon = Math.max(1, Math.floor(input.horizonDays));
+  const { timeZone, today } = await hotelClock(client, input.hotelId, input.at);
+  const lastNight = addCalendarDays(today, horizon - 1);
+  const from = input.from && YMD.test(input.from) && input.from > today ? input.from : today;
+  const to = input.to && YMD.test(input.to) && input.to < lastNight ? input.to : lastNight;
+  const after = input.rules.map((r) => ({ ...r, is_active: true, skip_at: null }));
+  const kind = after.some(isEventRuleRow) ? "event" : "standard";
+  const window = from > to ? [] : nightsFrom(from, to);
+  const scope = new Set<string>();
+  for (const rule of after) for (const d of nightsInScope(rule, window, today, input.at, timeZone)) scope.add(d);
+  const result = (affected: Map<string, number>, touched: Iterable<string>, nightsChecked: number): PreviewResult => ({
+    ruleId: ids[0] ?? "",
+    at: input.at,
+    today,
+    lastNight,
+    horizonDays: horizon,
+    from,
+    to,
+    affected: [...affected.keys()].sort(),
+    roomTypesChanged: Object.fromEntries([...affected.entries()].sort()),
+    touched: [...new Set(touched)].sort(),
+    nightsChecked,
+    reach: scope.size,
+    farOutCut: after.map(farOutCutOfRow).find((f) => f !== null) ?? null,
+    kind,
+    ms: Date.now() - started,
+  });
+  if (from > to || after.length === 0) return result(new Map(), [], 0);
+
+  const ro = readOnlyClient(client);
+  const history = historyFor(historyOpts);
+  const run = async (nights: string[], withRules: boolean, opts: { watch?: boolean; ladderOnly?: boolean; storedLimits?: boolean } = {}) => {
+    const capture = dryRunCapture();
+    if (nights.length === 0) return capture;
+    await evaluate(ro, input.hotelId, input.at, horizon, {
+      nights,
+      history,
+      dryRun: {
+        ...(withRules ? { rules: after } : {}),
+        ...(input.limits && !opts.storedLimits ? { roomTypeLimits: input.limits } : {}),
+        ...(opts.watch ? { watch: ids } : {}),
+        ...(opts.ladderOnly ? { ladderOnly: true } : {}),
+        capture,
+      },
+    });
+    return capture;
+  };
+
+  // What the floors and ceilings being set change by themselves: every
+  // night of the answer, the hotel as it is, on them and on the ones it has.
+  const limitsPart = async (): Promise<{ limitsAffected?: string[]; checked: number }> => {
+    if (!input.limits || Object.keys(input.limits).length === 0) return { checked: 0 };
+    const [onNew, onOld] = await Promise.all([run(window, false), run(window, false, { storedLimits: true })]);
+    return { limitsAffected: [...nightsThatDiffer(onNew.prices, onOld.prices, new Set(window)).keys()].sort(), checked: window.length * 2 };
+  };
+  const withLimitsPart = (r: PreviewResult, l: { limitsAffected?: string[]; checked: number }): PreviewResult =>
+    l.limitsAffected ? { ...r, limitsAffected: l.limitsAffected, nightsChecked: r.nightsChecked + l.checked, ms: Date.now() - started } : r;
+
+  const p0 = [...scope].sort();
+  if (kind === "standard") {
+    const ladder = await run(p0, true, { watch: true, ladderOnly: true });
+    const p1 = [...new Set(ladder.ladderOps.filter(ladderOpMovesPrice).map((op) => op.stayDate))].sort();
+    const [a, b, l] = await Promise.all([run(p1, true), run(p1, false), limitsPart()]);
+    return withLimitsPart(result(nightsThatDiffer(a.prices, b.prices, new Set(p1)), p1, p1.length * 2), l);
+  }
+  const a = await run(p0, true, { watch: true });
+  const touched = [...a.touched].filter((d) => scope.has(d)).sort();
+  const [b, l] = await Promise.all([run(touched, false), limitsPart()]);
+  return withLimitsPart(result(nightsThatDiffer(a.prices, b.prices, new Set(touched)), touched, p0.length + touched.length), l);
+}
+
+/**
+ * The Skip for several new rules switched on together: for each, the
+ * days the popup showed (or, when it could not work them out, every day it
+ * could act on), and a standard rule's marks on them from one ladder-only
+ * dry run of them all (skipPlanForRule, for a set).
+ */
+export async function skipPlanForRules(
+  client: SupabaseClient,
+  input: Omit<SetPreviewInput, "from" | "to">,
+  held: readonly string[] | "all",
+  evaluate: EvaluateFn = evaluateHotel,
+): Promise<Map<string, SkipPlan>> {
+  const horizon = Math.max(1, Math.floor(input.horizonDays));
+  const { timeZone, today } = await hotelClock(client, input.hotelId, input.at);
+  const lastNight = addCalendarDays(today, horizon - 1);
+  const after = input.rules.map((r) => ({ ...r, is_active: true, skip_at: null }));
+  const window = nightsFrom(today, lastNight);
+  const heldNights = held === "all" ? null : [...new Set(held)].filter((d) => YMD.test(d) && d >= today && d <= lastNight).sort();
+  const nightsOf = new Map<string, string[]>();
+  for (const rule of after) nightsOf.set(String(rule.id), heldNights ?? nightsInScope(rule, window, today, input.at, timeZone));
+  const out = new Map<string, SkipPlan>();
+  const standard = after.filter((r) => !isEventRuleRow(r) && (nightsOf.get(String(r.id)) ?? []).length > 0);
+  let ops: LadderOp[] = [];
+  if (standard.length > 0) {
+    const nights = [...new Set(standard.flatMap((r) => nightsOf.get(String(r.id)) ?? []))].sort();
+    const capture = dryRunCapture();
+    await evaluate(readOnlyClient(client), input.hotelId, input.at, horizon, {
+      nights,
+      dryRun: {
+        rules: standard,
+        watch: standard.map((r) => String(r.id)),
+        ladderOnly: true,
+        ...(input.limits ? { roomTypeLimits: input.limits } : {}),
+        capture,
+      },
+    });
+    ops = capture.ladderOps;
+  }
+  for (const rule of after) {
+    const id = String(rule.id);
+    const nights = nightsOf.get(id) ?? [];
+    if (nights.length === 0) out.set(id, { marks: [], holdNights: [] });
+    else if (isEventRuleRow(rule)) out.set(id, { marks: [], holdNights: nights });
+    else out.set(id, { marks: skipMarksFrom(ops.filter((op) => op.rule.id === id), new Set(nights)), holdNights: nights });
+  }
+  return out;
 }

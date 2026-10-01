@@ -61,10 +61,12 @@ export type PilotHealthRow = {
    * From 99_supabase_migration_no_rate_on_record_v1.sql, so absent before it.
    *
    * Room-nights ahead the property system has no rate on record for and
-   * nobody typed a price for: not priced, not sent. Only for a system MAYA
-   * reads rates from (Cloudbeds, ThinkReservations). And the last night the
-   * property system returned a rate for on its last read (YYYY-MM-DD), null
-   * until a read has recorded one.
+   * nobody typed a price for: not priced, not sent. A rate the property
+   * system removed after MAYA sent to the night counts too, unless a price
+   * was typed after the removal (99_supabase_migration_signups_feed_v1.sql).
+   * Only for a system MAYA reads rates from (Cloudbeds, ThinkReservations).
+   * And the last night the property system returned a rate for on its last
+   * read (YYYY-MM-DD), null until a read has recorded one.
    */
   no_rate_count?: number | null;
   rates_read_through?: string | null;
@@ -252,7 +254,8 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
     });
   }
 
-  // Nights the property system has no rate on record for. Not an outage:
+  // Nights the property system has no rate on record for, removed rates
+  // included. Not an outage:
   // a hotel that loads its rates six months out has these all year round.
   // Said as a note, so nobody reads "Looks fine" over nights MAYA cannot
   // price, with how far the rates were last read.

@@ -1,4 +1,5 @@
 import { DocsTallyTile } from "@/components/admin/docs-tally-panels";
+import { SignupsFeedTestButton } from "@/components/admin/signups-feed-test-button";
 import { TestAlertButton } from "@/components/admin/test-alert-button";
 import { loadTallyTotals, type TallyTotals } from "@/lib/admin/docs-tally";
 import { listHotels } from "@/lib/admin/hotels";
@@ -105,6 +106,8 @@ export default async function AdminOverviewPage() {
 
       {/* Sends a test alert: a platform admin's action (the route refuses anyone else). */}
       {session.isPlatformAdmin ? <TestAlertButton problem={testAlertProblem()} /> : null}
+      {/* The same for the #maya-signups feed, which the database posts. */}
+      {session.isPlatformAdmin ? <SignupsFeedTestButton /> : null}
 
       {can("hotels") ? (
         <section className="rounded border border-slate-800 bg-slate-900">

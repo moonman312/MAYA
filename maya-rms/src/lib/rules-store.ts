@@ -256,6 +256,19 @@ function embedRoomTypeName(rt: any): string | undefined {
   return r.name;
 }
 
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Oct 15, 2026 to Nov 30, 2026", "from Oct 15, 2026", "until Nov 30, 2026"; null for every night. */
+export function nightsLabel(start: string | null, end: string | null): string | null {
+  const day = (ymd: string) => `${SHORT_MONTHS[Number(ymd.slice(5, 7)) - 1]} ${Number(ymd.slice(8, 10))}, ${ymd.slice(0, 4)}`;
+  const s = start ? String(start).slice(0, 10) : null;
+  const e = end ? String(end).slice(0, 10) : null;
+  if (s && e) return `${day(s)} to ${day(e)}`;
+  if (s) return `from ${day(s)}`;
+  if (e) return `until ${day(e)}`;
+  return null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function dbRowToRuleConfig(row: any): RuleConfig {
   const conditions: Record<string, RuleConditionValue> = {};
@@ -312,6 +325,10 @@ function dbRowToRuleConfig(row: any): RuleConfig {
       }
     }
   }
+
+  // A rule that covers only some nights (one imported from PIE with dates) says which.
+  const nights = nightsLabel(row.start_date ?? null, row.end_date ?? null);
+  if (nights) conditions.nights = nights;
 
   // Prefer affected room types; fall back to legacy pricing_rule_room_types.
   const room_types: string[] = [];

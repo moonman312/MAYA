@@ -165,7 +165,7 @@ describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
   const code = sql.replace(/--.*$/gm, "");
 
-  it("is on the list the SQL tests build production's schema from, after the PMS rate changes file", () => {
+  it("is on the list the SQL tests build production's schema from, after the PMS rate changes", () => {
     expect(MIGRATION_ORDER).toContain(MIGRATION);
     expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_pms_rate_changes_v1.sql"));
   });
@@ -999,8 +999,12 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
         { user_id: OWNER, is_test: false },
         { user_id: DEV, is_test: true },
       ]);
+      // analytics_range counts whole UTC days; the session's current_date is
+      // the machine's own day, a day off in the evening west of UTC.
       const accounts = async (includeTest: boolean) =>
-        as(ADMIN, "aal1", async () => (await q(`select (public.analytics_range(utc_today, utc_today, $1) ->> 'accounts')::int as n from (select (now() at time zone 'utc')::date as utc_today) t`, [includeTest]))[0].n);
+        as(ADMIN, "aal1", async () =>
+          (await q(`select (public.analytics_range((now() at time zone 'UTC')::date, (now() at time zone 'UTC')::date, $1) ->> 'accounts')::int as n`, [includeTest]))[0].n,
+        );
       expect(await accounts(false)).toBe(1);
       expect(await accounts(true)).toBe(2);
     });

@@ -18,7 +18,7 @@ questions:
   - Why does the simulator show a different result from the change log? {#what-the-simulator-simplifies/a-standard-rule}
   - What do "event" and "ladder" mean in the Rate Simulator? {#rules-in-play}
   - Why does a rule in the simulator change every room type or none of them? {#what-the-simulator-simplifies/every-matching-booking}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -100,7 +100,7 @@ Under the table, <Ui>Didn't fire</Ui> lists each rule that did not fire and why:
 | Conditions not met (it saw 62% occupancy, 30 days out) | The night does not meet the rule's conditions. The numbers are what the rule read. |
 | No occupancy for its signal room types | None of the room types the rule measures is in the table, so it has nothing to read. |
 | Rule has no room types attached | The rule changes no room type. |
-| Outside the rule's date window, or This day of the week is excluded | You will not see these for a rule you built in MAYA: every rule you build runs every day with no date window. A starter rule whose name ends in "(Fri and Sat)" or "(Sun to Thu)" shows "This day of the week is excluded" on the other nights. |
+| Outside the rule's date window, or This day of the week is excluded | You will not see these for a rule you built in MAYA: every rule you build runs every day with no date window. A rule imported from PIE with START and END dates shows "Outside the rule's date window" on the other nights. A starter rule whose name ends in "(Fri and Sat)" or "(Sun to Thu)" shows "This day of the week is excluded" on the other nights. |
 
 Amounts in the simulator carry your property's currency sign, the same one the change log's sentences use.
 

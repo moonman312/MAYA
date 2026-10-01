@@ -630,9 +630,11 @@ export function formatRuleConditionsDisplay(conditions: Record<string, RuleCondi
   const puTiming = conditions.pickup_timing;
   if (pu != null) parts.push(`Pickup ${wordify(pu, " bookings")}${puTiming != null ? ` ${puTiming}` : ""}`);
   for (const [k, v] of Object.entries(conditions)) {
-    if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate" || k === "pickup_timing") continue;
+    if (k === "occupancy_percentage" || k === "booking_window" || k === "pickup_rate" || k === "pickup_timing" || k === "nights") continue;
     parts.push(`${k.replace(/_/g, " ")} ${wordify(v)}`);
   }
+  // The nights a rule covers, when not every night (rules-store.ts nightsLabel).
+  if (conditions.nights != null) parts.push(`Nights ${conditions.nights}`);
   return parts.length ? parts.join(" · ") : "—";
 }
 

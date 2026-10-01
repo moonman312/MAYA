@@ -3,7 +3,7 @@ title: Set or change a floor or ceiling
 summary: Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.
 section: recipes
 order: 150
-readingTime: 7
+readingTime: 8
 keywords: [floor, ceiling, minimum price, maximum price, guardrails, guardrails column, set a floor, change a floor, change a ceiling, where do I set floors, already set, set during setup, check my limits, get suggestions from my data, set it to, amount to set, $1, $99999, default floor, lowest price, highest price, limits, floor not applied, floor did not change, ceiling did not change, floor above ceiling, ceiling below floor, room nights, 30 room nights, 200 room nights, not enough history, still $99999 after import, price above ceiling, price below floor, over my ceiling, under my floor, kept rate, changed in Cloudbeds, comp night]
 questions:
   - Where do I set floors and ceilings? {#in-plain-words}
@@ -15,11 +15,11 @@ questions:
   - Can I set a different floor for each room type? {#change-a-floor-or-ceiling-that-is-already-set/the-floor}
   - Can I set a floor for one night or one season? {#where-the-limits-act/standards-ceiling-is}
   - Why is a price over my ceiling or under my floor? {#where-the-limits-act/every-price-your}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
-There is no floor and ceiling editor yet. Setup sets them from your answers and your own past rates: check them in the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. A limit still at $1.00 or $99,999.99 can be set from a <Ui>Get suggestions from my data</Ui> card. To change one already set, answer the floor and ceiling questions again, or email us the numbers.
+There is no floor and ceiling editor yet. Setup sets them from your answers and your own past rates: check them in the <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab. A limit still at $1.00 or $99,999.99 can be set from a <Ui>Get suggestions from my data</Ui> card. To change one already set, answer the floor and ceiling questions again, or email us the numbers. On Cloudbeds, <Ui>Import from PIE</Ui> sets each room type's from PIE's price limits.
 </InPlainWords>
 
 ## Check what you have first
@@ -65,6 +65,10 @@ A card names a skipped room type only for the answer you just gave. When it writ
 
 To give one room type a floor of its own, or to lower a ceiling under a room type's past rates, [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) with the room type and the numbers.
 
+## From PIE's price limits, on Cloudbeds
+
+If you keep your limits in Cloudbeds PIE, <Ui>Import from PIE</Ui> on the <Ui>Rules</Ui> tab sets them from a screenshot of PIE's page. Each room type with a row of its own in PIE's <Ui>PRICE LIMITS BY ACCOMMODATION TYPE</Ui> gets that row's MIN as its floor and MAX as its ceiling, and every other room type gets PIE's <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui>, even where a limit is already set. Untick any you want to keep as they are. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie#floors-and-ceilings).
+
 ## Where the limits act
 
 Every price your rules produce is held inside the room type's floor and ceiling. So is your system's own rate on a night where no rule has fired: under the floor, the floor is published, and over the ceiling, the ceiling. The change log says so when a limit stops a rule: "That would have gone past your $300.00 ceiling for Standard, so it stopped there." A booking speed or pickup rule that cannot move the price in its own direction against a limit does not fire.
@@ -80,7 +84,7 @@ When the amber banner says a rule keeps adjusting a night and your limit is stil
 </Callout>
 
 <Callout kind="not-yet">
-No per-room-type editor, no floor or ceiling per night or per season, and no way to lower a ceiling under a room type's past rates yourself. The floor cannot be 0: use a comp night for a free night.
+No per-room-type editor, no floor or ceiling per night or per season, and no way to lower a ceiling under a room type's past rates yourself, other than importing PIE's price limits on Cloudbeds. The floor cannot be 0: use a comp night for a free night.
 </Callout>
 
 <Related>

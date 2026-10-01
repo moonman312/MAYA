@@ -44,3 +44,6 @@ next-env.d.ts
 # internal review notes — local only, never pushed
 docs/adversarial-review-*.md
 docs/code-quality-*.md
+
+# the screenshot reader's engine and data, copied from node_modules (scripts/copy-ocr-assets.mjs)
+/public/tesseract/

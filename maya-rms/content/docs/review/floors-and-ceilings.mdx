@@ -19,7 +19,7 @@ questions:
   - Could a price really climb to $99,999.99? {#where-they-show}
   - My rates are over 99,999 in my currency (yen, won, rupiah, dong). Will the default ceiling cap them? {#when-your-rates-are-above-the-default-ceiling}
   - Why does a room type I confirmed as a room have no floor or ceiling? {#the-numbers-maya-suggests/floor-40-of}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -55,16 +55,18 @@ There is no settings page that lists floors and ceilings. You meet them in four 
 
 ## Where they are set
 
-There are three ways a floor or ceiling gets set, and no editor beyond them.
+There are three ways a floor or ceiling gets set, a fourth on Cloudbeds for properties coming from PIE, and no editor beyond them.
 
 1. **The five questions.** The lowest rate you would take on a dead Tuesday becomes the floor of every active room type that counts as a room. The most you would charge becomes the ceiling of each such room type whose highest rate read so far fits under it. A type you have unticked as a room (a parking bay, a meeting room), and one nobody has answered for whose name is plainly not a bedroom, keeps its own floor and ceiling, and MAYA sends no price for it unless one of your rules changes it or you type a price for one of its nights. If you answer while the import is still reading, a room type whose higher rates arrive later can keep that ceiling: check the <Ui>Guardrails</Ui> column once the import is complete, and email us to lift one. Read [The five questions](/docs/review/the-five-questions).
 2. **The import, from your own rates.** Once the first three years are in, and again when the full history is in, MAYA fills in a floor and a ceiling for every room type still at its defaults, using the history numbers in the next section (with the exceptions it lists). This happens without a card. It never overwrites a limit that has already been set.
 3. **A suggestion card.** After <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab, the review shows a card for each room type still at a default: "Set a floor for "Standard"?" or "Set a ceiling for "Suite"?". The suggested amount sits in a box labelled <Ui>Amount to set</Ui>. Accept it with the <Ui>Set it to 80</Ui> button, or type your own number first and the button follows it. <Ui>No thanks</Ui> leaves the default. Read [Getting suggestions later](/docs/review/getting-suggestions-later).
 
+4. **PIE's price limits** (Cloudbeds). <Ui>Import from PIE</Ui> on the <Ui>Rules</Ui> tab reads a screenshot of PIE's page. Each room type with a row of its own in PIE's <Ui>PRICE LIMITS BY ACCOMMODATION TYPE</Ui> gets that MIN and MAX as its floor and ceiling, and every other room type gets PIE's <Ui>Minimum Price</Ui> and <Ui>Maximum Price</Ui>. They are listed ticked, and you can untick any. Unlike the import from your own rates, these replace limits already set. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie#floors-and-ceilings).
+
 The banner's <Ui>Ask MAYA for a floor</Ui> and <Ui>Ask MAYA for a ceiling</Ui> buttons take you to the <Ui>Rules</Ui> tab, where the suggestions button is.
 
 <Callout kind="not-yet">
-There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, cannot be changed from a screen. Answering the five questions again rewrites every room's floor (and every ceiling that fits), which is the only way to move a set limit yourself. For anything finer, email us with the room type and the numbers.
+There is no floor and ceiling editor. A limit that is already set, whether by your answer, by the import or by a card you accepted, cannot be changed from a screen. Answering the five questions again rewrites every room's floor (and every ceiling that fits), which is the only way to move a set limit yourself, apart from importing PIE's price limits on Cloudbeds. For anything finer, email us with the room type and the numbers.
 </Callout>
 
 ## The numbers MAYA suggests

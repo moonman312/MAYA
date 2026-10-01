@@ -75,6 +75,19 @@ marks their earlier events with no hotel the same way, and
 event inside a property (an admin working in God Mode, say) follows the
 property's flag, as before.
 
+A property's events and its daily snapshots (`hotel_metrics_daily`) follow
+its flag whenever it changes, both ways, whoever changes it: the Command
+Center toggle, a test-property code, or hand-run SQL
+(`hotels_test_flag_follows`, `99_supabase_migration_signups_feed_v1.sql`).
+A signup code made with **Test property (left out of analytics)** ticked
+(`signup_codes.test_property`) flags whoever signs up with it, the moment the
+code is bound to the property: its redemption row or its subscription's
+`signup_code_id`, whichever lands first. Those triggers fire before the
+product events triggers on the same tables, so the subscription's own events
+are test ones from the start. Nothing un-flags a property but the toggle. The
+person's own `account.created` comes before any code and has no property, so
+it follows the `+` and staff rules only.
+
 **Who can read.** RLS lets platform admins select `product_events`. Nobody
 can update or delete it through the API, the service role included; the
 service role may insert (that is `/api/events`). The functions call
@@ -191,10 +204,14 @@ payment, so `import.started` and often `import.completed` land before
 | `room_type.out_of_service_cleared` | put back | same | `room_type_id`, `units`, `cleared_early` |
 | `explain.opened` | "How did we know?" opened | browser | — |
 | `rule.edit_opened` | a rule opened in the rule builder with Edit | browser | — |
-| `rule.preview_opened` | the activation popup opened | browser | `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`), `kind` (`standard` or `event`) |
+| `rule.preview_opened` | the activation popup opened | browser | `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`, `pie_import`: the one popup for an import's rules that were on in PIE), `kind` (`standard` or `event`) |
 | `rule.preview_shown` | its days came back | browser | `from`, `days`, `ms` (how long the owner waited), `nights_checked` (nights the engine ran, both ways) |
 | `rule.preview_failed` | its days could not be worked out | browser | `from` |
 | `rule.preview_cancelled` | Cancel: nothing saved | browser | `from`, `days` |
+| `pie.import_opened` | Import from PIE opened (Cloudbeds) | browser | `from` (`rules`: the Rules tab's link; `link`: a link into it, such as the setup review's) |
+| `pie.screenshots_read` | its screenshots were read in the browser and the review shown; counts only, never anything read from them | browser | `screenshots`, `unread` (screenshots with no rules table or limits), `rules` (PIE rules found), `ready`, `needs_edit` (cut off, or room types to pick), `not_imported` (restriction, compset, unreadable), `limits` (floor and ceiling changes), `rules_unread` (screenshots showing rules none of which could be read), `missing` (rules PIE's "Showing 1 to N of N entries" lists that weren't read), `to_check` (rules and limits left unticked to check first: numbers that may be misread, a row put together from two screenshots), `ms` (reading time) |
+| `pie.read_failed` | the reader could not start (its files did not load), a screenshot could not be read, or the file was not an image | browser | `stage` (`start`, `read` or `image`) |
+| `rules.imported` | an import from PIE added its rules and limits | `POST /api/rules/import` | `from` (`pie`), `created`, `created_on`, `created_off`, `failed`, `limits` (floor and ceiling pairs set), `choice` (`apply`, `skip`, or `none` when every rule was off), `held_all`, `days` (the popup's count; null when it could not work the days out or there was none) |
 | `simulator.used` | first change to any rate simulator input in a page load | browser | — |
 | `dashboard.tab_opened` | a dashboard tab chosen (this is how the change log and simulator are counted) | browser | `tab` |
 | `settings.opened` | Settings opened, from the gear in the dashboard header or a link | browser | — |
@@ -428,6 +445,66 @@ The follow-up list's owner emails are never kept: the kept list holds the
 owner's user id, and each load asks `analytics_owner_emails(user_ids)` for
 the emails (in `99_supabase_migration_command_center_speed_v1.sql`, checked
 like every `analytics_*` function).
+
+## The #maya-signups feed
+
+One short Slack line for each real signup milestone, posted by the database:
+an AFTER INSERT trigger on `product_events` (`signup_feed_post`,
+`99_supabase_migration_signups_feed_v1.sql`; `signup_feed_line` and
+`signup_feed_test` as `..._v2.sql` restates them, with its three helpers) sends it through pg_net to the
+incoming webhook stored in Vault as `maya_signups_webhook`, the same way
+`pricing_watchdog` posts to `maya_alert_webhook`. The app never holds the
+address.
+
+| event | line |
+|---|---|
+| `account.created` | `New account: email confirmed.`, or `New account: joined Harbour Inn.` for an invitation to a real property; nothing on MAYA's own email domains |
+| `subscription.trialing` | `Harbour Inn (Cloudbeds) started a 14-day trial: 24 rooms, monthly.` |
+| `subscription.active` | `... started paying: 24 rooms, monthly.`, or `... moved from the trial to paying: ...`; nothing for a return from `past_due`, `unpaid` or `paused` |
+| `pms.connected` | `Harbour Inn connected Cloudbeds.` |
+| `property.went_live` | `Harbour Inn (Cloudbeds) went live.`, the first time only |
+| `subscription.cancel_scheduled` | `Harbour Inn (Cloudbeds) cancelled. Ends Oct 30, 2026. Reason: too expensive.` |
+| `subscription.canceled` | `... cancelled.` (`during the trial` from trialing, `Reason: payment failed` and so on), unless a `cancel_scheduled` line was posted for it first (and not taken back since); one scheduled while the feed had no webhook gets this line |
+
+Only events with `is_test` false, written by a trigger (never a backfill or
+the sweep). For a property's events (billing, connected, went live) that is
+the property's own test flag, never its owner: a property owned by a `+`
+address or a MAYA staff login posts like any other, since MAYA staff own real
+client properties, until it is flagged test (the Command Center toggle, or a
+test-property code). A property on MAYA's internal plan
+(`plan_kind = 'internal'`: sandbox, demo) posts nothing at all, connected and
+went live included (`signup_feed_internal_plan`). For an account with no
+property it is a `+` address or a MAYA staff login at the moment the email is
+confirmed, and an address on one of MAYA's own email domains never gets a
+`New account` line, so neither does a staffer who signs up and is given the
+staff role afterwards. The domains are `modern-hospitality-solutions.com` and
+`maya-rms.com`, case aside, listed once in `signup_feed_staff_domains()`. An
+invitation to test or internal-plan properties only says nothing. A property still on checkout's placeholder name reads
+"A new signup"; its system is named once it has one. Lines carry the
+property's name and system and, for billing, the rooms, monthly or yearly,
+the trial's days, a cancellation's end date and Stripe's reason or the
+owner's portal pick. Never an email, a guest or a card.
+
+No secret in Vault, or one that is not `https://`, posts nothing. Nothing the
+feed does can fail the event's insert: every error is a warning, and pg_net
+queues the request with the transaction, so a write that rolls back posts
+nothing. `signup_feed_posts` keeps one row per event posted (with pg_net's
+request id, for `net._http_response`), so no event posts twice.
+
+Setting it up: in Supabase, Vault, add a secret named `maya_signups_webhook`
+holding the channel's incoming webhook address. Then **Send a test line** on
+the Command Center (platform admins; `signup_feed_test()`), or
+`select public.signup_feed_test();` in the SQL editor, posts one test line
+("Test line from the Command Center. Real signups post here.", naming
+nobody) and says whether it was queued (`missing`: no secret in Vault yet). To see what
+any event would post:
+
+```sql
+select e.id, e.event, public.signup_feed_line(e) as line
+  from public.product_events e
+ order by e.id desc
+ limit 20;
+```
 
 ## The expired claim sweep
 

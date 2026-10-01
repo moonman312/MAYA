@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
+import { links } from "@/lib/deep-links";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
 import { GoLiveConfirmation, GoLiveDialog, requestGoLive } from "@/components/go-live-dialog";
 import { usePropertyMode } from "@/components/use-property-mode";
@@ -411,6 +412,15 @@ export function ReviewFindings({
           <RoomCountStrip hotelId={status?.hotelId} />
 
           <StarterRules status={status} />
+
+          {status?.pmsType === "cloudbeds" ? (
+            <p className="text-sm text-slate-400" data-testid="review-pie-import">
+              Have rules in PIE?{" "}
+              <a href={links.goHref("rules.import-pie")} className="text-sky-400 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-300">
+                Import from PIE
+              </a>
+            </p>
+          ) : null}
 
           <div>
             <button
