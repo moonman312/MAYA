@@ -27,6 +27,7 @@ import { PickupWaitField } from "@/components/pickup-wait-field";
 import { RuleAlertBanner } from "@/components/rule-alert-banner";
 import { letRunAgainBody, stoppedChipLabel, stoppedNightsHelp, type RuleStops } from "@/lib/rule-alerts";
 import { RuleBehaviorAnimations } from "@/components/rule-behavior-animations";
+import { RuleFireCount } from "@/components/rule-fire-log";
 import { RuleRoomTypesField } from "@/components/rule-room-types-field";
 import { UndoOnCancellationField } from "@/components/undo-on-cancellation-box";
 import {
@@ -43,6 +44,8 @@ import { isPmsChange } from "@/lib/changelog-pms-changes";
 import { PmsChangeItem } from "@/components/pms-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
 import { PricingRunItem } from "@/components/pricing-run-item";
+import { OlderButton } from "@/components/older-button";
+import { useChangelogPages } from "@/components/use-changelog-pages";
 import { SimulationStrip } from "@/components/simulation-strip";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
@@ -415,8 +418,9 @@ export function Dashboard({
     { id: string; name: string; counts_as_room?: boolean | null }[]
   >([]);
   const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
-  const [changelog, setChangelog] = useState<ChangelogItem[]>([]);
-  const [changelogError, setChangelogError] = useState<string | null>(null);
+  // The change log, a page at a time: "Older" adds the page before.
+  const changelogPages = useChangelogPages<ChangelogItem>();
+  const { items: changelog, error: changelogError, reload: reloadChangelog } = changelogPages;
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -653,17 +657,6 @@ export function Dashboard({
   const openPmsSetting = useCallback(() => {
     setSettingsFocus("settings-pms");
     setSettingsOpen(true);
-  }, []);
-
-  const reloadChangelog = useCallback(async () => {
-    setChangelogError(null);
-    try {
-      const data = await api<ChangelogItem[]>("/api/changelog");
-      setChangelog(data);
-    } catch {
-      // Keep whatever loaded before — it was real. Never fill the gap.
-      setChangelogError("Couldn't load your price history.");
-    }
   }, []);
 
   useEffect(() => {
@@ -1674,9 +1667,12 @@ export function Dashboard({
                       </td>
                       <td className="py-2 pr-3 tabular-nums">
                         {fireCounts[rule.id] ? (
-                          <span className="font-semibold text-sky-300">
-                            {fireCounts[rule.id]}×
-                          </span>
+                          <RuleFireCount
+                            ruleId={rule.id}
+                            ruleName={rule.rule_name}
+                            count={fireCounts[rule.id]}
+                            onCount={(n) => setFireCounts((c) => ({ ...c, [rule.id]: n }))}
+                          />
                         ) : (
                           <span className="text-slate-600">—</span>
                         )}
@@ -2367,7 +2363,7 @@ export function Dashboard({
                     ? cycle
                     : {
                         kind: "quiet_checks" as const,
-                        id: `run-${cycle.cycle}`,
+                        id: `run-${cycle.timestamp}`,
                         timestamp: cycle.timestamp,
                         first_at: cycle.timestamp,
                         checks: 1,
@@ -2383,7 +2379,7 @@ export function Dashboard({
                 }
                 return (
                   <PricingRunItem
-                    key={cycle.cycle}
+                    key={`run-${cycle.timestamp}`}
                     cycle={cycle}
                     formatWhen={formatFriendlyDateTime}
                     formatAge={formatRelativeAge}
@@ -2393,6 +2389,15 @@ export function Dashboard({
                 );
               })}
             </div>
+            {changelog.length > 0 ? (
+              <OlderButton
+                hasOlder={changelogPages.older != null}
+                busy={changelogPages.olderBusy}
+                error={changelogPages.olderError}
+                endLine={changelogPages.pagedBack ? "Nothing older. History is kept for 90 days." : null}
+                onOlder={() => void changelogPages.loadOlder()}
+              />
+            ) : null}
           </section>
         )}
 

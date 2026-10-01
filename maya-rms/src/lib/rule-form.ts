@@ -310,9 +310,10 @@ export const RULE_FIRES_HELP: { label: string; title: string; lines: string[] } 
   label: "What counts as a fire",
   title: "Times fired",
   lines: [
-    "Every time the rule acted, counted once per night and room type.",
+    "Every time the rule acted in the last 90 days, counted once per night and room type.",
     "A booking speed or pickup rule can act on the same night more than once, when its wait is over and it is still true, and each time counts here.",
     "A change that came off later still counts.",
+    "Click the number to see each one, with times in the property's time zone.",
   ],
 };
 

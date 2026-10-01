@@ -24,7 +24,8 @@ export function legacyHeadline(ch: Pick<ChangelogEntry, "room_type" | "stay_date
   return `${ch.room_type}${stay}: $${ch.original_rate.toFixed(2)} ${way} to $${ch.new_rate.toFixed(2)} (${ch.change_pct >= 0 ? "+" : ""}${ch.change_pct}%)`;
 }
 
-const SEND_TONE: Record<NonNullable<ChangelogEntry["send_state"]>, string> = {
+/** The colour of each "where the price went" line; a rule's fire log uses the same. */
+export const SEND_TONE: Record<NonNullable<ChangelogEntry["send_state"]>, string> = {
   simulated: "text-amber-300/90",
   sent: "text-emerald-300/90",
   waiting: "text-slate-400",
