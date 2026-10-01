@@ -79,6 +79,23 @@ function stateFor(price: number, key: string, stayDate: string, facts: SendFacts
 }
 
 /**
+ * What became of a live price on one night, when it is still the night's
+ * price (published_price holds it): sent, waiting, couldn't be sent or held
+ * back, by the push's own reading of the ledger. Null when the night's price
+ * is another one now (the ledger can't speak for this one), when a night
+ * already over was never sent, or where MAYA sends nothing ("not_sent" is the
+ * caller's to say for a system like Mews). For the change log's newest change
+ * of a night, and a rule's newest fire on it.
+ */
+export function nightSendState(night: { stay_date: string; room_type_id: string; price: number }, facts: SendFacts): SendState | null {
+  if (!pmsSendsPrices(facts.pmsType)) return null;
+  const key = cellKey(night.stay_date, night.room_type_id);
+  const published = facts.published.get(key);
+  if (published == null || !sameCents(published, night.price)) return null;
+  return stateFor(night.price, key, night.stay_date, facts);
+}
+
+/**
  * Each live change's sending line, newest run first: `items` as the route
  * merged them. Simulated changes, and changes whose mode is not known, are
  * returned as they are.
@@ -96,9 +113,8 @@ export function attachSendLines<T extends ChangelogItem>(items: T[], facts: Send
     // Only the newest change shown for the night speaks for its price now.
     const newest = !claimed.has(key);
     claimed.add(key);
-    const published = facts.published.get(key);
-    if (!newest || published == null || !sameCents(published, ch.new_rate)) return ch;
-    const state = stateFor(ch.new_rate, key, ch.stay_date, facts);
+    if (!newest) return ch;
+    const state = nightSendState({ stay_date: ch.stay_date, room_type_id: ch.room_type_id, price: ch.new_rate }, facts);
     if (state == null) return ch;
     return { ...ch, send_state: state, send_line: sendLine({ mode: "live", state, pmsType: facts.pmsType }) ?? undefined };
   };

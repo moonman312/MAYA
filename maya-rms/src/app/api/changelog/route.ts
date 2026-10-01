@@ -65,8 +65,9 @@ import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildPmsChanges, MAX_PMS_CHANGES, MAX_PMS_WARNINGS, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
-import { attachSendLines, cellKey, liveCells, overwriteSendState, readSendFacts, type SendFacts } from "@/lib/changelog-send-lines";
-import { modeTimelineFrom, pmsSendsPrices, type ModeTimeline, type SendState } from "@/lib/price-mode";
+import { attachSendLines, cellKey, liveCells, overwriteSendState } from "@/lib/changelog-send-lines";
+import type { SendState } from "@/lib/price-mode";
+import { loadModeTimeline, loadPmsType, sendFactsFor, type SendContext } from "@/lib/price-mode-load";
 import { hotelToday } from "@/lib/simulator";
 import {
   buildSupportChanges,
@@ -344,61 +345,9 @@ async function countQuietGap(supabase: SupabaseClient, hotelId: string, gap: Qui
   return { checks: count, first_at: at(oldest.data), last_at: at(newest.data) };
 }
 
-/**
- * The property's mode history, oldest first. Empty (every item's mode not
- * known, worded as before) on a database without the table yet, or when the
- * read fails: the wording is a courtesy the log can do without, the runs are not.
- */
-async function loadModeTimeline(supabase: SupabaseClient, hotelId: string): Promise<ModeTimeline> {
-  const { data, error } = await supabase
-    .from("hotel_mode_history")
-    .select("since, simulated, recorded_at")
-    .eq("hotel_id", hotelId)
-    .order("since", { ascending: true })
-    .limit(1000);
-  if (error) {
-    if (!isMissingRelationError(error)) {
-      console.error(JSON.stringify({ fn: "api/changelog", step: "mode_history", hotelId, error: String(error.message).slice(0, 300) }));
-    }
-    return [];
-  }
-  return modeTimelineFrom(data as { since?: unknown; simulated?: unknown; recorded_at?: unknown }[] | null);
-}
-
-/** The property system prices go to, or would: a working connection first, then one MAYA keeps trying, then any. */
-async function loadPmsType(supabase: SupabaseClient, hotelId: string): Promise<string | null> {
-  const { data, error } = await supabase.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
-  if (error) return null;
-  const rows = (data ?? []) as { pms_type?: unknown; status?: unknown }[];
-  const pick =
-    rows.find((r) => r.status === "connected" || r.status === "degraded") ?? rows.find((r) => r.status === "error") ?? rows[0];
-  return pick?.pms_type != null ? String(pick.pms_type) : null;
-}
-
-/** What the change log needs to know about sending: where to, and the property's date today. */
-type SendContext = { hotelId: string; pmsType: string | null; today: string; now: Date };
-
-/**
- * The send ledger's reading of these nights. Read with the service role
- * (rate_updates is a manager's read; the change log is everyone's). Without
- * it, or when the read fails, nothing is read and no live change claims a send.
- */
-async function sendFactsFor(ctx: SendContext, cells: { stay_date: string; room_type_id: string }[]): Promise<SendFacts | null> {
-  const empty: SendFacts = { pmsType: ctx.pmsType, ledger: new Map(), published: new Map(), today: ctx.today, nowMs: ctx.now.getTime() };
-  if (!pmsSendsPrices(ctx.pmsType) || cells.length === 0) return empty;
-  if (!isAdminConfigured()) return null;
-  try {
-    return await readSendFacts(createAdminClient(), ctx, cells);
-  } catch (e) {
-    const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
-    console.error(JSON.stringify({ fn: "api/changelog", step: "send_ledger", hotelId: ctx.hotelId, error: message.slice(0, 300) }));
-    return null;
-  }
-}
-
 /** Each live change's sending line (changelog-send-lines.ts); the runs as they are when the ledger can't be read. */
 async function withSendLines<T extends ChangelogItem>(items: T[], ctx: SendContext): Promise<T[]> {
-  const facts = await sendFactsFor(ctx, liveCells(items));
+  const facts = await sendFactsFor(ctx, liveCells(items), "api/changelog");
   return facts ? attachSendLines(items, facts) : items;
 }
 
@@ -446,7 +395,7 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
             .eq("hotel_id", hotelId)
             .order("evaluated_at", { ascending: false })
             .limit(RUN_LOG_LIMIT),
-      loadModeTimeline(supabase, hotelId),
+      loadModeTimeline(supabase, hotelId, "api/changelog"),
       loadPmsType(supabase, hotelId),
     ]);
   const now = new Date();
@@ -661,7 +610,7 @@ async function overwriteStates(rows: PmsChangeRow[], ctx: SendContext): Promise<
     stay_date: String(r.stay_date).slice(0, 10),
     room_type_id: String(r.room_type_id),
   }));
-  const facts = await sendFactsFor(ctx, cells);
+  const facts = await sendFactsFor(ctx, cells, "api/changelog");
   if (!facts) return states;
   const seen = new Set<string>();
   for (const r of overwrites) {

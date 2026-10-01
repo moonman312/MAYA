@@ -5,7 +5,7 @@
  * changed in the property system follow the same ledger.
  */
 import { describe, expect, it } from "vitest";
-import { attachSendLines, cellKey, liveCells, overwriteSendState, type SendFacts } from "./changelog-send-lines";
+import { attachSendLines, cellKey, liveCells, nightSendState, overwriteSendState, type SendFacts } from "./changelog-send-lines";
 import type { LedgerCell } from "./pms/send-status";
 import type { ChangelogCycle, ChangelogEntry } from "@/types/domain";
 
@@ -120,5 +120,20 @@ describe("overwriteSendState", () => {
 
   it("claims nothing where nothing is sent", () => {
     expect(overwriteSendState(notice, true, facts({ pmsType: "mews" }))).toBeNull();
+  });
+});
+
+describe("nightSendState", () => {
+  const night = { stay_date: "2026-11-13", room_type_id: "rt-1", price: 165 };
+
+  it("speaks only for the price the night has now", () => {
+    expect(nightSendState(night, facts())).toBe("sent");
+    expect(nightSendState({ ...night, price: 170 }, facts())).toBeNull();
+    expect(nightSendState(night, facts({ ledger: new Map() }))).toBe("waiting");
+  });
+
+  it("says nothing where MAYA sends nothing, or without the night's price on record", () => {
+    expect(nightSendState(night, facts({ pmsType: "mews" }))).toBeNull();
+    expect(nightSendState(night, facts({ published: new Map() }))).toBeNull();
   });
 });
