@@ -14,7 +14,8 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
 import { RoomCountHelp } from "@/components/room-type-settings";
 import { track } from "@/lib/analytics/track";
-import { mergeReads } from "@/lib/pie-import/merge";
+import { NOT_AN_IMAGE } from "@/lib/pie-import/browser-ocr";
+import { mergeReads, type MergedRead } from "@/lib/pie-import/merge";
 import { PIE_COPY, planImport, type ImportDraft, type ImportItem, type LimitChange, type MayaRoomType } from "@/lib/pie-import/map";
 import type { ScreenshotRead } from "@/lib/pie-import/read";
 import { draftSentence } from "@/lib/pie-import/sentence";
@@ -192,7 +193,8 @@ export function PieImportDialog({
 
   // A rule or limit is ticked as the review first shows it until the owner ticks or unticks it.
   const ticked = (item: ImportItem) => ticks[item.key] ?? item.ticked;
-  const limitTicked = (c: LimitChange) => c.problem === null && (limitTicks[c.roomTypeId] ?? true);
+  // A pair to check first (maybe misread) starts unticked.
+  const limitTicked = (c: LimitChange) => c.problem === null && (limitTicks[c.roomTypeId] ?? c.check === null);
 
   // A rule back from the rule builder.
   const editSeen = useRef<PieEdit | null>(null);
@@ -231,11 +233,12 @@ export function PieImportDialog({
         reader.current ??= browserReader();
         fresh = await reader.current.read(images);
       }
-    } catch {
+    } catch (e) {
+      const notImage = e instanceof Error && e.name === NOT_AN_IMAGE;
       // A fresh worker for the next try.
-      reader.current?.close();
-      track("pie.read_failed", { stage: reads.length === 0 ? "start" : "read" });
-      setError("That screenshot couldn't be read. Check your connection and try again.");
+      if (!notImage) reader.current?.close();
+      track("pie.read_failed", { stage: notImage ? "image" : reads.length === 0 ? "start" : "read" });
+      setError(notImage ? "That file isn't an image MAYA can read." : "That screenshot couldn't be read. Check your connection and try again.");
       setPhase(reads.length > 0 ? "review" : "pick");
       return;
     }
@@ -248,14 +251,18 @@ export function PieImportDialog({
   const readMs = useRef<number | null>(null);
   useEffect(() => {
     if (!plan || readMs.current === null) return;
+    const merged = mergeReads(reads);
     track("pie.screenshots_read", {
       screenshots: reads.length,
-      unread: mergeReads(reads).unread.length,
+      unread: merged.unread.length,
       rules: plan.items.length,
       ready: plan.items.filter((i) => i.status === "ready").length,
       needs_edit: plan.items.filter((i) => i.status === "needs_edit").length,
       not_imported: plan.items.filter((i) => i.status === "not_imported").length,
       limits: plan.limits.changes.length,
+      rules_unread: merged.rulesUnread.length,
+      missing: merged.missing,
+      to_check: plan.items.filter((i) => i.status === "ready" && !i.ticked).length + plan.limits.changes.filter((c) => c.check !== null).length,
       ms: readMs.current,
     });
     readMs.current = null;
@@ -302,6 +309,8 @@ export function PieImportDialog({
         setResult({ created: answer.created ?? [], failed: answer.failed ?? [], limits: answer.limits ?? 0 });
         return { ok: true, skipped: answer.skipped === true };
       }
+      // Some floors and ceilings were set before it stopped: shown as they are now.
+      if ((answer.limits ?? 0) > 0) onCreated?.();
       return { ok: false, status: res.status, code: answer.code, error: answer.error ?? "That didn't save. Try again." };
     } catch {
       return { ok: false, status: 0, error: "That didn't save. Check your connection and try again." };
@@ -458,7 +467,7 @@ export function PieImportDialog({
               onTick={(key, on) => setTicks((t) => ({ ...t, [key]: on }))}
               onLimitTick={(id, on) => setLimitTicks((t) => ({ ...t, [id]: on }))}
               onEdit={onEdit ? (item, index) => onEdit({ key: item.key, index, draft: draftsOf(item)[index] }) : undefined}
-              unread={plan ? mergeReads(reads).unread.length : 0}
+              merged={plan ? mergeReads(reads) : null}
             />
           ) : null}
 
@@ -545,7 +554,9 @@ function doneSentence(r: Result): string {
     const split = on > 0 && off > 0 ? ` (${on} on, ${off} off)` : off > 0 ? " (off)" : "";
     parts.push(`Added ${r.created.length} ${r.created.length === 1 ? "rule" : "rules"}${split}`);
   }
-  if (r.limits > 0) parts.push(`${parts.length ? "set" : "Set"} ${r.limits} ${r.limits === 1 ? "floor and ceiling" : "floors and ceilings"}`);
+  const limits = `${r.limits} ${r.limits === 1 ? "floor and ceiling" : "floors and ceilings"}`;
+  if (r.limits > 0 && r.created.length === 0 && r.failed.length > 0) return `Set ${limits}, but the rules couldn't be added.`;
+  if (r.limits > 0) parts.push(`${parts.length ? "set" : "Set"} ${limits}`);
   return parts.length ? `${parts.join(" and ")}.` : "Nothing was added.";
 }
 
@@ -567,7 +578,7 @@ function Review({
   onTick,
   onLimitTick,
   onEdit,
-  unread,
+  merged,
 }: {
   items: ImportItem[];
   limits: { changes: LimitChange[]; unmatched: string[] };
@@ -581,12 +592,18 @@ function Review({
   onTick: (key: string, on: boolean) => void;
   onLimitTick: (roomTypeId: string, on: boolean) => void;
   onEdit?: (item: ImportItem, index: number) => void;
-  unread: number;
+  /** The screenshots as one read, for what couldn't be read. */
+  merged: MergedRead | null;
 }) {
+  const unread = merged?.unread.length ?? 0;
+  const rulesUnread = merged?.rulesUnread.length ?? 0;
+  const missing = merged && merged.listed !== null && merged.missing > 0 ? merged.listed : null;
   if (items.length === 0 && limits.changes.length === 0) {
     return (
       <p className="mt-4 text-sm text-amber-300" data-testid="pie-nothing">
-        No PIE rules or price limits found. Use a screenshot of PIE&apos;s Rules and Alerts page with its column headings.
+        {rulesUnread > 0
+          ? PIE_COPY.rulesUnread(rulesUnread)
+          : "No PIE rules or price limits found. Use a screenshot of PIE's Rules and Alerts page with its column headings."}
       </p>
     );
   }
@@ -675,6 +692,7 @@ function Review({
                     </span>
                   ) : null}
                   {c.problem ? <span className="block text-xs text-amber-300">{c.problem}</span> : null}
+                  {c.check && !c.problem ? <span className="block text-xs text-amber-300">{c.check}</span> : null}
                 </span>
               </li>
             ))}
@@ -685,6 +703,16 @@ function Review({
         </div>
       ) : null}
 
+      {rulesUnread > 0 ? (
+        <p className="text-xs text-amber-300" data-testid="pie-rules-unread">
+          {PIE_COPY.rulesUnread(rulesUnread)}
+        </p>
+      ) : null}
+      {missing !== null ? (
+        <p className="text-xs text-amber-300" data-testid="pie-missing">
+          {PIE_COPY.missing(missing, items.length)}
+        </p>
+      ) : null}
       {unread > 0 ? <p className="text-xs text-amber-300">{unread === 1 ? "One screenshot" : `${unread} screenshots`} had no PIE rules or limits in them.</p> : null}
       {anyRead ? <p className="text-xs text-slate-500">{PIE_COPY.rounding}</p> : null}
     </div>

@@ -287,6 +287,19 @@ describe("POST /api/rules/import", () => {
     expect(body.failed).toEqual([{ id: id(1), error: "Pick at least one room type to change." }]);
   });
 
+  it("says the limits were set when every rule then fails", async () => {
+    state.failFor = { id: id(2), code: "22023", message: "Pick at least one room type to change." };
+    const { status, body } = await save({ rules: [RULES()[2]], limits: LIMITS() });
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ created: [], failed: [{ id: id(2), error: "Pick at least one room type to change." }], limits: 1 });
+    expect(body.error).toBeUndefined();
+    expect(state.tables.room_types.find((r) => r.id === KING)).toMatchObject({ floor_price: 150, ceiling_price: 215 });
+    // With no limits, nothing changed: refused with the rule's reason.
+    const again = await save({ rules: [RULES()[2]] });
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe("Pick at least one room type to change.");
+  });
+
   it("refuses a viewer", async () => {
     state.canManage = false;
     expect((await save({ rules: RULES(), activation: "skip", hold_all: true })).status).toBe(403);

@@ -92,10 +92,13 @@ export const UI_EVENTS = {
     needs_edit: "count",
     not_imported: "count",
     limits: "count",
+    rules_unread: "count",
+    missing: "count",
+    to_check: "count",
     ms: "count",
   },
-  /** The reader couldn't start (its files didn't load) or failed on a screenshot. */
-  "pie.read_failed": { stage: ["start", "read"] },
+  /** The reader couldn't start (its files didn't load), failed on a screenshot, or was given a file that isn't an image. */
+  "pie.read_failed": { stage: ["start", "read", "image"] },
   /** Settings opened, from the dashboard header's gear or a link. */
   "settings.opened": {},
   /** The property's calendar choices saved: the big number, how many small lines, which colours. */

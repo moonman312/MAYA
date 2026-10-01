@@ -252,6 +252,63 @@ describe("Import from PIE", () => {
     await waitFor(() => expect(events.some((e) => e.event === "pie.read_failed")).toBe(true));
   });
 
+  it("leaves a rule or a floor and ceiling that may be misread unticked, to tick once checked", async () => {
+    const read = vi.fn(async () => [
+      {
+        ...SHOT,
+        rows: [row("Bare", "Raise rate by 10.00 % when occupancy is greater than 60 %"), row("Fine", "Raise rate by 10.00 % when occupancy is greater than 60.00 %")],
+        limits: { master: null, byType: [{ name: "Garden Room", min: 100, max: 500, unsure: true }] },
+      },
+    ]);
+    await open({ read });
+    fireEvent.change(screen.getByTestId("pie-file"), { target: { files: [file()] } });
+    await screen.findByTestId("pie-rules");
+    const bare = within(item("Bare")).getByRole("checkbox") as HTMLInputElement;
+    expect([bare.checked, bare.disabled]).toEqual([false, false]);
+    expect(within(item("Bare")).getByText(PIE_COPY.checkNumbers)).toBeTruthy();
+    const limits = screen.getByTestId("pie-limits");
+    const garden = within(limits).getByRole("checkbox", { name: "Set Garden Room's floor and ceiling" }) as HTMLInputElement;
+    expect([garden.checked, garden.disabled]).toEqual([false, false]);
+    expect(within(limits).getByText(PIE_COPY.limitCheck)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add 1 rule" })).toBeTruthy();
+    fireEvent.click(garden);
+    fireEvent.click(bare);
+    expect(screen.getByRole("button", { name: "Add 2 rules and 1 limit" })).toBeTruthy();
+  });
+
+  it("says when a screenshot's rules couldn't be read, and how many of PIE's rules aren't here", async () => {
+    const limitsOnly = { ...SHOT, rows: [], rulesSeen: true };
+    await open({ read: vi.fn(async () => [limitsOnly]) });
+    fireEvent.change(screen.getByTestId("pie-file"), { target: { files: [file()] } });
+    // Floors and ceilings found, and the rules beside them not read: said, not left for the owner to miss.
+    expect((await screen.findByTestId("pie-rules-unread")).textContent).toBe(PIE_COPY.rulesUnread(1));
+    expect(screen.getByTestId("pie-limits")).toBeTruthy();
+    cleanup();
+    await open({ read: vi.fn(async () => [{ ...SHOT, entries: { from: 1, to: 9, total: 9 } }]) });
+    fireEvent.change(screen.getByTestId("pie-file"), { target: { files: [file()] } });
+    expect((await screen.findByTestId("pie-missing")).textContent).toBe(PIE_COPY.missing(9, 5));
+  });
+
+  it("says when a file isn't an image", async () => {
+    const notImage = Object.assign(new Error("can't decode"), { name: "NotAnImageError" });
+    await open({ read: vi.fn(async () => Promise.reject(notImage)) });
+    fireEvent.change(screen.getByTestId("pie-file"), { target: { files: [file()] } });
+    expect(await screen.findByText("That file isn't an image MAYA can read.")).toBeTruthy();
+    await waitFor(() => expect(events.some((e) => e.event === "pie.read_failed" && e.properties.stage === "image")).toBe(true));
+  });
+
+  it("says the floors and ceilings were set when the rules then couldn't be added", async () => {
+    importAnswer = () => json({ created: [], failed: [{ id: "y", error: "Could not save the rule. Try again in a moment." }], limits: 2 });
+    const { onCreated } = await open();
+    await readOne();
+    fireEvent.click(within(item("Busy weekends")).getByRole("checkbox"));
+    fireEvent.click(within(item("Quiet last days")).getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Add 1 rule and 2 limits" }));
+    expect((await screen.findByTestId("pie-done")).textContent).toBe("Set 2 floors and ceilings, but the rules couldn't be added.");
+    expect(onCreated).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
   it("names a rule that didn't save, and tries it again", async () => {
     importAnswer = () => json({ created: [{ id: "x", on: true }], failed: [{ id: "y", error: "Pick at least one room type to change." }], limits: 0 });
     await open();

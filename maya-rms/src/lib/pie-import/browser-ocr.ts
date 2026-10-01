@@ -24,6 +24,9 @@ type Worker = {
   terminate: () => Promise<unknown>;
 };
 
+/** The name of the error a file that isn't an image (or can't be decoded) is read with. */
+export const NOT_AN_IMAGE = "NotAnImageError";
+
 export type ScreenshotReader = {
   /** A screenshot's pixels and an OcrPass over it. */
   open(file: Blob): Promise<{ image: RgbaImage; pass: OcrPass }>;
@@ -52,7 +55,14 @@ export async function startScreenshotReader(): Promise<ScreenshotReader> {
 
   return {
     async open(file: Blob) {
-      const bitmap = await createImageBitmap(file);
+      let bitmap: ImageBitmap;
+      try {
+        bitmap = await createImageBitmap(file);
+      } catch {
+        const e = new Error("That file isn't an image this browser can decode.");
+        e.name = NOT_AN_IMAGE;
+        throw e;
+      }
       const whole = canvas(bitmap.width, bitmap.height);
       const ctx = whole.getContext("2d", { willReadFrequently: true });
       if (!ctx) throw new Error("No canvas");

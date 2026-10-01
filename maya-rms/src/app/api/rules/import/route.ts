@@ -14,7 +14,9 @@
  * are created off. Nothing is saved when the rules on would go past the
  * 40-rule cap. The limits are set first (the popup's days were worked out
  * on them), then each rule in the screenshot's order; a rule that fails is
- * named in the answer and the rest still save.
+ * named in the answer and the rest still save. When every rule fails after
+ * the limits were set, the answer is still a success that says the limits
+ * were set and names each rule that couldn't be added.
  *
  * Nothing from the screenshot reaches the server but the rules and limits
  * themselves: no image, no text read from it.
@@ -132,7 +134,9 @@ export async function POST(req: Request) {
       p_source: "app",
     });
     if (error) console.error(JSON.stringify({ fn: "rules-import", step: "event", error: error.message }));
-    const none = failed.length > 0 && created.length === 0;
+    // Nothing changed at all: the first rule's reason. When the limits were
+    // set, the answer says so, with each rule that couldn't be added.
+    const none = failed.length > 0 && created.length === 0 && limitsSet.count === 0;
     return NextResponse.json(
       { created, failed, limits: limitsSet.count, skipped: choice === "skip", ...(none ? { error: failed[0].error } : {}) },
       { status: none ? 409 : 200 },
