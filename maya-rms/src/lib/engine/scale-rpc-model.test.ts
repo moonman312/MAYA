@@ -199,16 +199,27 @@ export function roomTypeMaxRates(reservations: FakeRow[], a: Record<string, unkn
   return [...max].map(([room_type_id, max_rate]) => ({ room_type_id, max_rate }));
 }
 
-/** rule_fire_counts(p_hotel_id) */
+/**
+ * Whether a fire at `at` is inside rule_fires' 90 days
+ * (99_supabase_migration_rule_fire_log_v1.sql). A row a test wrote without a
+ * time is taken as recent.
+ */
+export function inFireWindow(at: unknown, nowMs: number = Date.now()): boolean {
+  if (at == null) return true;
+  const t = Date.parse(String(at));
+  return !Number.isFinite(t) || t >= nowMs - 90 * 86_400_000;
+}
+
+/** rule_fire_counts(p_hotel_id): a count of rule_fires per rule. */
 export function ruleFireCounts(ladder: FakeRow[], pickup: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const counts = new Map<string, number>();
   for (const e of ladder) {
-    if (e.hotel_id !== a.p_hotel_id || e.transition !== "activate") continue;
+    if (e.hotel_id !== a.p_hotel_id || e.transition !== "activate" || !inFireWindow(e.transitioned_at)) continue;
     counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
   }
   for (const e of pickup) {
     // A fire the old same-run bug wrote and took off at once never happened.
-    if (e.hotel_id !== a.p_hotel_id || e.retired_reason === "self_cancelled") continue;
+    if (e.hotel_id !== a.p_hotel_id || e.retired_reason === "self_cancelled" || !inFireWindow(e.applied_at)) continue;
     counts.set(String(e.rule_id), (counts.get(String(e.rule_id)) ?? 0) + 1);
   }
   return [...counts].map(([rule_id, fires]) => ({ rule_id, fires }));

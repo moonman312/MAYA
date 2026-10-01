@@ -310,7 +310,8 @@ export function isRevertRow(
   return prior.manual !== null && manualOverrideFor(row.details) === null;
 }
 
-function toNarrativeMetrics(
+/** An audit row's (or a fire's) stored metrics as the narration reads them; the rules' fire log reads them the same way. */
+export function toNarrativeMetrics(
   metrics: Record<string, unknown> | null | undefined,
 ): NarrativeApplication["metrics"] {
   if (!metrics) return null;
