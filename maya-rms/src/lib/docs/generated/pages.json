@@ -3480,7 +3480,7 @@
   "order": 107,
   "title": "Import your rules from PIE",
   "summary": "How a Cloudbeds property brings its PIE (Price Intelligence Engine) rules and price limits into MAYA from a screenshot, read in your browser: where the link is, the screenshot to take, how each PIE rule becomes a MAYA rule that prices the same, what is not imported, floors and ceilings, adding them, and turning PIE's rules off once you are live.",
-  "readingTime": 11,
+  "readingTime": 15,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -3506,6 +3506,11 @@
     "depth": 2,
     "text": "The review",
     "id": "the-review"
+   },
+   {
+    "depth": 3,
+    "text": "Rules and limits to check",
+    "id": "rules-and-limits-to-check"
    },
    {
     "depth": 2,
@@ -3554,6 +3559,8 @@
    "Which PIE rules are not imported?",
    "What happens to PIE's Minimum Price, Maximum Price and price limits?",
    "A rule says it was cut off. What do I do?",
+   "Why is a rule or a limit unticked with \"Check it against PIE\"?",
+   "Why does the import say PIE lists more rules than are here?",
    "Should I turn PIE off after importing?"
   ],
   "faq": []
