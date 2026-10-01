@@ -400,3 +400,41 @@ describe("handleMarketplaceConnect on a property connected from inside MAYA", ()
     expect(db.tables.hotels).toHaveLength(2);
   });
 });
+
+describe("a vendor's sandbox property (sandbox-properties.ts)", () => {
+  function emptyWorld() {
+    state.db = fakeSupabase(
+      { hotels: [], hotel_memberships: [], pms_connections: [], hotel_subscriptions: [] },
+      {
+        rpc: (fn, args) => {
+          state.events.push({ fn, args: args as Record<string, unknown> });
+          return null;
+        },
+      },
+    );
+    return state.db;
+  }
+
+  it("is a test property from its first row", async () => {
+    const db = emptyWorld();
+    const outcome = await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(outcome).toMatchObject({ kind: "claim" });
+    expect(db.tables.hotels).toHaveLength(1);
+    expect(db.tables.hotels[0]).toMatchObject({ external_enterprise_id: "cloudbeds:320691", is_test: true });
+  });
+
+  it("leaves any other property a real one", async () => {
+    const db = emptyWorld();
+    state.properties = [{ propertyId: "555001", name: "Harbour Annex" }];
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.hotels).toHaveLength(1);
+    expect(db.tables.hotels[0].is_test).toBeUndefined();
+  });
+
+  it("flags a claimed sandbox property when it connects again", async () => {
+    const db = claimedProperty({ connection: "connected", subscription: "active", isActive: true });
+    db.tables.hotels[0].is_test = false;
+    await handleMarketplaceConnect("cloudbeds", TOKENS);
+    expect(db.tables.hotels[0].is_test).toBe(true);
+  });
+});

@@ -10,6 +10,7 @@ import { propertyBelongsElsewhere } from "@/lib/pms/stored-property";
 import { requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { currencyRefusalFor, recordCurrencyRefused } from "@/lib/onboarding/currency-gate";
 import { currencyCode } from "../../../supabase/functions/_shared/pms/currencies";
+import { isSandboxProperty } from "../../../supabase/functions/_shared/pms/sandbox-properties";
 import { isAmbiguousGroupGrant } from "../../../supabase/functions/_shared/pms/errors";
 import type { cookies } from "next/headers";
 import { NextResponse } from "next/server";
@@ -187,6 +188,8 @@ export async function handleOnboardingConnect(
       name,
       timezone: profile.timezone ?? "UTC",
       currency: currencyCode(profile.currency) ?? "USD",
+      // A vendor's sandbox is a test property (sandbox-properties.ts).
+      ...(isSandboxProperty(pmsType, propertyId) ? { is_test: true } : {}),
     };
     // Deliberately NOT clearing setup_pending_at or activating here. Everything
     // below this point can still fail — the Vault write especially — and

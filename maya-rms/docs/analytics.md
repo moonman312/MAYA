@@ -84,7 +84,15 @@ A signup code made with **Test property (left out of analytics)** ticked
 code is bound to the property: its redemption row or its subscription's
 `signup_code_id`, whichever lands first. Those triggers fire before the
 product events triggers on the same tables, so the subscription's own events
-are test ones from the start. Nothing un-flags a property but the toggle. The
+are test ones from the start. A property connected to a PMS vendor's sandbox
+(`SANDBOX_PMS_PROPERTIES` in `supabase/functions/_shared/pms/sandbox-properties.ts`,
+today Cloudbeds property 320691) is flagged by the app when it connects (the
+Marketplace row is made flagged, the sign-up connect flags the adopted
+placeholder, a reconnect flags it), when its Marketplace claim lands, and by
+the Cloudbeds sync on its next run, which catches one connected before the
+list existed. Add an id to that list to add a sandbox. Nothing un-flags a
+property but the toggle, though a sandbox one is flagged again on its next
+connect or sync. The
 person's own `account.created` comes before any code and has no property, so
 it follows the `+` and staff rules only.
 

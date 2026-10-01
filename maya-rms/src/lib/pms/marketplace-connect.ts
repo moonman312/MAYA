@@ -10,6 +10,7 @@ import { hotelsConnectedInsideMaya } from "@/lib/pms/stored-property";
 import { createAdminClient } from "@/utils/supabase/admin";
 import { currencyRefusal, recordCurrencyRefused } from "@/lib/onboarding/currency-gate";
 import { currencySupported } from "../../../supabase/functions/_shared/pms/currencies";
+import { isSandboxProperty, markSandboxHotel } from "../../../supabase/functions/_shared/pms/sandbox-properties";
 import {
   cloudbedsDiscoverPropertyId,
   cloudbedsGetHotelDetails,
@@ -268,6 +269,8 @@ export async function handleMarketplaceConnect(
         failures.push(`${property.propertyId}: ${error.message}`);
         continue;
       }
+      // A vendor's sandbox is a test property (sandbox-properties.ts).
+      await markSandboxHotel(admin, existing.id, pmsType, property.propertyId);
 
       // Owning a property is not paying for it. An owner who claimed and then
       // bounced off the card form still has a membership, so a second "Connect
@@ -386,6 +389,8 @@ export async function handleMarketplaceConnect(
           is_active: false,
           setup_pending_at: now,
           external_enterprise_id: key,
+          // A vendor's sandbox is a test property from its first row (sandbox-properties.ts).
+          ...(isSandboxProperty(pmsType, property.propertyId) ? { is_test: true } : {}),
         })
         .select("id")
         .single();
@@ -402,6 +407,8 @@ export async function handleMarketplaceConnect(
       failures.push(`${property.propertyId}: could not create the property`);
       continue;
     }
+    // An unclaimed row from an earlier click, made before the sandbox list.
+    if (existing?.id) await markSandboxHotel(admin, hotelId, pmsType, property.propertyId);
 
     const { error: secretErr } = await storeSecret(hotelId);
     if (secretErr) {

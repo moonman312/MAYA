@@ -30,6 +30,7 @@ import {
   REFUSED_RUNS_BEFORE_DISCONNECT,
 } from "../pms/connection-health.ts";
 import { raiseAlert } from "../pms/alerting.ts";
+import { markSandboxHotel } from "../pms/sandbox-properties.ts";
 import {
   CLOUDBEDS_SYNC_BUDGET_MS,
   CLOUDBEDS_INCREMENTAL_OVERLAP_MS,
@@ -1298,6 +1299,9 @@ export async function runCloudbedsSyncForHotel(
       propertyId,
       refresh,
     };
+    // A hotel on Cloudbeds' sandbox is a test property, however it was
+    // connected (sandbox-properties.ts). One write, sandbox only.
+    await markSandboxHotel(supabase, hotelId, "cloudbeds", propertyId);
 
     // Incremental unless there is a reason not to be. Re-fetching the whole book
     // every five minutes is what made this impossible above ~30 rooms; a

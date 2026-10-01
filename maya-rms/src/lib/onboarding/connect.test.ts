@@ -19,6 +19,8 @@ const state = vi.hoisted(() => ({
   elsewhereThrows: null as Error | null,
   elsewhereAsked: [] as Array<{ hotelId: string | null; pmsType: string; propertyIds: string[] }>,
   stripe: true,
+  propertyId: "prop-1",
+  hotelPayloads: [] as Record<string, unknown>[],
 }));
 
 vi.mock("@/utils/supabase/server", () => ({
@@ -46,7 +48,7 @@ vi.mock("@/lib/pms/onboarding-adapter", () => ({
         name: "Driftwood",
         timezone: "UTC",
         currency: state.currency,
-        externalPropertyId: "prop-1",
+        externalPropertyId: state.propertyId,
       };
     },
   }),
@@ -60,8 +62,9 @@ function fakeAdmin() {
       : { data: { id: "hotel-1" }, error: null };
   return {
     from: (table: string) => ({
-      update: () => ({
+      update: (payload: Record<string, unknown>) => ({
         eq: () => {
+          if (table === "hotels") state.hotelPayloads.push(payload);
           state.writes.push(`${table}.update`);
           // hotels is updated twice: adoption first, activation last.
           const key =
@@ -100,8 +103,8 @@ const { AmbiguousGroupGrantError } = await import(
   "../../../supabase/functions/_shared/pms/errors"
 );
 
-const connect = () =>
-  handleOnboardingConnect({} as never, "mews", "user-1", {
+const connect = (pms: "mews" | "cloudbeds" = "mews") =>
+  handleOnboardingConnect({} as never, pms, "user-1", {
     accessToken: "at",
     refreshToken: "rt",
     tokenType: "Bearer",
@@ -124,6 +127,8 @@ beforeEach(() => {
   state.elsewhereThrows = null;
   state.elsewhereAsked = [];
   state.stripe = true;
+  state.propertyId = "prop-1";
+  state.hotelPayloads = [];
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -272,5 +277,25 @@ describe("a property that is already in MAYA (audit A23)", () => {
     expect(body).toContain("Try again");
     expect(body).not.toContain("permission denied");
     expect(state.writes).toEqual([]);
+  });
+});
+
+describe("a vendor's sandbox property", () => {
+  it("is a test property from the moment the placeholder is adopted", async () => {
+    state.propertyId = "320691";
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
+    await connect("cloudbeds");
+    expect(state.hotelPayloads[0]).toMatchObject({ name: "Driftwood", is_test: true });
+  });
+
+  it("leaves any other property a real one, and the same id on another system", async () => {
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
+    await connect("cloudbeds");
+    expect(state.hotelPayloads[0]).not.toHaveProperty("is_test");
+    state.hotelPayloads = [];
+    state.hotelUpdates = 0;
+    state.propertyId = "320691";
+    await connect("mews");
+    expect(state.hotelPayloads[0]).not.toHaveProperty("is_test");
   });
 });

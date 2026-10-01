@@ -11,6 +11,7 @@ import { activeHotelCookieOptions, MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-
 import { ensureAppStateWebhook } from "@/lib/pms/cloudbeds-webhooks";
 import { cloudbedsListPropertiesOrThrow } from "../../../supabase/functions/_shared/cloudbeds/client";
 import { defaultCloudbedsBaseUrl } from "../../../supabase/functions/_shared/cloudbeds/constants";
+import { markSandboxHotel } from "../../../supabase/functions/_shared/pms/sandbox-properties";
 import { handleMarketplaceConnect, type MarketplaceTokens } from "@/lib/pms/marketplace-connect";
 import { findMarketplaceClaimForHotel, hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { queueImportAfterPurge } from "@/lib/pms/purged";
@@ -423,6 +424,8 @@ async function reconnectHotel(
     p_secret: bound.propertyId ? { ...secretPayload, propertyId: bound.propertyId } : secretPayload,
   });
   if (secretErr) return { ok: false, message: `pms_secret_set: ${secretErr.message}`, plain: false };
+  // A vendor's sandbox is a test property (sandbox-properties.ts).
+  await markSandboxHotel(admin, hotelId, pmsType, bound.propertyId);
 
   // The reconnect prompt sends a Marketplace property here too, including one
   // whose owner never paid and whose data the retention sweep removed. Owning

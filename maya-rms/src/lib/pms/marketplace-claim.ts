@@ -11,6 +11,7 @@ import {
   activateMarketplaceHotelIfPending,
   hasEntitledSubscription,
 } from "@/lib/pms/marketplace-activate";
+import { markSandboxHotelsByKey } from "../../../supabase/functions/_shared/pms/sandbox-properties";
 
 /**
  * Redeem a Flow A claim ticket.
@@ -138,6 +139,10 @@ export async function redeemMarketplaceClaim(
   if (settingsErr) {
     return { ok: false, reason: "failed", message: `Could not set up pricing: ${settingsErr.message}` };
   }
+
+  // A vendor's sandbox is a test property, whoever claims it and whenever
+  // its row was made (sandbox-properties.ts). Never fails the claim.
+  await markSandboxHotelsByKey(admin, allHotelIds);
 
   // The property stays parked until it is paid for. Two cases do not wait: an
   // install with no Stripe keys cannot take a payment and would strand everyone
