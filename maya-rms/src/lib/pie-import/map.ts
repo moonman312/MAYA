@@ -128,7 +128,8 @@ export const PIE_COPY = {
   cutOff: "Cut off at the bottom of the screenshot. Add a screenshot that shows it whole, or finish it in the rule builder.",
   switchUnknown: "Its switch couldn't be seen, so it's added off.",
   orEqual: (op: "more" | "less", n: string) => `PIE's "or equal to" becomes ${op} than ${n}%.`,
-  split: (to: number) => `A MAYA rule has one booking window, so a second rule takes the change back off beyond ${to} days.`,
+  split: (to: number, percent: boolean) =>
+    `A MAYA rule has one booking window, so a second rule takes the change back off beyond ${to} days.${percent ? " A price can come out a cent different from PIE's." : ""}`,
   mixed: "With a % rule on the same night the price can differ a little from PIE's, which applies them in the order they were triggered.",
   scopeUnknown: "PIE reads only some room types' occupancy here. Pick them in the rule builder.",
   scopeUnmatched: (names: string[]) => `No room type called ${names.map((n) => `"${n}"`).join(", ")}. Pick them in the rule builder.`,
@@ -363,7 +364,7 @@ function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: str
       );
     }
   }
-  if (win.undoBeyond !== null) notes.push(PIE_COPY.split(win.undoBeyond));
+  if (win.undoBeyond !== null) notes.push(PIE_COPY.split(win.undoBeyond, pie.kind === "percent"));
 
   if (rule.cutOff) return { ...base, notes, drafts, status: "needs_edit", reason: PIE_COPY.cutOff };
   if (!rule.parsed.complete) return { ...base, notes, drafts, status: "needs_edit", reason: PIE_COPY.cutOff };

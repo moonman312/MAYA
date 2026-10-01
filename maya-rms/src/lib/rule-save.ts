@@ -50,6 +50,13 @@ export type RuleDraft = {
    * day) and an edit keeps the rule's days.
    */
   dow_mask?: number;
+  /**
+   * The nights a new rule covers, from and to (YYYY-MM-DD, either may be
+   * left out): a rule imported from PIE with START and END dates. The
+   * builder leaves them out (every night), and an edit keeps the rule's.
+   */
+  start_date?: string;
+  end_date?: string;
 };
 
 /** A refused save or preview, with the status and the words to show. */
@@ -125,9 +132,15 @@ export function parseDraft(body: Record<string, unknown>): RuleDraft {
       ? { adjust_rate_percent: round(action!.adjust_rate_percent, 4) }
       : { adjust_rate_dollars: round(action!.adjust_rate_dollars!, 4) };
   const priority = Number(body.priority);
+  const start = draftDate(body.start_date);
+  const end = draftDate(body.end_date);
+  if (start === undefined || end === undefined) throw new RuleSaveError(400, "Dates must be real days, written YYYY-MM-DD.");
+  if (start && end && start > end) throw new RuleSaveError(400, "The first night must come before the last.");
   return {
     ...(body.priority !== undefined && Number.isInteger(priority) && priority >= 0 && priority <= 10_000 ? { priority } : {}),
     ...(isDowMask(body.dow_mask) ? { dow_mask: body.dow_mask } : {}),
+    ...(start ? { start_date: start } : {}),
+    ...(end ? { end_date: end } : {}),
     rule_name: name,
     condition,
     action: rounded,
@@ -135,6 +148,18 @@ export function parseDraft(body: Record<string, unknown>): RuleDraft {
     affected_room_type_ids: [...new Set(body.affected_room_type_ids as string[])],
     undo_on_cancellation: body.undo_on_cancellation !== false,
   };
+}
+
+/**
+ * A date a draft may carry (start_date, end_date): null when it has none,
+ * the date when it is a real day, undefined when it is something else.
+ */
+function draftDate(v: unknown): string | null | undefined {
+  if (v === undefined || v === null || v === "") return null;
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+  const [y, m, d] = v.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d ? v : undefined;
 }
 
 /** A rule as stored, in the engine's shape; null when there is none on this hotel. */
@@ -232,11 +257,13 @@ export async function planRuleChange(
     const isPickup = !!draft.condition.pickup_operator || !!draft.condition.booking_speed_operator;
     const priority = draft.priority ?? 100;
     const dowMask = draft.dow_mask ?? 127;
+    const startDate = draft.start_date ?? null;
+    const endDate = draft.end_date ?? null;
     const fields = {
       name: draft.rule_name,
       priority,
-      start_date: null,
-      end_date: null,
+      start_date: startDate,
+      end_date: endDate,
       is_annual: false,
       dow_mask: dowMask,
       ...action,
@@ -260,8 +287,8 @@ export async function planRuleChange(
         is_active: true,
         version: 1,
         priority,
-        start_date: null,
-        end_date: null,
+        start_date: startDate,
+        end_date: endDate,
         is_annual: false,
         dow_mask: dowMask,
         ...action,
@@ -494,6 +521,8 @@ async function legacyCommit(
         is_active: on !== false,
         ...(d.priority !== undefined ? { priority: d.priority } : {}),
         ...(d.dow_mask !== undefined ? { dow_mask: d.dow_mask } : {}),
+        ...(d.start_date !== undefined ? { start_date: d.start_date } : {}),
+        ...(d.end_date !== undefined ? { end_date: d.end_date } : {}),
       },
       userClient,
       plan.hotelId,

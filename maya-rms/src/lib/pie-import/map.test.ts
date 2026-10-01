@@ -149,7 +149,8 @@ describe("PIE rules as MAYA rules", () => {
       ["Mid", "gt", 13, { adjust_rate_percent: 10 }],
       ["Mid, beyond 60 days", "gt", 60, { adjust_rate_percent: -9.0909 }],
     ]);
-    expect(items[0].notes).toEqual([PIE_COPY.split(60)]);
+    expect(items[0].notes).toEqual([PIE_COPY.split(60, true)]);
+    expect(items[1].notes).toEqual([PIE_COPY.split(30, false)]);
     expect(items[1].drafts.map((d) => d.action)).toEqual([{ adjust_rate_dollars: -20 }, { adjust_rate_dollars: 20 }]);
   });
 
