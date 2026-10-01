@@ -367,7 +367,6 @@ describe("the daily pass plus touched nights prices every night the way pricing 
     const HORIZON = 30;
     const w = world(seedHotel(LOCAL0, HORIZON), HORIZON);
     const start = Date.parse("2026-10-28T00:00:00Z");
-    const r = rng(7);
     let ticks = 0;
     let midnightFires = 0;
     let momentumPriced = 0;

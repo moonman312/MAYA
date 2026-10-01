@@ -674,7 +674,6 @@ export async function evaluateHotel(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((x: any) => String(x.room_type_id))
         .filter((id: string) => activeRoomTypeIds.has(id) && countingIds.has(id)),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       affected_room_type_ids: (r.rule_affected_room_type ?? [])
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((x: any) => String(x.room_type_id))
