@@ -450,7 +450,7 @@ describe("the review's words", () => {
     expect(PIE_COPY.manual).toBe("Manual in PIE, so it only suggested rates. In MAYA it changes prices (nothing is sent while your property is in simulation).");
     expect(PIE_COPY.mixed).toBe("With a % rule on the same night the price can differ a little from PIE's rate, as PIE applies them in the order they were triggered.");
     const all = [
-      ...Object.values(PIE_COPY).filter((v): v is string => typeof v === "string"),
+      ...(Object.values(PIE_COPY).filter((v) => typeof v === "string") as string[]),
       PIE_COPY.orEqual("more", "59.99"),
       PIE_COPY.split(60, true),
       PIE_COPY.scopeUnmatched(["Yurt"]),
