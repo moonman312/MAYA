@@ -349,6 +349,47 @@ export async function loadActiveLadderEffectsForRange(
   return out;
 }
 
+/**
+ * Keeps only the changes of this hotel's own rules on its prices (audit A24).
+ * ladder_rule_state has no hotel column and is read by room type, so a row
+ * a rule of another hotel had written on one of this hotel's room types
+ * would move this hotel's price. `known` are rule ids already known to be
+ * this hotel's (the run's own rules); any other rule found on a cell is
+ * looked up once, and a paused rule of this hotel keeps its changes on the
+ * price, as pausing does. Changes the map in place and returns the rule ids
+ * it dropped. Throws on a failed read: guessing either way would move a price.
+ */
+export async function keepOwnRuleEffects(
+  supabase: SupabaseClient,
+  hotelId: string,
+  effectsByCell: Map<string, AdjustmentSpec[]>,
+  known: ReadonlySet<string>,
+): Promise<string[]> {
+  const unknown = new Set<string>();
+  for (const list of effectsByCell.values()) for (const e of list) if (!known.has(e.rule_id)) unknown.add(e.rule_id);
+  if (unknown.size === 0) return [];
+  const own = new Set<string>();
+  const ids = [...unknown];
+  for (let i = 0; i < ids.length; i += 100) {
+    const { data, error } = await supabase
+      .from("pricing_rules")
+      .select("id")
+      .eq("hotel_id", hotelId)
+      .in("id", ids.slice(i, i + 100));
+    if (error) throw new Error(`Failed to check whose rules changed these prices: ${error.message}`);
+    for (const r of (data ?? []) as { id: unknown }[]) own.add(String(r.id));
+  }
+  const dropped = ids.filter((id) => !own.has(id));
+  if (dropped.length === 0) return [];
+  const foreign = new Set(dropped);
+  for (const [key, list] of effectsByCell) {
+    const kept = list.filter((e) => !foreign.has(e.rule_id));
+    if (kept.length === 0) effectsByCell.delete(key);
+    else if (kept.length !== list.length) effectsByCell.set(key, kept);
+  }
+  return dropped;
+}
+
 /** loadActivePickupEffects for every cell in a date range at once, keyed `stay_date|room_type_id`. */
 export async function loadActivePickupEffectsForRange(
   supabase: SupabaseClient,

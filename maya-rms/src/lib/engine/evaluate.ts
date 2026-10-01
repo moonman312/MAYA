@@ -96,6 +96,7 @@ import {
   compNightBlocks,
   firingMovesPrice,
   limitAllowsFire,
+  keepOwnRuleEffects,
   loadActiveLadderEffectsForRange,
   loadActivePickupEffects,
   priceBounds,
@@ -296,6 +297,37 @@ export type DryRunCapture = {
 /** A new, empty capture. */
 export function dryRunCapture(): DryRunCapture {
   return { prices: new Map(), unpriced: new Set(), touched: new Set(), ladderOps: [] };
+}
+
+/**
+ * Which of `ids` are this hotel's room types. A rule's changed room types are
+ * the hotel's own: the app only offers those, but a row written straight
+ * through the database's API could name another hotel's, and the engine
+ * would then write changes on that hotel's room type that its own run
+ * applies (audit A24; the database refuses such rows since
+ * 99_supabase_migration_pricing_records_v1.sql). `active` are the hotel's
+ * active room types, read already; any other id is looked up once, so a
+ * room type of this hotel that is switched off stays on the rule's list, as
+ * it always has. Throws on a failed read, as the room types' own read does.
+ */
+async function ownRoomTypeIds(
+  supabase: SupabaseClient,
+  hotelId: string,
+  active: ReadonlySet<string>,
+  ids: readonly string[],
+): Promise<Set<string>> {
+  const own = new Set(active);
+  const unknown = [...new Set(ids)].filter((id) => !active.has(id));
+  for (let i = 0; i < unknown.length; i += 100) {
+    const { data, error } = await supabase
+      .from("room_types")
+      .select("id")
+      .eq("hotel_id", hotelId)
+      .in("id", unknown.slice(i, i + 100));
+    if (error) throw new Error(`Failed to load the rules' room types: ${error.message}`);
+    for (const r of (data ?? []) as { id: unknown }[]) own.add(String(r.id));
+  }
+  return own;
 }
 
 /**
@@ -558,6 +590,16 @@ export async function evaluateHotel(
   }
   if (dry?.ladderOnly) rulesData = rulesData.filter((r) => watched.has(String(r.id)));
 
+  // Each rule's changed room types, kept to this hotel's own (ownRoomTypeIds).
+  const ownAffected = await ownRoomTypeIds(
+    supabase,
+    hotelId,
+    activeRoomTypeIds,
+    rulesData.flatMap((r) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (r.rule_affected_room_type ?? []).map((x: any) => String(x.room_type_id)),
+    ),
+  );
   const rules: EngineRule[] = rulesData.map((r) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rc: any = Array.isArray(r.rule_condition)
@@ -633,9 +675,23 @@ export async function evaluateHotel(
         .map((x: any) => String(x.room_type_id))
         .filter((id: string) => activeRoomTypeIds.has(id) && countingIds.has(id)),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      affected_room_type_ids: (r.rule_affected_room_type ?? []).map((x: any) =>
-        String(x.room_type_id),
-      ),
+      affected_room_type_ids: (r.rule_affected_room_type ?? [])
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((x: any) => String(x.room_type_id))
+        .filter((id: string) => {
+          if (ownAffected.has(id)) return true;
+          console.error(
+            JSON.stringify({
+              fn: "evaluateHotel",
+              step: "rule_room_types",
+              hotelId,
+              ruleId: String(r.id),
+              message: "the rule names a room type that is not this hotel's; it is left out of the rule",
+              roomTypeId: id,
+            }),
+          );
+          return false;
+        }),
       created_at: r.created_at,
       updated_at: r.updated_at,
       // Ticked unless the rule says otherwise (and before the column exists).
@@ -1879,6 +1935,19 @@ export async function evaluateHotel(
     runNights,
     ladderBatch.supportsSkip,
   );
+  // Only this hotel's rules move its prices (keepOwnRuleEffects).
+  const foreignRules = await keepOwnRuleEffects(supabase, hotelId, ladderEffectsByCell, new Set(rules.map((r) => r.id)));
+  if (foreignRules.length > 0) {
+    console.error(
+      JSON.stringify({
+        fn: "evaluateHotel",
+        step: "ladder_effects",
+        hotelId,
+        message: "changes by rules of another hotel on this hotel's room types were left out",
+        ruleIds: foreignRules,
+      }),
+    );
+  }
   // A dry run wrote nothing: its own decisions go over what the table holds.
   if (dry) applyLadderOps(ladderEffectsByCell, ladderBatch.ops());
 

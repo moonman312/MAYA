@@ -96,7 +96,20 @@ describe("ladder_rule_state without suppressed_at", () => {
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
     const { client, tables } = fakeSupabase(
       seed({
-        // A pre-existing active effect from an older rule: it must keep applying.
+        // A pre-existing active effect from an older rule of this hotel, paused
+        // since: it must keep applying.
+        pricing_rules: [
+          ...(seed().pricing_rules as FakeRow[]),
+          {
+            id: "r0", hotel_id: "h1", name: "Older", is_active: false, version: 1, priority: 100,
+            start_date: null, end_date: null, is_annual: false, dow_mask: 127,
+            action_type: "fixed", action_direction: "increase", action_value: 5, is_pickup_rule: false,
+            created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
+            rule_condition: [{ occupancy_operator: "gt", occupancy_threshold: 0.5 }],
+            rule_signal_room_type: [{ room_type_id: "rt1" }],
+            rule_affected_room_type: [{ room_type_id: "rt1" }],
+          },
+        ],
         ladder_rule_state: [
           { rule_id: "r0", rule_version: 1, stay_date: D0, room_type_id: "rt1", is_active: true,
             action_kind: "fixed", action_direction: "increase", action_value: 5 },
