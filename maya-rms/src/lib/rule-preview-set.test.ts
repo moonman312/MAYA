@@ -186,6 +186,36 @@ for (const engine of ENGINES) {
       expect(nightsDiffering(published(again), published(await realRun(engine.evaluate, none, T20))).filter((d) => held.has(d))).toEqual([]);
     }, 120_000);
 
+    it.each(CASES.filter((c) => c.limits))(
+      "$name: the floors and ceilings' own days are shown too, so the popup covers every day Apply changes",
+      async (c) => {
+        const t = clone(settled);
+        const rules = c.rules();
+        vi.setSystemTime(new Date(T10));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const client = fake(clone(t)).client as any;
+        const input = { hotelId: H, rules: rules as EngineRuleRow[], limits: c.limits, at: T10, horizonDays: HORIZON };
+        const whole = await previewRuleSet(client, input, engine.evaluate);
+        const chunks = await Promise.all([
+          previewRuleSet(client, { ...input, to: addDays(TODAY, 9) }, engine.evaluate),
+          previewRuleSet(client, { ...input, from: addDays(TODAY, 10) }, engine.evaluate),
+        ]);
+        // The limits alone, set and run as the sync runs, against the hotel as it is.
+        const today = published(await realRun(engine.evaluate, t, T10));
+        const limitsOnly = nightsDiffering(published(await realRun(engine.evaluate, withLimits(t, c.limits), T10)), today);
+        expect(limitsOnly.length).toBeGreaterThan(0);
+        expect(whole.limitsAffected).toEqual(limitsOnly);
+        expect(chunks.flatMap((x) => x.limitsAffected ?? [])).toEqual(limitsOnly);
+        // Every day Apply changes from today is on the popup's calendar, as the rules' or the limits'.
+        const applied = nightsDiffering(published(await realRun(engine.evaluate, saveApply(t, rules, c.limits), T10)), today);
+        const shown = new Set([...whole.affected, ...(whole.limitsAffected ?? [])]);
+        expect(applied.filter((d) => !shown.has(d))).toEqual([]);
+        // With no limits, nothing extra.
+        expect((await previewRuleSet(client, { ...input, limits: undefined }, engine.evaluate)).limitsAffected).toBeUndefined();
+      },
+      120_000,
+    );
+
     it("with no days worked out, Skip holds every day each rule could act on", async () => {
       vi.setSystemTime(new Date(T10));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

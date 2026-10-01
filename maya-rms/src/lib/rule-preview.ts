@@ -150,6 +150,12 @@ export type PreviewResult = {
   farOutCut: FarOutCutFacts | null;
   kind: "standard" | "event";
   ms: number;
+  /**
+   * Several new rules with floors and ceilings set alongside (an import):
+   * the nights those limits change by themselves, the hotel's rules as they
+   * are, whether the new rules are applied or skipped. Absent otherwise.
+   */
+  limitsAffected?: string[];
 };
 
 /** farOutCutFacts for a rule in the engine's read shape. */
@@ -751,7 +757,9 @@ export type SetPreviewInput = {
   rules: EngineRuleRow[];
   /**
    * Floors and ceilings saved with them. Both runs clamp to these, so the
-   * days are the ones the rules change on the limits they will have.
+   * days are the ones the rules change on the limits they will have; and
+   * the nights the limits change by themselves are worked out apart
+   * (limitsAffected), as Skip doesn't hold them.
    */
   limits?: LimitOverrides;
   at: string;
@@ -810,7 +818,7 @@ export async function previewRuleSet(
 
   const ro = readOnlyClient(client);
   const history = historyFor(historyOpts);
-  const run = async (nights: string[], withRules: boolean, opts: { watch?: boolean; ladderOnly?: boolean } = {}) => {
+  const run = async (nights: string[], withRules: boolean, opts: { watch?: boolean; ladderOnly?: boolean; storedLimits?: boolean } = {}) => {
     const capture = dryRunCapture();
     if (nights.length === 0) return capture;
     await evaluate(ro, input.hotelId, input.at, horizon, {
@@ -818,7 +826,7 @@ export async function previewRuleSet(
       history,
       dryRun: {
         ...(withRules ? { rules: after } : {}),
-        ...(input.limits ? { roomTypeLimits: input.limits } : {}),
+        ...(input.limits && !opts.storedLimits ? { roomTypeLimits: input.limits } : {}),
         ...(opts.watch ? { watch: ids } : {}),
         ...(opts.ladderOnly ? { ladderOnly: true } : {}),
         capture,
@@ -827,17 +835,27 @@ export async function previewRuleSet(
     return capture;
   };
 
+  // What the floors and ceilings being set change by themselves: every
+  // night of the answer, the hotel as it is, on them and on the ones it has.
+  const limitsPart = async (): Promise<{ limitsAffected?: string[]; checked: number }> => {
+    if (!input.limits || Object.keys(input.limits).length === 0) return { checked: 0 };
+    const [onNew, onOld] = await Promise.all([run(window, false), run(window, false, { storedLimits: true })]);
+    return { limitsAffected: [...nightsThatDiffer(onNew.prices, onOld.prices, new Set(window)).keys()].sort(), checked: window.length * 2 };
+  };
+  const withLimitsPart = (r: PreviewResult, l: { limitsAffected?: string[]; checked: number }): PreviewResult =>
+    l.limitsAffected ? { ...r, limitsAffected: l.limitsAffected, nightsChecked: r.nightsChecked + l.checked, ms: Date.now() - started } : r;
+
   const p0 = [...scope].sort();
   if (kind === "standard") {
     const ladder = await run(p0, true, { watch: true, ladderOnly: true });
     const p1 = [...new Set(ladder.ladderOps.filter(ladderOpMovesPrice).map((op) => op.stayDate))].sort();
-    const [a, b] = await Promise.all([run(p1, true), run(p1, false)]);
-    return result(nightsThatDiffer(a.prices, b.prices, new Set(p1)), p1, p1.length * 2);
+    const [a, b, l] = await Promise.all([run(p1, true), run(p1, false), limitsPart()]);
+    return withLimitsPart(result(nightsThatDiffer(a.prices, b.prices, new Set(p1)), p1, p1.length * 2), l);
   }
   const a = await run(p0, true, { watch: true });
   const touched = [...a.touched].filter((d) => scope.has(d)).sort();
-  const b = await run(touched, false);
-  return result(nightsThatDiffer(a.prices, b.prices, new Set(touched)), touched, p0.length + touched.length);
+  const [b, l] = await Promise.all([run(touched, false), limitsPart()]);
+  return withLimitsPart(result(nightsThatDiffer(a.prices, b.prices, new Set(touched)), touched, p0.length + touched.length), l);
 }
 
 /**

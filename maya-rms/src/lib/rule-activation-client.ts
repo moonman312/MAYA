@@ -40,6 +40,8 @@ export type CalendarPreview = {
   /** The parts answered so far and in all. */
   done: number;
   parts: number;
+  /** An import's floors and ceilings: the days they change by themselves, applied or skipped. null with none. */
+  limitsAffected: string[] | null;
 };
 
 export type PreviewOutcome =
@@ -130,6 +132,7 @@ export function draftKind(draft: Record<string, unknown> | undefined, conditions
 
 type PartAnswer = {
   needsActivation?: boolean;
+  limitsAffected?: string[];
   today?: string;
   lastNight?: string;
   affected?: string[];
@@ -234,7 +237,20 @@ function merge(answers: PartAnswer[], parts: number): CalendarPreview {
     farOutCut: first.farOutCut ?? null,
     done: answers.length,
     parts,
+    limitsAffected: answers.some((a) => Array.isArray(a.limitsAffected)) ? [...new Set(answers.flatMap((a) => a.limitsAffected ?? []))].sort() : null,
   };
+}
+
+/**
+ * The line an import's popup adds when its floors and ceilings change
+ * prices by themselves on days the rules don't (amber on the calendar):
+ * those days change whichever button is chosen, as Skip holds only what
+ * the rules change. With no count (the days couldn't be worked out), it
+ * says so without one.
+ */
+export function limitsSentence(moreDays: number | null): string {
+  if (moreDays === null) return "The new floors and ceilings change prices too, whether you apply or skip.";
+  return `The new floors and ceilings change prices on ${moreDays} more ${moreDays === 1 ? "day" : "days"}, whether you apply or skip.`;
 }
 
 /**

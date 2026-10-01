@@ -61,6 +61,7 @@ const PREVIEW = {
   kind: "standard",
   ms: 50,
   nightsChecked: 6,
+  limitsAffected: ["2026-11-03", "2026-11-20", "2026-11-21"],
 };
 
 const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -176,6 +177,10 @@ describe("Import from PIE", () => {
       { roomTypeId: GARDEN, floor: 100, ceiling: 500 },
       { roomTypeId: LOFT, floor: 90, ceiling: 2000 },
     ]);
+    // The floors and ceilings change two more days by themselves: said, and in amber on the calendar.
+    expect(within(popup).getByTestId("activation-limits").textContent).toBe("The new floors and ceilings change prices on 2 more days, whether you apply or skip.");
+    expect(within(popup).getByTestId("activation-calendar").querySelector('[data-day="2026-11-20"]')?.getAttribute("data-affected")).toBe("limits");
+    expect(within(popup).getByTestId("activation-calendar").querySelector('[data-day="2026-11-03"]')?.getAttribute("data-affected")).toBe("true");
     fireEvent.click(within(popup).getByRole("button", { name: "Apply price adjustments" }));
     expect(await screen.findByTestId("pie-done")).toBeTruthy();
     expect(screen.getByTestId("pie-done").textContent).toBe("Added 3 rules (2 on, 1 off) and set 2 floors and ceilings.");
