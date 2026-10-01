@@ -70,6 +70,17 @@ export type PilotHealthRow = {
    */
   no_rate_count?: number | null;
   rates_read_through?: string | null;
+  /**
+   * From 99_supabase_migration_pricing_records_v1.sql, so absent before it.
+   *
+   * Room-nights MAYA holds back with a guardrail that should never fire (a
+   * price that is not a number, unusable limits, a price no recent run
+   * backs), and since when the first was held. And the build that ran the
+   * latest pricing run ("edge@<commit>", "app@<commit>", "...@dev").
+   */
+  maya_holds?: number | null;
+  maya_holds_since?: string | null;
+  last_run_build?: string | null;
 };
 
 /** A read older than this is a problem: the overview page's own stale sync line. */
@@ -114,9 +125,25 @@ export const RUNNING_PASS_MINUTES = 30;
 export const RATE_READ_WAIT_MINUTES = 60;
 /** The sending problem filed for those nights (push-failure.ts). */
 export const RATE_READ_CAUSE = "awaiting_rate_read";
+/**
+ * MAYA's own holds that should never happen are a problem once held this
+ * long: when their alert goes out as critical too (MAYA_HOLD_CRITICAL_AFTER_MS
+ * in push-incidents.ts). A price a pass is about to bring up to date clears
+ * well inside it.
+ */
+export const MAYA_HOLD_MINUTES = 30;
 
 export type ProblemSeverity = "amber" | "rose";
-export type ProblemKind = "connection" | "read" | "pass" | "sending" | "unsent" | "rate_read" | "no_rate" | "queue";
+export type ProblemKind =
+  | "connection"
+  | "read"
+  | "pass"
+  | "sending"
+  | "maya_hold"
+  | "unsent"
+  | "rate_read"
+  | "no_rate"
+  | "queue";
 export type PropertyProblem = { kind: ProblemKind; severity: ProblemSeverity; text: string };
 
 export type PricedThrough =
@@ -256,6 +283,16 @@ export function assessProperty(row: PilotHealthRow, nowIso: string): PropertyAss
         : "";
     const named = causes.length ? `: ${causes.map(humaniseCause).join(", ")}` : "";
     problems.push({ kind: "sending", severity: "rose", text: `${plural(openIncidents, "open sending problem")}${since}${named}.` });
+  }
+
+  // MAYA's own holds that should never happen: nights quietly not updating.
+  const mayaHolds = row.maya_holds ?? 0;
+  if (mayaHolds > 0 && row.maya_holds_since && olderThan(row.maya_holds_since, MAYA_HOLD_MINUTES)) {
+    problems.push({
+      kind: "maya_hold",
+      severity: "rose",
+      text: `${plural(mayaHolds, "room-night")} held by MAYA for ${ageLabel(row.maya_holds_since, nowIso)} on a check that should never fail, so ${mayaHolds === 1 ? "it is" : "they are"} not updating. Check the pricing runs and the push in the sync log.`,
+    });
   }
 
   // Nights held until the hotel's own rates have been read.

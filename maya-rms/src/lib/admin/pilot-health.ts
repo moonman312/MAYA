@@ -25,9 +25,11 @@ export type PilotHealth =
       /**
        * Set when the function is the one from before
        * 99_supabase_migration_pilot_health_v2.sql (its rows cannot say
-       * whether published prices are waiting to be sent) or before
+       * whether published prices are waiting to be sent), before
        * 99_supabase_migration_no_rate_on_record_v1.sql (nor which nights
-       * have no rate on record), so "Looks fine" does not cover that, and
+       * have no rate on record) or before
+       * 99_supabase_migration_pricing_records_v1.sql (nor MAYA's own holds
+       * that should never happen), so "Looks fine" does not cover that, and
        * the page says which file to run.
        */
       missing?: string;
@@ -45,6 +47,7 @@ export async function loadPilotHealth(ssr: SupabaseClient, opts: { includeTest: 
   const rows = opts.includeTest ? all : all.filter((r) => !r.is_test);
   const beforeV2 = all.some((r) => r.unsent_count === undefined);
   const beforeV4 = all.some((r) => r.no_rate_count === undefined);
+  const beforeV6 = all.some((r) => r.maya_holds === undefined);
   return {
     available: true,
     rows,
@@ -53,6 +56,8 @@ export async function loadPilotHealth(ssr: SupabaseClient, opts: { includeTest: 
       ? { missing: "Run 99_supabase_migration_pilot_health_v2.sql to see prices that were published and not sent." }
       : beforeV4
         ? { missing: "Run 99_supabase_migration_no_rate_on_record_v1.sql to see the nights the property system has no rate for." }
-        : {}),
+        : beforeV6
+          ? { missing: "Run 99_supabase_migration_pricing_records_v1.sql to see MAYA's own holds that should never happen, and the build of each property's latest run." }
+          : {}),
   };
 }

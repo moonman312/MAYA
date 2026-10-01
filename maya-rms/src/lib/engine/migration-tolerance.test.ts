@@ -338,7 +338,7 @@ describe("post-run bookkeeping", () => {
     });
     const result = await evaluateHotel(client, "h1", EVAL_TS, 1);
     expect(result.prices_published).toBe(1);
-    expect(calls.some((c) => c.table === "evaluation_audit" && c.op === "delete")).toBe(true);
+    expect(calls.some((c) => c.table === "rpc:engine_audit_purge")).toBe(true);
     expect(calls.some((c) => c.table === "evaluation_run_log" && c.op === "delete")).toBe(true);
     const lines = err.mock.calls.map((c) => JSON.parse(String(c[0])));
     expect(lines).toHaveLength(1);

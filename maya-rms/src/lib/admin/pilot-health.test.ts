@@ -84,11 +84,38 @@ describe("loadPilotHealth", () => {
 
     const after = {
       rpc: async () => ({
-        data: [row({ hotel_id: "a", unsent_count: 0, unsent_since: null, rate_read_waiting: 0, rate_read_waiting_since: null, no_rate_count: 0, rates_read_through: null })],
+        data: [
+          row({
+            hotel_id: "a",
+            unsent_count: 0,
+            unsent_since: null,
+            rate_read_waiting: 0,
+            rate_read_waiting_since: null,
+            no_rate_count: 0,
+            rates_read_through: null,
+            maya_holds: 0,
+            maya_holds_since: null,
+            last_run_build: "edge@abc123",
+          }),
+        ],
         error: null,
       }),
     } as unknown as SupabaseClient;
     expect(await loadPilotHealth(after, { includeTest: false })).not.toHaveProperty("missing");
+  });
+
+  it("says which file to run when the rows are from before MAYA's own holds were counted", async () => {
+    const before = {
+      rpc: async () => ({
+        data: [row({ hotel_id: "a", unsent_count: 0, unsent_since: null, rate_read_waiting: 0, rate_read_waiting_since: null, no_rate_count: 0, rates_read_through: null })],
+        error: null,
+      }),
+    } as unknown as SupabaseClient;
+    expect(await loadPilotHealth(before, { includeTest: false })).toMatchObject({
+      available: true,
+      missing:
+        "Run 99_supabase_migration_pricing_records_v1.sql to see MAYA's own holds that should never happen, and the build of each property's latest run.",
+    });
   });
 
   it("reads no rows as an empty list", async () => {

@@ -179,6 +179,7 @@ function PropertyRow({
   ago: (iso: string | null) => string;
 }) {
   const queueStuck = assessment.problems.some((p) => p.kind === "queue");
+  const mayaHoldStuck = assessment.problems.some((p) => p.kind === "maya_hold");
   const rateReadStuck = assessment.problems.some((p) => p.kind === "rate_read");
   const openTitle = row.open_incident_causes.map((c) => `${humaniseCause(c)}: ${causeFacts(c).adminDescription}`).join("\n");
   return (
@@ -203,6 +204,11 @@ function PropertyRow({
         <div className={`text-xs ${queueStuck ? "text-rose-300" : "text-slate-400"}`}>
           {row.dirty_count} in the queue
         </div>
+        {row.last_run_build ? (
+          <div className="font-mono text-xs text-slate-500" title="The build that ran the latest pricing run">
+            {row.last_run_build}
+          </div>
+        ) : null}
       </td>
       <td className="px-4 py-3 text-slate-300">
         <div>{row.sent_24h} sent in 24h</div>
@@ -210,7 +216,9 @@ function PropertyRow({
           {row.open_incidents} open
         </div>
         {row.open_incidents_admin_only > 0 && (
-          <div className="text-xs text-amber-300">{row.open_incidents_admin_only} held by MAYA</div>
+          <div className={`text-xs ${mayaHoldStuck ? "text-rose-300" : "text-amber-300"}`}>
+            {row.open_incidents_admin_only} held by MAYA
+          </div>
         )}
         {(row.unsent_count ?? 0) > 0 && (
           <div className="text-xs text-rose-300">{row.unsent_count} not sent after an hour</div>

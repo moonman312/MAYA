@@ -6,6 +6,7 @@
 import type { EvaluationAuditDetails } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price.ts";
+import { buildStamp } from "./build.ts";
 import type { LadderPassResult } from "./ladder.ts";
 import { basePriceKey, pickupTieBreakTrace, type PickupWin, type RetiredPickupFire } from "./pickup.ts";
 import type { AssembledPrice } from "./pricing.ts";
@@ -423,24 +424,39 @@ export async function loadLastAuditSignatures(
 }
 
 /**
- * Delete evaluation_audit rows older than the retention window. Cheap now
- * that a stable cell only gets one row per actual change instead of one per
- * run — this exists so that stays true indefinitely rather than relying on
- * the write-side fix alone.
+ * Delete evaluation_audit rows older than the retention window, keeping each
+ * night's newest row while the night is still ahead (audit A31).
+ *
+ * A row is written only when a night's price or its reasons change, so the
+ * newest row of a night nothing has moved for 90 days is the only record of
+ * its price. Deleting it made the next run find no record, write the night
+ * again as a change nobody made, and left the explain screen with nothing to
+ * say until then. Now a row older than the window goes only once a newer row
+ * stands for its night and room type, or once its night has passed
+ * (engine_audit_purge, which the nightly sweep follows too).
+ *
+ * Before that migration, only the rows of nights that have passed everywhere
+ * (before yesterday in UTC) go, so no night ahead ever loses its newest row;
+ * the rest wait for the function.
  */
 export async function purgeOldAuditRows(
   supabase: SupabaseClient,
   hotelId: string,
   retentionDays: number = 90,
 ): Promise<void> {
+  const { error: rpcError } = await supabase.rpc("engine_audit_purge", { p_hotel_id: hotelId, p_days: retentionDays });
+  if (!rpcError) return;
+  if (!isMissingFunctionError(rpcError)) throw new Error(`Audit purge failed: ${rpcError.message}`);
+
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - retentionDays);
-
+  const passed = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const { error } = await supabase
     .from("evaluation_audit")
     .delete()
     .eq("hotel_id", hotelId)
-    .lt("evaluated_at", cutoff.toISOString());
+    .lt("evaluated_at", cutoff.toISOString())
+    .lt("stay_date", passed);
 
   if (error) throw new Error(`Audit purge failed: ${error.message}`);
 }
@@ -487,12 +503,14 @@ export async function recordRunHeartbeat(
   const withKind = kind
     ? { ...withNights, run_kind: kind.runKind, nights_priced: kind.nightsPriced, nights: kind.list ?? null }
     : withNights;
-  const attempts = [withKind, withNights, row].filter((r, i, all) => all.indexOf(r) === i);
+  // Which build ran it (build.ts), from 99_supabase_migration_pricing_records_v1.sql on.
+  const withBuild = { ...withKind, build: buildStamp() };
+  const attempts = [withBuild, withKind, withNights, row].filter((r, i, all) => all.indexOf(r) === i);
   let error: { message: string } | null = null;
   for (const attempt of attempts) {
     ({ error } = await supabase.from("evaluation_run_log").upsert(attempt, { onConflict: "hotel_id,evaluation_run_id" }));
-    // Before the push guardrails or cadence migration: the heartbeat still
-    // counts for the change log.
+    // Before the pricing records, push guardrails or cadence migration: the
+    // heartbeat still counts for the change log.
     if (!error || !isMissingColumnError(error)) break;
   }
   if (error) throw new Error(`Run heartbeat failed: ${error.message}`);

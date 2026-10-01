@@ -333,6 +333,26 @@ describe("pushRatesForHotel rate-target cache lifecycle", () => {
   });
 });
 
+describe("pushRatesForHotel stamps what it writes (audit A29)", () => {
+  it("every ledger row of one run carries that run's id and the build, and the next run its own", async () => {
+    const run = async () => {
+      const db = makeSupabaseStub({ publishedPrice: PRICES_TWO, roomTypes: ROOM_TYPES, connection: { id: "conn-1", push_rate_targets: { ...CACHED_TWO } } });
+      const { adapter } = makeAdapter(CACHED_TWO);
+      await pushRatesForHotel(db.supabase, "hotel-1", adapter, WIDE);
+      return db.ledgerUpserts;
+    };
+    const first = await run();
+    // The in-progress marker and the outcome, for two cells.
+    expect(first).toHaveLength(4);
+    const runIds = new Set(first.map((r) => r.push_run_id));
+    expect(runIds.size).toBe(1);
+    expect([...runIds][0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(new Set(first.map((r) => r.build))).toEqual(new Set(["app@dev"]));
+    const second = await run();
+    expect(second[0].push_run_id).not.toBe(first[0].push_run_id);
+  });
+});
+
 describe("pushRatesForHotel retry ceiling", () => {
   it("retires a cell the PMS has rejected too many times at one price", async () => {
     // Failed cells never land in lastSent, so without the ceiling this one

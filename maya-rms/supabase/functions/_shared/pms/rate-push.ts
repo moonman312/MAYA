@@ -89,6 +89,7 @@ import {
 } from "./push-failure.ts";
 import { markConnectionDisconnected } from "./connection-health.ts";
 import { isMissingColumnError, isMissingRelationError } from "../engine/snapshots.ts";
+import { buildStamp } from "../engine/build.ts";
 import {
   type IncidentRecordSummary,
   recordPushIncidents,
@@ -489,6 +490,10 @@ export async function pushRatesForHotel(
     return { pushed: false, reason: "not_live" };
   }
 
+  // Every ledger row this run writes says which run and build wrote it, and
+  // the send log keeps them (99_supabase_migration_pricing_records_v1.sql).
+  const stamp: LedgerStamp = { push_run_id: crypto.randomUUID(), build: buildStamp() };
+
   // The hotel's calendar, not UTC's: see pricing-window.ts.
   const horizon = Math.max(1, Math.min(MAX_PRICING_HORIZON_DAYS, Math.floor(opts.pushHorizonDays ?? pricingHorizonDays())));
   const firstDate = opts.today ?? (await readHotelClock(supabase, hotelId)).today;
@@ -865,7 +870,7 @@ export async function pushRatesForHotel(
 
   // Held-back cells are recorded before anything is sent. A ledger that
   // cannot take these will not take the sends either.
-  const guardrailWrite = await writeLedgerRows(supabase, guardrailRows);
+  const guardrailWrite = await writeLedgerRows(supabase, guardrailRows, stamp);
   if (guardrailWrite) {
     logLedgerWriteFailed(hotelId, adapter.pmsType, "guardrail_skips", guardrailWrite, 0);
     return {
@@ -1012,7 +1017,7 @@ export async function pushRatesForHotel(
   summary.skippedNoTarget = skippedNoTarget;
 
   // Retargeted cells a guardrail held, with the cells that have no target.
-  const noTargetWrite = await writeLedgerRows(supabase, [...lateGuardrailRows, ...noTargetRows]);
+  const noTargetWrite = await writeLedgerRows(supabase, [...lateGuardrailRows, ...noTargetRows], stamp);
   if (noTargetWrite) {
     logLedgerWriteFailed(hotelId, adapter.pmsType, "no_target_skips", noTargetWrite, 0);
     return {
@@ -1077,6 +1082,7 @@ export async function pushRatesForHotel(
     const pendingError = await writeLedgerRows(
       supabase,
       batch.map((c) => pendingLedgerRow(hotelId, adapter.pmsType, c, lastFailed, pendingAt)),
+      stamp,
     );
     if (pendingError) {
       deferred += withTarget.length - i;
@@ -1093,7 +1099,7 @@ export async function pushRatesForHotel(
 
     const batchAt = new Date().toISOString();
     const rows = attempted.map((r) => attemptLedgerRow(hotelId, adapter.pmsType, r, lastFailed, batchAt));
-    const error = await writeLedgerRows(supabase, rows);
+    const error = await writeLedgerRows(supabase, rows, stamp);
     if (error) {
       // These cells are in the PMS (or refused by it) with only the
       // in-progress marker on record. Sending more would only widen that gap;
@@ -1294,10 +1300,14 @@ function jobSummary(j: { ok: number; rejected: number; unconfirmed: number }) {
 }
 
 /** Upserted in chunks; the first error's message, cut to 300 characters, or null. */
-async function writeLedgerRows(supabase: SupabaseClient, rows: Record<string, unknown>[]): Promise<string | null> {
+async function writeLedgerRows(
+  supabase: SupabaseClient,
+  rows: Record<string, unknown>[],
+  stamp?: LedgerStamp,
+): Promise<string | null> {
   const CHUNK = 500;
   for (let i = 0; i < rows.length; i += CHUNK) {
-    const error = await upsertLedger(supabase, rows.slice(i, i + CHUNK));
+    const error = await upsertLedger(supabase, rows.slice(i, i + CHUNK), stamp);
     if (error) return String(error.message ?? "rate_updates write failed").slice(0, 300);
   }
   return null;
@@ -1307,18 +1317,29 @@ async function writeLedgerRows(supabase: SupabaseClient, rows: Record<string, un
 const LEDGER_MIGRATED_COLUMNS = ["sent_price", "confirmed_at", "pms_edited_at"] as const;
 
 /**
+ * The push run that wrote a ledger row, and the build it ran (build.ts).
+ * Copied into the send log with the row; a write that is not a push (a job
+ * confirmed later, a rate the hotel changed in the PMS) leaves them as they
+ * were, and the log has neither for it.
+ */
+export type LedgerStamp = { push_run_id: string; build: string };
+
+/**
  * One rate_updates upsert. Every row in it carries the same columns: PostgREST
  * writes null into a column one row of a chunk leaves out and another has.
- * Before the push guardrails migration there is no sent_price, confirmed_at
- * or pms_edited_at, and the rows go again without them.
+ * Before 99_supabase_migration_pricing_records_v1.sql there is no push_run_id
+ * or build, and before the push guardrails migration no sent_price,
+ * confirmed_at or pms_edited_at; the rows go again without them.
  */
 export async function upsertLedger(
   supabase: SupabaseClient,
   rows: Record<string, unknown>[],
+  stamp?: LedgerStamp,
 ): Promise<{ message: string } | null> {
   const write = (chunk: Record<string, unknown>[]) =>
     supabase.from("rate_updates").upsert(chunk, { onConflict: "hotel_id,room_type_id,stay_date" });
-  let { error } = await write(rows);
+  let { error } = stamp ? await write(rows.map((r) => ({ ...r, ...stamp }))) : await write(rows);
+  if (stamp && error && isMissingColumnError(error)) ({ error } = await write(rows));
   if (error && isMissingColumnError(error) && rows.some((r) => LEDGER_MIGRATED_COLUMNS.some((col) => col in r))) {
     const withoutMigrated = rows.map((r) => {
       const copy = { ...r };

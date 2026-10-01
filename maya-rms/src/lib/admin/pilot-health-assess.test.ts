@@ -416,3 +416,33 @@ describe("nights held until the hotel's rates can be read", () => {
     expect(texts(old)).toEqual(["1 open sending problem for 5m: awaiting rate read."]);
   });
 });
+
+describe("MAYA's own holds that should never happen (audit A28)", () => {
+  const held = (minutes: number, count = 6) =>
+    healthy({ pms_type: "cloudbeds", open_incidents_admin_only: 1, maya_holds: count, maya_holds_since: minutesAgo(minutes) });
+
+  it("are left alone for half an hour, as the alert is", () => {
+    expect(texts(held(29))).toEqual([]);
+    expect(assessProperty(held(29), NOW).worst).toBeNull();
+  });
+
+  it("are a problem once a night has been held 30 minutes, so the page stops saying Looks fine", () => {
+    const a = assessProperty(held(45), NOW);
+    expect(a.problems).toEqual([
+      {
+        kind: "maya_hold",
+        severity: "rose",
+        text: "6 room-nights held by MAYA for 45m on a check that should never fail, so they are not updating. Check the pricing runs and the push in the sync log.",
+      },
+    ]);
+    expect(a.worst).toBe("rose");
+    expect(texts(held(120, 1))).toEqual([
+      "1 room-night held by MAYA for 2h on a check that should never fail, so it is not updating. Check the pricing runs and the push in the sync log.",
+    ]);
+  });
+
+  it("say nothing with none, or on a database from before the column", () => {
+    expect(texts(healthy({ open_incidents_admin_only: 2, maya_holds: 0, maya_holds_since: null }))).toEqual([]);
+    expect(texts(healthy({ open_incidents_admin_only: 2 }))).toEqual([]);
+  });
+});
