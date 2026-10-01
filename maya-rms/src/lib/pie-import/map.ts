@@ -476,3 +476,22 @@ export function planLimits(merged: Pick<MergedRead, "limits" | "master">, roomTy
   }
   return { changes, unmatched };
 }
+
+/**
+ * A draft in the shape the rule builder fills itself from (ruleToBuilderForm
+ * in rule-form.ts), to open it there before it is added.
+ */
+export function draftAsRule(d: ImportDraft) {
+  const percent = d.action.adjust_rate_percent;
+  const value = percent ?? d.action.adjust_rate_dollars ?? 0;
+  return {
+    name: d.rule_name,
+    condition: d.condition,
+    action_type: (percent !== undefined ? "percent" : "fixed") as "percent" | "fixed",
+    action_direction: (value < 0 ? "decrease" : "increase") as "increase" | "decrease",
+    action_value: Math.abs(value),
+    signal_room_type_ids: d.signal_room_type_ids,
+    affected_room_type_ids: d.affected_room_type_ids,
+    undo_on_cancellation: d.undo_on_cancellation,
+  };
+}

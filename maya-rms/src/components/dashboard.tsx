@@ -36,6 +36,8 @@ import {
   type SaveAnswer,
 } from "@/components/rule-activation-dialog";
 import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
+import { PieImportDialog, type PieEdit } from "@/components/pie-import-dialog";
+import { draftAsRule } from "@/lib/pie-import/map";
 import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
 import { isSupportChange } from "@/lib/changelog-support";
 import { SupportChangeItem } from "@/components/support-change-item";
@@ -463,6 +465,12 @@ export function Dashboard({
   const [activation, setActivation] = useState<ActivationRequest | null>(null);
   // A switch that could not be changed, and why, under that rule.
   const [ruleSwitchError, setRuleSwitchError] = useState<{ ruleId: string; message: string } | null>(null);
+  // Import from PIE: open (kept while one of its rules is in the builder),
+  // the rule being changed in the builder, and the last one changed there.
+  const [pieSession, setPieSession] = useState<{ from: "rules" | "link" } | null>(null);
+  const [pieEdit, setPieEdit] = useState<PieEdit | null>(null);
+  const [pieEdited, setPieEdited] = useState<PieEdit | null>(null);
+  const pieFrom = useRef<"rules" | "link">("link");
   // Whether this rule (new, or the one being edited) has had the booking
   // window row the builder fills in for a cut on low pickup with none. Once
   // per rule: the owner may remove the row, and it never comes back on its
@@ -745,6 +753,56 @@ export function Dashboard({
     }
   }
 
+  // The import opens on its place in the address: the Rules tab's link, or a link into it.
+  useEffect(() => {
+    if (panel === "import-pie" && !pieSession) setPieSession({ from: pieFrom.current });
+  }, [panel, pieSession]);
+
+  function openPieImport() {
+    pieFrom.current = "rules";
+    setPanel("import-pie");
+  }
+
+  function closePieImport() {
+    setPieSession(null);
+    setPieEdit(null);
+    setPieEdited(null);
+    pieFrom.current = "link";
+    if (panel === "import-pie") setPanel(null);
+  }
+
+  /** One of the import's rules in the rule builder, to change before it is added. */
+  function editPieRule(edit: PieEdit) {
+    setEditing(null);
+    setRuleFormError(null);
+    setRuleFormReload(false);
+    const form = ruleToBuilderForm(draftAsRule(edit.draft), isCountingRoomTypeId);
+    setRuleName(form.name);
+    farOutGuardOffered.current = true;
+    setCondRows(form.rows);
+    setAdjDirection(form.direction);
+    setAdjPercent(form.percent);
+    setAdjDollars(form.dollars);
+    setSplitRoomTypeSets(form.split);
+    setSelectedRoomTypeIds(form.selected);
+    setChangeRoomTypeIds(form.changeIds);
+    setUndoOnCancellation(form.undo);
+    setBuilderFilled(false);
+    setPieEdit(edit);
+    setRuleFormOpen(true);
+    requestAnimationFrame(() =>
+      document.querySelector('[data-deeplink="rules.builder"]')?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+    );
+  }
+
+  /** Back to the import from the builder, with the rule as changed or (null) as it was. */
+  function backToPieImport(draft: Record<string, unknown> | null) {
+    if (pieEdit && draft) setPieEdited({ ...pieEdit, draft: { ...pieEdit.draft, ...draft } as PieEdit["draft"] });
+    setPieEdit(null);
+    resetBuilder();
+    setPanel("import-pie");
+  }
+
   async function reloadRoomTypes() {
     const data =
       await api<Array<{ id: string; name: string; counts_as_room?: boolean | null }>>("/api/room-types");
@@ -977,6 +1035,11 @@ export function Dashboard({
       return;
     }
     const { draft } = built;
+    // One of the import's rules: back to the import as changed, nothing saved yet.
+    if (pieEdit) {
+      backToPieImport(draft);
+      return;
+    }
     const kind = draftKind(draft);
     const saved = () => {
       setActivation(null);
@@ -1157,6 +1220,18 @@ export function Dashboard({
             if (activation.source === "switch") setRuleSwitchError({ ruleId, message });
             else setRuleFormError(message);
           }}
+        />
+      ) : null}
+      {pieSession ? (
+        <PieImportDialog
+          hidden={panel !== "import-pie"}
+          from={pieSession.from}
+          currencySymbol={currencySymbol}
+          activeRules={rules.filter((r) => r.enabled).length}
+          edited={pieEdited}
+          onEdit={editPieRule}
+          onClose={closePieImport}
+          onCreated={() => void reloadRules()}
         />
       ) : null}
       {settingsOpen ? (
@@ -1594,6 +1669,15 @@ export function Dashboard({
                 <span data-deeplink="rules.suggestions" className="inline-flex">
                   <AskForHelp />
                 </span>
+                {pmsActivity?.connection?.pms_type === "cloudbeds" ? (
+                  <button
+                    type="button"
+                    onClick={openPieImport}
+                    className="cursor-pointer text-xs text-sky-400 hover:text-sky-300"
+                  >
+                    Import from PIE
+                  </button>
+                ) : null}
               </div>
               <div className="flex items-center gap-1 rounded-full border border-slate-800 bg-slate-950 p-1">
                 {(["all", "enabled", "disabled"] as const).map((f) => (
@@ -1758,6 +1842,11 @@ export function Dashboard({
               <button
                 type="button"
                 onClick={() => {
+                  // Closing a rule of the import's goes back to the import.
+                  if (pieEdit) {
+                    backToPieImport(null);
+                    return;
+                  }
                   if (ruleFormOpen) setBuilderFilled(false);
                   setRuleFormOpen((o) => !o);
                 }}
@@ -1765,7 +1854,7 @@ export function Dashboard({
                 className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
               >
                 <span className="flex items-center gap-2 text-sm font-medium text-slate-300">
-                  {editing ? `Edit \u201c${editing.name}\u201d` : "+ Add a rule"}
+                  {pieEdit ? "Change before importing" : editing ? `Edit \u201c${editing.name}\u201d` : "+ Add a rule"}
                   <FilledChip show={builderFilled && ruleFormOpen} />
                 </span>
                 <span
@@ -2228,8 +2317,17 @@ export function Dashboard({
                   disabled={activation !== null}
                   className="cursor-pointer rounded bg-sky-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-sky-400 disabled:cursor-default disabled:opacity-60"
                 >
-                  {editing ? "Save changes" : "Add Rule"}
+                  {pieEdit ? "Use in the import" : editing ? "Save changes" : "Add Rule"}
                 </button>
+                {pieEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => backToPieImport(null)}
+                    className="cursor-pointer text-sm text-slate-400 underline hover:text-slate-200"
+                  >
+                    Back to the import
+                  </button>
+                ) : null}
                 {editing ? (
                   <button
                     type="button"

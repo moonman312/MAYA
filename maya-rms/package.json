@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/copy-ocr-assets.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/docs-build.mjs",
+    "prebuild": "node scripts/copy-ocr-assets.mjs && node scripts/docs-build.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

@@ -51,4 +51,5 @@ export type HelpPanel =
   | "calendar-colors"
   | "settings-colours"
   | "settings-pms-changes"
-  | "pms-removed";
+  | "pms-removed"
+  | "pie-import";

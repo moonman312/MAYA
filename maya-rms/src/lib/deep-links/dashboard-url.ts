@@ -3,7 +3,7 @@
  * query keys, so back and forward work and a link can open any of them.
  *
  *   tab     calendar | rules | simulator | changelog | pms   (omitted: calendar)
- *   panel   builder (rules) | test-rule (simulator) | corrections (changelog)
+ *   panel   builder | import-pie (rules) | test-rule (simulator) | corrections (changelog)
  *   month   YYYY-MM on the calendar                        (omitted: this UTC month)
  *   date    YYYY-MM-DD, that night's card open; implies its month
  *   filter  enabled | disabled on the rules list          (omitted: all)
@@ -17,7 +17,7 @@ import { links } from "./index";
 import { realDate } from "./core.mjs";
 
 export type Tab = "calendar" | "rules" | "simulator" | "changelog" | "pms";
-export type Panel = "builder" | "test-rule" | "corrections";
+export type Panel = "builder" | "test-rule" | "corrections" | "import-pie";
 export type RuleFilter = "all" | "enabled" | "disabled";
 export type LogView = "changes" | "all";
 
@@ -31,7 +31,7 @@ export type Place = {
   view: LogView;
 };
 
-const PANEL_TAB: Record<Panel, Tab> = { builder: "rules", "test-rule": "simulator", corrections: "changelog" };
+const PANEL_TAB: Record<Panel, Tab> = { builder: "rules", "test-rule": "simulator", corrections: "changelog", "import-pie": "rules" };
 
 function thisMonth(now: Date) {
   return { year: now.getUTCFullYear(), month: now.getUTCMonth() + 1 };

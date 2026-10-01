@@ -63,18 +63,39 @@ export const UI_EVENTS = {
    * The activation popup opened: switching a rule on, adding one on, saving
    * an edit to one that is on, or a suggestion on the Rules tab.
    */
-  "rule.preview_opened": { from: ["switch", "builder_new", "builder_edit", "suggestion"], kind: ["standard", "event"] },
+  "rule.preview_opened": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"], kind: ["standard", "event"] },
   /** Its days came back: how many, how long the owner waited, how many nights the engine ran. */
   "rule.preview_shown": {
-    from: ["switch", "builder_new", "builder_edit", "suggestion"],
+    from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"],
     days: "count",
     ms: "count",
     nights_checked: "count",
   },
   /** Its days could not be worked out. */
-  "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion"] },
+  "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"] },
   /** Cancel: nothing saved, nothing switched on. */
-  "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion"], days: "count" },
+  "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"], days: "count" },
+  /**
+   * The import from PIE opened: from the Rules tab's link, or a link into
+   * it (the setup review's, for a Cloudbeds property).
+   */
+  "pie.import_opened": { from: ["rules", "link"] },
+  /**
+   * Its screenshots were read (in the browser): how many, and what was
+   * found. Counts only, never anything read from them.
+   */
+  "pie.screenshots_read": {
+    screenshots: "count",
+    unread: "count",
+    rules: "count",
+    ready: "count",
+    needs_edit: "count",
+    not_imported: "count",
+    limits: "count",
+    ms: "count",
+  },
+  /** The reader couldn't start (its files didn't load) or failed on a screenshot. */
+  "pie.read_failed": { stage: ["start", "read"] },
   /** Settings opened, from the dashboard header's gear or a link. */
   "settings.opened": {},
   /** The property's calendar choices saved: the big number, how many small lines, which colours. */

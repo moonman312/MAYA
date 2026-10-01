@@ -9,10 +9,15 @@ import { waitDaysLabel, type FarOutCutFacts } from "@/lib/rule-form";
 export type RuleIntent = "create" | "edit" | "enable";
 
 export type PreviewRequest = {
-  intent: RuleIntent;
+  /** "import": several new rules at once (an import from PIE), one popup for all. */
+  intent: RuleIntent | "import";
   ruleId: string;
   /** What the rule builder saves, for a new rule or an edit. */
   draft?: Record<string, unknown>;
+  /** An import's rules: each draft with its id and `on` (only those on are counted). */
+  rules?: Record<string, unknown>[];
+  /** The floors and ceilings an import sets with its rules. */
+  limits?: { roomTypeId: string; floor: number; ceiling: number }[];
 };
 
 /** What the popup shows: complete once every part has answered. */
@@ -50,6 +55,9 @@ export type PreviewOutcome =
 
 /** The popup's line when the days could not be worked out (an error or a time-out): Jake's words, 2026-09-29. */
 export const DAYS_NOT_CALCULATED = "We weren't able to calculate how many days would be affected by this rule.";
+
+/** The same, for several rules switched on together. */
+export const DAYS_NOT_CALCULATED_SET = "We weren't able to calculate how many days would be affected by these rules.";
 
 /**
  * How long the popup waits for each part of a preview. The route gives up
@@ -105,6 +113,11 @@ export function browserToday(now = new Date()): string {
 export function previewParts(kind: "standard" | "event", today: string): { from?: string; to?: string }[] {
   if (kind === "standard") return [{}];
   return [{ to: addDays(today, 59) }, { from: addDays(today, 60), to: addDays(today, 179) }, { from: addDays(today, 180) }];
+}
+
+/** Whether a set of drafts (an import's) has one that counts bookings. */
+export function draftsKind(drafts: readonly Record<string, unknown>[]): "standard" | "event" {
+  return drafts.some((d) => draftKind(d) === "event") ? "event" : "standard";
 }
 
 /** Whether a builder draft (or a rule's saved conditions) counts bookings: booking speed or pickup. */
@@ -229,9 +242,10 @@ function merge(answers: PartAnswer[], parts: number): CalendarPreview {
  * prices will be affected by this rule." when nothing would change (Jake,
  * 2026-09-29: the popup then only turns the rule on).
  */
-export function affectedSentence(days: number): string {
-  if (days === 0) return "0 prices will be affected by this rule.";
-  return `${days} ${days === 1 ? "day" : "days"} will be affected by this rule.`;
+export function affectedSentence(days: number, several = false): string {
+  const by = several ? "by these rules" : "by this rule";
+  if (days === 0) return `0 prices will be affected ${by}.`;
+  return `${days} ${days === 1 ? "day" : "days"} will be affected ${by}.`;
 }
 
 /**

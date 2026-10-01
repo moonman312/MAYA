@@ -28,6 +28,8 @@ import { RoomCountHelp } from "@/components/room-type-settings";
 import { track } from "@/lib/analytics/track";
 import {
   addDays,
+  DAYS_NOT_CALCULATED,
+  DAYS_NOT_CALCULATED_SET,
   affectedSentence,
   browserToday,
   dateRanges,
@@ -53,7 +55,7 @@ export type ActivationChoice = {
 
 export type SaveAnswer = { ok: true; skipped?: boolean } | { ok: false; status: number; code?: string; error: string };
 
-export type ActivationSource = "switch" | "builder_new" | "builder_edit" | "suggestion";
+export type ActivationSource = "switch" | "builder_new" | "builder_edit" | "suggestion" | "pie_import";
 
 export const ACTIVATION_HELP = {
   label: "What the days mean",
@@ -69,12 +71,28 @@ export const ACTIVATION_HELP = {
   ],
 };
 
+/** The same, for several rules switched on together. */
+export const ACTIVATION_HELP_SET = {
+  label: "What the days mean",
+  title: "Which days, and what each button does",
+  lines: [
+    "A day counts when these rules, all on together, change the price of at least one room type that night, after your other rules, typed prices, floors and ceilings.",
+    "The days come from a trial run of your rules on your bookings as they are now. Nothing is saved until you choose.",
+    "Apply price adjustments: the rules change those days' prices on the next pricing run.",
+    "Skip price adjustments: the rules are on, and those days keep their prices until a rule stops being true on a day and then becomes true again. Every other day works as if you had applied them.",
+    "When the days can't be worked out, Skip price adjustments holds every day each rule could change.",
+    "Nights further ahead than the calendar are priced as they come into it.",
+  ],
+};
+
 /** A save that failed with no words of its own. */
 const SAVE_FAILED = "That didn't save. Try again.";
 
 export const DAYS_CHANGED_LINE = "Your bookings changed while this was open, so the days were checked again.";
 
 function title(intent: PreviewRequest["intent"], name: string): string {
+  // An import: `name` says how many ("5 rules from PIE").
+  if (intent === "import") return `Add ${name}?`;
   if (intent === "enable") return `Turn on “${name}”?`;
   if (intent === "create") return `Add “${name}”?`;
   return `Save changes to “${name}”?`;
@@ -86,6 +104,7 @@ function title(intent: PreviewRequest["intent"], name: string): string {
  */
 function turnOnLabel(intent: PreviewRequest["intent"], saving: boolean): string {
   if (intent === "edit") return saving ? "Saving…" : "Save changes";
+  if (intent === "import") return saving ? "Turning them on…" : "Turn them on";
   return saving ? "Turning it on…" : "Turn it on";
 }
 
@@ -265,6 +284,8 @@ export function RuleActivationDialog({
   const affected = new Set(preview?.affected ?? partial?.affected ?? []);
   const blocks = monthBlocks(today, lastNight);
   const ready = preview !== null;
+  // Several rules switched on together (an import).
+  const several = request.intent === "import";
   // Nothing would change: the popup only turns the rule on.
   const nothing = ready && preview.affected.length === 0;
 
@@ -321,10 +342,16 @@ export function RuleActivationDialog({
 
         <div className="mt-4 flex items-start gap-2" aria-live="polite">
           <p className="text-sm text-slate-200" data-testid="activation-summary">
-            {error ? error : ready ? affectedSentence(preview.affected.length) : "Checking your calendar…"}
+            {error
+              ? several && error === DAYS_NOT_CALCULATED
+                ? DAYS_NOT_CALCULATED_SET
+                : error
+              : ready
+                ? affectedSentence(preview.affected.length, several)
+                : "Checking your calendar…"}
           </p>
           <span className="mt-0.5">
-            <RoomCountHelp {...ACTIVATION_HELP} docs="rule-activation" />
+            <RoomCountHelp {...(several ? ACTIVATION_HELP_SET : ACTIVATION_HELP)} docs="rule-activation" />
           </span>
         </div>
         {ready && preview.affected.length > 0 ? (
