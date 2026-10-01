@@ -274,6 +274,47 @@ describe("recordPushIncidents", () => {
     expect(alerts).toEqual([expect.objectContaining({ severity: "warn", key: `rate_push:guardrail_invalid_price:${HOTEL}` })]);
   });
 
+  it("sends a hold MAYA should never make as critical once a night has been held 30 minutes (audit A28)", async () => {
+    const fake = db();
+    const seen: Alert[] = [];
+    // The channel's default floor: a warning goes nowhere and is not marked.
+    const atCritical = {
+      newId: deps.newId,
+      alert: async (_s: unknown, a: Alert) => {
+        seen.push(a);
+        return a.severity === "critical" ? { sent: true } : { sent: false, reason: "below_min_severity" };
+      },
+    };
+    const stale = (minutes: number) =>
+      failure("2026-09-20", "rt-1", minutes, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.stalePrice });
+    await recordPushIncidents(fake.client, tick(0, [stale(0)]), atCritical);
+    await recordPushIncidents(fake.client, tick(25, [stale(25)]), atCritical);
+    expect(seen.map((a) => a.severity)).toEqual(["warn", "warn"]);
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ cause: "guardrail_stale_price", admin_only: true, alerted_at: null });
+
+    await recordPushIncidents(fake.client, tick(30, [stale(30)]), atCritical);
+    expect(seen.at(-1)).toMatchObject({
+      severity: "critical",
+      key: `rate_push:guardrail_stale_price:${HOTEL}`,
+      title: "Rates held back by a guardrail: stale price",
+    });
+    expect(seen.at(-1)!.detail).toContain("Held for over 30 minutes.");
+    expect(fake.tables.rate_push_incidents[0]).toMatchObject({ alerted_at: at(30), customer_visible_at: null });
+
+    // Once is enough.
+    await recordPushIncidents(fake.client, tick(35, [stale(35)]), atCritical);
+    expect(seen).toHaveLength(3);
+  });
+
+  it("never sends a hold that is expected (a floor raised after publishing) at any age", async () => {
+    const fake = db();
+    const below = (minutes: number) =>
+      failure("2026-09-20", "rt-1", minutes, { pms: "cloudbeds", phase: "guardrail", message: GUARDRAIL.belowFloor });
+    await recordPushIncidents(fake.client, tick(0, [below(0)]), deps);
+    await recordPushIncidents(fake.client, tick(90, [below(90)]), deps);
+    expect(alerts).toEqual([]);
+  });
+
   it("closes a cell as superseded by a new price or another cause, and as stopped once it is not pushed", async () => {
     const fake = db();
     await recordPushIncidents(

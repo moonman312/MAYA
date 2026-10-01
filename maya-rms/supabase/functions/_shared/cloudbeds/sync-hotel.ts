@@ -1524,8 +1524,11 @@ export async function runCloudbedsSyncForHotel(
           refusal: rateDetailsRefusal,
         }),
       );
+      // Critical, so it is heard whatever MAYA_ALERT_MIN_SEVERITY says: until
+      // the property is fixed every sync is far slower and may not finish
+      // (audit A28).
       await raiseAlert(supabase, {
-        severity: "warn",
+        severity: "critical",
         key: `cloudbeds_rate_details_refused:${hotelId}`,
         title: "Cloudbeds refused rate details; syncing per booking",
         detail: rateDetailsRefusal,

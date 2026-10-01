@@ -61,6 +61,17 @@ export const MAX_STORED_ATTEMPTS = 500;
 export const ESCALATE_AFTER_MS = 2 * 60 * 60_000;
 /** ...over at least this many tries. */
 export const ESCALATE_AFTER_ATTEMPTS = 5;
+/**
+ * A hold MAYA should never make (a guardrail marked mayaBug in
+ * push-failure.ts: a price that is not a number, unusable limits, a price
+ * no recent run backs) goes out as critical once a night has been held this
+ * long. Before that it is a warning, which the channel drops unless
+ * MAYA_ALERT_MIN_SEVERITY is warn. Held this long, nights are quietly not
+ * updating while bookings arrive (audit A28). Pilot health counts the same
+ * holds as a problem after the same wait (MAYA_HOLD_MINUTES in
+ * pilot-health-assess.ts).
+ */
+export const MAYA_HOLD_CRITICAL_AFTER_MS = 30 * 60_000;
 /** Longest an alert can take: raiseAlert's webhook timeout, plus its dedupe read. */
 export const ALERT_BUDGET_MS = 10_000;
 /**
@@ -569,7 +580,10 @@ async function record(
     }
     const facts = causeFacts(w.row.cause);
     if (w.row.admin_only) {
-      if (facts.mayaBug && !w.row.alerted_at) alerts.push({ w, alert: alertFor(run, w, open, "warn") });
+      if (facts.mayaBug && !w.row.alerted_at) {
+        const held = open.some((c) => Date.parse(c.first_attempt_at) <= run.nowMs - MAYA_HOLD_CRITICAL_AFTER_MS);
+        alerts.push({ w, alert: alertFor(run, w, open, held ? "critical" : "warn", { hold: true }) });
+      }
       continue;
     }
     if (!w.row.customer_visible_at) {
@@ -586,7 +600,7 @@ async function record(
       }
     }
     if (w.row.customer_visible_at && !w.row.alerted_at && !facts.alertedElsewhere) {
-      alerts.push({ w, alert: alertFor(run, w, open, "critical") });
+      alerts.push({ w, alert: alertFor(run, w, open, "critical", { hold: false }) });
     }
   }
   // ── Write: incidents first, the rest refer to them ────────────────────────
@@ -654,20 +668,29 @@ async function record(
   return summary;
 }
 
-/** The root cause and its reach. Never the vendor's own text: that is in the attempts. */
-function alertFor(run: PushRunRecord, w: Working, open: CellRow[], severity: "warn" | "critical"): Alert {
+/**
+ * The root cause and its reach. Never the vendor's own text: that is in the
+ * attempts. `hold` is one of MAYA's own guardrail holds, whatever its severity.
+ */
+function alertFor(
+  run: PushRunRecord,
+  w: Working,
+  open: CellRow[],
+  severity: "warn" | "critical",
+  opts: { hold: boolean },
+): Alert {
   const facts = causeFacts(w.row.cause);
   const nights = new Set(open.map((c) => c.stay_date)).size;
   const roomTypes = new Set(open.map((c) => c.room_type_id)).size;
   const name = pmsName(run.pmsType);
+  const held = opts.hold && severity === "critical" ? ` Held for over ${MAYA_HOLD_CRITICAL_AFTER_MS / 60_000} minutes.` : "";
   return {
     severity,
     key: `rate_push:${w.row.cause}:${run.hotelId}`,
-    title:
-      severity === "critical"
-        ? `Prices not reaching ${name}: ${w.row.cause.replace(/_/g, " ")}`
-        : `Rates held back by a guardrail: ${w.row.cause.replace(/^guardrail_/, "").replace(/_/g, " ")}`,
-    detail: `${facts.adminDescription} ${nights} night${nights === 1 ? "" : "s"}, ${roomTypes} room type${roomTypes === 1 ? "" : "s"}, ${w.row.attempt_count} tr${w.row.attempt_count === 1 ? "y" : "ies"} since ${w.row.opened_at}.`,
+    title: opts.hold
+      ? `Rates held back by a guardrail: ${w.row.cause.replace(/^guardrail_/, "").replace(/_/g, " ")}`
+      : `Prices not reaching ${name}: ${w.row.cause.replace(/_/g, " ")}`,
+    detail: `${facts.adminDescription} ${nights} night${nights === 1 ? "" : "s"}, ${roomTypes} room type${roomTypes === 1 ? "" : "s"}, ${w.row.attempt_count} tr${w.row.attempt_count === 1 ? "y" : "ies"} since ${w.row.opened_at}.${held}`,
     hotelId: run.hotelId,
   };
 }

@@ -724,6 +724,12 @@ describe("a read that cannot say a booking is gone", () => {
     client.cloudbedsGetReservationsPage.mockResolvedValue({ reservations: [], hasMore: false });
 
     await expectUntouched(db, await runCloudbedsSyncForHotel(db.client, "hotel-1"), "per_booking_read");
+    // Raised as critical, so it is heard whatever MAYA_ALERT_MIN_SEVERITY says (audit A28).
+    const raised = (errors.mock.calls as unknown[][])
+      .map((c) => String(c[0]))
+      .filter((line) => line.includes('"fn":"raiseAlert"'))
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(raised).toContainEqual(expect.objectContaining({ key: "cloudbeds_rate_details_refused:hotel-1", severity: "critical" }));
   });
 });
 
