@@ -59,7 +59,7 @@
 --    cancellation's end date and reason; never an email, a guest or a card.
 --    signup_feed_line(event) says what would be posted for any event, and
 --    signup_feed_test() posts one test line (platform admins, the service
---    role).
+--    role, the SQL editor).
 --
 -- Run after 99_supabase_migration_staff_roles_v1.sql. One transaction.
 -- Idempotent: safe to run twice. The app reads every new column and function
@@ -781,9 +781,11 @@ create trigger trg_signup_feed
   execute function public.signup_feed_post();
 
 -- One test line to #maya-signups, so someone can see the feed arrive. A
--- platform admin (any sign-in) or the service role. Answers whether it was
--- queued: state ready (sent), missing (no maya_signups_webhook in Vault),
--- not_https, or post_failed (pg_net refused it).
+-- platform admin (any sign-in), the service role, or a direct database
+-- session (the SQL editor: select public.signup_feed_test();). Answers
+-- whether it was queued: state ready (sent), missing (no
+-- maya_signups_webhook in Vault), not_https, or post_failed (pg_net refused
+-- it).
 create or replace function public.signup_feed_test()
 returns jsonb
 language plpgsql
@@ -795,8 +797,11 @@ declare
   v_state text;
   v_request bigint;
   v_by text;
+  v_role text := (select auth.role());
 begin
-  if (select auth.role()) is distinct from 'service_role'
+  -- The SQL editor carries no JWT; every PostgREST request does.
+  if v_role is not null
+     and v_role <> 'service_role'
      and not public.is_platform_admin() then
     raise exception 'Not authorized' using errcode = '42501';
   end if;
@@ -829,8 +834,8 @@ end;
 $$;
 
 comment on function public.signup_feed_test() is
-  'Posts one test line to #maya-signups (maya_signups_webhook in Vault) through pg_net. Platform admins and '
-  'the service role. Returns {sent, state: ready|missing|not_https|post_failed}.';
+  'Posts one test line to #maya-signups (maya_signups_webhook in Vault) through pg_net. Platform admins, '
+  'the service role and the SQL editor. Returns {sent, state: ready|missing|not_https|post_failed}.';
 
 revoke all on function public.signup_feed_test() from public, anon;
 grant execute on function public.signup_feed_test() to authenticated, service_role;

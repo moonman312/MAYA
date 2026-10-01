@@ -660,13 +660,16 @@ describe.skipIf(!PGLITE_DIR)("the signups feed migration in PGlite", () => {
       expect(await as(ADMIN, "aal1", async () => (await q(`select public.signup_feed_test() as r`))[0].r)).toMatchObject({ sent: false, state: "post_failed" });
     });
 
-    it("refuses anyone but a platform admin and the service role", async () => {
+    it("refuses anyone but a platform admin, the service role and the SQL editor", async () => {
       for (const who of [SALES, OWNER]) {
         await as(who, "aal2", async () => {
           await expect(q(`select public.signup_feed_test()`)).rejects.toThrow(/Not authorized/);
         });
       }
       expect(await asService(async () => (await q(`select public.signup_feed_test() as r`))[0].r)).toMatchObject({ sent: true });
+      // The SQL editor: no JWT at all.
+      expect((await q(`select public.signup_feed_test() as r`))[0].r).toMatchObject({ sent: true });
+      expect(await lines()).toEqual(["Test line from the Command Center. Real signups post here.", "Test line from the Command Center. Real signups post here."]);
       const grants = await q(`select has_function_privilege('anon', 'public.signup_feed_test()', 'execute') as anon`);
       expect(grants[0].anon).toBe(false);
     });

@@ -478,9 +478,10 @@ request id, for `net._http_response`), so no event posts twice.
 
 Setting it up: in Supabase, Vault, add a secret named `maya_signups_webhook`
 holding the channel's incoming webhook address. Then **Send a test line** on
-the Command Center (platform admins; `signup_feed_test()`, or
-`select public.signup_feed_test();` as the service role in the SQL editor)
-posts one test line. To see what any event would post:
+the Command Center (platform admins; `signup_feed_test()`), or
+`select public.signup_feed_test();` in the SQL editor, posts one test line and
+says whether it was queued (`missing`: no secret in Vault yet). To see what
+any event would post:
 
 ```sql
 select e.id, e.event, public.signup_feed_line(e) as line
