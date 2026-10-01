@@ -169,6 +169,22 @@ describe("parseSignupCodeInput: limits and notes", () => {
   });
 });
 
+describe("parseSignupCodeInput: the test-property checkbox", () => {
+  it("makes a test-property code only when the box is ticked, on any kind", () => {
+    const ticked = parse({ code: "WALKTHROUGH", kind: "trial", trial_days: 14, test_property: true });
+    expect(ticked.ok && ticked.row.test_property).toBe(true);
+    const discount = parse({ code: "DEMO50", kind: "percent_off", percent_off: 50, test_property: true });
+    expect(discount.ok && discount.row.test_property).toBe(true);
+  });
+
+  it("reads anything but a real true as an ordinary code", () => {
+    for (const test_property of [undefined, false, "true", 1, null]) {
+      const res = parse({ code: "REAL", kind: "trial", trial_days: 14, test_property });
+      expect(res.ok && res.row.test_property).toBe(false);
+    }
+  });
+});
+
 describe("codeStatus agrees with what checkout would say", () => {
   const base = { is_active: true, expires_at: null, max_redemptions: null };
 
@@ -325,6 +341,38 @@ describe("listSignupCodes", () => {
 
   it("skips the redemption and subscription reads when there are no codes", async () => {
     expect(await listSignupCodes(fakeSsr({ signup_codes: [] }), { now: NOW })).toEqual([]);
+  });
+
+  it("says which codes make a test property, and reads every code as ordinary before the migration", async () => {
+    const flagged = { signup_codes: [{ ...codes[0], test_property: true }, codes[1]], signup_code_redemptions: [], hotel_subscriptions: [] };
+    const rows = await listSignupCodes(fakeSsr(flagged), { now: NOW });
+    expect(rows.map((r) => [r.code, r.test_property])).toEqual([
+      ["DRIFTWOOD", true],
+      ["MHSFOUNDER", false],
+    ]);
+
+    // Before 99_supabase_migration_signups_feed_v1.sql the column is not there.
+    const selects: string[] = [];
+    const before = {
+      from: (table: string) => {
+        let columns = "";
+        const api = {
+          select: (c: string) => ((columns = c), selects.push(`${table}:${c}`), api),
+          in: () => api,
+          order: () => api,
+          then: (resolve: (v: unknown) => void) =>
+            Promise.resolve(
+              table === "signup_codes" && columns.includes("test_property")
+                ? { data: null, error: { code: "42703", message: "column signup_codes.test_property does not exist" } }
+                : { data: table === "signup_codes" ? codes : [], error: null },
+            ).then(resolve),
+        };
+        return api;
+      },
+    } as unknown as SupabaseClient;
+    const old = await listSignupCodes(before, { now: NOW });
+    expect(old.map((r) => r.test_property)).toEqual([false, false]);
+    expect(selects.filter((s) => s.startsWith("signup_codes:"))).toHaveLength(2);
   });
 });
 

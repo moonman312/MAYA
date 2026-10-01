@@ -89,6 +89,14 @@ function CodeCard({ code }: { code: AdminSignupCodeRow }) {
             >
               {STATUS_LABELS[code.status]}
             </span>
+            {code.test_property && (
+              <span
+                className="rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300"
+                title="Whoever signs up with this code is a test property, left out of analytics."
+              >
+                test property
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-300">{code.grants}</p>
           <p className="text-xs text-slate-500">{limitsLine(code)}</p>

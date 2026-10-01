@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { CODE_PATTERN, describeCode, type SignupCode, type SignupCodeKind } from "@/lib/billing/codes";
 import { isEntitled } from "@/lib/billing/sync";
 import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/billing/tiers";
+import { isMissingColumnError } from "@/lib/engine/snapshots";
 
 /**
  * The code desk behind /admin/signup-codes.
@@ -18,13 +19,24 @@ import { formatUsd, MAX_ROOMS, priceCents, type BillingInterval } from "@/lib/bi
  * issuing it.
  */
 
-const CODE_COLUMNS =
+const BASE_CODE_COLUMNS =
   "id, code, kind, trial_days, percent_off, duration_months, fixed_price_cents, fixed_price_interval, tier_rooms_cap, amount_off_cents, max_redemptions, expires_at, is_active, stripe_coupon_id, notes, created_at, created_by_email";
+/** test_property arrives with 99_supabase_migration_signups_feed_v1.sql; read without it before then. */
+const CODE_COLUMNS = `${BASE_CODE_COLUMNS}, test_property`;
+
+/** The migration that adds test-property codes, named where an admin needs it. */
+export const TEST_PROPERTY_MIGRATION = "99_supabase_migration_signups_feed_v1.sql";
 
 type StoredCode = SignupCode & {
   notes: string | null;
   created_at: string;
   created_by_email: string | null;
+  /**
+   * A property that signs up with this code is flagged a test property (left
+   * out of analytics) as soon as the code is bound to it, by the database.
+   * False before the migration.
+   */
+  test_property: boolean;
 };
 
 export type SignupCodeStatus = "live" | "off" | "expired" | "exhausted";
@@ -120,13 +132,12 @@ export async function listSignupCodes(
   ssr: SupabaseClient,
   opts: { now?: Date } = {},
 ): Promise<AdminSignupCodeRow[]> {
-  const { data, error } = await ssr
-    .from("signup_codes")
-    .select(CODE_COLUMNS)
-    .order("created_at", { ascending: false });
+  const read = (columns: string) => ssr.from("signup_codes").select(columns).order("created_at", { ascending: false });
+  let { data, error } = await read(CODE_COLUMNS);
+  if (error && isMissingColumnError(error)) ({ data, error } = await read(BASE_CODE_COLUMNS));
   if (error) throw new Error(`signup_codes: ${error.message}`);
 
-  const codes = (data ?? []) as StoredCode[];
+  const codes = ((data ?? []) as unknown as StoredCode[]).map((c) => ({ ...c, test_property: c.test_property === true }));
   if (codes.length === 0) return [];
   const ids = codes.map((c) => c.id);
 
@@ -216,6 +227,8 @@ export type SignupCodeInput = {
   max_redemptions: number | null;
   expires_at: string | null;
   notes: string | null;
+  /** "Test property (left out of analytics)": whoever signs up with it is a test property. */
+  test_property: boolean;
 };
 
 export type ParsedSignupCode = { ok: true; row: SignupCodeInput } | { ok: false; error: string };
@@ -298,6 +311,8 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
   }
 
   const notes = typeof b.notes === "string" && b.notes.trim() !== "" ? b.notes.trim() : null;
+  // Only a real true: a stray "false" string must not make a test code.
+  const testProperty = b.test_property === true;
 
   const shell: SignupCodeInput = {
     code,
@@ -312,6 +327,7 @@ export function parseSignupCodeInput(body: unknown, now = new Date()): ParsedSig
     max_redemptions: maxRedemptions,
     expires_at: expiresAt,
     notes,
+    test_property: testProperty,
   };
 
   if (kind === "trial") {
@@ -398,16 +414,21 @@ export async function createSignupCode(
   ssr: SupabaseClient,
   row: SignupCodeInput,
   actor: { id: string; email: string | null },
-): Promise<{ id: string; code: string; grants: string }> {
+): Promise<{ id: string; code: string; grants: string; testProperty: boolean }> {
   // Email denormalized at write time, same as redemptions: the list has to say
-  // who made a code even after that admin's account is gone.
+  // who made a code even after that admin's account is gone. An ordinary code
+  // leaves test_property out, so it saves before the migration too.
+  const { test_property: testProperty, ...rest } = row;
   const { data, error } = await ssr
     .from("signup_codes")
-    .insert({ ...row, created_by: actor.id, created_by_email: actor.email })
-    .select(CODE_COLUMNS)
+    .insert({ ...rest, ...(testProperty ? { test_property: true } : {}), created_by: actor.id, created_by_email: actor.email })
+    .select(testProperty ? CODE_COLUMNS : BASE_CODE_COLUMNS)
     .single();
 
   if (error) {
+    if (testProperty && isMissingColumnError(error)) {
+      throw new Error(`Test-property codes need ${TEST_PROPERTY_MIGRATION} first. Run it, then make the code again.`);
+    }
     // uq_signup_codes_code indexes lower(code), so DRIFTWOOD and driftwood are
     // one code — worth saying, rather than reporting a unique violation.
     if (error.code === "23505") {
@@ -416,12 +437,13 @@ export async function createSignupCode(
     throw new Error(`Could not create that code: ${error.message}`);
   }
 
-  const created = data as StoredCode;
+  const created = data as unknown as StoredCode;
   await logCodeEvent(ssr, "signup_code.created", created.id, {
     code: created.code,
     kind: created.kind,
+    ...(testProperty ? { test_property: true } : {}),
   });
-  return { id: created.id, code: created.code, grants: describeCode(created) };
+  return { id: created.id, code: created.code, grants: describeCode(created), testProperty };
 }
 
 /**
