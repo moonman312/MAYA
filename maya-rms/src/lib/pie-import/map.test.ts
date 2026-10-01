@@ -14,6 +14,7 @@ import {
   orderedIds,
   planImport,
   planLimits,
+  shownDescription,
   windowConditions,
   type ImportItem,
   type MayaRoomType,
@@ -211,7 +212,11 @@ describe("PIE rules as MAYA rules", () => {
     ]);
     expect(items[0]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff, ticked: false, on: false });
     // Shown as far as it reads, without the noise at the edge.
-    expect(items[0].pie.description).toBe("Lower rate by 10.00 % when occupancy is lower than 30.00 % and…");
+    expect(items[0].pie.description).toBe("Lower rate by 10.00 % when occupancy is lower than 30.00 % …");
+    expect(shownDescription("Lower rate by 9.00 % when occupancy is lower than 35.00 % omenad caddemen", true)).toBe(
+      "Lower rate by 9.00 % when occupancy is lower than 35.00 % …",
+    );
+    expect(shownDescription("Raise rate by 10.00 % when occ", true)).toBe("Raise rate by 10.00 % when occ");
     // What was read, ready to finish: no window yet.
     expect(items[0].drafts[0].condition).toEqual({ occupancy_operator: "lt", occupancy_threshold: 0.3 });
     expect(items[1]).toMatchObject({ status: "needs_edit", reason: PIE_COPY.cutOff, drafts: [] });
@@ -263,13 +268,13 @@ describe("PIE rules as MAYA rules", () => {
     expect(only(items, "Smudged")).toMatchObject({ status: "not_imported", reason: PIE_COPY.datesUnreadable });
   });
 
-  it("flags a fixed amount and a percent that can be on the same night, and only those", () => {
+  it("flags an amount that can be on the same night as a percent, on the amount's rule, and only those", () => {
     const { items } = plan([
       rowOf("Pct", "Raise rate by 10.00 % when occupancy is greater than 60.00 %"),
       rowOf("Flat", "Raise rate by 5.00 when occupancy is greater than 80.00 %"),
       rowOf("Flat low", "Lower rate by 5.00 when occupancy is lower than 30.00 %"),
     ]);
-    expect(only(items, "Pct").notes).toEqual([PIE_COPY.mixed]);
+    expect(only(items, "Pct").notes).toEqual([]);
     expect(only(items, "Flat").notes).toEqual([PIE_COPY.mixed]);
     // Under 30% and over 60% are never true together.
     expect(only(items, "Flat low").notes).toEqual([]);

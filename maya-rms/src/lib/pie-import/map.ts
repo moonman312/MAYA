@@ -274,8 +274,8 @@ function draftOf(
  */
 export function shownDescription(text: string, cutOff: boolean): string {
   if (!cutOff) return text;
-  const m = text.match(/^(.*?%)\s+and\b/i);
-  return m ? `${m[1]} and…` : text;
+  const m = text.match(/^(.*?%)\s+and\b/i) ?? text.match(/^(.*?\boccupancy\b.*?\d\s*%)/i);
+  return m ? `${m[1]} …` : text;
 }
 
 function buildItem(rule: PieRule, roomTypes: readonly MayaRoomType[], today: string, index: number): Built {
@@ -441,13 +441,13 @@ export function planImport(
 ): ImportPlan {
   const built = merged.rules.map((rule, i) => buildItem(rule, roomTypes, opts.today, i));
 
-  // A percent and an amount that can be on together: PIE's order decides.
+  // An amount that can be on with a percent: PIE's order decides. Said on
+  // the amount's rule only, so the review doesn't repeat it on every percent.
   for (const item of built) {
-    if (item.drafts.length === 0) continue;
+    const amounts = item.drafts.filter((d) => !isPercent(d));
+    if (amounts.length === 0) continue;
     const mixed = built.some(
-      (other) =>
-        other !== item &&
-        item.drafts.some((d) => other.drafts.some((o) => isPercent(d) !== isPercent(o) && canApplyTogether(d, o))),
+      (other) => other !== item && amounts.some((d) => other.drafts.some((o) => isPercent(o) && canApplyTogether(d, o))),
     );
     if (mixed) item.notes.push(PIE_COPY.mixed);
   }

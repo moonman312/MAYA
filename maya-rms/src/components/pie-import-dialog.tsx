@@ -47,30 +47,60 @@ export const PIE_REVIEW_HELP = {
 /** Reads screenshots into what the review shows (the browser's OCR; tests hand in their own). */
 export type ReadScreenshots = (files: readonly Blob[]) => Promise<ScreenshotRead[]>;
 
+/** How long one screenshot may take to read before the import says it couldn't (a worker that died never answers). */
+const SCREENSHOT_TIME_LIMIT_MS = 90_000;
+
+async function withinTimeLimit<T>(ms: number, run: () => Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      run(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("no answer in time")), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** The default: tesseract.js in this browser, started once, the headings carried from one screenshot to the next. */
-function browserReader(): { read: ReadScreenshots; close: () => void } {
+function browserReader(): { read: ReadScreenshots; warm: () => void; close: () => void } {
   let started: Promise<import("@/lib/pie-import/browser-ocr").ScreenshotReader> | null = null;
   // The last headings seen, for a screenshot added later that scrolled past them.
   let carry: ScreenshotRead["columns"] = null;
+  // Started once; a start that failed (offline) is tried again next time.
+  const start = () => {
+    started ??= import("@/lib/pie-import/browser-ocr")
+      .then(({ startScreenshotReader }) => startScreenshotReader())
+      .catch((e: unknown) => {
+        started = null;
+        throw e;
+      });
+    return started;
+  };
   return {
+    warm: () => void start().catch(() => {}),
     read: async (files) => {
-      const [{ startScreenshotReader }, { readScreenshot }] = await Promise.all([
-        import("@/lib/pie-import/browser-ocr"),
-        import("@/lib/pie-import/read"),
-      ]);
-      started ??= startScreenshotReader();
-      const reader = await started;
+      const { readScreenshot } = await import("@/lib/pie-import/read");
+      const reader = await start();
       const out: ScreenshotRead[] = [];
       for (const file of files) {
-        const { image, pass } = await reader.open(file);
-        const read = await readScreenshot(image, pass, carry);
+        const read = await withinTimeLimit(SCREENSHOT_TIME_LIMIT_MS, async () => {
+          const { image, pass } = await reader.open(file);
+          return readScreenshot(image, pass, carry);
+        });
         if (read.columns?.headerBottom != null) carry = read.columns;
         out.push(read);
       }
       return out;
     },
+    // Stops the worker; the next read starts a fresh one.
     close: () => {
-      void started?.then((r) => r.close()).catch(() => {});
+      const was = started;
+      started = null;
+      carry = null;
+      void was?.then((r) => r.close()).catch(() => {});
     },
   };
 }
@@ -117,7 +147,7 @@ export function PieImportDialog({
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const reader = useRef<{ read: ReadScreenshots; close: () => void } | null>(null);
+  const reader = useRef<{ read: ReadScreenshots; warm?: () => void; close: () => void } | null>(null);
   const [phase, setPhase] = useState<Phase>("pick");
   const [reads, setReads] = useState<ScreenshotRead[]>([]);
   const [roomTypes, setRoomTypes] = useState<MayaRoomType[] | null>(null);
@@ -132,6 +162,11 @@ export function PieImportDialog({
 
   useEffect(() => {
     track("pie.import_opened", { from });
+    // The reader starts loading as the import opens, so the first screenshot reads sooner.
+    if (!readProp) {
+      reader.current ??= browserReader();
+      reader.current.warm?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -197,6 +232,8 @@ export function PieImportDialog({
         fresh = await reader.current.read(images);
       }
     } catch {
+      // A fresh worker for the next try.
+      reader.current?.close();
       track("pie.read_failed", { stage: reads.length === 0 ? "start" : "read" });
       setError("That screenshot couldn't be read. Check your connection and try again.");
       setPhase(reads.length > 0 ? "review" : "pick");

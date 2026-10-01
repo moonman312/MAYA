@@ -247,7 +247,7 @@ describe("a percent and an amount on the same night", () => {
     // 100 x 1.1 + 20 = 130, but 100 + 20, then x 1.1 = 132.
     expect(pie(sim, night)).toBe(130);
     expect(pie([...sim].reverse(), night)).toBe(132);
-    expect(items.every((i) => i.notes.includes(PIE_COPY.mixed))).toBe(true);
+    expect(items.map((i) => i.notes.includes(PIE_COPY.mixed))).toEqual([false, true]);
   });
 });
 
