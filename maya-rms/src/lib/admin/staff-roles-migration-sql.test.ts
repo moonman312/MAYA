@@ -165,8 +165,9 @@ describe("the migration file", () => {
   const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
   const code = sql.replace(/--.*$/gm, "");
 
-  it("is last on the list the SQL tests build production's schema from", () => {
-    expect(MIGRATION_ORDER[MIGRATION_ORDER.length - 1]).toBe(MIGRATION);
+  it("is on the list the SQL tests build production's schema from, after the PMS rate changes file", () => {
+    expect(MIGRATION_ORDER).toContain(MIGRATION);
+    expect(MIGRATION_ORDER.indexOf(MIGRATION)).toBeGreaterThan(MIGRATION_ORDER.indexOf("99_supabase_migration_pms_rate_changes_v1.sql"));
   });
 
   it("is one transaction, keeps row level security on and never grants anon anything", () => {
@@ -999,7 +1000,7 @@ describe.skipIf(!PGLITE_DIR)("the staff roles migration in PGlite", () => {
         { user_id: DEV, is_test: true },
       ]);
       const accounts = async (includeTest: boolean) =>
-        as(ADMIN, "aal1", async () => (await q(`select (public.analytics_range(current_date, current_date, $1) ->> 'accounts')::int as n`, [includeTest]))[0].n);
+        as(ADMIN, "aal1", async () => (await q(`select (public.analytics_range(utc_today, utc_today, $1) ->> 'accounts')::int as n from (select (now() at time zone 'utc')::date as utc_today) t`, [includeTest]))[0].n);
       expect(await accounts(false)).toBe(1);
       expect(await accounts(true)).toBe(2);
     });
