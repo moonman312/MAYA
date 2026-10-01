@@ -197,7 +197,12 @@ export function mergeTimeline(
   // The owner's answers, the changes MAYA support made, and rates changed in
   // the property system: each sits where it happened.
   answers: (ChangelogRuleAlertChoice | ChangelogSupportChange | ChangelogPmsChange)[] = [],
-  opts: { after?: string | null } = {},
+  /**
+   * after: the newest run the log did not read (nothing at or before it is
+   * shown). through: on an older page, where the page above stopped (nothing
+   * after it is shown, and ongoing problems stay on the first page).
+   */
+  opts: { after?: string | null; through?: string | null } = {},
 ): ChangelogItem[] {
   const newestFirst = <T>(list: { item: T; at: number }[]) =>
     list
@@ -207,7 +212,9 @@ export function mergeTimeline(
   const ongoing = problems.filter((p) => p.status === "ongoing");
   const oldestShown = cycles.length > 0 ? Math.min(...cycles.map((c) => Date.parse(startOf(c)) || 0)) : -Infinity;
   const historyEnds = opts.after != null ? Date.parse(opts.after) || 0 : null;
-  const shown = (at: number) => (historyEnds != null ? at > historyEnds : !(at < oldestShown));
+  const pageTop = opts.through != null ? Date.parse(opts.through) : null;
+  const shown = (at: number) =>
+    (historyEnds != null ? at > historyEnds : !(at < oldestShown)) && (pageTop == null || !(at > pageTop));
   const ended = problems
     .filter((p) => p.status !== "ongoing")
     .map((p) => ({ item: p as ChangelogItem, at: Date.parse(p.resolved_at ?? p.timestamp) }))

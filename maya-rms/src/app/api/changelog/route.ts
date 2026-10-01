@@ -19,6 +19,13 @@
  * would have happened and that nothing was sent, a live one says a price was
  * sent only when the send ledger shows it (changelog-send-lines.ts), and an
  * answer given while simulating calls the rule's changes simulated.
+ * Older history comes a page at a time (Jake, A47): a page that stopped
+ * before the hotel's first run on record says where, in the X-Changelog-Older
+ * header, and `?older=` with that instant reads the page before it, the same
+ * way: the next MAX_CHANGED_RUNS runs that changed a price at or before it,
+ * the quiet runs between them, and what else happened then. Ongoing push
+ * problems sit on the first page only. The engine keeps runs 90 days, so
+ * the pages end there. The body stays the list of items it always was.
  * The demo changelog is served only when Supabase is
  * not configured at all; any failure past that point is a real error and
  * must surface as one — this screen is the audit trail of what the system
@@ -63,6 +70,7 @@ import {
 } from "@/lib/changelog-push-problems";
 import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildPmsChanges, MAX_PMS_CHANGES, MAX_PMS_WARNINGS, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
+import { CHANGELOG_OLDER_HEADER, justAfter } from "@/lib/changelog-paging";
 import { buildChangelog } from "@/lib/demo-data";
 import { priorRowsFor } from "@/lib/changelog-prior-rows";
 import { attachSendLines, cellKey, liveCells, overwriteSendState } from "@/lib/changelog-send-lines";
@@ -91,9 +99,14 @@ const AUDIT_ROW_LIMIT = 600;
 // at a busy property.
 const RUN_LOG_LIMIT = 200;
 
-export async function GET() {
+export async function GET(request?: Request) {
   if (!isSupabaseConfigured()) {
     return NextResponse.json(buildChangelog());
+  }
+
+  const older = request ? new URL(request.url).searchParams.get("older") : null;
+  if (older != null && (older.length > 64 || !Number.isFinite(Date.parse(older)))) {
+    return NextResponse.json({ error: "That page link isn't valid." }, { status: 400 });
   }
 
   const supabase = createClient(await cookies());
@@ -110,7 +123,10 @@ export async function GET() {
   }
 
   try {
-    return NextResponse.json(await buildRealChangelog(supabase, hotelId));
+    const page = await buildRealChangelog(supabase, hotelId, older);
+    const res = NextResponse.json(page.items);
+    if (page.older) res.headers.set(CHANGELOG_OLDER_HEADER, page.older);
+    return res;
   } catch (error) {
     const { status, message } = dbErrorResponse(error);
     return NextResponse.json({ error: message }, { status });
@@ -283,16 +299,19 @@ type RunHistory = {
  * until MAX_CHANGED_RUNS of them show a change or MAX_CANDIDATE_RUNS have
  * been read. One more is fetched than can be read, so the log knows where it
  * stopped. Null when there is no run log to go by, or no run in it yet.
+ * `through`, on an older page, is where the page above stopped: that run
+ * and the ones before it.
  */
-async function loadRunHistory(supabase: SupabaseClient, hotelId: string): Promise<RunHistory | null> {
+async function loadRunHistory(supabase: SupabaseClient, hotelId: string, through: string | null): Promise<RunHistory | null> {
+  let candidateQuery = supabase
+    .from("evaluation_run_log")
+    .select("evaluation_run_id, evaluated_at")
+    .eq("hotel_id", hotelId)
+    .gt("cells_changed", 0);
+  // An older page: the run the page above stopped at, and everything before it.
+  if (through) candidateQuery = candidateQuery.lte("evaluated_at", through);
   const [candidateRead, firstRead] = await Promise.all([
-    supabase
-      .from("evaluation_run_log")
-      .select("evaluation_run_id, evaluated_at")
-      .eq("hotel_id", hotelId)
-      .gt("cells_changed", 0)
-      .order("evaluated_at", { ascending: false })
-      .limit(MAX_CANDIDATE_RUNS + 1),
+    candidateQuery.order("evaluated_at", { ascending: false }).limit(MAX_CANDIDATE_RUNS + 1),
     supabase
       .from("evaluation_run_log")
       .select("evaluated_at")
@@ -319,9 +338,16 @@ async function loadRunHistory(supabase: SupabaseClient, hotelId: string): Promis
  * (and folded in by buildQuietChecks if it showed nothing) or not known yet,
  * having landed while this request was reading, and is never called quiet.
  */
-async function countQuietGap(supabase: SupabaseClient, hotelId: string, gap: QuietGap): Promise<QuietGapCount> {
+async function countQuietGap(
+  supabase: SupabaseClient,
+  hotelId: string,
+  gap: QuietGap,
+  through: string | null,
+): Promise<QuietGapCount> {
   const within = (read: ReturnType<ReturnType<SupabaseClient["from"]>["select"]>) => {
     let q = read.eq("hotel_id", hotelId).eq("cells_changed", 0);
+    // On an older page nothing newer than where the page above stopped.
+    if (through) q = q.lte("evaluated_at", through);
     if (gap.before != null) q = q.lt("evaluated_at", gap.before);
     if (gap.after != null) {
       q = gap.after.inclusive ? q.gte("evaluated_at", gap.after.at) : q.gt("evaluated_at", gap.after.at);
@@ -351,8 +377,17 @@ async function withSendLines<T extends ChangelogItem>(items: T[], ctx: SendConte
   return facts ? attachSendLines(items, facts) : items;
 }
 
-async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
-  const history = await loadRunHistory(supabase, hotelId);
+/**
+ * One page of the log: the newest, or (`through`) the one that starts where
+ * the page above stopped, at that run and before it. `older` is where the
+ * next page starts, or null when this one reaches the first run on record.
+ */
+async function buildRealChangelog(
+  supabase: SupabaseClient,
+  hotelId: string,
+  through: string | null,
+): Promise<{ items: ChangelogItem[]; older: string | null }> {
+  const history = await loadRunHistory(supabase, hotelId, through);
 
   let auditRows: { details: unknown }[] & Record<string, unknown>[] = [];
   if (!history) {
@@ -495,25 +530,28 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     );
     const since = oldestShownRun(cycles);
     const [problems, answers, support, pmsChanges, sentCycles] = await Promise.all([
-      loadPushProblems(supabase, hotelId, roomTypeNames, since),
-      loadAlertChoices(supabase, hotelId, lookups, since),
-      loadSupportChanges(supabase, hotelId, since),
-      loadPmsChanges(supabase, hotelId, lookups, since, sendContext),
+      loadPushProblems(supabase, hotelId, roomTypeNames, since, null),
+      loadAlertChoices(supabase, hotelId, lookups, since, null),
+      loadSupportChanges(supabase, hotelId, since, null),
+      loadPmsChanges(supabase, hotelId, lookups, since, sendContext, null),
       withSendLines(cycles, sendContext),
     ]);
-    return mergeTimeline(sentCycles, problems, [...answers, ...support, ...pmsChanges]);
+    // Rebuilt from audit rows alone, the log has no run log to page by.
+    return { items: mergeTimeline(sentCycles, problems, [...answers, ...support, ...pmsChanges]), older: null };
   }
 
   // The log covers everything after the newest run it did not read, or the
   // hotel's whole history on record when it read every run that could be a
   // change. Push problems that ended and answers given in that time sit
   // where they happened, and split the quiet stretch they fall in.
+  // An older page covers up to where the page above stopped, and that far
+  // back in the same way.
   const since = history.readBackTo ?? history.firstRunAt;
   const [problems, answers, support, pmsChanges, cycles] = await Promise.all([
-    loadPushProblems(supabase, hotelId, roomTypeNames, since),
-    loadAlertChoices(supabase, hotelId, lookups, since),
-    loadSupportChanges(supabase, hotelId, since),
-    loadPmsChanges(supabase, hotelId, lookups, since, sendContext),
+    loadPushProblems(supabase, hotelId, roomTypeNames, since, through),
+    loadAlertChoices(supabase, hotelId, lookups, since, through),
+    loadSupportChanges(supabase, hotelId, since, through),
+    loadPmsChanges(supabase, hotelId, lookups, since, sendContext, through),
     withSendLines(buildCyclesFromRuns(history.shown, lookups), sendContext),
   ]);
   const gaps = planQuietGaps({
@@ -526,8 +564,14 @@ async function buildRealChangelog(supabase: SupabaseClient, hotelId: string) {
     ],
     readBackTo: history.readBackTo,
   });
-  const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap), history.folded);
-  return mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support, ...pmsChanges], { after: history.readBackTo });
+  const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap, through), history.folded);
+  return {
+    items: mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support, ...pmsChanges], {
+      after: history.readBackTo,
+      through,
+    }),
+    older: history.readBackTo,
+  };
 }
 
 /**
@@ -545,6 +589,7 @@ async function loadPmsChanges(
   lookups: ChangelogLookups,
   since: string | null,
   sendContext: SendContext,
+  through: string | null,
 ): Promise<ChangelogPmsChange[]> {
   try {
     const read = (kind: "overwrite" | "other_tool", limit: number) => {
@@ -556,6 +601,7 @@ async function loadPmsChanges(
         .order("found_at", { ascending: false })
         .limit(limit);
       if (since) query = query.gte("found_at", since);
+      if (through) query = query.lt("found_at", justAfter(through));
       return query;
     };
     // Warnings apart from the overwrites, so a flood of overwrites never hides one.
@@ -576,6 +622,7 @@ async function loadPmsChanges(
         .eq("hotel_id", hotelId)
         .eq("kind", "overwrite");
       if (since) countQuery = countQuery.gte("found_at", since);
+      if (through) countQuery = countQuery.lt("found_at", justAfter(through));
       const { count } = await countQuery;
       overwriteTotal = count ?? overwriteRows.length;
     }
@@ -641,6 +688,7 @@ async function loadSupportChanges(
   supabase: SupabaseClient,
   hotelId: string,
   since: string | null,
+  through: string | null,
 ): Promise<ChangelogSupportChange[]> {
   try {
     let query = supabase
@@ -650,6 +698,7 @@ async function loadSupportChanges(
       .order("at", { ascending: false })
       .limit(MAX_SUPPORT_CHANGE_ROWS);
     if (since) query = query.gte("at", since);
+    if (through) query = query.lt("at", justAfter(through));
     const { data, error } = await query;
     if (error) {
       if (isMissingRelationError(error)) return [];
@@ -693,25 +742,27 @@ async function loadAlertChoices(
   hotelId: string,
   lookups: ChangelogLookups,
   since: string | null,
+  through: string | null,
 ) {
   try {
-    const answered = supabase
+    // Within the history shown: from `since`, and up to `through` on an older page.
+    let answered = supabase
       .from("rule_repeat_alert_nights")
       .select("rule_id, stay_date, choice, chosen_at, chosen_by")
       .eq("hotel_id", hotelId)
-      .not("chosen_at", "is", null)
-      .order("chosen_at", { ascending: false })
-      .limit(MAX_ALERT_CHOICES * 20);
-    const resumed = supabase
+      .not("chosen_at", "is", null);
+    if (since) answered = answered.gte("chosen_at", since);
+    if (through) answered = answered.lt("chosen_at", justAfter(through));
+    let resumed = supabase
       .from("rule_repeat_alert_nights")
       .select("rule_id, stay_date, resumed_at, resumed_by")
       .eq("hotel_id", hotelId)
-      .not("resumed_at", "is", null)
-      .order("resumed_at", { ascending: false })
-      .limit(MAX_ALERT_CHOICES * 20);
+      .not("resumed_at", "is", null);
+    if (since) resumed = resumed.gte("resumed_at", since);
+    if (through) resumed = resumed.lt("resumed_at", justAfter(through));
     const [answers, resumes] = await Promise.all([
-      since ? answered.gte("chosen_at", since) : answered,
-      since ? resumed.gte("resumed_at", since) : resumed,
+      answered.order("chosen_at", { ascending: false }).limit(MAX_ALERT_CHOICES * 20),
+      resumed.order("resumed_at", { ascending: false }).limit(MAX_ALERT_CHOICES * 20),
     ]);
     for (const { error } of [answers, resumes]) {
       if (!error) continue;
@@ -797,9 +848,10 @@ async function loadPushProblems(
   hotelId: string,
   roomTypeNames: Map<string, string>,
   since: string | null,
+  through: string | null,
 ): Promise<ChangelogPushProblem[]> {
   try {
-    return await readPushProblems(supabase, hotelId, roomTypeNames, since);
+    return await readPushProblems(supabase, hotelId, roomTypeNames, since, through);
   } catch (e) {
     const message = e instanceof Error ? e.message : String((e as { message?: unknown } | null)?.message ?? e);
     console.error(JSON.stringify({ fn: "api/changelog", step: "push_problems", hotelId, error: message.slice(0, 300) }));
@@ -812,6 +864,7 @@ async function readPushProblems(
   hotelId: string,
   roomTypeNames: Map<string, string>,
   since: string | null,
+  through: string | null,
 ): Promise<ChangelogPushProblem[]> {
   const { data: settings, error: settingsErr } = await supabase
     .from("hotel_settings")
@@ -831,11 +884,18 @@ async function readPushProblems(
   // Two reads, each with its own cap, so ended problems can never push a
   // still-open one out: those are the ones the owner has to act on, and this
   // log is the only place they see them. Ended ones are the newest to end.
+  // Ongoing problems sit on top of the first page only; an older page
+  // shows those that ended in its stretch.
+  const ended = () => {
+    let q = visible().gte("resolved_at", since as string);
+    if (through) q = q.lt("resolved_at", justAfter(through));
+    return q.order("resolved_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS);
+  };
   const [ongoingRead, endedRead] = await Promise.all([
-    visible().is("resolved_at", null).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS),
-    since
-      ? visible().gte("resolved_at", since).order("resolved_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS)
-      : Promise.resolve({ data: [], error: null }),
+    through
+      ? Promise.resolve({ data: [], error: null })
+      : visible().is("resolved_at", null).order("opened_at", { ascending: false }).limit(MAX_PUSH_PROBLEMS),
+    since ? ended() : Promise.resolve({ data: [], error: null }),
   ]);
   const error = ongoingRead.error ?? endedRead.error;
   if (error) {
