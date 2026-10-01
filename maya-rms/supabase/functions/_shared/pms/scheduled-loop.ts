@@ -119,6 +119,60 @@ export function healthyReleaseIntervalSeconds(intervalSeconds: number, invocatio
 }
 
 /**
+ * How long a claimed hotel the scheduler may not work on waits before it can
+ * be claimed again: a lapsed subscription, a property not active, a
+ * connection parked for payment, or a purged property waiting for its import.
+ */
+export const NOT_WORKABLE_RETRY_SECONDS = 60 * 60;
+
+/** Why the scheduler dropped a claimed hotel before working on it. */
+export type DroppedHotel = { hotelId: string; status: string };
+
+/**
+ * Hands back the claimed hotels the scheduler dropped before any work (audit
+ * A27). Left leased, each came back first in line every time its lease ran
+ * out, ten minutes later, since its due time only got older, so enough of
+ * them crowded every batch and paying hotels were never priced. Those it
+ * may not work on wait NOT_WORKABLE_RETRY_SECONDS. One dropped only because
+ * a read failed (`unknown`) gets its lease back with its due time untouched,
+ * so a database blip never delays a paying hotel. `missing` has no row.
+ *
+ * claim_pms_sync_batch leaves these out once
+ * 99_supabase_migration_sync_claim_paying_only_v1.sql has run, which also
+ * makes a hotel due at once when its subscription restarts or it is switched
+ * back on; this is what stops the crowding before that, and for a hotel that
+ * lapsed between the claim and the check. Never throws: the lease runs out on
+ * its own.
+ */
+export async function handBackDropped(
+  supabase: SupabaseClient,
+  pmsType: string,
+  workerId: string,
+  dropped: DroppedHotel[],
+  log: (line: Record<string, unknown>) => void,
+  nowMs: number = Date.now(),
+): Promise<void> {
+  const wait = dropped.filter((d) => d.status !== "unknown" && d.status !== "missing").map((d) => d.hotelId);
+  const asIs = dropped.filter((d) => d.status === "unknown").map((d) => d.hotelId);
+  const release = async (ids: string[], dueAt: string | null) => {
+    if (ids.length === 0) return;
+    try {
+      const { error } = await supabase
+        .from("pms_connections")
+        .update({ sync_lease_until: null, sync_lease_owner: null, ...(dueAt ? { sync_due_at: dueAt } : {}) })
+        .eq("pms_type", pmsType)
+        .eq("sync_lease_owner", workerId)
+        .in("hotel_id", ids);
+      if (error) throw new Error(error.message);
+    } catch (e) {
+      log({ step: "hand_back_dropped", hotels: ids.length, error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  await release(wait, new Date(nowMs + NOT_WORKABLE_RETRY_SECONDS * 1000).toISOString());
+  await release(asIs, null);
+}
+
+/**
  * The claimed hotels, most overdue first. claim_pms_sync_batch picks the
  * batch by sync_due_at but hands it back in whatever order its UPDATE
  * returned rows, so a hotel's place in the loop, and with it how long after

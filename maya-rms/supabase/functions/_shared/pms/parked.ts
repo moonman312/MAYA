@@ -35,6 +35,15 @@ export type ParkedSplit = {
  * Splits a claimed batch into the hotels worth syncing and the ones still
  * waiting to be paid for, or waiting for their history to come back.
  *
+ * A hotel that is not active (hotels.is_active false: checkout's placeholder,
+ * a Marketplace arrival waiting for payment, or a property switched off) is
+ * left alone too, whatever its connection row says (audit A34). Its
+ * connection may read Connected: the sign-up connect writes the connection
+ * just before it activates the hotel, and a row written by hand says what it
+ * likes. claim_pms_sync_batch leaves these out once
+ * 99_supabase_migration_sync_claim_paying_only_v1.sql has run; a manual price
+ * save asks for one hotel's sync without the claim, so the hold lives here.
+ *
  * A never-paid property the retention sweep emptied (hotels.data_purged_at)
  * is held until an import queued after the purge has completed, so nothing
  * prices it off the recent window alone. claim_pms_sync_batch holds it too,
@@ -65,9 +74,9 @@ export async function splitByParked(
     .in("hotel_id", hotelIds);
   if (error) return failClosed(error.message);
 
-  let importing: Set<string>;
+  let holds: { inactive: Set<string>; importing: Set<string> };
   try {
-    importing = await purgedAwaitingImport(supabase, hotelIds);
+    holds = await hotelHolds(supabase, hotelIds);
   } catch (e) {
     return failClosed(e instanceof Error ? e.message : String(e));
   }
@@ -82,7 +91,8 @@ export async function splitByParked(
     // row was deleted between the claim and here, and there is nothing to sync.
     if (status === undefined) parked.push({ hotelId, status: "missing" });
     else if (PARKED.has(status)) parked.push({ hotelId, status });
-    else if (importing.has(hotelId)) parked.push({ hotelId, status: "purged_importing" });
+    else if (holds.inactive.has(hotelId)) parked.push({ hotelId, status: "inactive" });
+    else if (holds.importing.has(hotelId)) parked.push({ hotelId, status: "purged_importing" });
     else allowed.push(hotelId);
   }
   return { allowed, parked };
@@ -94,23 +104,27 @@ function isMissingColumn(error: { code?: string; message?: string }): boolean {
 }
 
 /**
- * The hotels whose data was purged and that have no completed import created
- * since. Throws on a read error. Before the column exists nothing was purged.
+ * Of these hotels, the ones not active, and the ones whose data was purged
+ * with no completed import created since. Throws on a read error. Before the
+ * retention migration there is no data_purged_at, and nothing was purged.
  */
-async function purgedAwaitingImport(supabase: SupabaseClient, hotelIds: string[]): Promise<Set<string>> {
-  const { data: hotels, error } = await supabase
-    .from("hotels")
-    .select("id, data_purged_at")
-    .in("id", hotelIds);
-  if (error) {
-    if (isMissingColumn(error)) return new Set();
-    throw new Error(`hotels read failed: ${error.message}`);
-  }
+async function hotelHolds(
+  supabase: SupabaseClient,
+  hotelIds: string[],
+): Promise<{ inactive: Set<string>; importing: Set<string> }> {
+  const read = (columns: string) => supabase.from("hotels").select(columns).in("id", hotelIds);
+  let { data: hotels, error } = await read("id, is_active, data_purged_at");
+  // Before the column exists nothing was purged.
+  const purgeKnown = !(error && isMissingColumn(error));
+  if (!purgeKnown) ({ data: hotels, error } = await read("id, is_active"));
+  if (error) throw new Error(`hotels read failed: ${error.message}`);
+  const inactive = new Set<string>();
   const purgedAt = new Map<string, string>();
-  for (const h of (hotels ?? []) as { id: unknown; data_purged_at?: unknown }[]) {
-    if (h.data_purged_at) purgedAt.set(String(h.id), String(h.data_purged_at));
+  for (const h of (hotels ?? []) as unknown as { id: unknown; is_active?: unknown; data_purged_at?: unknown }[]) {
+    if (h.is_active === false) inactive.add(String(h.id));
+    if (purgeKnown && h.data_purged_at) purgedAt.set(String(h.id), String(h.data_purged_at));
   }
-  if (purgedAt.size === 0) return new Set();
+  if (purgedAt.size === 0) return { inactive, importing: new Set() };
 
   const { data: jobs, error: jobsErr } = await supabase
     .from("import_jobs")
@@ -125,7 +139,7 @@ async function purgedAwaitingImport(supabase: SupabaseClient, hotelIds: string[]
     const since = purgedAt.get(hotelId);
     if (since && Date.parse(String(j.created_at)) > Date.parse(since)) held.delete(hotelId);
   }
-  return held;
+  return { inactive, importing: held };
 }
 
 /**

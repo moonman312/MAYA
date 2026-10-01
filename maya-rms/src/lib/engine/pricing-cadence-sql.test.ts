@@ -132,6 +132,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_pms_property_changes_v1.sql",
   "99_supabase_migration_room_type_limit_removals_v1.sql",
   "99_supabase_migration_signups_feed_v3.sql",
+  "99_supabase_migration_sync_claim_paying_only_v1.sql",
 ];
 
 /**

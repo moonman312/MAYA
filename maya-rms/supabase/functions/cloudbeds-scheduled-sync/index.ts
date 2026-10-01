@@ -32,6 +32,7 @@ import { splitByEntitlement } from "../_shared/billing/entitlement.ts";
 import { hotelsImportingNow, splitByParked } from "../_shared/pms/parked.ts";
 import {
   claimDispatchedHotelWaiting,
+  handBackDropped,
   orderClaimedByDue,
   releaseIntervalSeconds,
   runScheduledHotels,
@@ -219,6 +220,19 @@ Deno.serve(async (req) => {
     console.log(JSON.stringify({ fn: "cloudbeds-scheduled-sync", skippedParked: parked }));
   }
   hotelIds = liveHotelIds;
+
+  // Handed back with a wait, not left leased: a dropped hotel's due time only
+  // gets older, so it came back first in line every ten minutes and enough of
+  // them starved the paying ones (scheduled-loop.ts handBackDropped).
+  if (!bodyHotelId && blocked.length + parked.length > 0) {
+    await handBackDropped(
+      supabase,
+      "cloudbeds",
+      workerId,
+      [...blocked.map((b) => ({ hotelId: b.hotelId, status: `subscription_${b.status}` })), ...parked],
+      (line) => console.error(JSON.stringify({ fn: "cloudbeds-scheduled-sync", ...line })),
+    );
+  }
 
   // A single-hotel dispatch takes the same lease a cron claim does, so it never
   // runs a hotel that another invocation or a manual sync is already working.

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
@@ -7,8 +9,10 @@ import {
   DUE_SLACK_SECONDS,
   claimDispatchedHotel,
   claimDispatchedHotelWaiting,
+  handBackDropped,
   healthyReleaseIntervalSeconds,
   MIN_HEALTHY_GAP_SECONDS,
+  NOT_WORKABLE_RETRY_SECONDS,
   orderClaimedByDue,
   runScheduledHotels,
   type ScheduledLoopConfig,
@@ -349,5 +353,84 @@ describe("orderClaimedByDue", () => {
     expect(log).toEqual([{ step: "order_claimed", error: "statement timeout" }]);
     expect(await orderClaimedByDue(d.client, "cloudbeds", ["h-late"], () => {})).toEqual(["h-late"]);
     expect(d.calls.filter((c) => c.table === "pms_connections")).toHaveLength(1);
+  });
+});
+
+describe("handBackDropped (audit A27)", () => {
+  const NOW = Date.parse("2026-10-01T12:00:00.000Z");
+  const LEASED = "2026-10-01T12:10:00.000Z";
+  const OLD_DUE = "2026-09-20T00:00:00.000Z";
+  const row = (hotel_id: string, owner = "w1", pms_type = "cloudbeds") => ({
+    hotel_id,
+    pms_type,
+    sync_due_at: OLD_DUE,
+    sync_lease_until: LEASED,
+    sync_lease_owner: owner,
+  });
+
+  it("hands lapsed and parked hotels back due an hour on, so they stop crowding every batch", async () => {
+    const d = fakeSupabase({
+      pms_connections: [row("lapsed"), row("inactive"), row("pending"), row("working"), row("lapsed", "w1", "think")],
+    });
+    await handBackDropped(
+      d.client,
+      "cloudbeds",
+      "w1",
+      [
+        { hotelId: "lapsed", status: "subscription_canceled" },
+        { hotelId: "inactive", status: "inactive" },
+        { hotelId: "pending", status: "pending" },
+      ],
+      () => {},
+      NOW,
+    );
+    const byId = (id: string, pms = "cloudbeds") => d.tables.pms_connections.find((r) => r.hotel_id === id && r.pms_type === pms)!;
+    for (const id of ["lapsed", "inactive", "pending"]) {
+      expect(byId(id)).toMatchObject({
+        sync_lease_until: null,
+        sync_lease_owner: null,
+        sync_due_at: new Date(NOW + NOT_WORKABLE_RETRY_SECONDS * 1000).toISOString(),
+      });
+    }
+    expect(NOT_WORKABLE_RETRY_SECONDS).toBe(3600);
+    // A hotel being worked on, and another system's row, are left alone.
+    expect(byId("working")).toMatchObject({ sync_lease_owner: "w1", sync_due_at: OLD_DUE });
+    expect(byId("lapsed", "think")).toMatchObject({ sync_lease_owner: "w1", sync_due_at: OLD_DUE });
+  });
+
+  it("gives a hotel dropped only because a read failed its lease back with its due time untouched", async () => {
+    const d = fakeSupabase({ pms_connections: [row("blip")] });
+    await handBackDropped(d.client, "cloudbeds", "w1", [{ hotelId: "blip", status: "unknown" }], () => {}, NOW);
+    expect(d.tables.pms_connections[0]).toMatchObject({ sync_lease_until: null, sync_lease_owner: null, sync_due_at: OLD_DUE });
+  });
+
+  it("never touches a lease another worker holds now", async () => {
+    const d = fakeSupabase({ pms_connections: [row("lapsed", "w2")] });
+    await handBackDropped(d.client, "cloudbeds", "w1", [{ hotelId: "lapsed", status: "subscription_unpaid" }], () => {}, NOW);
+    expect(d.tables.pms_connections[0]).toMatchObject({ sync_lease_owner: "w2", sync_due_at: OLD_DUE });
+  });
+
+  it("logs a failed write and never throws: the lease runs out on its own", async () => {
+    const d = fakeSupabase({ pms_connections: [row("lapsed")] }, { fault: () => ({ message: "timeout" }) });
+    const log: Record<string, unknown>[] = [];
+    await handBackDropped(d.client, "cloudbeds", "w1", [{ hotelId: "lapsed", status: "inactive" }], (l) => log.push(l), NOW);
+    expect(log).toEqual([{ step: "hand_back_dropped", hotels: 1, error: "timeout" }]);
+  });
+
+  it("makes no call for nothing, or for a hotel whose row has gone", async () => {
+    const d = fakeSupabase({ pms_connections: [] });
+    await handBackDropped(d.client, "cloudbeds", "w1", [{ hotelId: "ghost", status: "missing" }], () => {}, NOW);
+    expect(d.calls).toHaveLength(0);
+  });
+});
+
+describe("the scheduled syncs hand dropped hotels back", () => {
+  it.each(["cloudbeds-scheduled-sync", "think-scheduled-sync", "mews-scheduled-sync"])("%s", (fn) => {
+    const source = readFileSync(resolve(__dirname, `../../../supabase/functions/${fn}/index.ts`), "utf8");
+    const at = source.indexOf("await handBackDropped(");
+    expect(at).toBeGreaterThan(source.indexOf("splitByParked("));
+    // Only claims are handed back: a single-hotel dispatch holds no lease here.
+    expect(source.slice(at - 200, at)).toContain("if (!bodyHotelId && blocked.length + parked.length > 0)");
+    expect(source.slice(at, at + 300)).toContain("...parked]");
   });
 });

@@ -158,6 +158,47 @@ describe("splitByParked for a purged property", () => {
   });
 });
 
+/**
+ * A hotel that is not active (checkout's placeholder, a Marketplace arrival
+ * waiting for payment, a property switched off) is never synced, whatever its
+ * connection row says (audit A34): a row a General Manager wrote by hand, or
+ * a sign-up connect whose activation did not land.
+ */
+describe("splitByParked for a hotel that is not active", () => {
+  function world(fault?: FakeFault) {
+    return fakeSupabase(
+      {
+        pms_connections: [
+          { hotel_id: "placeholder", pms_type: "cloudbeds", status: "connected" },
+          { hotel_id: "live", pms_type: "cloudbeds", status: "connected" },
+          { hotel_id: "unknown-flag", pms_type: "cloudbeds", status: "connected" },
+        ],
+        hotels: [
+          { id: "placeholder", is_active: false, data_purged_at: null },
+          { id: "live", is_active: true, data_purged_at: null },
+          { id: "unknown-flag", data_purged_at: null },
+        ],
+        import_jobs: [],
+      },
+      { fault },
+    );
+  }
+
+  it("holds it, and lets active hotels (and a row with no flag read) through", async () => {
+    const r = await splitByParked(world().client, "cloudbeds", ["placeholder", "live", "unknown-flag"]);
+    expect(r.allowed).toEqual(["live", "unknown-flag"]);
+    expect(r.parked).toEqual([{ hotelId: "placeholder", status: "inactive" }]);
+  });
+
+  it("still holds it on a database before the retention migration", async () => {
+    const fault: FakeFault = (call) =>
+      call.table === "hotels" && callTouchesColumn(call, "data_purged_at") ? missingColumn("hotels", "data_purged_at") : null;
+    const r = await splitByParked(world(fault).client, "cloudbeds", ["placeholder", "live"]);
+    expect(r.allowed).toEqual(["live"]);
+    expect(r.parked).toEqual([{ hotelId: "placeholder", status: "inactive" }]);
+  });
+});
+
 describe("hotelsImportingNow", () => {
   const NOW = "2026-09-16T12:00:00.000Z";
   const jobs: FakeRow[] = [
