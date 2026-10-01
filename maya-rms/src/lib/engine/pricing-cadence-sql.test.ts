@@ -126,6 +126,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_pms_rate_changes_v1.sql",
   "99_supabase_migration_staff_roles_v1.sql",
   "99_supabase_migration_simulation_history_v1.sql",
+  "99_supabase_migration_rule_fire_log_v1.sql",
 ];
 
 /**
