@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTrackOnce } from "@/lib/analytics/track";
 import { currencySymbolFor } from "@/lib/changelog-route-helpers";
-import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
-import { GoLiveDialog } from "@/components/go-live-dialog";
+import { GoLiveConfirmation, GoLiveDialog, requestGoLive } from "@/components/go-live-dialog";
 import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
 import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { suggestionDraft, tunedDraft } from "@/lib/rule-suggestion-draft";
@@ -465,28 +464,18 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   const inSimulation = !live && status?.simulationMode !== false;
 
   // Only the dialog's confirm calls the server; the button just asks first.
+  // The same call as the simulation strip's Go live (requestGoLive).
   async function goLive() {
     setGoing(true);
     setError(null);
-    try {
-      // The version of the Terms whose 3.3 the line under the button cites, kept
-      // with the go-live record.
-      const res = await fetch("/api/onboarding/activate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ termsVersion: TERMS_VERSION }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? "Couldn't switch to live. Try again.");
-      }
+    const failed = await requestGoLive();
+    if (failed) {
+      setError(failed);
+    } else {
       setLive(true);
       setConfirming(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't switch to live. Try again.");
-    } finally {
-      setGoing(false);
     }
+    setGoing(false);
   }
 
   return (
@@ -551,30 +540,8 @@ export function StarterRules({ status }: { status: OnboardingStatus | null }) {
   );
 }
 
-/**
- * What pressing go-live means, said where it is pressed: in the confirm
- * dialog, above its Go live button. Terms 3.3 treats that press as confirming
- * the rules and limits were reviewed, so the confirmation is stated beside the
- * button rather than left to Terms accepted weeks earlier, possibly by someone
- * else. A line, not a checkbox: the dialog is the one extra click.
- */
-export function GoLiveConfirmation() {
-  return (
-    <p className="mt-2 text-[0.6875rem] leading-relaxed text-slate-400">
-      Going live sends these rates to your PMS automatically. You&apos;re confirming you&apos;ve
-      reviewed your rules and limits (
-      <a
-        href={TERMS_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline decoration-slate-600 underline-offset-2 hover:text-slate-200"
-      >
-        Terms
-      </a>{" "}
-      3.3).
-    </p>
-  );
-}
+/** The confirmation line beside the Go live button, shared with the simulation strip. */
+export { GoLiveConfirmation };
 
 /* ── Room count: what we're dividing by ───────────────────────────────────── */
 

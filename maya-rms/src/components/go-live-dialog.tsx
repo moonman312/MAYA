@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { TERMS_URL, TERMS_VERSION } from "@/lib/legal/versions";
+import { PMS_SENDS_PRICES } from "@/lib/price-mode";
 
 /**
  * The confirm step every go-live switch shows before it calls the server.
  * Going live is the one change that starts MAYA writing to the hotel's PMS,
- * so the owner's onboarding button and the platform admin's Live switch both
- * say, in the same words, what happens next.
+ * so the owner's two ways in (the simulation strip's Go live on every
+ * property screen, and the review card's button) and the platform admin's
+ * Live switch all say, in the same words, what happens next. The owner's two
+ * confirm with requestGoLive, the one route that takes a property live.
  *
  * What it claims is what the code does: the scheduled push sends the nights
  * of the pricing window (pricingHorizonDays, passed in as `windowDays`) on
@@ -19,7 +23,7 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
  */
 
 /** The PMSes with a rate push adapter (_shared/cloudbeds/rate-push.ts, _shared/think/rate-push.ts). */
-const PMS_WITH_RATE_PUSH = new Set(["cloudbeds", "think"]);
+const PMS_WITH_RATE_PUSH = PMS_SENDS_PRICES;
 
 const PMS_NAMES: Record<string, string> = {
   cloudbeds: "Cloudbeds",
@@ -69,6 +73,52 @@ export function goLiveCopy(p: { pmsType: string | null; windowDays: number | nul
       `Each price it sends replaces that night's rate in ${pms}, and a night is sent again whenever its price changes.`,
     ],
   };
+}
+
+/**
+ * The owner's go-live: POST /api/onboarding/activate, which takes the active
+ * property live for a General Manager or Hotel Admin (the database refuses
+ * anyone else) and records the press with the Terms version shown here.
+ * Resolves to null once live, or to the reason it didn't switch.
+ */
+export async function requestGoLive(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/onboarding/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ termsVersion: TERMS_VERSION }),
+    });
+    if (res.ok) return null;
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return body?.error ?? "Couldn't switch to live. Try again.";
+  } catch (e) {
+    return e instanceof Error ? e.message : "Couldn't switch to live. Try again.";
+  }
+}
+
+/**
+ * What pressing go-live means, said where it is pressed: in the confirm
+ * dialog, above its Go live button. Terms 3.3 treats that press as confirming
+ * the rules and limits were reviewed, so the confirmation is stated beside the
+ * button rather than left to Terms accepted weeks earlier, possibly by someone
+ * else. A line, not a checkbox: the dialog is the one extra click.
+ */
+export function GoLiveConfirmation() {
+  return (
+    <p className="mt-2 text-[0.6875rem] leading-relaxed text-slate-400">
+      Going live sends these rates to your PMS automatically. You&apos;re confirming you&apos;ve
+      reviewed your rules and limits (
+      <a
+        href={TERMS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline decoration-slate-600 underline-offset-2 hover:text-slate-200"
+      >
+        Terms
+      </a>{" "}
+      3.3).
+    </p>
+  );
 }
 
 export function GoLiveDialog({

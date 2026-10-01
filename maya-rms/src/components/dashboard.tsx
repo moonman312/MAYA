@@ -13,7 +13,7 @@ import { MayaLockup } from "@/components/brand/logo";
 import { PmsReconnect } from "@/components/pms-reconnect";
 import { isPushProblem, PushProblemItem } from "@/components/push-problem-item";
 import { OnboardingReviewBanner } from "@/components/onboarding/review-banner";
-import { CorrectionsPanel, ExplainDrilldown } from "@/components/explain-drilldown";
+import { CorrectionsPanel } from "@/components/explain-drilldown";
 import { ManualPriceEditor, manualPriceBadge } from "@/components/manual-price-editor";
 import { NoRateLine, RemovedRateLine } from "@/components/no-rate-help";
 import { useCalendarLive } from "@/lib/use-calendar-live";
@@ -36,12 +36,14 @@ import {
   type SaveAnswer,
 } from "@/components/rule-activation-dialog";
 import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
-import { currencySymbolFor, isQuietChecks, isRuleAlertChoice, moreChangesLine } from "@/lib/changelog-route-helpers";
+import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { isSupportChange } from "@/lib/changelog-support";
 import { SupportChangeItem } from "@/components/support-change-item";
 import { isPmsChange } from "@/lib/changelog-pms-changes";
 import { PmsChangeItem } from "@/components/pms-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
+import { PricingRunItem } from "@/components/pricing-run-item";
+import { SimulationStrip } from "@/components/simulation-strip";
 import { formatUtcLongDate } from "@/lib/calendar-month-label";
 import { formatDisplayTime } from "@/lib/display-time";
 import { BOOKING_SPEED_LEVELS } from "@/lib/observations/booking-speed";
@@ -1217,6 +1219,14 @@ export function Dashboard({
           </div>
         </div>
       ) : null}
+      {activeHotelId ? (
+        <SimulationStrip
+          hotelId={activeHotelId}
+          onWentLive={() => {
+            if (tab === "changelog") void reloadChangelog();
+          }}
+        />
+      ) : null}
       <div className="mx-auto max-w-6xl p-[12px] sm:p-6 md:p-10">
         <header className="mb-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -2367,85 +2377,14 @@ export function Dashboard({
                   );
                 }
                 return (
-                  <div
+                  <PricingRunItem
                     key={cycle.cycle}
-                    className="rounded border border-slate-800 p-3"
-                    data-deeplink={
-                      cycle.changes[0]?.evaluation_run_id ? `changelog.run:${cycle.changes[0].evaluation_run_id}` : undefined
-                    }
-                  >
-                    <p className="text-xs text-slate-400">
-                      <time
-                        dateTime={cycle.timestamp}
-                        title={formatDisplayTime(cycle.timestamp)}
-                        className="not-italic"
-                      >
-                        <span className="font-medium text-slate-300">
-                          Pricing run
-                        </span>
-                        <span className="text-slate-500"> · </span>
-                        <span>{formatFriendlyDateTime(cycle.timestamp)}</span>
-                        {whenRelative ? (
-                          <span className="text-slate-500">
-                            {" "}
-                            ({whenRelative})
-                          </span>
-                        ) : null}
-                      </time>
-                    </p>
-                    <ul className="mt-2 space-y-3">
-                      {cycle.changes.map((ch, idx) => (
-                        <li
-                          key={`${cycle.cycle}-${idx}`}
-                          data-deeplink={
-                            ch.evaluation_run_id
-                              ? `changelog.entry:${ch.evaluation_run_id}:${ch.stay_date ?? ""}:${ch.room_type_id ?? ""}`
-                              : undefined
-                          }
-                        >
-                          <div className="text-sm font-medium text-slate-200">
-                            {ch.room_type}
-                            {ch.stay_date ? (
-                              <span className="text-slate-400">
-                                {" "}
-                                · stay {ch.stay_date}
-                              </span>
-                            ) : null}
-                            : ${ch.original_rate.toFixed(2)}{" "}
-                            {ch.new_rate >= ch.original_rate ? "up" : "down"} to $
-                            {ch.new_rate.toFixed(2)} (
-                            {ch.change_pct >= 0 ? "+" : ""}
-                            {ch.change_pct}%)
-                          </div>
-                          {(ch.narrative && ch.narrative.length > 0
-                            ? ch.narrative
-                            : [ch.description]
-                          ).map((sentence, si) => (
-                            <p
-                              key={si}
-                              className="mt-0.5 text-[0.8125rem] leading-relaxed text-slate-400"
-                            >
-                              {sentence}
-                            </p>
-                          ))}
-                          {ch.has_booking_speed_details &&
-                          ch.evaluation_run_id &&
-                          ch.stay_date &&
-                          ch.room_type_id ? (
-                            <ExplainDrilldown
-                              runId={ch.evaluation_run_id}
-                              stayDate={ch.stay_date}
-                              roomTypeId={ch.room_type_id}
-                              initialOpen={linkedDrilldown(ch.evaluation_run_id, ch.stay_date, ch.room_type_id)}
-                            />
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                    {moreChangesLine(cycle) ? (
-                      <p className="mt-3 text-xs text-slate-400">{moreChangesLine(cycle)}</p>
-                    ) : null}
-                  </div>
+                    cycle={cycle}
+                    formatWhen={formatFriendlyDateTime}
+                    formatAge={formatRelativeAge}
+                    formatExact={formatDisplayTime}
+                    drilldownOpen={linkedDrilldown}
+                  />
                 );
               })}
             </div>
