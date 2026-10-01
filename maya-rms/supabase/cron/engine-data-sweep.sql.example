@@ -1,7 +1,10 @@
 -- Example: schedule the engine data sweep.
 --
 -- Pure SQL, no secrets — the function lives in the database
--- (99_supabase_migration_engine_data_sweep_v1.sql) and cron calls it directly.
+-- (99_supabase_migration_engine_data_sweep_v1.sql, restated by
+-- 99_supabase_migration_pricing_records_v1.sql) and cron calls it directly.
+-- Since pricing_records_v1 it keeps each night's newest evaluation_audit row
+-- while the night is ahead, and removes rate_send_log rows older than 13 months.
 --
 -- This is the backstop for hotels the engine no longer visits: evaluateHotel
 -- prunes snapshots/audit/run-log for entitled hotels every tick, but a churned
@@ -25,5 +28,9 @@
 -- How much is waiting to be swept:
 --   select
 --     (select count(*) from stay_date_snapshot where snapshot_ts < now() - interval '60 days') as snapshots,
---     (select count(*) from evaluation_audit  where evaluated_at < now() - interval '90 days') as audit_rows,
+--     (select count(*) from evaluation_audit a where a.evaluated_at < now() - interval '90 days'
+--        and (a.stay_date < (now() at time zone 'utc')::date - 1
+--             or exists (select 1 from evaluation_audit b where b.hotel_id = a.hotel_id and b.stay_date = a.stay_date
+--                          and b.room_type_id = a.room_type_id and (b.evaluated_at, b.id) > (a.evaluated_at, a.id)))) as audit_rows,
+--     (select count(*) from rate_send_log where logged_at < now() - interval '13 months') as send_log_rows,
 --     (select count(*) from evaluation_run_log where evaluated_at < now() - interval '90 days') as run_log_rows;

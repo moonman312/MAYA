@@ -34,6 +34,8 @@ npx supabase@latest link --project-ref <your-project-ref>
 npx supabase@latest functions deploy mews-scheduled-sync
 ```
 
+To have the function's pricing runs and sends say which commit made them (Pilot health shows it), deploy with `node scripts/deploy-function.mjs mews-scheduled-sync` instead of the last line: it stamps the commit into `_shared/engine/build-stamp.ts`, runs the same deploy, and puts the file back. Deployed the plain way, the build reads `edge@dev`.
+
 If the CLI is installed globally (`brew install supabase/tap/supabase`), use `supabase` instead of `npx supabase@latest`. See [`supabase-mews-sync-manual-setup.md`](./supabase-mews-sync-manual-setup.md#install-the-supabase-cli) if `supabase` is not found.
 
 Edge **Secrets** (Dashboard → Edge Functions):
