@@ -104,17 +104,17 @@ export const RULES: FakeRow[] = [
   rule("b1000000-0000-4000-8000-000000000002", { action_type: "fixed", action_direction: "decrease", action_value: 5, cond: { occupancy_operator: "lt", occupancy_threshold: 0.3 }, signals: [SUITE], affected: [SUITE] }),
   rule("b1000000-0000-4000-8000-000000000003", { priority: 50, action_value: 5, dow_mask: 0b0111110, cond: { occupancy_operator: "gt", occupancy_threshold: 0.35, dta_operator: "lt", dta_threshold_days: 9 }, signals: [KING, QUEEN, SUITE], affected: [KING, QUEEN, SUITE] }),
   // Pickup count rules: 1, 3 and 7 days, units and revenue, "more than" and "fewer than".
-  rule("c1000000-0000-4000-8000-000000000001", { is_pickup_rule: true, action_value: 3, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "units" }, signals: [KING], affected: [KING] }),
-  rule("c1000000-0000-4000-8000-000000000002", { is_pickup_rule: true, priority: 120, action_type: "fixed", action_value: 2, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 3, pickup_metric: "units", pickup_cooldown_days: 1 }, signals: [KING, QUEEN], affected: [KING, QUEEN] }),
-  rule("c1000000-0000-4000-8000-000000000003", { is_pickup_rule: true, action_direction: "decrease", action_value: 4, cond: { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "units" }, signals: [SUITE], affected: [SUITE] }),
+  rule("c1000000-0000-4000-8000-000000000001", { is_pickup_rule: true, action_value: 3, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" }, signals: [KING], affected: [KING] }),
+  rule("c1000000-0000-4000-8000-000000000002", { is_pickup_rule: true, priority: 120, action_type: "fixed", action_value: 2, cond: { pickup_operator: "gt", pickup_threshold: 1, pickup_window_days: 3, pickup_metric: "room_nights", pickup_cooldown_days: 1 }, signals: [KING, QUEEN], affected: [KING, QUEEN] }),
+  rule("c1000000-0000-4000-8000-000000000003", { is_pickup_rule: true, action_direction: "decrease", action_value: 4, cond: { pickup_operator: "lt", pickup_threshold: 1, pickup_window_days: 1, pickup_metric: "room_nights" }, signals: [SUITE], affected: [SUITE] }),
   rule("c1000000-0000-4000-8000-000000000004", { is_pickup_rule: true, action_value: 1, cond: { pickup_operator: "gt", pickup_threshold: 150, pickup_window_days: 3, pickup_metric: "revenue" }, signals: [QUEEN], affected: [QUEEN, KING] }),
   // Fires on every hot night every day: three changes file the night for the owner.
-  rule("c1000000-0000-4000-8000-000000000005", { is_pickup_rule: true, priority: 10, action_value: 1, cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 1, pickup_metric: "units", pickup_cooldown_days: 1 }, signals: [QUEEN], affected: [QUEEN] }),
+  rule("c1000000-0000-4000-8000-000000000005", { is_pickup_rule: true, priority: 10, action_value: 1, cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 1, pickup_metric: "room_nights", pickup_cooldown_days: 1 }, signals: [QUEEN], affected: [QUEEN] }),
   // Booking speed: a ladder, a raise counting today so far, a cut on complete days.
   rule("d1000000-0000-4000-8000-000000000001", { action_value: 4, cond: { booking_speed_operator: "at_least", booking_speed_level: "normal", booking_speed_window_days: 7 }, signals: [KING, QUEEN, SUITE], affected: [KING, QUEEN] }),
   rule("d1000000-0000-4000-8000-000000000002", { is_pickup_rule: true, action_value: 2, cond: { booking_speed_operator: "at_most", booking_speed_level: "normal", booking_speed_window_days: 30, booking_speed_cooldown_days: 3 }, signals: [KING, QUEEN, SUITE], affected: [SUITE] }),
-  rule("d1000000-0000-4000-8000-000000000003", { is_pickup_rule: true, action_direction: "decrease", action_value: 5, cond: { booking_speed_operator: "at_most", booking_speed_level: "slow", booking_speed_window_days: 7, booking_speed_cooldown_days: 1 }, signals: [KING, QUEEN, SUITE], affected: [KING] }),
-  rule("d1000000-0000-4000-8000-000000000004", { is_pickup_rule: true, action_value: 6, cond: { booking_speed_operator: "at_least", booking_speed_level: "fast", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 }, signals: [KING, QUEEN, SUITE], affected: [QUEEN] }),
+  rule("d1000000-0000-4000-8000-000000000003", { is_pickup_rule: true, action_direction: "decrease", action_value: 5, cond: { booking_speed_operator: "at_most", booking_speed_level: "slower", booking_speed_window_days: 7, booking_speed_cooldown_days: 1 }, signals: [KING, QUEEN, SUITE], affected: [KING] }),
+  rule("d1000000-0000-4000-8000-000000000004", { is_pickup_rule: true, action_value: 6, cond: { booking_speed_operator: "at_least", booking_speed_level: "faster", booking_speed_window_days: 1, booking_speed_cooldown_days: 1 }, signals: [KING, QUEEN, SUITE], affected: [QUEEN] }),
   // Paused with a live effect: frozen in the price.
   rule("e1000000-0000-4000-8000-000000000001", { is_active: false, cond: { occupancy_operator: "gt", occupancy_threshold: 0.1 }, signals: [KING], affected: [KING] }),
 ];
@@ -539,6 +539,16 @@ describe("the daily pass plus touched nights prices every night the way pricing 
     expect(alertsAnswered).toBeGreaterThan(0);
     expect(w.a.tables.pickup_event.length).toBeGreaterThan(10);
     expect(pricedByB).toBeLessThan(pricedByA / 3);
+    // Every rule that is switched on made at least one change, so none of
+    // them sits in the seeds untested (a level or measure the engine
+    // doesn't know would never fire, and the two copies would agree on
+    // nothing happening).
+    const changesByRule = new Map<string, number>();
+    const count = (id: unknown) => changesByRule.set(String(id), (changesByRule.get(String(id)) ?? 0) + 1);
+    for (const e of w.a.tables.pickup_event) count(e.rule_id);
+    for (const e of w.a.tables.ladder_transition_event ?? []) if (e.transition === "activate") count(e.rule_id);
+    const quiet = RULES.filter((x) => x.is_active && !changesByRule.has(String(x.id))).map((x) => String(x.id));
+    expect(quiet, "rules that never made a change").toEqual([]);
   }, 900_000);
 });
 
@@ -554,7 +564,7 @@ describe("the moments that used to move a price with the clock", () => {
       rule("c9000000-0000-4000-8000-000000000001", {
         is_pickup_rule: true,
         action_value: 5,
-        cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 3, pickup_metric: "units", pickup_cooldown_days: 1 },
+        cond: { pickup_operator: "gt", pickup_threshold: 0, pickup_window_days: 3, pickup_metric: "room_nights", pickup_cooldown_days: 1 },
         signals: [KING],
         affected: [KING],
       }),

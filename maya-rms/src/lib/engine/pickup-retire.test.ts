@@ -766,7 +766,7 @@ describe("a whole run after the bookings behind a pickup increase cancel", () =>
           is_pickup_rule: true,
           created_at: "2026-01-01T00:00:00Z",
           updated_at: "2026-01-01T00:00:00Z",
-          rule_condition: [{ pickup_operator: "gt", pickup_threshold: 3, pickup_window_days: 3, pickup_metric: "units" }],
+          rule_condition: [{ pickup_operator: "gt", pickup_threshold: 3, pickup_window_days: 3, pickup_metric: "room_nights" }],
           rule_signal_room_type: [{ room_type_id: RT }],
           rule_affected_room_type: [{ room_type_id: RT }],
         },
