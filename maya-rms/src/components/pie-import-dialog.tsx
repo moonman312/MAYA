@@ -47,9 +47,11 @@ export const PIE_REVIEW_HELP = {
 /** Reads screenshots into what the review shows (the browser's OCR; tests hand in their own). */
 export type ReadScreenshots = (files: readonly Blob[]) => Promise<ScreenshotRead[]>;
 
-/** The default: tesseract.js in this browser, started once, the columns carried from one screenshot to the next. */
+/** The default: tesseract.js in this browser, started once, the headings carried from one screenshot to the next. */
 function browserReader(): { read: ReadScreenshots; close: () => void } {
   let started: Promise<import("@/lib/pie-import/browser-ocr").ScreenshotReader> | null = null;
+  // The last headings seen, for a screenshot added later that scrolled past them.
+  let carry: ScreenshotRead["columns"] = null;
   return {
     read: async (files) => {
       const [{ startScreenshotReader }, { readScreenshot }] = await Promise.all([
@@ -59,7 +61,6 @@ function browserReader(): { read: ReadScreenshots; close: () => void } {
       started ??= startScreenshotReader();
       const reader = await started;
       const out: ScreenshotRead[] = [];
-      let carry: ScreenshotRead["columns"] = null;
       for (const file of files) {
         const { image, pass } = await reader.open(file);
         const read = await readScreenshot(image, pass, carry);

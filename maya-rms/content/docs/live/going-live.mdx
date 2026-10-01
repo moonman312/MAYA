@@ -26,7 +26,7 @@ questions:
   - If I turn a starter rule off before going live, are its changes sent? {#before-you-go-live/starter-rules}
   - Can a Mews property go live? {#the-confirm-dialog/mews-a-mews}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-28
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -52,10 +52,10 @@ Then four checks in MAYA itself.
 1. **Floors and ceilings.** Each room type has a floor and a ceiling: the lowest and highest price that can go out for it.
    - **Where to see them.** The <Ui>Guardrails</Ui> column on the <Ui>Rate Simulator</Ui> tab shows them for every room type that counts as a room. Your answers to the five questions set some of them, and the import filled others from your own past rates where there was enough history.
    - **A limit still at $1.00 or $99,999.99** stops nothing in most currencies. To set it, answer the floor or ceiling question again at <AppLink to="questions">maya-rms.com/onboarding/questions</AppLink> (your floor answer goes to every room type at once), or [email us](mailto:info@modern-hospitality-solutions.com?subject=Floor%20and%20ceiling) the number. <Ui>Get suggestions from my data</Ui> on the <Ui>Rules</Ui> tab offers a card for a room type still at a default when there is a number to offer, and the go-live button stays on the review after it.
-   - **A limit that is already set** has no editor yet. [Floors and ceilings](/docs/review/floors-and-ceilings) explains how to move one.
+   - **A limit that is already set** has no editor yet. [Floors and ceilings](/docs/review/floors-and-ceilings) explains how to move one. Coming from PIE on Cloudbeds, <Ui>Import from PIE</Ui> sets them from PIE's price limits.
 2. **Starter rules.** They are on, and the prices they set already show on the calendar. Turning a rule <Ui>Off</Ui> keeps every change it has made to your prices so far, even in simulation, and those prices go out when you go live. To be rid of a starter rule and what it did, <Ui>Delete</Ui> it and choose <Ui>Delete Rule and Undo Its Changes</Ui>. Turn it off only if you are happy for its changes so far to be sent.
 3. **Watch for a week.** Open the change log a few times a day (it shows the 10 most recent runs that changed a price), check the <Ui>Fired</Ui> column on the <Ui>Rules</Ui> tab to see which rules act most, and copy any entry you want to keep. If a price would have surprised you, change the rule or the limit before you go live.
-4. **Switch off other pricing tools.** If another tool changes rates in your system, switch it off before you go live. MAYA reads a rate another tool changes the same way as a rate you change by hand. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) says what happens to those.
+4. **Switch off other pricing tools.** If another tool changes rates in your system, switch it off before you go live. That includes PIE's rules in Cloudbeds, once you have imported them into MAYA. MAYA reads a rate another tool changes the same way as a rate you change by hand. [Rates you change in your property system](/docs/watch/rates-changed-in-your-pms) says what happens to those.
 
 <Example title="Selling in yen, won or rupiah">
 The default ceiling is the plain number 99,999.99 in your property's currency. Say a Suite sells at ¥120,000 a night and its ceiling is still the default. On a night where no rule fires, the price that goes out is ¥99,999.99, because every price is kept under the room type's ceiling. Give a room type like this a real ceiling before you go live.

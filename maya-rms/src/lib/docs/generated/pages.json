@@ -203,6 +203,7 @@
    "My property is brand new with no history. Is MAYA useful?",
    "Is there a demo I can look at?",
    "We use another revenue tool. Can we run both, and can we import its rules or history?",
+   "We use Cloudbeds PIE. Can we bring its rules across?",
    "Do we have to switch our old revenue tool off before going live?",
    "We use Cloudbeds' own automatic pricing or yield rules. Do we need to switch them off before going live?",
    "Can we use MAYA for some room types and the old tool for the rest?",
@@ -1082,7 +1083,7 @@
   "order": 20,
   "title": "Cloudbeds",
   "summary": "How to connect Cloudbeds from the Marketplace or from inside MAYA, what MAYA reads there, which rate plan it changes, and how to disconnect and reconnect.",
-  "readingTime": 8,
+  "readingTime": 9,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -1121,6 +1122,11 @@
    },
    {
     "depth": 2,
+    "text": "PIE and MAYA",
+    "id": "pie-and-maya"
+   },
+   {
+    "depth": 2,
     "text": "Disconnecting and reconnecting",
     "id": "disconnecting-and-reconnecting"
    }
@@ -1140,6 +1146,7 @@
    "I changed my Cloudbeds password, does MAYA still work?",
    "Can a second Cloudbeds user reconnect MAYA?",
    "Can I reconnect with a Cloudbeds group login?",
+   "We use PIE. Can we import its rules, and do we turn it off when MAYA is live?",
    "I took too long signing in at Cloudbeds and the sign-in link ran out",
    "How does MAYA date a Cloudbeds booking made late in the evening?",
    "Can I choose which rate plan MAYA writes to in Cloudbeds?",
@@ -2067,7 +2074,7 @@
   "summary": "The five optional questions on the Hold My Hand path, what each one asks, what MAYA does with each answer (the last one picks your starter rules), how the floor ladder works, and what happens if you skip or answer again later.",
   "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -2135,7 +2142,7 @@
   "summary": "The two review screens after the import, every card you can see (closures, room types, duplicates, typos, $0 rates, deleted room types), what confirming and dismissing do, the room count strip, and how to come back later.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -2366,7 +2373,7 @@
   "summary": "What a floor and a ceiling do to every price, where they come from (your answers, your history, or a suggestion card), the numbers MAYA uses, and what they mean for prices you type.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -2514,7 +2521,7 @@
   "summary": "A five-minute walkthrough of the Rules tab, from + Add a rule to seeing your rule in the change log, with three more rules to try next.",
   "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -3377,7 +3384,7 @@
   "order": 105,
   "title": "Turning a rule on, Apply or Skip",
   "summary": "The window that opens whenever a rule is about to start acting, its small calendar of the days the rule will change, what Apply price adjustments and Skip price adjustments each do, and every message it can show.",
-  "readingTime": 15,
+  "readingTime": 16,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [],
@@ -3434,6 +3441,11 @@
    },
    {
     "depth": 2,
+    "text": "Several rules at once",
+    "id": "several-rules-at-once"
+   },
+   {
+    "depth": 2,
     "text": "Messages you can meet",
     "id": "messages-you-can-meet"
    }
@@ -3460,6 +3472,93 @@
   "faq": []
  },
  {
+  "path": "rules/import-your-rules-from-pie",
+  "url": "/docs/rules/import-your-rules-from-pie",
+  "section": "rules",
+  "sectionLabel": "Rules",
+  "slug": "import-your-rules-from-pie",
+  "order": 107,
+  "title": "Import your rules from PIE",
+  "summary": "How a Cloudbeds property brings its PIE (Price Intelligence Engine) rules and price limits into MAYA from a screenshot, read in your browser: where the link is, the screenshot to take, how each PIE rule becomes a MAYA rule that prices the same, what is not imported, floors and ceilings, adding them, and turning PIE's rules off once you are live.",
+  "readingTime": 11,
+  "readingNote": null,
+  "updated": "2026-09-30",
+  "pms": [
+   "cloudbeds"
+  ],
+  "headings": [
+   {
+    "depth": 2,
+    "text": "Where to find it",
+    "id": "where-to-find-it"
+   },
+   {
+    "depth": 2,
+    "text": "Take the screenshot",
+    "id": "take-the-screenshot"
+   },
+   {
+    "depth": 2,
+    "text": "What MAYA reads",
+    "id": "what-maya-reads"
+   },
+   {
+    "depth": 2,
+    "text": "The review",
+    "id": "the-review"
+   },
+   {
+    "depth": 2,
+    "text": "How each PIE rule becomes a MAYA rule",
+    "id": "how-each-pie-rule-becomes-a-maya-rule"
+   },
+   {
+    "depth": 3,
+    "text": "Rules stack the same way",
+    "id": "rules-stack-the-same-way"
+   },
+   {
+    "depth": 3,
+    "text": "A window bounded at both ends",
+    "id": "a-window-bounded-at-both-ends"
+   },
+   {
+    "depth": 2,
+    "text": "What is not imported",
+    "id": "what-is-not-imported"
+   },
+   {
+    "depth": 2,
+    "text": "Floors and ceilings",
+    "id": "floors-and-ceilings"
+   },
+   {
+    "depth": 2,
+    "text": "Adding them",
+    "id": "adding-them"
+   },
+   {
+    "depth": 2,
+    "text": "Once you are live",
+    "id": "once-you-are-live"
+   }
+  ],
+  "questions": [
+   "How do I bring my PIE rules into MAYA?",
+   "Where is Import from PIE?",
+   "What screenshot do I need, and what if my rules don't fit on one screen?",
+   "Is my screenshot uploaded or kept?",
+   "How does a PIE rule become a MAYA rule?",
+   "Will my prices come out the same as in PIE?",
+   "Why did one PIE rule become two MAYA rules?",
+   "Which PIE rules are not imported?",
+   "What happens to PIE's Minimum Price, Maximum Price and price limits?",
+   "A rule says it was cut off. What do I do?",
+   "Should I turn PIE off after importing?"
+  ],
+  "faq": []
+ },
+ {
   "path": "rules/off-delete-or-change",
   "url": "/docs/rules/off-delete-or-change",
   "section": "rules",
@@ -3468,9 +3567,9 @@
   "order": 110,
   "title": "Turning a rule off, deleting it, or changing it",
   "summary": "What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, and how to read the rules list.",
-  "readingTime": 9,
+  "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -3624,7 +3723,7 @@
   "summary": "How to make up a night on the Rate Simulator tab, see what your real rules would do to each room type and why, and save a test rule switched off, with nothing sent to your property system.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -3690,7 +3789,7 @@
   "summary": "Every limit of the rule builder today, stated plainly, with what to do instead, for weekends, date ranges, seasons, events, priority, editing, either/or, one night, both amounts, copying, exact prices, caps on movement, quiet periods, channels, length of stay and how bold prices move.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -4750,7 +4849,7 @@
   "summary": "Where the go-live button is, who can press it, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-09-30",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5983,7 +6082,7 @@
   "summary": "Type the price you want on each room type for the whole weekend with through…, switch off the rules that would move it, and keep a block held in your system from reading as empty rooms.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -6546,9 +6645,9 @@
   "order": 150,
   "title": "Set or change a floor or ceiling",
   "summary": "Setup fills in each room type's floor and ceiling from your answers and, where there is enough history, its own past rates, so check yours on the Rate Simulator tab first. There is no editor. Accept or edit a suggestion for one still at $1.00 or $99,999.99, or answer the floor and ceiling questions again to change every room type at once.",
-  "readingTime": 7,
+  "readingTime": 8,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-09-30",
   "pms": [],
   "headings": [
    {
@@ -6565,6 +6664,11 @@
     "depth": 2,
     "text": "Change a floor or ceiling that is already set",
     "id": "change-a-floor-or-ceiling-that-is-already-set"
+   },
+   {
+    "depth": 2,
+    "text": "From PIE's price limits, on Cloudbeds",
+    "id": "from-pies-price-limits-on-cloudbeds"
    },
    {
     "depth": 2,

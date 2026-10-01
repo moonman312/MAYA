@@ -204,10 +204,14 @@ payment, so `import.started` and often `import.completed` land before
 | `room_type.out_of_service_cleared` | put back | same | `room_type_id`, `units`, `cleared_early` |
 | `explain.opened` | "How did we know?" opened | browser | — |
 | `rule.edit_opened` | a rule opened in the rule builder with Edit | browser | — |
-| `rule.preview_opened` | the activation popup opened | browser | `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`), `kind` (`standard` or `event`) |
+| `rule.preview_opened` | the activation popup opened | browser | `from` (`switch`, `builder_new`, `builder_edit`, `suggestion`, `pie_import`: the one popup for an import's rules that were on in PIE), `kind` (`standard` or `event`) |
 | `rule.preview_shown` | its days came back | browser | `from`, `days`, `ms` (how long the owner waited), `nights_checked` (nights the engine ran, both ways) |
 | `rule.preview_failed` | its days could not be worked out | browser | `from` |
 | `rule.preview_cancelled` | Cancel: nothing saved | browser | `from`, `days` |
+| `pie.import_opened` | Import from PIE opened (Cloudbeds) | browser | `from` (`rules`: the Rules tab's link; `link`: a link into it, such as the setup review's) |
+| `pie.screenshots_read` | its screenshots were read in the browser and the review shown; counts only, never anything read from them | browser | `screenshots`, `unread` (screenshots with no rules table or limits), `rules` (PIE rules found), `ready`, `needs_edit` (cut off, or room types to pick), `not_imported` (restriction, compset, unreadable), `limits` (floor and ceiling changes), `ms` (reading time) |
+| `pie.read_failed` | the reader could not start (its files did not load) or a screenshot could not be read | browser | `stage` (`start` or `read`) |
+| `rules.imported` | an import from PIE added its rules and limits | `POST /api/rules/import` | `from` (`pie`), `created`, `created_on`, `created_off`, `failed`, `limits` (floor and ceiling pairs set), `choice` (`apply`, `skip`, or `none` when every rule was off), `held_all`, `days` (the popup's count; null when it could not work the days out or there was none) |
 | `simulator.used` | first change to any rate simulator input in a page load | browser | — |
 | `dashboard.tab_opened` | a dashboard tab chosen (this is how the change log and simulator are counted) | browser | `tab` |
 | `settings.opened` | Settings opened, from the gear in the dashboard header or a link | browser | — |

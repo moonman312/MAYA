@@ -3,7 +3,7 @@ title: Turning a rule off, deleting it, or changing it
 summary: What the On/Off switch and Delete each do to prices already set, how to change a rule with Edit, and how to read the rules list.
 section: rules
 order: 110
-readingTime: 9
+readingTime: 10
 keywords: [turn off, switch off, pause, disable, enable, delete, delete a rule, undo its changes, keep its changes, edit a rule, edit button, save changes, cancel editing, reload, changed in another tab, change a rule, rename, copy, duplicate, limit on rules, how many rules, 40 rules, 40 active rules, maximum, already has 40 active rules, switch will not turn on, fired column, fired count, times fired, filter, all enabled disabled, order of the list, price change column, dollar sign, pricing rule, deleted rule in the log, rule turned off still affects counts, paused rule, switched-off rule, who created this rule, who added it, who deleted it, who switched it off, who turned it off, audit, audit trail, created by, history of rule changes, undo on cancellations, untick the undo box, change the undo box]
 questions:
   - How do I edit a rule? {#changing-a-rule}
@@ -22,7 +22,7 @@ questions:
   - Can I change the undo box on a rule I already saved? {#changing-a-rule}
   - What happens to a rule's changes when I edit it? {#changing-a-rule/what-an-edit}
   - Why did a window with a calendar open when I switched a rule on? {#the-onoff-switch}
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 <InPlainWords>
@@ -72,7 +72,7 @@ Click <Ui>Edit</Ui> beside <Ui>Delete</Ui> at the end of the rule's row. The rul
 - **The rule is On**: the window opens first, headed "Save changes to "Busy nights"?", with the days the edited rule will change. Apply, Skip or Cancel, as for switching a rule on. Cancel keeps what you typed in the builder.
 - **The rule is Off**: saved at once, and no price moves. Its changes stay frozen, and the window shows what the edited rule does when you switch it on.
 
-<Ui>Cancel editing</Ui>, under the form, empties the builder without saving. A rule's date window, weekdays and priority are not in the builder, and an edit keeps them as saved. If someone changed the rule in another tab after you opened it, the save stops with "This rule changed in another tab. Reload it to edit." and a <Ui>Reload</Ui> button that fills the builder with the rule as it is now.
+<Ui>Cancel editing</Ui>, under the form, empties the builder without saving. A rule's date window (a rule imported from PIE with dates has one), weekdays and priority are not in the builder, and an edit keeps them as saved. If someone changed the rule in another tab after you opened it, the save stops with "This rule changed in another tab. Reload it to edit." and a <Ui>Reload</Ui> button that fills the builder with the rule as it is now.
 
 **What an edit does to the rule's changes.** With <Ui>Apply price adjustments</Ui>, every change the rule has on the price is judged against the edited rule: a standard rule's change stays at the new amount where the edited rule holds and comes off where it does not (room types taken off the rule and nights it no longer covers included), and a booking speed or pickup rule's earlier changes come off, with the edited rule reading its whole window again. With <Ui>Skip price adjustments</Ui>, every change on the days the window showed stays where it is until the rule stops being true there and then becomes true again, and every other night is judged as with Apply. Changing its conditions, amount or room types also clears the rule's "Stop for this night" answers, which belonged to the rule as it was. A new name or the undo box alone keeps them. Read [A rule that is changed](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
 
@@ -92,7 +92,7 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 
 **Fired.** How many times the rule has acted, counted once per night and room type. A dash means never. A "?" beside the heading explains that a booking speed or pickup rule can act on the same night more than once, and each time counts, and that a change that came off later still counts. So the count is usually higher than the changes you can see on the calendar now, and higher than the change log shows, which lists the 40 biggest moves of each run and only counts the rest.
 
-**Conditions.** In words: "Occupancy above 80%", "Booking window below 7 days", "Pickup above 5 bookings (past 3 days), then waits 3 days", "booking speed at least Faster Than Normal (past week), then waits 1 week". Several are joined with a dot.
+**Conditions.** In words: "Occupancy above 80%", "Booking window below 7 days", "Pickup above 5 bookings (past 3 days), then waits 3 days", "booking speed at least Faster Than Normal (past week), then waits 1 week". Several are joined with a dot. A rule imported from PIE with dates ends with the nights it covers, such as "Nights Oct 15, 2026 to Nov 30, 2026".
 
 **Room Types.** The types the rule changes, or "Watches Standard, Deluxe · Changes Suite" when it measures different ones.
 
@@ -104,7 +104,7 @@ The rules table has seven columns: <Ui>Name</Ui>, <Ui>Fired</Ui>, <Ui>Conditions
 
 ## How many rules you can have
 
-At most 40 rules can be <Ui>On</Ui> at once on a property. Rules that are <Ui>Off</Ui> do not count, and a rule saved from the <Ui>Rate Simulator</Ui> arrives Off. At 40, the window with the calendar opens for a moment when you add a rule or switch an Off rule on, then closes, and "This property already has 40 active rules, which is the maximum." shows in red under the form or under the rule's switch. Nothing is saved. Turn a rule off or delete one first.
+At most 40 rules can be <Ui>On</Ui> at once on a property. Rules that are <Ui>Off</Ui> do not count, and a rule saved from the <Ui>Rate Simulator</Ui> arrives Off. At 40, the window with the calendar opens for a moment when you add a rule or switch an Off rule on, then closes, and "This property already has 40 active rules, which is the maximum." shows in red under the form or under the rule's switch. Nothing is saved. Turn a rule off or delete one first. <Ui>Import from PIE</Ui> says so before adding anything, such as "That makes 43 rules on, and a property can have 40. Untick 3 to fit."
 
 Every occupancy or booking window rule whose condition holds applies, and their changes stack. Booking speed and pickup rules take turns: at most one fires on a night and room type per run. Read [How rules run](/docs/rules/how-rules-run).
 
