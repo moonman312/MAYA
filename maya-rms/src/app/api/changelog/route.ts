@@ -105,7 +105,7 @@ export async function GET(request?: Request) {
   }
 
   const older = request ? new URL(request.url).searchParams.get("older") : null;
-  if (older != null && (older.length > 64 || !Number.isFinite(Date.parse(older)))) {
+  if (older != null && (!/^\d{4}-\d{2}-\d{2}[T ][\d:.]+(Z|[+-]\d{2}(:?\d{2})?)?$/.test(older) || !Number.isFinite(Date.parse(older)))) {
     return NextResponse.json({ error: "That page link isn't valid." }, { status: 400 });
   }
 

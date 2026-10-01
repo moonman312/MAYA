@@ -20,7 +20,7 @@ import { createPortal } from "react-dom";
 import { OlderButton } from "@/components/older-button";
 import { SEND_TONE } from "@/components/pricing-run-item";
 import { RoomCountHelp } from "@/components/room-type-settings";
-import { RULE_FIRES_HELP } from "@/lib/rule-form";
+import { FIRE_LOG_HELP } from "@/lib/rule-form";
 import type { RuleFireItem, RuleFireLogResponse } from "@/lib/rule-fire-log";
 
 /** The count in the rules list, as the button that opens the rule's fire log. */
@@ -115,7 +115,8 @@ export function RuleFireLogDialog({
       setEnabled(page.rule.enabled);
       if (page.total != null) {
         setTotal(page.total);
-        onCountRef.current?.(page.total);
+        // Not to nothing: the count would turn into a dash and close this window.
+        if (page.total > 0) onCountRef.current?.(page.total);
       }
     } catch {
       setError("Couldn't load this rule's fires.");
@@ -187,7 +188,7 @@ export function RuleFireLogDialog({
           </div>
           <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
             {total != null ? `${total} ${total === 1 ? "fire" : "fires"} in the last 90 days` : "Fires in the last 90 days"}
-            <RoomCountHelp {...RULE_FIRES_HELP} docs="rule-fires" />
+            <RoomCountHelp {...FIRE_LOG_HELP} docs="rule-fires" />
           </p>
           {!enabled ? <p className="mt-1 text-xs text-amber-200/90">This rule is off. Its changes stay where they are.</p> : null}
         </div>

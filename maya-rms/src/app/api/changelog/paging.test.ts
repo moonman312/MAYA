@@ -135,6 +135,9 @@ describe("GET /api/changelog, page by page", () => {
     state.client = fake(seed());
     state.admin = fake(seed());
     expect((await page("not-a-time")).status).toBe(400);
+    // Only an instant as the page above handed it out, not anything a date parser takes.
+    expect((await page("1 Jan 2026")).status).toBe(400);
+    expect((await page(at(10))).status).toBe(200);
   });
 
   it("names no older page when the first one reaches the first run on record", async () => {

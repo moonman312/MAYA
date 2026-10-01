@@ -7,6 +7,7 @@ import {
   FAR_OUT_CUT_GUARD_DAYS,
   FAR_OUT_CUT_GUARD_HELP,
   PICKUP_WAIT_SAME_AS_WINDOW_LABEL,
+  FIRE_LOG_HELP,
   RULE_FIRES_HELP,
   bookingSpeedOwnWait,
   bookingSpeedSetsWait,
@@ -366,11 +367,17 @@ describe("the wait shown is the wait the engine keeps", () => {
 
 describe("what the rules table says a fire is", () => {
   it("counts every time the rule acted, repeats included, in plain words", () => {
-    const words = [RULE_FIRES_HELP.title, ...RULE_FIRES_HELP.lines].join(" ");
-    expect(words).toContain("once per night and room type");
-    expect(words).toContain("more than once");
-    expect(words).not.toContain("\u2014");
-    expect(words).not.toMatch(/[<>]/);
+    for (const help of [RULE_FIRES_HELP, FIRE_LOG_HELP]) {
+      const words = [help.title, ...help.lines].join(" ");
+      expect(words).toContain("once per night and room type");
+      expect(words).toContain("in the last 90 days");
+      expect(words).toContain("more than once");
+      expect(words).not.toContain("\u2014");
+      expect(words).not.toMatch(/[<>]/);
+    }
+    // Only the list's "?" says to click the number; the log's says what a row opens to.
+    expect(RULE_FIRES_HELP.lines.join(" ")).toContain("Click the number");
+    expect(FIRE_LOG_HELP.lines.join(" ")).toContain("Click a row");
   });
 });
 

@@ -306,15 +306,22 @@ export function directionalBookingSpeedOperator(levelKey: string): BookingSpeedR
  * night and room type, leaving out only the same-run cancellations from
  * before stacking landed.
  */
+const FIRE_LINES = [
+  "Every time the rule acted in the last 90 days, counted once per night and room type.",
+  "A booking speed or pickup rule can act on the same night more than once, when its wait is over and it is still true, and each time counts here.",
+  "A change that came off later still counts.",
+];
+
 export const RULE_FIRES_HELP: { label: string; title: string; lines: string[] } = {
   label: "What counts as a fire",
   title: "Times fired",
-  lines: [
-    "Every time the rule acted in the last 90 days, counted once per night and room type.",
-    "A booking speed or pickup rule can act on the same night more than once, when its wait is over and it is still true, and each time counts here.",
-    "A change that came off later still counts.",
-    "Click the number to see each one, with times in the property's time zone.",
-  ],
+  lines: [...FIRE_LINES, "Click the number to see each one, with times in the property's time zone."],
+};
+
+/** The same "?" inside a rule's fire log, where the number has already been clicked. */
+export const FIRE_LOG_HELP: { label: string; title: string; lines: string[] } = {
+  ...RULE_FIRES_HELP,
+  lines: [...FIRE_LINES, "Times are the property's. Click a row for the price, why it fired and where the price went."],
 };
 
 /**
