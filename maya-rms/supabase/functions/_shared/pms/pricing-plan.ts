@@ -31,7 +31,11 @@
  * cadence tests hold the two side by side.
  *
  * MAYA_PRICING_CADENCE=every_tick prices the whole window every tick, as
- * before (the rollback switch; the marks are cleared by those runs).
+ * before (the rollback switch; the marks are cleared by those runs), up to
+ * 60 nights out and no further (WHOLE_WINDOW_MAX_NIGHTS in pricing-tick.ts):
+ * the nights past that keep their last price and are not sent while it is
+ * set. Switching back to the daily cadence starts a new pass over the whole
+ * window.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -40,7 +44,11 @@ import { addCalendarDays } from "../engine/timezone.ts";
 
 export type PricingCadence = "daily" | "every_tick";
 
-/** How nights are chosen, from MAYA_PRICING_CADENCE: "daily" unless it says "every_tick". */
+/**
+ * How nights are chosen, from MAYA_PRICING_CADENCE: "daily" unless it says
+ * "every_tick". every_tick prices no more than the first 60 nights (see the
+ * header).
+ */
 export function pricingCadence(raw: string | undefined = mwsEnv("MAYA_PRICING_CADENCE")): PricingCadence {
   return String(raw ?? "").trim().toLowerCase() === "every_tick" ? "every_tick" : "daily";
 }

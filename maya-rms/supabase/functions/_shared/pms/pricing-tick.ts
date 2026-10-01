@@ -43,8 +43,11 @@
  * changed a rule's state on, and a chunk of the daily pass, read from the database after the base
  * rate refresh (which can mark nights) and reported back once the engine has
  * priced them. A tick with nothing to price writes its heartbeat and prices
- * nothing. MAYA_PRICING_CADENCE=every_tick prices the whole window, as before;
- * so does a database without the cadence migration, at no more than 60 nights.
+ * nothing. MAYA_PRICING_CADENCE=every_tick prices the whole window every
+ * tick, as before; so does a database without the cadence migration, a tick
+ * whose work list can't be read, and one without the hotel's date. Each of
+ * those prices at most WHOLE_WINDOW_MAX_NIGHTS (60) nights, and the push
+ * keeps to the nights priced.
  *
  * A run that fails publishes nothing and clears nothing: the engine stops
  * before it publishes when a read it prices from fails (anything but a table,
@@ -101,6 +104,21 @@ const KEEP_HISTORY: EvaluateOptions["history"] = { store: "write" };
 
 /** Before the cadence migration, every tick prices the whole window, and never past this. */
 export const PRE_CADENCE_HORIZON_DAYS = 60;
+
+/**
+ * The most nights a whole-window run prices: MAYA_PRICING_CADENCE=every_tick
+ * (the rollback switch), a tick whose work list can't be read, and a tick
+ * without the hotel's date. A whole-window run prices every night it covers
+ * and writes a booking snapshot for each night and room type whether or not
+ * anything changed; over 396 nights, every five minutes, that is about
+ * 684,000 rows a day for a hotel with 6 room types, and a run slow enough to
+ * be cut off part-way (audit A26). So it keeps to the 60 nights it was made
+ * for. Nights past them keep their marks and their last price, and the push
+ * keeps to the nights priced, so none of them is sent meanwhile; the daily
+ * cadence prices them again (a pass recorded over fewer nights than the
+ * window starts a new one).
+ */
+export const WHOLE_WINDOW_MAX_NIGHTS = PRE_CADENCE_HORIZON_DAYS;
 
 /**
  * Whether this process has seen a database without the cadence functions.
@@ -284,9 +302,12 @@ export async function runPricingTick<E>(
     evaluate = { skipped: "out_of_time" };
   } else if (opts.runEvaluate && !clock) {
     // Without a clock the engine reads the timezone itself, as it always has,
-    // over the whole window; the push below does not run on that date.
+    // over the whole window, never past WHOLE_WINDOW_MAX_NIGHTS; the push
+    // below does not run on that date.
     try {
-      evaluate = await deps.evaluate(supabase, hotelId, undefined, horizonDays, { history: KEEP_HISTORY });
+      evaluate = await deps.evaluate(supabase, hotelId, undefined, Math.min(horizonDays, WHOLE_WINDOW_MAX_NIGHTS), {
+        history: KEEP_HISTORY,
+      });
     } catch (e) {
       evaluate = { error: errorText(e, "evaluate failed") };
     }
@@ -489,6 +510,16 @@ async function priceNights<E>(
   } else if (work !== CADENCE_MISSING) {
     cadenceMissingSeen = false;
   }
+  // The window the work list was read over. The run is recorded over it, so
+  // the marks of nights a shorter run leaves out stay for a later one
+  // (pricing_run_done drops only the marks outside what it is given).
+  const workLast = lastNight;
+  // A whole-window run, by the switch or with the list unreadable, never
+  // goes past WHOLE_WINDOW_MAX_NIGHTS. The nights past it keep their marks.
+  if (work === CADENCE_MISSING || args.cadence === "every_tick") {
+    horizonDays = Math.min(horizonDays, WHOLE_WINDOW_MAX_NIGHTS);
+    lastNight = lastNightOf(clock.today, horizonDays);
+  }
 
   // Before the migration, or with the list unreadable: the whole window, as before.
   if (work === CADENCE_MISSING) {
@@ -564,7 +595,7 @@ async function priceNights<E>(
       const recorded = await recordPricingRun(supabase, hotelId, {
         at: clock.at,
         first: clock.today,
-        last: lastNight,
+        last: workLast,
         nights: [],
         dirty: [],
         failed: plan.deferred,
@@ -624,7 +655,7 @@ async function priceNights<E>(
     const recorded = await recordPricingRun(supabase, hotelId, {
       at: clock.at,
       first: clock.today,
-      last: lastNight,
+      last: workLast,
       nights: pricedNights,
       dirty: plan.dirtyRead,
       failed: [...new Set([...report.failedNights, ...plan.deferred])].sort(),

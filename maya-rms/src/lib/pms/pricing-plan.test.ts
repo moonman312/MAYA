@@ -539,6 +539,84 @@ describe("runPricingTick with the pricing cadence", () => {
     expect(d.tables.pricing_dirty_nights).toEqual([]);
   });
 
+  describe("a whole-window run never prices past 60 nights (audit A26)", () => {
+    const sawHorizon = (priced: Priced[], seen: number[]) =>
+      async (s: SupabaseClient, h: string, evalTs: string | undefined, hz: number, o?: EvaluateOptions) => {
+        seen.push(hz);
+        return stubEngine(priced)(s, h, evalTs, hz, o);
+      };
+
+    it("MAYA_PRICING_CADENCE=every_tick: 60 nights at 396, a mark past them stays, and the pass is recorded at 60", async () => {
+      const d = hotelDb("UTC");
+      const priced: Priced[] = [];
+      const seen: number[] = [];
+      markNights(d.tables, HOTEL, ["2026-10-05", "2026-12-30"], "booking", "2026-10-01T00:00:00.000Z");
+      const r = await tick(d, "2026-10-01T00:05:00.000Z", priced, { cadence: "every_tick", horizonDays: 396 }, sawHorizon(priced, seen));
+      expect(seen).toEqual([60]);
+      expect(priced.map((p) => [p.nights, p.kind])).toEqual([["window", "window"]]);
+      expect(r.cadence).toMatchObject({ mode: "every_tick", nights: 60, chunk: 60 });
+      // The night 90 days out was not priced, so its mark waits for the daily cadence.
+      expect(d.tables.pricing_dirty_nights.map((x) => x.stay_date)).toEqual(["2026-12-30"]);
+      expect(d.tables.hotel_pricing_state[0].pass_horizon_days).toBe(60);
+      // Back on the daily cadence, the window is wider than the pass on record: a new pass.
+      const back = await tick(d, "2026-10-01T00:10:00.000Z", priced, { horizonDays: 396 });
+      expect(back.cadence).toMatchObject({ mode: "daily", passStarted: "horizon" });
+    });
+
+    it("a work list that can't be read: the whole window for one tick, 60 nights of it, marks kept", async () => {
+      const d = hotelDb("UTC", {}, (fn, args, tables) =>
+        fn === "pricing_work" ? new FakeRpcError({ code: "08006", message: "connection failure" }) : cadenceRpc(fn, args, tables),
+      );
+      const priced: Priced[] = [];
+      const seen: number[] = [];
+      markNights(d.tables, HOTEL, ["2026-12-30"], "booking", "2026-10-01T00:00:00.000Z");
+      const r = await tick(d, "2026-10-01T00:05:00.000Z", priced, { horizonDays: 396 }, sawHorizon(priced, seen));
+      expect(seen).toEqual([60]);
+      expect(r.cadence).toMatchObject({ mode: "daily", nights: 60, error: "Failed to read the pricing work list: connection failure" });
+      expect(d.tables.pricing_dirty_nights.map((x) => x.stay_date)).toEqual(["2026-12-30"]);
+    });
+
+    it("without the hotel's date: the engine prices 60 nights at most", async () => {
+      const d = hotelDb("UTC");
+      const priced: Priced[] = [];
+      const seen: number[] = [];
+      const original = d.client.from.bind(d.client);
+      const client = new Proxy(d.client, {
+        get(target, prop) {
+          if (prop !== "from") return (target as unknown as Record<string | symbol, unknown>)[prop];
+          return (table: string) => {
+            if (table !== "hotels") return original(table);
+            const failed = { data: null, error: { message: "read timed out" } };
+            const chain: Record<string, unknown> = {};
+            for (const m of ["select", "eq", "maybeSingle", "single", "limit"]) chain[m] = () => chain;
+            chain.then = (res: (v: unknown) => unknown) => Promise.resolve(failed).then(res);
+            return chain;
+          };
+        },
+      }) as SupabaseClient;
+      const at = Date.parse("2026-10-01T00:05:00.000Z");
+      vi.setSystemTime(new Date(at));
+      const r = await runPricingTick(
+        client,
+        HOTEL,
+        {
+          horizonDays: 396,
+          adapter: null,
+          noAdapter: { skipped: "disabled" },
+          runEvaluate: true,
+          pushEnabled: false,
+          evaluateBy: at + 10 * 60_000,
+          pushDeadlineAt: at + 10 * 60_000,
+          read: "ok",
+          cadence: "every_tick",
+        },
+        { evaluate: sawHorizon(priced, seen), now: () => at },
+      );
+      expect(r.today).toBeNull();
+      expect(seen).toEqual([60]);
+    });
+  });
+
   it("before the migration: the whole window every tick, never past 60 nights, logged once", async () => {
     const d = hotelDb("UTC", {}, (fn) => (fn.startsWith("pricing_") ? new FakeRpcError(missingFunction(fn)) : undefined));
     const priced: Priced[] = [];
