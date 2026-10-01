@@ -8,6 +8,11 @@
  * will be saved under. `from` and `to` ask for part of the window (the
  * popup's calendar comes in chunks); the whole window when left out.
  *
+ * An import from PIE asks for all its new rules at once: { intent:
+ * "import", rules, limits, from?, to? }, what POST /api/rules/import saves
+ * (`rules` the drafts with their ids and `on`; only the ones on are in the
+ * count, on the floors and ceilings in `limits`).
+ *
  * The answer comes from dry runs of the engine the scheduled sync runs
  * (src/lib/rule-preview.ts), never an estimate, with a fingerprint of
  * everything that could change it: the save checks it again, so the owner
@@ -17,7 +22,8 @@
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { DAYS_NOT_CALCULATED } from "@/lib/rule-activation-client";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { previewFingerprint, previewRule } from "@/lib/rule-preview";
+import { checkCap, limitOverrides, planImportRequest } from "@/lib/pie-import/server";
+import { previewFingerprint, previewRule, previewRuleSet } from "@/lib/rule-preview";
 import { ruleErrorResponse, ruleGate } from "@/lib/rule-route";
 import { RuleSaveError, parseDraft, planRuleChange, type RuleIntent } from "@/lib/rule-save";
 import { NextResponse } from "next/server";
@@ -45,6 +51,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   }
   const intent = body.intent;
+  if (intent === "import") return previewImport(gate, body);
   if (intent !== "create" && intent !== "edit" && intent !== "enable") {
     return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   }
@@ -86,6 +93,33 @@ export async function POST(req: Request) {
       fingerprint,
       ...preview,
     });
+  } catch (e) {
+    return ruleErrorResponse(e, DAYS_NOT_CALCULATED);
+  }
+}
+
+/** The popup's days for an import's rules that are on, all together. */
+async function previewImport(gate: Extract<Awaited<ReturnType<typeof ruleGate>>, { ok: true }>, body: Record<string, unknown>) {
+  try {
+    const at = new Date().toISOString();
+    const request = await planImportRequest(gate.admin, gate.hotelId, body, at);
+    const on = request.rules.flatMap((r) => (r.on && !r.existing ? [r.plan] : []));
+    if (on.length === 0) return NextResponse.json({ needsActivation: false, change: "new" });
+    await checkCap(gate.admin, gate.hotelId, on.length);
+    const [horizonDays, fingerprint] = await Promise.all([
+      hotelPricingHorizon(gate.admin, gate.hotelId),
+      previewFingerprint(gate.admin, gate.hotelId, at),
+    ]);
+    const preview = await previewRuleSet(gate.admin, {
+      hotelId: gate.hotelId,
+      rules: on.map((plan) => plan.after),
+      limits: limitOverrides(request.limits),
+      at,
+      horizonDays,
+      from: typeof body.from === "string" ? body.from : undefined,
+      to: typeof body.to === "string" ? body.to : undefined,
+    });
+    return NextResponse.json({ needsActivation: true, change: "new", versionAfter: 1, fingerprint, ...preview });
   } catch (e) {
     return ruleErrorResponse(e, DAYS_NOT_CALCULATED);
   }

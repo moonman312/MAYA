@@ -436,14 +436,25 @@ export async function commitRuleChange(
   admin: SupabaseClient,
   plan: RulePlan,
   choice: ActivationChoice | null,
-  opts: { at: string; horizonDays: number; touched: string[]; held?: readonly string[] | "all" },
+  opts: {
+    at: string;
+    horizonDays: number;
+    touched: string[];
+    held?: readonly string[] | "all";
+    /** A Skip worked out already (several rules switched on together: skipPlanForRules). */
+    skipPlan?: SkipPlan;
+    /** A new rule saved off (an import of a rule that was off in PIE): no popup, nothing held. */
+    off?: boolean;
+  },
 ): Promise<CommitResult> {
-  if (plan.needsActivation && !choice) {
+  if (plan.needsActivation && !choice && !opts.off) {
     throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
   }
-  const activation = plan.needsActivation ? choice! : plan.intent === "create" ? "apply" : "keep";
+  const activation = opts.off && plan.intent === "create" ? "off" : plan.needsActivation ? choice! : plan.intent === "create" ? "apply" : "keep";
   let skip: SkipPlan = { marks: [], holdNights: [] };
-  if (activation === "skip") {
+  if (activation === "skip" && opts.skipPlan) {
+    skip = opts.skipPlan;
+  } else if (activation === "skip") {
     skip = await skipPlanForRule(
       admin,
       { hotelId: plan.hotelId, after: plan.after, at: opts.at, horizonDays: opts.horizonDays },
