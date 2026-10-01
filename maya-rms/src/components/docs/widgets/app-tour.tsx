@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 // A drawing of the MAYA dashboard, not a screenshot: made-up property, no
 // real data. Each numbered spot explains one part.
 export const TOUR_PARTS = [
+  { id: "mode", label: "Simulation or live", note: "While MAYA only simulates, a slim amber strip across the top says so: it works out prices but sends nothing to your system. A General Manager or Hotel Admin goes live from its Go live button. Once live, a small green Live tag sits there instead." },
   { id: "logo", label: "The header", note: "The MAYA logo, top left. Help, the Settings gear, Billing, Team and Sign Out sit top right." },
   { id: "buttons", label: "Help, Settings, Billing, Team, Sign Out", note: "Help opens the docs page about the screen you are on. The gear opens Settings: what each calendar day shows, its colours, and your text size. Billing and Team are for a General Manager or Hotel Admin. Sign Out ends your session." },
   { id: "banners", label: "Banners", note: "They appear only when something needs you: billing, a lost connection, the review, or rules that keep adjusting." },
@@ -46,6 +47,16 @@ export function AppTourLive() {
     <div className="space-y-4">
       <div className="overflow-x-auto">
         <div className="relative min-w-[30rem] rounded-xl border border-border bg-background p-3 text-[0.7rem] select-none">
+          {/* the simulation strip */}
+          <div className="-mx-3 -mt-3 mb-2 flex items-center justify-between gap-2 rounded-t-xl border-b border-warning/40 bg-warning/10 px-3 py-1 text-foreground">
+            <span>
+              <span className="font-semibold">Simulation</span> · MAYA works out prices but sends nothing to your system
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="rounded bg-primary/80 px-1.5 py-0.5 font-semibold text-primary-foreground">Go live</span>
+              <Spot n={at("mode")} id="mode" active={active} onShow={setActive} />
+            </span>
+          </div>
           {/* header */}
           <div className="flex items-center justify-between border-b border-border pb-2">
             <div className="flex items-center gap-2">

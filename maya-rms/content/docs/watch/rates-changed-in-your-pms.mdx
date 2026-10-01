@@ -3,7 +3,7 @@ title: Rates you change in your property system
 summary: What happens when you change or remove a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your setting decides. As it starts, your change is kept as your price; with "MAYA's price wins", MAYA sends its own price again. On any other night your rate becomes the starting point your rules work from.
 section: watch
 order: 60
-readingTime: 24
+readingTime: 25
 keywords: [changed in cloudbeds, typo, mistyped, mistake, wrong rate, typed the wrong rate, $15 instead of $150, extra zero, too low, too high, under the floor, fix a wrong rate, back to simulation, went back to simulation, revenue pickup, best available, rate type, changed in think reservations, overwrite, overwrote, wrote over, edited in cloudbeds, changed the rate in my PMS, base rate, hourly read, an hour, settle, seen, closed a night, rate 0, zero, re-opened, reopened, tax included, markup, simulating, before going live, where should I change prices, the base rate was changed in, raised every rate, raised all my rates, 10%, percentage, every night, across the board, bulk change, my increase was lost, special rate, front desk, discount, one guest, rate on a booking, reservation rate, guest rate, negotiated rate, removed, remove a rate, deleted a rate, rate removed, no rate any more, Rate removed in Cloudbeds, MAYA isn't pricing this night, MAYA's price wins, Keep the change as your price, setting, another pricing tool, other revenue tool, PIE, second RMS, two tools, fighting, overwrote, MAYA overwrote rate changes, sent its price again, daily email, once a day, something other than MAYA seems to be changing rates, warning, Open the setting, 20 rates, three days]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -31,7 +31,7 @@ questions:
   - 'Why does a night say "Rate removed in Cloudbeds, so MAYA isn''t pricing this night"?' {#a-rate-removed-in-your-system}
   - 'Why did I get an email saying MAYA overwrote rate changes?' {#when-mayas-price-wins}
   - 'Why does the change log say something other than MAYA seems to be changing rates?' {#when-something-else-seems-to-change-your-rates}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -133,7 +133,7 @@ Two things work as they do with the other choice: setting a night to 0 in your s
 
 If another tool keeps changing the same rate, MAYA sends its price again after each change it reads. Guests can see the other tool's rate in the time between, so switching the other tool off is still the surest way.
 
-**In the change log**, each night and room type MAYA sent its price to again is its own item, headed "Changed in Cloudbeds" with the time MAYA read the change. It names the night, the room type, the rate your system had and MAYA's price, for example "Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again." A removed rate reads "Fri, Nov 13, Standard: the rate was removed in Cloudbeds. MAYA sent its price, $165.00, again." The log lists the newest 50 of these in the stretch it covers, and one more line counts the rest. They are kept for 180 days.
+**In the change log**, each night and room type MAYA sends its price to again is its own item, headed "Changed in Cloudbeds" with the time MAYA read the change. It names the night, the room type, the rate your system had and MAYA's price, for example "Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again." A removed rate reads "Fri, Nov 13, Standard: the rate was removed in Cloudbeds. MAYA sent its price, $165.00, again." MAYA writes the item when it reads the change, a few minutes before the next cycle sends its price, so it says "sent" only once MAYA's record of its sends shows the price went. Until then it reads "MAYA's price, $165.00, is waiting to be sent again." If MAYA stopped trying it reads "couldn't be sent again", if it held the price back "was held back, not sent", and once a later price or change has replaced it "was due to go out again". The log lists the newest 50 of these in the stretch it covers, and one more line counts the rest: "And 12 more times MAYA's price was due to go out again over a rate changed in Cloudbeds." They are kept for 180 days.
 
 **The day's email.** Once a day is over at your property, your General Managers and Hotel Admins get one email about that day's overwrites, and none on a day without any. Its subject is "MAYA overwrote rate changes in Cloudbeds at The Harbour Inn". It says your setting is "MAYA's price wins", so MAYA overwrote each change again with its own price, and lists each night and room type once, with the rate your system had (or "Removed"), MAYA's price, and how many times that day MAYA sent it again. It ends with how to set a price by hand: in MAYA's calendar, not in your system, with a button to open the calendar. [Emails MAYA sends](/docs/billing/emails-maya-sends#the-overwrites-email) has the rest.
 

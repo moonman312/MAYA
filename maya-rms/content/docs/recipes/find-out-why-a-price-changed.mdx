@@ -15,7 +15,7 @@ questions:
   - Why did a price change with no rule named? {#what-the-sentences-mean}
   - How far back does the change log go? {#how-far-back-the-log-goes}
   - The price changed a while ago and the log no longer shows it. How do I find out why? {#if-nothing-is-listed-for-the-night/when-the-price}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -29,7 +29,7 @@ Open the <Ui>Change Log</Ui> tab. Each pricing run lists the nights whose price 
 It opens on changes only. Each entry is headed <Ui>Pricing run</Ui> with the time of the run in your browser's local time, such as "Sat, Nov 14, 2026, 3:05 PM PST", and how long ago it was, such as "(12 min ago)". Ongoing problems, headed <Ui>Prices not reaching Cloudbeds</Ui> (or your system's name), sit above every run.
 </Step>
 <Step title="Find the night">
-Inside a run, each change starts with a bold line in the shape "Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)". Look for the stay date. Down moves read "down to" with a minus percentage.
+Inside a run, each change starts with a bold line in the shape "Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)". Look for the stay date. Down moves read "down to" with a minus percentage. In a run made while your property was simulating, the bold line reads "Simulation: the price for Sat Nov 14, Standard would have gone from $150.00 to $165.00." instead, because nothing was sent.
 </Step>
 <Step title="Read the sentence under it">
 The first sentence names the rule and the move: "Busy nights" raised this night 10%, from $150.00 to $165.00. The next sentence gives the reason in your own numbers: It was 85% full, past the 80% mark you set.
@@ -52,7 +52,8 @@ When a booking speed rule acted, a <Ui>Show the numbers</Ui> link sits under the
 | That took this night from $165.00 to $150.00. | The run put the night back at its starting point. The sentences before it say what came off. |
 | Sam set the base rate to $180.00. | A person typed a price on the Calendar tab. No rule is named because no rule acted. |
 | The base rate was changed in Cloudbeds to $180.00. | The rate was changed in your property system on a night MAYA had already sent to, and MAYA kept that rate. |
-| Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again. | An item of its own, not under a run: your setting is <Ui>MAYA's price wins</Ui>, so MAYA sent its own price over a rate changed in your property system. |
+| Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again. | An item of its own, not under a run: your setting is <Ui>MAYA's price wins</Ui>, so MAYA sent its own price over a rate changed in your property system. Before the send goes it reads "MAYA's price, $165.00, is waiting to be sent again." |
+| Simulation: the price for Fri Nov 13, Standard would have gone from $150.00 to $165.00. | A run made while your property was simulating, tagged <Ui>Simulation</Ui>. Nothing was sent, and the sentences under it say what would have happened. |
 | "Pricing rule" raised this night 10%. | The rule that acted has since been deleted, so its name is gone. |
 
 ## How far back the log goes

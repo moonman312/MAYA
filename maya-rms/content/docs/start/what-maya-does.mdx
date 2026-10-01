@@ -19,7 +19,7 @@ questions:
   - Is there a forecast of occupancy or demand? {#no-forecasts}
   - What keeps my prices from going too high or too low? {#what-keeps-prices-in-check}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -100,7 +100,7 @@ MAYA writes each room type's base rate. Rate plans set up to follow it move with
 MAYA writes the rate type named Best Available. Name your main rate type Best Available to be sure it is the one written. Rate types set up to follow it move with it by ThinkReservations' own rules. ThinkReservations accepts a price and applies it shortly after, and MAYA checks about an hour later that the price is there. [ThinkReservations](/docs/connect/thinkreservations) says what happens when no rate type has that name.
 </PmsTab>
 <PmsTab pms="mews">
-Nothing is sent to Mews yet. MAYA reads your Mews bookings, runs your rules and shows the prices on the <Ui>Calendar</Ui> and in the <Ui>Change Log</Ui>, but no price reaches Mews. A Mews property has no go-live button, and going live would send nothing to Mews anyway. A night that has never had a booking has no price until you type one (read [where the prices come from](#where-the-prices-come-from)).
+Nothing is sent to Mews yet. MAYA reads your Mews bookings, runs your rules and shows the prices on the <Ui>Calendar</Ui> and in the <Ui>Change Log</Ui>, but no price reaches Mews. A Mews property has no go-live button (its strip at the top says MAYA sends nothing to Mews), and going live would send nothing to Mews anyway. A night that has never had a booking has no price until you type one (read [where the prices come from](#where-the-prices-come-from)).
 </PmsTab>
 </PmsTabs>
 
@@ -155,7 +155,7 @@ So a price moves after bookings arrive, not before them. When you know something
 - **You write the rules.** The starter rules from your history are added for you during setup and switched on, but while you are in simulation they only show what they would do. You can switch any of them off or delete them before you go live. A rule that is switched off holds the changes it already made. A deleted rule undoes them.
 - **You can type a price** for any room type, for tonight or any night up to 399 days ahead, from the <Ui>Calendar</Ui> tab. It has to sit within the room type's floor and ceiling, or be 0 for a free (comp) night, and it needs Revenue Manager, General Manager or Hotel Admin access. Your typed price becomes the night's new starting point. The changes your rules had already made there are set aside, and any rule that fires after that works from your number. No rule raises a night set to 0, and a 0 is not sent, so set the night to 0 in your property system too.
 - **Floors and ceilings hold every rule.** Each room type has a floor and a ceiling that no rule can take its price past. Setup fills them in from your answers to the five questions and, with Cloudbeds and ThinkReservations, from your own rates. Check them before you go live, in the <Ui>Guardrails</Ui> column of the <Ui>Rate Simulator</Ui> tab. A price you set yourself can sit outside them (0 for a free night, or a rate you changed in your property system), and no rule takes it further out. [Floors and ceilings](/docs/review/floors-and-ceilings) has the detail.
-- **You go live.** Every property starts in simulation. MAYA runs every rule and writes every change in the log, but sends nothing to your system until a General Manager or Hotel Admin clicks <Ui>Turn them on for real</Ui>, or asks us to switch the property live where there is no button. [Going live](/docs/live/going-live) says which.
+- **You go live.** Every property starts in simulation, and an amber strip across the top of every screen says so. MAYA runs every rule and writes every change in the log, as what would have happened, but sends nothing to your system until a General Manager or Hotel Admin clicks <Ui>Go live</Ui> on that strip (or <Ui>Turn them on for real</Ui> on the review screen), or asks us to switch the property live. [Going live](/docs/live/going-live) says how.
 
 ## What keeps prices in check
 

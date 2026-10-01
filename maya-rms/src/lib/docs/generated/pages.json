@@ -10,7 +10,7 @@
   "summary": "You build pricing rules from dropdowns, and each one reads back as a plain sentence. About every five minutes MAYA reads your bookings and runs your rules on the nights that changed, every night up to 13 months ahead is priced once a day, and the prices that changed go to your property system (not yet to Mews).",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -115,7 +115,7 @@
   "summary": "Which property systems work, what kinds and sizes of property, how much history MAYA needs, how it sits beside channel managers and other revenue tools, how to see the results, and the honest list of what is not there yet.",
   "readingTime": 17,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -226,7 +226,7 @@
   "summary": "The whole journey on one page, in the order it happens. Two ways in, then connect, the history import, the review, and going live when you are ready. With Mews we connect it for you, and there is no import or review yet.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -395,16 +395,21 @@
   "slug": "a-tour-of-the-app",
   "order": 50,
   "title": "A tour of the app",
-  "summary": "One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.",
+  "summary": "One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), a strip or tag at the very top saying whether you are simulating or live, Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
    "mews"
   ],
   "headings": [
+   {
+    "depth": 2,
+    "text": "Simulation or live, at the top",
+    "id": "simulation-or-live-at-the-top"
+   },
    {
     "depth": 2,
     "text": "The header",
@@ -471,7 +476,8 @@
    "Where do I type a price for one night?",
    "Does the app remember which tab I was on?",
    "What does the coloured bar on a calendar day mean?",
-   "Do the banners change when I switch property?"
+   "Do the banners change when I switch property?",
+   "What is the amber strip at the very top?"
   ],
   "faq": []
  },
@@ -633,7 +639,7 @@
   "summary": "The one box every agreement goes through, where it appears, why you agree to the Terms but only acknowledge the Privacy Policy, what MAYA records when you tick it, and what the Terms lines on the payment screen and in the go-live dialog mean.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -1265,7 +1271,7 @@
   "summary": "Mews is read-only for now. We connect it for you, MAYA reads your bookings and shows what your rules would do, and nothing is sent to Mews. It costs the same as any other property.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "mews"
   ],
@@ -1555,7 +1561,7 @@
   "summary": "A short checklist for a Cloudbeds property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds"
   ],
@@ -1612,7 +1618,7 @@
   "summary": "A short checklist for a ThinkReservations property's first weeks with MAYA, in order, with a link to the page that explains each step.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "thinkreservations"
   ],
@@ -1666,9 +1672,9 @@
   "order": 90,
   "title": "MAYA with Mews, start to finish",
   "summary": "A short checklist for a Mews property's first weeks with MAYA. We connect it, you build rules, and you use MAYA's calendar as your guide while nothing is sent to Mews.",
-  "readingTime": 5,
+  "readingTime": 6,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "mews"
   ],
@@ -3540,7 +3546,7 @@
   "summary": "The amber banner that appears once three of a booking speed or pickup rule's changes are on the same night, what its two answers do, and how to let a stopped rule run again.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -3935,10 +3941,10 @@
   "slug": "the-change-log",
   "order": 20,
   "title": "The change log",
-  "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, then one plain sentence per rule saying what it did and why.",
-  "readingTime": 22,
+  "summary": "Your 10 most recent pricing runs that changed a price, newest first, with the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.",
+  "readingTime": 27,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -3964,6 +3970,16 @@
     "depth": 2,
     "text": "A change, line by line",
     "id": "a-change-line-by-line"
+   },
+   {
+    "depth": 2,
+    "text": "Runs made in simulation",
+    "id": "runs-made-in-simulation"
+   },
+   {
+    "depth": 2,
+    "text": "Where the price went",
+    "id": "where-the-price-went"
    },
    {
     "depth": 2,
@@ -4074,12 +4090,18 @@
    "Can I get the change log by email or notification?",
    "Can I export the change log?",
    "Why does the bold line use a different currency sign from the calendar?",
-   "Why does the bold line show $ when the sentences show my currency?",
+   "Does the bold line show my currency, or always $?",
    "What happens in the change log when I delete a rule?",
    "Why does my revenue pickup rule's sentence talk about bookings?",
    "Why is \"Show the numbers\" under a change an occupancy rule made?",
    "Why did a problem sending prices take hours to show in the change log?",
    "What does \"MAYA sent its price, $165.00, again\" mean in the change log?",
+   "What does \"Simulation: the price ... would have gone from\" mean?",
+   "What does \"Nothing was sent to Cloudbeds\" under a change mean?",
+   "Was a change in the log really sent to my property system?",
+   "What does \"Waiting to be sent to Cloudbeds\" mean?",
+   "Why does an older change have no line saying it was sent?",
+   "I went live. Why do older runs still say Simulation?",
    "What does \"Something other than MAYA seems to be changing rates\" mean?"
   ],
   "faq": []
@@ -4244,9 +4266,9 @@
   "order": 50,
   "title": "Setting a price yourself",
   "summary": "How to type a price for a room type on one night or a run of nights, what it does to your rules, when it is sent to your property system, what the line after a save says when nothing can be sent, what it says once MAYA has tried to send it and how to send it again, and how to hand the night back to your rules.",
-  "readingTime": 18,
+  "readingTime": 19,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4353,9 +4375,9 @@
   "order": 60,
   "title": "Rates you change in your property system",
   "summary": "What happens when you change or remove a rate in Cloudbeds or ThinkReservations instead of in MAYA. On a night MAYA has sent to, your setting decides. As it starts, your change is kept as your price; with \"MAYA's price wins\", MAYA sends its own price again. On any other night your rate becomes the starting point your rules work from.",
-  "readingTime": 24,
+  "readingTime": 25,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4577,7 +4599,7 @@
   "summary": "What the PMS tab shows about your connection to Cloudbeds, ThinkReservations or Mews. The status word, how the last 24 hours of requests went, when bookings last synced, the most recent requests, your property's time zone and currency, and the reconnect link.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4656,9 +4678,9 @@
   "order": 10,
   "title": "Simulation mode",
   "summary": "Every property starts in simulation. MAYA reads your bookings, runs every rule and writes what it would do to the change log, but sends nothing to your property system until you go live.",
-  "readingTime": 12,
+  "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4724,6 +4746,8 @@
   "questions": [
    "What is simulation mode?",
    "Am I in simulation or live? How can I tell?",
+   "How do I switch out of simulation?",
+   "What does \"Simulation · MAYA works out prices but sends nothing to Cloudbeds\" mean?",
    "Will MAYA change my prices the moment I connect?",
    "Will going live overwrite rates I set in my property system while simulating?",
    "What does \"Or leave them in simulation and watch for a while\" mean?",
@@ -4747,10 +4771,10 @@
   "slug": "going-live",
   "order": 20,
   "title": "Going live",
-  "summary": "Where the go-live button is, who can press it, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.",
-  "readingTime": 13,
+  "summary": "Where the go-live buttons are (the amber strip at the top of the dashboard, and the review screen), who can press them, what the confirm dialog promises for your property system, what MAYA records, and what happens in the first cycles after.",
+  "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -4815,6 +4839,8 @@
   ],
   "questions": [
    "How do I go live?",
+   "How do I switch out of simulation?",
+   "Why don't I see Go live on the strip?",
    "Who can go live?",
    "What exactly happens when I press Go live?",
    "What does \"Each price it sends replaces that night's rate\" mean?",
@@ -5076,9 +5102,9 @@
   "order": 50,
   "title": "Pausing, or going back to simulation",
   "summary": "How to pause MAYA without leaving (turn rules off), how to undo what a rule did (delete it), how to hold a price for a stretch, and how to get the whole property back into simulation (email us).",
-  "readingTime": 10,
+  "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5148,9 +5174,9 @@
   "order": 10,
   "title": "The billing page",
   "summary": "Where the Billing page is, who can open it, every sentence the top card can say, the Your plan rows, what the numbers on it include, what the Stripe billing portal can and cannot do, the dashboard banner, and what a group member sees.",
-  "readingTime": 11,
+  "readingTime": 12,
   "readingNote": null,
-  "updated": "2026-09-24",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5676,7 +5702,7 @@
   "summary": "The four roles as the app describes them, a table of every action and the lowest role that can do it, what a Viewer or Revenue Manager sees on the pages they cannot use, the one difference between General Manager and Hotel Admin, and what to do when your only Hotel Admin has left.",
   "readingTime": 9,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5766,7 +5792,7 @@
   "summary": "The Team page, seats and how many you get (there are no separate seats), inviting someone and what they receive, colleagues who already use MAYA, accepting an invitation, changing roles, removing people, getting a new invitation link, what happens when someone leaves, handing MAYA to a new owner, and who is signed in.",
   "readingTime": 14,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -5884,7 +5910,7 @@
   "summary": "Open the Change Log tab, find the night and room type, read the sentence that names the rule and its reason, and open \"Show the numbers\" when a booking speed rule acted.",
   "readingTime": 7,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6114,9 +6140,9 @@
   "order": 60,
   "title": "Pause everything for a while",
   "summary": "Switch your rules Off to stop new price changes while keeping your account, what stays where it is, how to go back to simulation by email, and why cancelling is a different thing.",
-  "readingTime": 5,
+  "readingTime": 6,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -6152,6 +6178,7 @@
    "How do I go back to simulation?",
    "How do I start sending prices again after going back to simulation?",
    "The Turn them on for real button is gone. How do I go live again?",
+   "How do I start sending again after going back to simulation?",
    "If I turn all my rules off, what happens to the prices already in my system?",
    "If I switch every rule off, does MAYA still send anything?",
    "Is there a pause button?",
@@ -6798,10 +6825,10 @@
   "slug": "tell-if-you-are-live",
   "order": 210,
   "title": "Tell whether you are live or in simulation",
-  "summary": "The dashboard has no live or simulation badge yet. The review page's go-live control tells you when it is showing, and so does the wording of the amber banner. Then compare one night in MAYA and in your property system, or email us and we check.",
-  "readingTime": 4,
+  "summary": "An amber strip across the top of every screen says when your property is simulating, and a small green Live tag says when it is live. The change log tags each simulated run, and says whether each live price was sent. To see a price in your system, compare one night in MAYA and there, or email us and we check.",
+  "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -6810,8 +6837,8 @@
   "headings": [
    {
     "depth": 2,
-    "text": "Two clues",
-    "id": "two-clues"
+    "text": "The clues",
+    "id": "the-clues"
    },
    {
     "depth": 2,
@@ -6823,7 +6850,7 @@
    "Am I in simulation or live? How can I tell?",
    "Is MAYA sending prices right now?",
    "Where does it say whether I am live?",
-   "Why is there no live or simulation badge?",
+   "Is there a live or simulation badge?",
    "How do I check that a price reached my property system?",
    "It says Sending to Mews now. Did a price reach Mews?"
   ],
@@ -7095,7 +7122,7 @@
   "summary": "For Cloudbeds, click Connect App in that property's Cloudbeds Marketplace and sign in to your existing MAYA account. Each property gets its own subscription, rules and team. For ThinkReservations or Mews, email us.",
   "readingTime": 5,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7124,7 +7151,6 @@
    "Will I be asked Hold My Hand or Let Me Drive again?",
    "Where is the review for my second property?",
    "How do I take my second property live?",
-   "Why is there no go-live button for my second property?",
    "Does my second property get starter rules?"
   ],
   "faq": []
@@ -7140,7 +7166,7 @@
   "summary": "Short answers to the four things owners ask when a price surprises them, with a link to the long answer for each, and a map of the rest of this section.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7196,7 +7222,7 @@
    },
    {
     "q": "Is it sending prices right now?",
-    "a": "MAYA sends prices only when you have gone live, and only for nights whose price changed since the last send. There is no \"sending\" light on the dashboard, and no badge that says live or simulation. The word live beside the time at the top right of the calendar (\"Updated 3:05:12 PM · live\") only means the calendar refreshes by itself. It shows in simulation too. Here is how to tell."
+    "a": "MAYA sends prices only when you have gone live, and only for nights whose price changed since the last send. There is no \"sending\" light on the dashboard. The word live beside the time at the top right of the calendar (\"Updated 3:05:12 PM · live\") only means the calendar refreshes by itself. It shows in simulation too. Here is how to tell."
    }
   ]
  },
@@ -7724,7 +7750,7 @@
   "summary": "What to check when you went live and nothing is sent, when MAYA shows a new price but Cloudbeds has the old one, why a non-refundable (derived) rate did not move, when a rate you changed in your system was written over, and what each \"Prices not reaching\" sentence asks you to do.",
   "readingTime": 13,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -7980,10 +8006,10 @@
   "slug": "calendar-and-log-questions",
   "order": 80,
   "title": "Calendar and change log questions",
-  "summary": "Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
+  "summary": "Why every day is amber or a busy night is red, which screens show your currency's sign, why ADR shows a dash on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8111,7 +8137,7 @@
    },
    {
     "q": "Why does the calendar show $ when my currency is euro?",
-    "a": "The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its Manual badge, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check Time zone and currency on the PMS tab, and email us to correct it."
+    "a": "The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its Manual badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check Time zone and currency on the PMS tab, and email us to correct it."
    },
    {
     "q": "Why does ADR show a dash when nothing is booked?",
@@ -8369,9 +8395,9 @@
   "order": 100,
   "title": "Messages you might see, explained",
   "summary": "Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.",
-  "readingTime": 62,
+  "readingTime": 64,
   "readingNote": "Type a few words of the message to jump to it",
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8392,6 +8418,11 @@
     "depth": 2,
     "text": "Connecting your property system",
     "id": "connecting-your-property-system"
+   },
+   {
+    "depth": 2,
+    "text": "The strip at the top",
+    "id": "the-strip-at-the-top"
    },
    {
     "depth": 2,
@@ -8478,7 +8509,9 @@
    "What does \"We don't recognize that code\" mean?",
    "The log says the rule was edited but nobody edited it",
    "What does \"X days will be affected by this rule\" mean?",
-   "What does \"This rule changed in another tab\" mean?"
+   "What does \"This rule changed in another tab\" mean?",
+   "What does \"Simulation · MAYA works out prices but sends nothing to Cloudbeds\" mean?",
+   "What does \"Nothing was sent to Cloudbeds\" in the change log mean?"
   ],
   "faq": []
  },
@@ -8493,7 +8526,7 @@
   "summary": "Every product word the docs use, in a few plain sentences each, with a link to the page that explains it fully. Words in bold with (screen) after them are labels you see in the app.",
   "readingTime": 23,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -8563,7 +8596,7 @@
   "summary": "Which day MAYA counts as today, the time zone it uses and whose clock each screen shows, what past day, week and month mean, waits and daylight saving, weekends, the 17 holidays, seasons, your currency and how prices are rounded, including currencies without cents, and how far ahead MAYA looks.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-28",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -8748,7 +8781,7 @@
   "summary": "Every limit in one list, grouped by rules, prices and sending, property systems, the calendar and change log, account and billing, and your data, each with what to do instead and the page that explains it.",
   "readingTime": 10,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",
@@ -9055,7 +9088,7 @@
   "summary": "Email info@modern-hospitality-solutions.com from the address you sign in with. We aim to answer within one business day. Name your property, and for a price add the night, the room type and the change log sentence.",
   "readingTime": 11,
   "readingNote": null,
-  "updated": "2026-09-29",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds",
    "thinkreservations",

@@ -1,10 +1,10 @@
 ---
 title: A tour of the app
-summary: One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.
+summary: One page with five tabs (Calendar, Rules, Rate Simulator, Change Log and PMS), a strip or tag at the very top saying whether you are simulating or live, Settings, Billing and Team top right, a Property dropdown, and banners above the tabs when something needs you.
 section: start
 order: 50
 readingTime: 11
-keywords: [tour, dashboard, tabs, Calendar tab, Rules tab, Rate Simulator, Change Log, PMS tab, Billing, Team, Sign Out, Property dropdown, banner, amber banner, red banner, where is, where do I find, layout, overview, screen, what am I looking at, first login, home screen, room types, rooms out of service, Counts as a room, day card, colour bar, legend, colour key, key, Settings, gear, ADR, ADR 150, banner still showing, wrong property banner, switched property, Mews keys, keys re-entered, am I live]
+keywords: [tour, dashboard, tabs, Calendar tab, Rules tab, Rate Simulator, Change Log, PMS tab, Billing, Team, Sign Out, Property dropdown, banner, amber banner, red banner, where is, where do I find, layout, overview, screen, what am I looking at, first login, home screen, room types, rooms out of service, Counts as a room, day card, colour bar, legend, colour key, key, Settings, gear, ADR, ADR 150, banner still showing, wrong property banner, switched property, Mews keys, keys re-entered, am I live, amber strip, simulation strip, live tag, go live button]
 questions:
   - What do I see when I first sign in to MAYA? {#in-plain-words}
   - What are the five tabs for? {#the-five-tabs}
@@ -16,15 +16,20 @@ questions:
   - Does the app remember which tab I was on? {#what-is-not-on-screen/the-tab-you}
   - What does the coloured bar on a calendar day mean? {#calendar/a-month-grid}
   - Do the banners change when I switch property? {#the-property-dropdown}
+  - What is the amber strip at the very top? {#simulation-or-live-at-the-top}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
-MAYA is one page with five tabs: <Ui>Calendar</Ui>, <Ui>Rules</Ui>, <Ui>Rate Simulator</Ui>, <Ui>Change Log</Ui> and <Ui>PMS</Ui>. A gear for <Ui>Settings</Ui>, and <Ui>Billing</Ui> and <Ui>Team</Ui>, are buttons at the top right. A <Ui>Property</Ui> dropdown sits to the right of the tabs. Banners above the tabs tell you when something needs you, and stay out of the way when nothing does.
+MAYA is one page with five tabs: <Ui>Calendar</Ui>, <Ui>Rules</Ui>, <Ui>Rate Simulator</Ui>, <Ui>Change Log</Ui> and <Ui>PMS</Ui>. At the very top, a slim amber strip says when your property is simulating, or a small green <Ui>Live</Ui> tag says it is live. A gear for <Ui>Settings</Ui>, and <Ui>Billing</Ui> and <Ui>Team</Ui>, are buttons at the top right. A <Ui>Property</Ui> dropdown sits to the right of the tabs. Banners above the tabs tell you when something needs you, and stay out of the way when nothing does.
 </InPlainWords>
 
 <AppTour />
+
+## Simulation or live, at the top
+
+Above everything else, on every tab and on the <Ui>Billing</Ui> and <Ui>Team</Ui> pages, sits the property's mode. While it simulates, a slim amber strip reads "Simulation · MAYA works out prices but sends nothing to Cloudbeds" (your system's name), with a <Ui>?</Ui> that says what that means. A General Manager or Hotel Admin also sees a green <Ui>Go live</Ui> button at its right, which opens the go-live confirm ([Going live](/docs/live/going-live)); anyone else finds who can switch it behind the <Ui>?</Ui>. Once the property is live the strip is gone, and a small green <Ui>Live</Ui> tag sits at the top right instead. The strip sits above the header and never covers it. [Simulation mode](/docs/live/simulation-mode#how-to-tell-which-mode-you-are-in) has the rest.
 
 ## The header
 
@@ -99,7 +104,6 @@ The connection lost banner shows from the moment the dashboard opens, whichever 
 
 ## What is not on screen
 
-- **A live or simulation badge.** There is none. After you save a price on the <Ui>Calendar</Ui>, the confirmation line says which state you are in: "Saved (simulation: not sent to Cloudbeds)." in simulation, "Saved. Sending to Cloudbeds now." (or "on the next cycle") once live. Do not type a price only to check, because on a live property it is sent. The amber rules banner says "would have raised" or "would have cut" in simulation, and [Tell if you are live or in simulation](/docs/recipes/tell-if-you-are-live) has every clue.
 - **The base price.** The calendar shows the current price for each room type and night, not the price the rules started from. The change log's sentences say what each change started from and what it became.
 - **Weekday headers on the calendar.** The grid has no row of day names. The weekday appears in the day detail heading when you click a day, and the grid runs Sunday to Saturday.
 - **Your currency, on some screens.** Some screens show $ whatever your currency. The numbers are yours. [Currency](/docs/reference/time-weekends-currency-and-holidays#currency) says which screens.

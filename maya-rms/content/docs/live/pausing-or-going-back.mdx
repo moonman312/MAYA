@@ -3,7 +3,7 @@ title: Pausing, or going back to simulation
 summary: How to pause MAYA without leaving (turn rules off), how to undo what a rule did (delete it), how to hold a price for a stretch, and how to get the whole property back into simulation (email us).
 section: live
 order: 50
-readingTime: 10
+readingTime: 11
 keywords: [pause, pause everything, stop, stop maya, turn off, switch off, disable, back to simulation, return to simulation, undo, revert, go back, delete rule, keep its changes, prices stay, closed for the winter, closed season, off season, seasonal closure, holiday closure, hold a price, freeze prices, stop sending, cancel, disconnect, what happens to my prices, nothing reverted, support switched me back]
 questions:
   - Can I go back to simulation? {#back-to-simulation/there-is-no}
@@ -16,7 +16,7 @@ questions:
   - Does turning a rule off undo what it did? {#turn-rules-off/every-rule-on}
   - Can I put my prices back to what they were? {#in-plain-words}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -71,11 +71,11 @@ There is no switch in MAYA to put a property back into simulation. Going live is
 
 What happens once we do:
 
-- **Sending stops on the next cycle.** Everything else carries on: bookings are read, rules run, the change log fills, the calendar shows what MAYA would send.
+- **Sending stops on the next cycle.** Everything else carries on: bookings are read, rules run, the change log fills, the calendar shows what MAYA would send. The amber simulation strip is back at the top of every screen, new runs in the change log are tagged <Ui>Simulation</Ui> and say what would have happened, and the runs from your live stretch keep saying whether each price was sent.
 - **The prices already in your system stay.** MAYA never sends a rate to undo an earlier one. If you want different rates, set them in your system, or wait until you are live again and type them in MAYA.
 - **On a night MAYA never sent to, a rate you change in your system becomes the base.** For example, a night that entered the window after we switched you back. MAYA reads your rate again within the hour (Cloudbeds and ThinkReservations) and uses it as the night's starting price. It is not kept as a manual price.
 - **On a night MAYA sent to while you were live, a rate you change in your system waits.** While you simulate, your rules keep working from the base that night already had. When you go live again, MAYA reads your rate as that night's base (next point).
-- **When you go live again**, from the button on the review screen if it is still there (otherwise email us and we switch you live again), MAYA reads your rates once more before its first send, and your rules work on top of them. A night whose rate you changed while simulating starts from that rate. A rate you changed in your system on a night MAYA had sent to, and that MAYA had already kept as a manual price ("Changed in Cloudbeds"), stays a manual price.
+- **When you go live again**, with <Ui>Go live</Ui> on the amber strip that is back at the top of the dashboard (or the button on the review screen, if it is there), MAYA reads your rates once more before its first send, and your rules work on top of them. A night whose rate you changed while simulating starts from that rate. A rate you changed in your system on a night MAYA had sent to, and that MAYA had already kept as a manual price ("Changed in Cloudbeds"), stays a manual price.
 - **Your rules, limits, history, manual prices and team are untouched.**
 
 [Simulation mode](/docs/live/simulation-mode) describes the state you go back to.

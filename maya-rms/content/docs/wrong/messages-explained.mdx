@@ -3,9 +3,9 @@ title: Messages you might see, explained
 summary: Every message, label and banner MAYA shows, grouped by where you see it, each with one line on what it means and what to do, and a link to the page that explains it.
 section: wrong
 order: 100
-readingTime: 62
+readingTime: 64
 readingNote: Type a few words of the message to jump to it
-keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the window didn't open, the days could not be checked, we weren't able to calculate, 0 prices will be affected, turn it on, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA]
+keywords: [message, error, what does this mean, rule was edited, started it fresh, nobody edited it, days will be affected, apply price adjustments, skip price adjustments, checking your calendar, the window didn't open, the days could not be checked, we weren't able to calculate, 0 prices will be affected, turn it on, bookings changed while this was open, rule changed in another tab, banner, warning, red text, amber, popup, dialog, label, button, it says, screen says, explained, glossary of messages, A to Z, find a message, sign-in link ran out, link ran out after 15 minutes, start again from MAYA, simulation strip, works out prices but sends nothing, go live, live tag, would have gone, nothing was sent, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, due to go out again, typed a price of, its simulated changes]
 questions:
   - What does this message mean? {#in-plain-words}
   - Where do I find out what an error on screen means? {#in-plain-words}
@@ -26,8 +26,10 @@ questions:
   - The log says the rule was edited but nobody edited it {#the-change-log/the-rule-was}
   - What does "X days will be affected by this rule" mean? {#rules-and-the-rule-builder/turn-on-busy}
   - What does "This rule changed in another tab" mean? {#rules-and-the-rule-builder/this-rule-changed}
+  - What does "Simulation · MAYA works out prices but sends nothing to Cloudbeds" mean? {#the-strip-at-the-top/simulation-maya-works}
+  - What does "Nothing was sent to Cloudbeds" in the change log mean? {#the-change-log/simulation-the-price}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -153,6 +155,20 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Reconnect this property from the Cloudbeds Marketplace."**: press <Ui>Connect App</Ui> there.
 - **"This property is already in MAYA, so nothing new was added."** (reconnecting it needs General Manager access or higher on it): you pressed <Ui>Connect App</Ui> in the Marketplace for a property someone connected from inside MAYA, while signed out of MAYA or without that role. Nothing changed. Sign in to MAYA as its General Manager or Hotel Admin and click <Ui>Reconnect Cloudbeds</Ui> on the <Ui>PMS</Ui> tab. [Reconnect and disconnect](/docs/connect/reconnect-and-disconnect)
 - **"Could not check whether this property is already in MAYA. Click Connect App again in a moment."**: under **"Cloudbeds connection failed"**. Nothing was added. Press <Ui>Connect App</Ui> again in a moment.
+
+</Group>
+
+
+## The strip at the top
+
+<Group>
+
+- **"Simulation · MAYA works out prices but sends nothing to Cloudbeds"**: the slim amber strip across the top of every screen while your property simulates. Your rules run and their prices show, and nothing is sent until a General Manager or Hotel Admin goes live. [Simulation mode](/docs/live/simulation-mode#how-to-tell-which-mode-you-are-in)
+- **"Go live"** at the strip's right: shown only to a General Manager or Hotel Admin. It opens the go-live confirm, the same one as the review screen's button. [Going live](/docs/live/going-live)
+- **"A General Manager or Hotel Admin can switch this property to live."** behind the strip's <Ui>?</Ui>: your role can't go live. Ask one of them.
+- **"Your rules run as they will live, and their prices show on the calendar and in the change log. Cloudbeds keeps its own rates."** and **"Go live starts sending on the next cycle, about 5 minutes later. To go back to simulation, email us."**: the strip's <Ui>?</Ui>, titled **"Simulation"**.
+- **"MAYA doesn't send prices to Mews yet, so there is nothing to switch on here."**: a Mews property's strip has no <Ui>Go live</Ui>. [Mews](/docs/connect/mews)
+- **"Live"**: the small green tag at the top right once the property is live. Hover it for **"MAYA sends its prices to Cloudbeds."** On a Mews property its <Ui>?</Ui> says **"MAYA doesn't send prices to Mews yet, so nothing goes to it, live or not."**
 
 </Group>
 
@@ -285,6 +301,7 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Booked 8/12"**, **"ADR $150.00"**, **"Current price $165.00"** (or "Current price" followed by a dash), **"Revenue $1,200.00"**: the room type card, with your property's currency sign. A dash means no price published for that night. [A price looks wrong](/docs/wrong/a-price-looks-wrong)
 - **"Manual · $180.00"**: a price someone typed. **"Changed in Cloudbeds · $180.00"**: a rate you changed in your system on a night MAYA had sent to. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
 - **"Rate removed in Cloudbeds, so MAYA isn't pricing this night"** with a <Ui>?</Ui>: your system no longer has a rate for a night MAYA had sent to, and your property keeps changes made there, so MAYA prices and sends nothing for it until your system has a rate again. Its <Ui>?</Ui> is **"A rate removed"**. [A rate removed in your system](/docs/watch/rates-changed-in-your-pms#a-rate-removed-in-your-system)
+- **"Or type a price here. A price you type is sent as it is."**, or **"Or type a price here. Once you go live, a price you type is sent as it is."** while simulating: the last line behind the <Ui>?</Ui> of **"No rate in Cloudbeds for this night yet"** and of a rate removed. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
 - **"through…"**: type one price for a range of nights. **"×"** goes back to one night.
 - **"Save"** and **"Clear"**: save the price; hand the night back to your rules.
 - **"Setting a price yourself"**: the help panel beside the price box, a short version of the page of the same name. [Setting a price yourself](/docs/watch/setting-a-price-yourself)
@@ -365,7 +382,9 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Pricing run · Fri, Sep 18, 2026, 3:05 PM PDT"** with **"(3 min ago)"**, **"(yesterday)"**: one run, in your browser's time zone.
 - **"Prices checked 47 times from Sep 24, 10:05 AM to 1:55 PM, nothing needed to change."** and **"Just before that, prices were checked 12 times ... and nothing needed to change."**: a stretch of runs that changed nothing, one line each, under **"Show All Cycles"**.
 - **"Couldn't load your price history."** with **"Try again"**: the log could not be fetched.
-- **"Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)"**: the bold line of one change.
+- **"Standard · stay 2026-11-14: $150.00 up to $165.00 (+10%)"**: the bold line of one change, in your property's currency.
+- **"Simulation"** beside a run's time, and **"Simulation: the price for Fri Nov 13, Standard would have gone from $150.00 to $165.00."** (or **"would have been $180.00."**) as a change's bold line: a run made while your property was simulating. Nothing in it was sent, and it stays labelled after you go live. Its sentences say **"would have raised"**, **"would have lowered"**, **"would have come off"**, **"so it would have stopped there"**, **"That would have taken this night from $165.00 to $150.00."** and **"The price would have moved from $150.00 to $160.00."** [Runs made in simulation](/docs/watch/the-change-log#runs-made-in-simulation)
+- **"Nothing was sent to Cloudbeds."** under a bold line: a simulated change. **"Sent to Cloudbeds."**: a live price that went. **"Waiting to be sent to Cloudbeds."**: not sent yet. **"Couldn't be sent to Cloudbeds."**: MAYA stopped trying. **"Held back, not sent to Cloudbeds."**: held back on purpose, or no rate in your system to send to. **"Nothing was sent to Mews. MAYA doesn't send prices there yet."**: a live Mews property. An older change has no such line. [Where the price went](/docs/watch/the-change-log#where-the-price-went)
 - **""Busy nights" raised this night 10%, from $150.00 to $165.00."** and **""Last minute" lowered this night 15%, from ... to ..."**: a rule acted.
 - **"Then "Hot-week surge" raised it 25%, from $165.00 to $206.25."**: a second rule on top. **"Then "Slow-date trim" lowered it another 7%"**: the same rule again after its wait.
 - **"It was 82% full, past the 70% mark you set."**, **"under the 40% mark you set"**, **"It had 5 days to go, past the 7-day mark you set."**, **"beyond the 21-day mark you set"**, **"It was 95% full with 17 days to go, past the 90% and 21-day marks you set."**: why an occupancy or booking window rule acted. Fewer days than the mark reads as "past".
@@ -380,12 +399,12 @@ Type a few words of the message into the box below to jump to it. Every message 
 - **"Cancellations meant "Warm-date bump" was no longer true, so its 10% raise came off."**: guests cancelled and the rule's undo box is ticked. The numbers follow: **"Of the 9 bookings it counted, 4 are still booked, where nights like it usually get about 5, and the rule needs a booking speed of at least faster than normal."**, **"The pickup it counted was down to 4 room nights, and the rule needs more than 4 room nights."** or **"Sellable occupancy had fallen to 75%, and the rule needs more than 80%."** [When a change comes off](/docs/rules/when-a-change-comes-off)
 - **""Warm-date bump" stopped applying an earlier 10% raise here: this night's price was set by hand."** and **"...: this night no longer met its conditions."**: a change came off for that reason. **"That took this night from $165.00 to $150.00."**: the night went back to its starting point. **"The price set by hand was cleared."** and **"The base rate for this night changed from $150.00 to $160.00."**: the same, with no rule on the night.
 - **"the rule was edited, so MAYA started it fresh"**: someone edited the booking speed or pickup rule and chose <Ui>Apply price adjustments</Ui>, so its earlier changes came off and it read the night again. The change log does not say who. [Change a rule](/docs/recipes/change-a-rule)
-- **"Sam set the base rate to $180.00."** under the label **"Manual price"**: a typed price. **"The base rate was changed in Cloudbeds to $180.00."** under **"Changed in Cloudbeds"**: a rate you changed in your system on a sent night. **"A manager"**: the name is not on file. **"MAYA support set the base rate to $180.00."**: a price our staff typed for you.
-- **"Changed in Cloudbeds · Fri, Sep 18, 2026, 3:05 PM PDT"** with **"Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again."** (or **"the rate was removed in Cloudbeds"**): your setting is <Ui>MAYA's price wins</Ui>, so MAYA sent its own price again over a rate changed in your system. **"And 12 more nights where MAYA sent its price again over a rate changed in Cloudbeds."**: the ones not listed. [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins)
+- **"Sam set the base rate to $180.00."** under the label **"Manual price"**: a typed price. **"Sam typed a price of $180.00."**: a price typed while simulating. **"The base rate was changed in Cloudbeds to $180.00."** under **"Changed in Cloudbeds"**: a rate you changed in your system on a sent night. **"A manager"**: the name is not on file. **"MAYA support set the base rate to $180.00."**: a price our staff typed for you.
+- **"Changed in Cloudbeds · Fri, Sep 18, 2026, 3:05 PM PDT"** with **"Fri, Nov 13, Standard: changed in Cloudbeds to $175.00. MAYA sent its price, $165.00, again."** (or **"the rate was removed in Cloudbeds"**): your setting is <Ui>MAYA's price wins</Ui>, so MAYA sent its own price again over a rate changed in your system, as its record of sends shows. Until then it reads **"MAYA's price, $165.00, is waiting to be sent again."**; if MAYA stopped trying, **"couldn't be sent again."**; held back, **"was held back, not sent."**; and **"was due to go out again."** once a later price or change has replaced it. **"And 12 more times MAYA's price was due to go out again over a rate changed in Cloudbeds."**: the ones not listed. [When MAYA's price wins](/docs/watch/rates-changed-in-your-pms#when-mayas-price-wins)
 - **"Something other than MAYA seems to be changing rates in Cloudbeds: 34 rates changed in the last 7 days on nights MAYA had sent a price to."** with **"Open the setting"**: many rates in your system changed like another pricing tool's work, and your property keeps them as its prices. The button opens Settings at your system's section. [When something else seems to change your rates](/docs/watch/rates-changed-in-your-pms#when-something-else-seems-to-change-your-rates)
 - **"Changed by MAYA support · Fri, Sep 18, 2026, 3:05 PM PDT"** with one line under it, such as **"Changed by MAYA support: Took pricing live."**: a change our staff made to your property for you, in a support mode that records every change. [The change log](/docs/watch/the-change-log#changes-by-maya-support)
 - **"Pricing rule"** and **"A rule"**: a rule that has since been deleted.
-- **"Your answer · Fri, Sep 18, 2026, 3:05 PM PDT"**, or **"MAYA support's answer"** when our staff answered for you: an answer to the amber banner, with one line under it. Stopping a rule: **"Priya stopped "Hot-week surge" on 4 nights. What it already changed stays, unless cancellations mean the rule is no longer true."** With its undo box unticked: **"Priya stopped "Slow-date rescue" on 4 nights. What it already changed stays."** Carrying on: **"Priya told "Slow-date rescue" to carry on with 4 nights."** Letting it run again: **"Priya let "Slow-date rescue" run again on 4 nights. It can start adjusting again from the next pricing run."** [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
+- **"Your answer · Fri, Sep 18, 2026, 3:05 PM PDT"**, or **"MAYA support's answer"** when our staff answered for you: an answer to the amber banner, with one line under it. Stopping a rule: **"Priya stopped "Hot-week surge" on 4 nights. What it already changed stays, unless cancellations mean the rule is no longer true."** With its undo box unticked: **"Priya stopped "Slow-date rescue" on 4 nights. What it already changed stays."** Answered while simulating: **"Its simulated changes so far stay, ..."** in place of "What it already changed stays". Carrying on: **"Priya told "Slow-date rescue" to carry on with 4 nights."** Letting it run again: **"Priya let "Slow-date rescue" run again on 4 nights. It can start adjusting again from the next pricing run."** [Rules that keep adjusting](/docs/rules/rules-that-keep-adjusting)
 
 </Group>
 

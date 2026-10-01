@@ -1,6 +1,6 @@
 ---
 title: Calendar and change log questions
-summary: Why every day is amber or a busy night is red, why the change log's bold lines show $ for a euro property, why ADR shows a dash on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
+summary: Why every day is amber or a busy night is red, which screens show your currency's sign, why ADR shows a dash on an empty night, why the log is empty or full of "Prices checked", why an older change disappeared, and other things the two tabs do that look odd.
 section: wrong
 order: 80
 readingTime: 10
@@ -25,7 +25,7 @@ questions:
   - The alert banner is out of date {#the-alert-banner-is-out-of-date}
   - Switching property did nothing {#switching-property-did-nothing}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -46,12 +46,12 @@ The booked counts and revenue on the visible month are always fresh, but the ran
 
 ## Why does the calendar show $ when my currency is euro?
 
-The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its <Ui>Manual</Ui> badge, the Rate Simulator, the sentences under each change, the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
+The calendar shows the sign of the currency saved for your property: $ for US dollars, € for euros, £ for pounds, and the three-letter code in front of the amount for any other currency. So do the manual price box and its <Ui>Manual</Ui> badge, the Rate Simulator, the change log (each change's bold line and the sentences under it), the amber alert banner and the manual price error messages. If the calendar shows $ and your property is in euros, MAYA has US dollars saved for it. That is what a property gets when its currency was not read from its system when it connected. Check <Ui>Time zone and currency</Ui> on the <Ui>PMS</Ui> tab, and [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency) to correct it.
 
-In the change log, one line shows $ whatever your currency: the bold line of each change. So a property in euros sees "$150.00 up to $165.00" in a change's bold line and "€150.00" in the sentence under it, for the same price. The numbers are in your own currency. Only that symbol is off. Your currency comes from your property system when you connect and cannot be changed in the app.
+Two places still show $ whatever your currency: the <Ui>Price Change</Ui> column on the <Ui>Rules</Ui> tab and the rule builder's fixed amount box. The numbers there are in your own currency. Only that symbol is off. Your currency comes from your property system when you connect and cannot be changed in the app.
 
 <Callout kind="not-yet">
-The change log's bold lines cannot show your currency's symbol yet, and the currency cannot be changed on a screen. If MAYA has the wrong currency for your property, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
+The currency cannot be changed on a screen. If MAYA has the wrong currency for your property, [email us](mailto:info@modern-hospitality-solutions.com?subject=Currency).
 </Callout>
 
 ## Why does ADR show a dash when nothing is booked?

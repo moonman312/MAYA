@@ -13,7 +13,7 @@ questions:
   - How do I put a price back to what it was? {#can-i-undo-that/type-the-price}
   - Why is MAYA quiet? {#why-did-nothing-change-today/most-pricing-runs}
 pms: [cloudbeds, thinkreservations, mews]
-updated: 2026-09-29
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -78,8 +78,10 @@ Read [Undo a price change](/docs/recipes/undo-a-price-change) for the steps, and
 
 ## Is it sending prices right now?
 
-MAYA sends prices only when you have gone live, and only for nights whose price changed since the last send. There is no "sending" light on the dashboard, and no badge that says live or simulation. The word live beside the time at the top right of the calendar ("Updated 3:05:12 PM · live") only means the calendar refreshes by itself. It shows in simulation too. Here is how to tell.
+MAYA sends prices only when you have gone live, and only for nights whose price changed since the last send. There is no "sending" light on the dashboard. The word live beside the time at the top right of the calendar ("Updated 3:05:12 PM · live") only means the calendar refreshes by itself. It shows in simulation too. Here is how to tell.
 
+- **The top of the screen.** A slim amber strip reading "Simulation · MAYA works out prices but sends nothing to Cloudbeds" means nothing is being sent. A small green <Ui>Live</Ui> tag at the very top right means you are live.
+- **The change log.** A live change says "Sent to Cloudbeds." once its price went, or "Waiting to be sent to Cloudbeds." until it does. A run made in simulation is tagged <Ui>Simulation</Ui> and says "Nothing was sent to Cloudbeds."
 - **The go-live card.** Open the review screen at <AppLink to="review">maya-rms.com/onboarding/review</AppLink>. The card headed "While you were here, we built your first pricing rules" shows "✓ Live: your rules are now managing prices" once you are live, and the button <Ui>Turn them on for real</Ui> while you are simulating. The card appears only when MAYA built starter rules for you during setup, which needs about 60 days of history, and it stays after someone clicks <Ui>Get suggestions from my data</Ui>. Without it, read [Going live](/docs/live/going-live).
 - **A price you typed.** If you typed a price for a real reason lately, its confirmation read "Saved. Sending to Cloudbeds now." on a live property and "Saved (simulation: not sent to Cloudbeds)." while simulating. Do not type a price only to test this: on a live property it sends the price, and it takes any booking speed or pickup change off that night for good.
 - **The alert banner.** In simulation the amber banner says a rule "would have 3 raises" on a night. Live, it says "has 3 raises".
