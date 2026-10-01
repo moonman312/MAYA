@@ -19,7 +19,8 @@ describe("refuseWithoutCronSecret", () => {
   it("refuses every request with 503 when the secret is not set, header or not, and logs it", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     for (const secret of [undefined, ""]) {
-      for (const headers of [{}, { "x-cloudbeds-cron-secret": "" }, { "x-cloudbeds-cron-secret": "anything" }]) {
+      const variants: Record<string, string>[] = [{}, { "x-cloudbeds-cron-secret": "" }, { "x-cloudbeds-cron-secret": "anything" }];
+      for (const headers of variants) {
         const res = await refuseWithoutCronSecret(req(headers), { ...CHECK, secret });
         expect(res?.status).toBe(503);
         const body = await res!.json();
@@ -32,7 +33,8 @@ describe("refuseWithoutCronSecret", () => {
   });
 
   it("refuses a missing or wrong header with 401", async () => {
-    for (const headers of [{}, { "x-cloudbeds-cron-secret": "wrong" }, { "x-cloudbeds-cron-secret": "s3cret-but-longer" }, { "x-other": "s3cret" }]) {
+    const variants: Record<string, string>[] = [{}, { "x-cloudbeds-cron-secret": "wrong" }, { "x-cloudbeds-cron-secret": "s3cret-but-longer" }, { "x-other": "s3cret" }];
+    for (const headers of variants) {
       const res = await refuseWithoutCronSecret(req(headers), { ...CHECK, secret: "s3cret" });
       expect(res?.status).toBe(401);
       expect((await res!.json()).error).toBe("Invalid or missing x-cloudbeds-cron-secret.");

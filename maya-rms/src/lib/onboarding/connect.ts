@@ -6,10 +6,11 @@ import { isStripeConfigured } from "@/lib/billing/stripe";
 import { resolveOnboardingStep } from "@/lib/onboarding/step";
 import { MAYA_ACTIVE_HOTEL_COOKIE } from "@/lib/hotel-context";
 import { createOnboardingAdapter } from "@/lib/pms/onboarding-adapter";
+import { propertyBelongsElsewhere } from "@/lib/pms/stored-property";
+import { requireRegistry, type PmsType } from "@/lib/pms/registry";
 import { currencyRefusalFor, recordCurrencyRefused } from "@/lib/onboarding/currency-gate";
 import { currencyCode } from "../../../supabase/functions/_shared/pms/currencies";
 import { isAmbiguousGroupGrant } from "../../../supabase/functions/_shared/pms/errors";
-import type { PmsType } from "@/lib/pms/registry";
 import type { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
@@ -123,6 +124,49 @@ export async function handleOnboardingConnect(
     });
     const payment = paid ? " Reply to your receipt and we'll sort out your payment." : "";
     return onboardingError(`${refusal}${payment}`, { retry: false });
+  }
+
+  // A property that is already a MAYA hotel's is never made a second one: both
+  // would read its bookings, both send prices to its rates, each would take
+  // the other's prices for the hotel's own changes, and the property would be
+  // billed twice. The Marketplace and a reconnect check the same thing
+  // (marketplace-connect.ts, oauth-flow.ts). Stopped before anything is
+  // stored, like the currency: the placeholder stays as checkout left it.
+  const propertyId = profile.externalPropertyId ? String(profile.externalPropertyId) : null;
+  if (propertyId) {
+    let elsewhere;
+    try {
+      elsewhere = await propertyBelongsElsewhere(admin, pendingHotelId, pmsType, [propertyId]);
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          fn: "handleOnboardingConnect",
+          step: "property_elsewhere",
+          hotel: pendingHotelId,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      return onboardingError("We couldn't check this property just now. Try connecting again in a moment.");
+    }
+    if (elsewhere) {
+      // Named for support only: the person is told the property is in MAYA.
+      console.error(
+        JSON.stringify({
+          fn: "handleOnboardingConnect",
+          step: "property_elsewhere",
+          hotel: pendingHotelId,
+          userId: user.id,
+          propertyId: elsewhere.propertyId,
+          blockingHotelId: elsewhere.hotelId,
+          blockingHotelName: elsewhere.name,
+          blockingVia: elsewhere.via,
+          blockingConnectionStatus: elsewhere.connectionStatus,
+          refused: true,
+        }),
+      );
+      const paid = Boolean(pendingHotelId) && isStripeConfigured();
+      return onboardingError(alreadyInMayaAtSignup(pmsType, paid), { retry: false });
+    }
   }
 
   // Creating a hotel outright is only ever right when there was no payment to
@@ -346,6 +390,16 @@ function kickImportWorker(): void {
   }).catch(() => {
     // Cron picks the job up within a minute.
   });
+}
+
+/** What someone signing up is told when the property they connected is already a MAYA hotel's. */
+export function alreadyInMayaAtSignup(pmsType: PmsType, paid: boolean): string {
+  const name = requireRegistry(pmsType).displayName;
+  return (
+    `This ${name} property is already in MAYA, so nothing new was added. ` +
+    `Ask its General Manager to invite you, or email us.` +
+    (paid ? " Reply to your receipt and we'll sort out your payment." : "")
+  );
 }
 
 /**

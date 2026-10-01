@@ -15,6 +15,10 @@ const state = vi.hoisted(() => ({
   currency: "USD" as string | null,
   writes: [] as string[],
   rpcs: [] as Array<{ fn: string; args: Record<string, unknown> }>,
+  elsewhere: null as null | { propertyId: string; hotelId: string; name: string | null; via: string; connectionStatus: string | null },
+  elsewhereThrows: null as Error | null,
+  elsewhereAsked: [] as Array<{ hotelId: string | null; pmsType: string; propertyIds: string[] }>,
+  stripe: true,
 }));
 
 vi.mock("@/utils/supabase/server", () => ({
@@ -25,7 +29,14 @@ vi.mock("@/utils/supabase/server", () => ({
 vi.mock("@/utils/supabase/admin", () => ({ createAdminClient: () => fakeAdmin() }));
 vi.mock("@/lib/onboarding/step", () => ({ resolveOnboardingStep: async () => "connect" }));
 vi.mock("@/lib/billing/pending-hotel", () => ({ findPendingHotelForUser: async () => "hotel-1" }));
-vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => true }));
+vi.mock("@/lib/billing/stripe", () => ({ isStripeConfigured: () => state.stripe }));
+vi.mock("@/lib/pms/stored-property", () => ({
+  propertyBelongsElsewhere: async (_admin: unknown, hotelId: string | null, pmsType: string, propertyIds: string[]) => {
+    state.elsewhereAsked.push({ hotelId, pmsType, propertyIds });
+    if (state.elsewhereThrows) throw state.elsewhereThrows;
+    return state.elsewhere;
+  },
+}));
 vi.mock("@/lib/hotel-context", () => ({ MAYA_ACTIVE_HOTEL_COOKIE: "maya_active_hotel" }));
 vi.mock("@/lib/pms/onboarding-adapter", () => ({
   createOnboardingAdapter: async () => ({
@@ -109,6 +120,10 @@ beforeEach(() => {
   state.currency = "USD";
   state.writes = [];
   state.rpcs = [];
+  state.elsewhere = null;
+  state.elsewhereThrows = null;
+  state.elsewhereAsked = [];
+  state.stripe = true;
   errors = vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -210,5 +225,52 @@ describe("when every step lands", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("https://app.example/onboarding");
     expect(errors).not.toHaveBeenCalled();
+  });
+});
+
+describe("a property that is already in MAYA (audit A23)", () => {
+  it("asks about the property it discovered, for the hotel checkout made, before anything is stored", async () => {
+    process.env.MAYA_INVITE_REDIRECT_BASE = "https://app.example";
+    const res = await connect();
+    expect(res.status).toBe(302);
+    expect(state.elsewhereAsked).toEqual([{ hotelId: "hotel-1", pmsType: "mews", propertyIds: ["prop-1"] }]);
+  });
+
+  it("is refused with the invitation wording, nothing written, and support told which hotel holds it", async () => {
+    state.elsewhere = { propertyId: "prop-1", hotelId: "hotel-9", name: "Harbour Inn", via: "credential", connectionStatus: "connected" };
+    const res = await connect();
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("This Mews property is already in MAYA, so nothing new was added.");
+    expect(body).toContain("Ask its General Manager to invite you, or email us.");
+    expect(body).toContain("Reply to your receipt and we'll sort out your payment.");
+    expect(body).not.toContain("Try again");
+    expect(body).not.toContain("—");
+    // The other hotel is named for support only.
+    expect(body).not.toContain("Harbour Inn");
+    expect(state.writes).toEqual([]);
+    expect(state.rpcs).toEqual([]);
+    const log = errors.mock.calls.flat().join("\n");
+    expect(log).toContain('"blockingHotelId":"hotel-9"');
+    expect(log).toContain('"refused":true');
+  });
+
+  it("says nothing about payment on an install that takes none", async () => {
+    state.stripe = false;
+    state.elsewhere = { propertyId: "prop-1", hotelId: "hotel-9", name: null, via: "marketplace", connectionStatus: null };
+    const body = await (await connect()).text();
+    expect(body).toContain("already in MAYA");
+    expect(body).not.toContain("payment");
+  });
+
+  it("stops with a retry when the check itself cannot be made, never taking an outage for 'not in MAYA'", async () => {
+    state.elsewhereThrows = new Error("pms_secret_get: permission denied for function");
+    const res = await connect();
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain("We couldn't check this property just now.");
+    expect(body).toContain("Try again");
+    expect(body).not.toContain("permission denied");
+    expect(state.writes).toEqual([]);
   });
 });
