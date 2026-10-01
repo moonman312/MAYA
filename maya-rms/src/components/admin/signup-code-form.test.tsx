@@ -12,7 +12,7 @@ afterEach(() => {
 
 /** Opens the form, types a code, ticks the box if asked, creates it; returns what was sent and the page. */
 async function create(tick: boolean, answer: Record<string, unknown>) {
-  const fetchSpy = vi.fn(async (_url: string, _init: RequestInit) => ({ ok: true, json: async () => answer }) as Response);
+  const fetchSpy = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () => ({ ok: true, json: async () => answer }) as Response);
   vi.stubGlobal("fetch", fetchSpy);
   const view = render(<SignupCodeForm />);
   fireEvent.click(view.getByRole("button", { name: "+ New code" }));
