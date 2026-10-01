@@ -444,6 +444,35 @@ describe("price limits as floors and ceilings", () => {
   });
 });
 
+describe("the review's words", () => {
+  it("say the edge, not the bottom, and call PIE's numbers rates", () => {
+    expect(PIE_COPY.cutOff).toBe("Cut off at the edge of the screenshot. Add a screenshot that shows it whole, or finish it in the rule builder.");
+    expect(PIE_COPY.manual).toBe("Manual in PIE, so it only suggested rates. In MAYA it changes prices (nothing is sent while your property is in simulation).");
+    expect(PIE_COPY.mixed).toBe("With a % rule on the same night the price can differ a little from PIE's rate, as PIE applies them in the order they were triggered.");
+    const all = [
+      ...Object.values(PIE_COPY).filter((v): v is string => typeof v === "string"),
+      PIE_COPY.orEqual("more", "59.99"),
+      PIE_COPY.split(60, true),
+      PIE_COPY.scopeUnmatched(["Yurt"]),
+      PIE_COPY.rulesUnread(2),
+      PIE_COPY.missing(9, 7),
+    ];
+    for (const text of all) expect(text).not.toMatch(/—/);
+  });
+
+  it("show a cut row as far as it reads: to the last whole part at the bottom, from part way at the top", () => {
+    expect(shownDescription("Raise rate by 4.00 % when occupancy is greater than 77.00 % and", "bottom")).toBe(
+      "Raise rate by 4.00 % when occupancy is greater than 77.00 % …",
+    );
+    // Never cut short at an earlier "% and".
+    expect(shownDescription("Raise rate by 10.00 % and more when occupancy is greater than 31.00 % and when", "bottom")).toBe(
+      "Raise rate by 10.00 % and more when occupancy is greater than 31.00 % …",
+    );
+    expect(shownDescription("and when booking 12-400 days in advance", "top")).toBe("… and when booking 12-400 days in advance");
+    expect(shownDescription("Raise rate by 5.00 %", null)).toBe("Raise rate by 5.00 %");
+  });
+});
+
 describe("price limits to check first", () => {
   it("leaves a pair unticked when it may be misread, or is out of line with the table or what the room type has", () => {
     const rooms: MayaRoomType[] = [
