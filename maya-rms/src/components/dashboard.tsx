@@ -1087,14 +1087,18 @@ export function Dashboard({
     if (arrival?.dest === "settings.pms") openPmsSetting();
   }, [arrival, openPmsSetting]);
 
-  // A link to one change that has since left the list says so.
+  // A link to one change not in the pages shown says so: further down while
+  // Older has more, gone once it doesn't; found after paging back, it stops saying so.
+  const changelogOlder = changelogPages.older;
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
     const run = arrival.params.run;
     if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isPmsChange(c) && !isModeSwitch(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
-      setArrivalNote("entry-gone");
+      setArrivalNote(changelogOlder != null ? "entry-older" : "entry-gone");
+    } else {
+      setArrivalNote((n) => (n === "entry-older" ? null : n));
     }
-  }, [arrival, changelog]);
+  }, [arrival, changelog, changelogOlder]);
 
   const linkedDrilldown = (runId: string | undefined, stayDate: string | undefined, roomTypeId: string | undefined) =>
     arrival?.dest === "changelog.entry" &&

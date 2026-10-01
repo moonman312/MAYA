@@ -249,4 +249,41 @@ describe("in the dashboard", () => {
     expect(screen.getByText("Nothing older. History is kept for 90 days.")).toBeTruthy();
     await waitFor(() => expect(screen.queryByText(/Couldn't load/)).toBeNull());
   });
+
+  it("says a linked change is further down while Older has more, and stops saying it once found", async () => {
+    const older = "2026-09-20T10:00:00.123456+00:00";
+    const withRun = (n: number, at: string) => {
+      const r = run(n, at);
+      return { ...r, changes: r.changes.map((c) => ({ ...c, evaluation_run_id: `00000000-0000-4000-8000-00000000000${n}` })) };
+    };
+    stubDashboard((url) => {
+      if (url === "/api/changelog") return json([withRun(2, "2026-09-30T10:00:00Z")], 200, { [CHANGELOG_OLDER_HEADER]: older });
+      if (url === `/api/changelog?older=${encodeURIComponent(older)}`) return json([withRun(1, "2026-09-20T10:00:00Z")]);
+      if (url === "/api/rules") return json([]);
+      if (url === "/api/rules/fire-counts") return json({});
+      return null;
+    });
+    window.history.replaceState(null, "", "/?tab=changelog&dl=changelog.entry&run=00000000-0000-4000-8000-000000000001");
+    await act(async () => {
+      render(<Dashboard initialSearch={window.location.search} />);
+    });
+    expect(await screen.findByText("That change is further down. Click Older to find it.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Older" }));
+    expect(await screen.findByText("Run 1 headline")).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("That change is further down. Click Older to find it.")).toBeNull());
+  });
+
+  it("says a linked change is gone once there is nothing older", async () => {
+    stubDashboard((url) => {
+      if (url === "/api/changelog") return json([run(2, "2026-09-30T10:00:00Z")]);
+      if (url === "/api/rules") return json([]);
+      if (url === "/api/rules/fire-counts") return json({});
+      return null;
+    });
+    window.history.replaceState(null, "", "/?tab=changelog&dl=changelog.entry&run=00000000-0000-4000-8000-000000000009");
+    await act(async () => {
+      render(<Dashboard initialSearch={window.location.search} />);
+    });
+    expect(await screen.findByText("That change is no longer in the change log. History is kept for 90 days.")).toBeTruthy();
+  });
 });

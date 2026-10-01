@@ -76,6 +76,8 @@ const MAX_PRICE = 99_999_999.99;
  * and trying to read (claim_pms_sync_batch skips only Disconnected and
  * Pending); the first read that works turns it Connected and that same tick
  * sends the price. No nudge: a read is what it is waiting for.
+ * "pms_not_sent": live, on a property system MAYA doesn't send prices to
+ * (Mews): nothing is sent, and no send is asked for.
  * "saved": the hotel's mode or its connection could not be read just now, so
  * the line promises nothing about sending.
  */
@@ -88,6 +90,7 @@ type Pushed =
   | "billing_paused"
   | "reconnect"
   | "connection_error"
+  | "pms_not_sent"
   | "saved";
 
 /**
@@ -239,18 +242,23 @@ async function stoppedSubscription(admin: SupabaseClient, hotelId: string): Prom
  * Disconnected (the syncs never claim it, so the price waits for a
  * reconnect), false otherwise. A working connection beside a stale one
  * decides it, as it does for the nudge (hotelPmsType); Pending, or no
- * connection, is not down. Null when the connections could not be read:
- * nobody can say.
+ * connection, is not down. "no_push" when every connection is to a system
+ * MAYA doesn't send prices to (Mews): nothing goes out, up or down. Null
+ * when the connections could not be read: nobody can say.
  */
-async function connectionDown(admin: SupabaseClient, hotelId: string): Promise<"disconnected" | "error" | false | null> {
+async function connectionDown(
+  admin: SupabaseClient,
+  hotelId: string,
+): Promise<"disconnected" | "error" | "no_push" | false | null> {
   const { data, error } = await admin.from("pms_connections").select("pms_type, status").eq("hotel_id", hotelId);
   if (error) return null;
   const rows = ((data ?? []) as { pms_type?: unknown; status?: unknown }[]).map((r) => ({
     pms: String(r.pms_type),
     status: String(r.status),
   }));
-  if (rows.some((r) => r.status === "connected" || r.status === "degraded")) return false;
   const sending = rows.filter((r) => SENDS_PRICES.has(r.pms));
+  if (rows.length > 0 && sending.length === 0) return "no_push";
+  if (rows.some((r) => r.status === "connected" || r.status === "degraded")) return false;
   if (sending.some((r) => r.status === "error")) return "error";
   return sending.some((r) => r.status === "disconnected") ? "disconnected" : false;
 }
@@ -295,6 +303,8 @@ async function pushFor(
   // Same reading as the push gate itself: no settings row is not Live.
   if (settings?.simulation_mode !== false) return { pushed: "simulation" };
   if (down === null) return { pushed: "saved" };
+  // A system MAYA doesn't send prices to: nothing goes out, so nothing is promised or asked for.
+  if (down === "no_push") return { pushed: "pms_not_sent" };
   // On Error the syncs are already trying to read; the read that works
   // sends the price on that tick, so a nudge would only add a call to a
   // system that is not answering. Disconnected is never claimed at all.
@@ -392,7 +402,10 @@ export async function POST(req: Request) {
     // A 0 never goes out, connected or not; only a hotel where nothing goes
     // out at all says so its own way.
     const pushed: Pushed =
-      price === 0 && republished.pushed !== "simulation" && republished.pushed !== "billing_paused"
+      price === 0 &&
+      republished.pushed !== "simulation" &&
+      republished.pushed !== "billing_paused" &&
+      republished.pushed !== "pms_not_sent"
         ? "zero_not_sent"
         : republished.pushed;
 

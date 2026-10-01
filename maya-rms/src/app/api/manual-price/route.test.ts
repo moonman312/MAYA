@@ -538,11 +538,11 @@ describe("POST /api/manual-price — pushed", () => {
     expect(headers["x-cloudbeds-cron-secret"]).toBeUndefined();
   });
 
-  it("next_cycle for a hotel with no connection, or a PMS with no nudge", async () => {
+  it("next_cycle for a hotel with no connection; a PMS MAYA sends nothing to is not sent at all", async () => {
     state.fake = seed({ pms_connections: [] });
     expect((await (await post()).json()).pushed).toBe("next_cycle");
     state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "opera", status: "connected" }] });
-    expect((await (await post()).json()).pushed).toBe("next_cycle");
+    expect((await (await post()).json()).pushed).toBe("pms_not_sent");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -650,9 +650,20 @@ describe("POST /api/manual-price — pushed", () => {
     expect(evaluateHotel).toHaveBeenCalled();
   });
 
-  it("leaves a Mews property's line as it was: nothing is sent to Mews either way", async () => {
-    state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "error" }] });
-    expect((await (await post()).json()).pushed).toBe("next_cycle");
+  it("says nothing is sent on a live Mews property, and asks for no send", async () => {
+    for (const status of ["connected", "error", "disconnected"]) {
+      state.fake = seed({ pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status }] });
+      expect((await (await post()).json()).pushed, status).toBe("pms_not_sent");
+      // A 0 isn't sent to Mews either, so it gets the same line, not "set it there yourself".
+      expect((await (await post({ ...GOOD, price: 0 })).json()).pushed, status).toBe("pms_not_sent");
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+    // Still simulating: simulation says so first.
+    state.fake = seed({
+      hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }],
+      pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "connected" }],
+    });
+    expect((await (await post()).json()).pushed).toBe("simulation");
   });
 
   it("a comp night's 0 on a down connection still says to set it in the PMS", async () => {

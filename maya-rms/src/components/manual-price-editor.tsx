@@ -33,6 +33,7 @@ type Pushed =
   | "billing_paused"
   | "reconnect"
   | "connection_error"
+  | "pms_not_sent"
   | "saved";
 
 /** What /api/manual-price/send-status says about the night (lib/pms/send-status.ts). */
@@ -148,6 +149,8 @@ function pushedCopy(
       return "Saved. It will be sent once you reconnect.";
     case "connection_error":
       return `Saved. ${pmsName} isn't answering MAYA right now. MAYA keeps trying to reach it and sends this price as soon as it answers.`;
+    case "pms_not_sent":
+      return `Saved. MAYA doesn't send prices to ${pmsName} yet.`;
     case "saved":
     default:
       return "Saved.";

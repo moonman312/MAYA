@@ -25,6 +25,10 @@ describe("describeSave", () => {
     expect(
       describeSave({ pushed: "simulation", suppressedRules: 0, retiredPickups: 0 }, "Think Reservations"),
     ).toBe("Saved (simulation: not sent to Think Reservations).");
+    // Live on Mews: never "Sending to Mews now".
+    expect(describeSave({ pushed: "pms_not_sent", suppressedRules: 0, retiredPickups: 0 }, "Mews")).toBe(
+      "Saved. MAYA doesn't send prices to Mews yet.",
+    );
     expect(describeSave({ pushed: "beyond_window", suppressedRules: 0, retiredPickups: 0 }, "Mews")).toBe(
       "Saved. It will be sent when the date enters the 60-day push window.",
     );
