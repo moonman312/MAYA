@@ -83,6 +83,42 @@ export function modeTimelineFrom(rows: readonly { since?: unknown; simulated?: u
     .map(({ since, simulated }) => ({ since, simulated }));
 }
 
+/** Someone switching the property between simulation and live, from a hotel_mode_history 'switch' row. */
+export type ModeSwitch = { at: string; to: "live" | "simulation"; by: string };
+
+/**
+ * The switches people made, oldest first: 'switch' rows that name who made
+ * them (changed_by: a person's own session; null under the service role,
+ * which is the Command Center's switch, already shown as a support change)
+ * and that changed the mode the row before had. The row a new property's
+ * settings write on creation has no row before it, and is not a switch.
+ */
+export function modeSwitchesFrom(
+  rows: readonly { since?: unknown; simulated?: unknown; recorded_at?: unknown; source?: unknown; changed_by?: unknown }[] | null | undefined,
+): ModeSwitch[] {
+  const sorted = (rows ?? [])
+    .map((r, i) => ({ r, since: instant(r.since), recorded: instant(r.recorded_at), i }))
+    .filter((x) => !Number.isNaN(x.since))
+    .sort((a, b) => a.since - b.since || (a.recorded || 0) - (b.recorded || 0) || a.i - b.i);
+  const out: ModeSwitch[] = [];
+  let before: boolean | null | undefined;
+  for (const { r, since } of sorted) {
+    const simulated = typeof r.simulated === "boolean" ? r.simulated : null;
+    if (
+      r.source === "switch" &&
+      simulated != null &&
+      typeof r.changed_by === "string" &&
+      typeof before === "boolean" &&
+      before !== simulated &&
+      Number.isFinite(since)
+    ) {
+      out.push({ at: new Date(since).toISOString(), to: simulated ? "simulation" : "live", by: r.changed_by });
+    }
+    before = simulated;
+  }
+  return out;
+}
+
 /** The mode at `at`: the newest row at or before it. "unknown" with no such row, or one that says it is not known. */
 export function modeAt(timeline: ModeTimeline | null | undefined, at: string | number | null | undefined): PriceMode {
   if (!timeline || timeline.length === 0 || at == null) return "unknown";
@@ -164,12 +200,23 @@ export type SendState = "sent" | "waiting" | "failed" | "held" | "not_sent";
 
 /**
  * The line under a change saying where the price went, or null when there is
- * nothing honest to say. In simulation it is always "Nothing was sent to X.";
- * live, it follows `state`; with the mode not known, nothing.
+ * nothing honest to say. In simulation it is "Nothing was sent to X.", and
+ * "Nothing was sent to X at the time." once the property is live (`liveNow`)
+ * on a system MAYA sends to, since the first live cycle may have sent that
+ * price since (afterLiveLine says whether it did); live, it follows `state`;
+ * with the mode not known, nothing.
  */
-export function sendLine(p: { mode: PriceMode; state: SendState | null; pmsType: string | null | undefined }): string | null {
+export function sendLine(p: {
+  mode: PriceMode;
+  state: SendState | null;
+  pmsType: string | null | undefined;
+  /** The property is live now (hotel_settings.simulation_mode false). */
+  liveNow?: boolean | null;
+}): string | null {
   const pms = pmsLabel(p.pmsType);
-  if (p.mode === "simulation") return `Nothing was sent to ${pms}.`;
+  if (p.mode === "simulation") {
+    return p.liveNow === true && pmsSendsPrices(p.pmsType) ? `Nothing was sent to ${pms} at the time.` : `Nothing was sent to ${pms}.`;
+  }
   if (p.mode !== "live" || p.state == null) return null;
   switch (p.state) {
     case "sent":
@@ -182,5 +229,27 @@ export function sendLine(p: { mode: PriceMode; state: SendState | null; pmsType:
       return `Held back, not sent to ${pms}.`;
     case "not_sent":
       return `Nothing was sent to ${pms}. MAYA doesn't send prices there yet.`;
+  }
+}
+
+/**
+ * The second line under a price worked out in simulation that the night still
+ * has on a property that is live now: going live sends every night's current
+ * price (rate-push loads published_price), simulated ones included, so the
+ * send ledger says what became of it. Null when there is nothing to add.
+ */
+export function afterLiveLine(state: SendState | null, pmsType: string | null | undefined): string | null {
+  const pms = pmsLabel(pmsType);
+  switch (state) {
+    case "sent":
+      return `Sent to ${pms} after you went live.`;
+    case "waiting":
+      return `Waiting to be sent to ${pms} now that you're live.`;
+    case "failed":
+      return `Couldn't be sent to ${pms} after you went live.`;
+    case "held":
+      return `Held back after you went live, not sent to ${pms}.`;
+    default:
+      return null;
   }
 }

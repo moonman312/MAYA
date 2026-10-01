@@ -69,11 +69,11 @@ describe("the fire log's words", () => {
   });
 
   it("tells the time in the property's zone, with the year only when it isn't this year", () => {
-    expect(hotelTimeLabel("2026-09-25T18:05:00Z", "America/New_York", NOW)).toBe("Sep 25, 2:05 PM");
-    expect(hotelTimeLabel("2025-12-31T18:05:00Z", "America/New_York", NOW)).toBe("Dec 31, 2025, 1:05 PM");
+    expect(hotelTimeLabel("2026-09-25T18:05:00Z", "America/New_York", NOW)).toBe("Sep 25, 2:05 PM EDT");
+    expect(hotelTimeLabel("2025-12-31T18:05:00Z", "America/New_York", NOW)).toBe("Dec 31, 2025, 1:05 PM EST");
     expect(hotelTimeExact("2026-09-25T18:05:07Z", "America/New_York")).toBe("Sep 25, 2026, 2:05:07 PM EDT");
     // An unknown zone reads as UTC rather than failing.
-    expect(hotelTimeLabel("2026-09-25T18:05:00Z", "Not/AZone", NOW)).toBe("Sep 25, 6:05 PM");
+    expect(hotelTimeLabel("2026-09-25T18:05:00Z", "Not/AZone", NOW)).toBe("Sep 25, 6:05 PM UTC");
   });
 
   it("words a simulated fire as what would have happened, and a live one as it was", () => {
@@ -86,16 +86,20 @@ describe("the fire log's words", () => {
       send_state: "simulated",
       send_line: "Nothing was sent to Cloudbeds.",
     });
+    // Once live, a simulated fire's price may have gone out since: "at the time".
+    expect(buildFireItem(row({ fired_at: "2026-09-18T12:00:00Z" }), ctx({ liveNow: true })).send_line).toBe(
+      "Nothing was sent to Cloudbeds at the time.",
+    );
     const same = buildFireItem(row({ fired_at: "2026-09-18T12:00:00Z", price_before: null, clamped_by: "ceiling" }), ctx());
     expect(same.price_line).toBe("Simulation: the price for Fri Nov 13, Queen would have been $165.00.");
     expect(same.price_note).toBe("It would have stopped at your ceiling.");
 
     const live = buildFireItem(row({ clamped_by: "floor" }), ctx());
-    expect(live).toMatchObject({ mode: "live", price_line: "Queen: $150.00 to $165.00.", price_note: "It stopped at your floor." });
+    expect(live).toMatchObject({ mode: "live", price_line: "Queen · stay 2026-11-13: $150.00 up to $165.00 (+10%)", price_note: "It stopped at your floor." });
     // No ledger read: nothing claimed.
     expect(live.send_line).toBeNull();
-    expect(buildFireItem(row({ price_before: "165.00" }), ctx()).price_line).toBe("Queen: stayed at $165.00.");
-    expect(buildFireItem(row({ price_before: null }), ctx()).price_line).toBe("Queen: $165.00 after this run.");
+    expect(buildFireItem(row({ price_before: "165.00" }), ctx()).price_line).toBe("Queen · stay 2026-11-13: stayed at $165.00.");
+    expect(buildFireItem(row({ price_before: null }), ctx()).price_line).toBe("Queen · stay 2026-11-13: $165.00 after this run.");
     expect(buildFireItem(row({ price_after: null }), ctx()).price_line).toBeNull();
   });
 
@@ -124,16 +128,16 @@ describe("the fire log's words", () => {
       row({ ended_at: "2026-09-27T12:00:00Z", ended_reason: "bookings_cancelled", stopped_at: "2026-09-26T12:00:00Z" }),
       ctx(),
     );
-    expect(lines).toEqual(["Told to stop on this night Sep 26, 8:00 AM.", "Came off Sep 27, 8:00 AM: bookings behind it cancelled."]);
+    expect(lines).toEqual(["Told to stop on this night Sep 26, 8:00 AM EDT.", "Came off Sep 27, 8:00 AM EDT: bookings behind it cancelled."]);
     expect(laterLines(row({ ended_at: "2026-09-19T12:00:00Z", ended_reason: "came_off" }), ctx())).toEqual([
-      "Would have come off Sep 19, 8:00 AM.",
+      "Would have come off Sep 19, 8:00 AM EDT.",
     ]);
     expect(laterLines(row({ ended_at: "2026-09-27T12:00:00Z", ended_reason: "replaced" }), ctx())).toEqual([
-      "Moved to the rule's new amount Sep 27, 8:00 AM.",
+      "Moved to the rule's new amount Sep 27, 8:00 AM EDT.",
     ]);
-    expect(laterLines(row({ suppressed_at: "2026-09-27T12:00:00Z" }), ctx())).toEqual(["A price set by hand took over Sep 27, 8:00 AM."]);
+    expect(laterLines(row({ suppressed_at: "2026-09-27T12:00:00Z" }), ctx())).toEqual(["A price set by hand took over Sep 27, 8:00 AM EDT."]);
     expect(laterLines(row({ ended_at: "2026-09-27T12:00:00Z", ended_reason: "manual_price" }), ctx())).toEqual([
-      "Came off Sep 27, 8:00 AM: a price was set by hand.",
+      "Came off Sep 27, 8:00 AM EDT: a price was set by hand.",
     ]);
     // A night that passed is no news.
     expect(laterLines(row({ ended_at: "2026-09-27T12:00:00Z", ended_reason: "night_passed" }), ctx())).toEqual([]);

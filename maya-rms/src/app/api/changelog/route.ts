@@ -17,8 +17,12 @@
  * Every price change is worded for the mode the property was in at its run's
  * time (hotel_mode_history, src/lib/price-mode.ts): a simulated run says what
  * would have happened and that nothing was sent, a live one says a price was
- * sent only when the send ledger shows it (changelog-send-lines.ts), and an
- * answer given while simulating calls the rule's changes simulated.
+ * sent only when the send ledger shows it, for the change that wrote the
+ * night's newest audit row (changelog-send-lines.ts), and an answer given
+ * while simulating calls the rule's changes simulated. Once the property is
+ * live, a simulated change that is still the night's price says what became
+ * of it after going live, and each switch someone made between simulation
+ * and live is a line of its own (changelog-mode-switches.ts).
  * Older history comes a page at a time (Jake, A47): a page that stopped
  * before the hotel's first run on record says where, in the X-Changelog-Older
  * header, and `?older=` with that instant reads the page before it, the same
@@ -72,10 +76,11 @@ import { platformAdminIds } from "@/lib/admin/god-mode";
 import { buildPmsChanges, MAX_PMS_CHANGES, MAX_PMS_WARNINGS, PMS_CHANGE_COLUMNS, type PmsChangeRow } from "@/lib/changelog-pms-changes";
 import { CHANGELOG_OLDER_HEADER, justAfter } from "@/lib/changelog-paging";
 import { buildChangelog } from "@/lib/demo-data";
-import { priorRowsFor } from "@/lib/changelog-prior-rows";
+import { newestAuditAt, priorRowsFor } from "@/lib/changelog-prior-rows";
+import { buildModeSwitches } from "@/lib/changelog-mode-switches";
 import { attachSendLines, cellKey, liveCells, overwriteSendState } from "@/lib/changelog-send-lines";
-import type { SendState } from "@/lib/price-mode";
-import { loadModeTimeline, loadPmsType, sendFactsFor, type SendContext } from "@/lib/price-mode-load";
+import { pmsSendsPrices, type ModeSwitch, type SendState } from "@/lib/price-mode";
+import { loadLiveNow, loadModeHistory, loadPmsType, sendFactsFor, type SendContext } from "@/lib/price-mode-load";
 import { hotelToday } from "@/lib/simulator";
 import {
   buildSupportChanges,
@@ -85,7 +90,14 @@ import {
 } from "@/lib/changelog-support";
 import { isMissingRelationError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import type { ChangelogItem, ChangelogPmsChange, ChangelogPushProblem, ChangelogSupportChange, RuleCondition } from "@/types/domain";
+import type {
+  ChangelogItem,
+  ChangelogModeSwitch,
+  ChangelogPmsChange,
+  ChangelogPushProblem,
+  ChangelogSupportChange,
+  RuleCondition,
+} from "@/types/domain";
 import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
 import { createClient } from "@/utils/supabase/server";
 import { isSupabaseConfigured } from "@/utils/supabase/shared";
@@ -300,7 +312,8 @@ type RunHistory = {
  * been read. One more is fetched than can be read, so the log knows where it
  * stopped. Null when there is no run log to go by, or no run in it yet.
  * `through`, on an older page, is where the page above stopped: that run
- * and the ones before it.
+ * and the ones before it. An older page has nothing to fall back to (the
+ * audit-only log has no pages), so there a failed read is thrown.
  */
 async function loadRunHistory(supabase: SupabaseClient, hotelId: string, through: string | null): Promise<RunHistory | null> {
   let candidateQuery = supabase
@@ -319,7 +332,11 @@ async function loadRunHistory(supabase: SupabaseClient, hotelId: string, through
       .order("evaluated_at", { ascending: true })
       .limit(1),
   ]);
-  if (candidateRead.error || firstRead.error) return null;
+  if (candidateRead.error || firstRead.error) {
+    // Thrown as-is so dbErrorResponse can read the pg code.
+    if (through) throw candidateRead.error ?? firstRead.error;
+    return null;
+  }
   const first = firstRead.data?.[0];
   if (!first) return null;
 
@@ -371,10 +388,23 @@ async function countQuietGap(
   return { checks: count, first_at: at(oldest.data), last_at: at(newest.data) };
 }
 
-/** Each live change's sending line (changelog-send-lines.ts); the runs as they are when the ledger can't be read. */
-async function withSendLines<T extends ChangelogItem>(items: T[], ctx: SendContext): Promise<T[]> {
-  const facts = await sendFactsFor(ctx, liveCells(items), "api/changelog");
-  return facts ? attachSendLines(items, facts) : items;
+/**
+ * Each change's sending line (changelog-send-lines.ts): the ledger's reading
+ * for the change that wrote its night's newest audit row, live, or simulated
+ * on a property live now. The runs as they are when the ledger can't be read.
+ */
+async function withSendLines<T extends ChangelogItem>(
+  supabase: SupabaseClient,
+  items: T[],
+  ctx: SendContext,
+): Promise<T[]> {
+  const cells = liveCells(items, ctx.liveNow === true && pmsSendsPrices(ctx.pmsType));
+  const sends = pmsSendsPrices(ctx.pmsType);
+  const [facts, newestAt] = await Promise.all([
+    sendFactsFor(ctx, cells, "api/changelog"),
+    sends ? newestAuditAt(supabase, ctx.hotelId, cells) : Promise.resolve(new Map<string, number>()),
+  ]);
+  return facts ? attachSendLines(items, facts, newestAt) : items;
 }
 
 /**
@@ -388,6 +418,8 @@ async function buildRealChangelog(
   through: string | null,
 ): Promise<{ items: ChangelogItem[]; older: string | null }> {
   const history = await loadRunHistory(supabase, hotelId, through);
+  // An older page past the first run on record: nothing more to show.
+  if (!history && through) return { items: [], older: null };
 
   let auditRows: { details: unknown }[] & Record<string, unknown>[] = [];
   if (!history) {
@@ -403,7 +435,7 @@ async function buildRealChangelog(
     auditRows = (data ?? []) as typeof auditRows;
   }
 
-  const [{ data: hotel }, { data: roomTypes }, { data: rules }, { data: runLogRows }, modeTimeline, pmsType] =
+  const [{ data: hotel }, { data: roomTypes }, { data: rules }, { data: runLogRows }, modeHistory, pmsType, liveNow] =
     await Promise.all([
       supabase.from("hotels").select("currency, timezone").eq("id", hotelId).maybeSingle(),
       loadRoomTypes(supabase, hotelId),
@@ -430,15 +462,18 @@ async function buildRealChangelog(
             .eq("hotel_id", hotelId)
             .order("evaluated_at", { ascending: false })
             .limit(RUN_LOG_LIMIT),
-      loadModeTimeline(supabase, hotelId, "api/changelog"),
+      loadModeHistory(supabase, hotelId, "api/changelog"),
       loadPmsType(supabase, hotelId),
+      loadLiveNow(supabase, hotelId),
     ]);
+  const modeTimeline = modeHistory.timeline;
   const now = new Date();
   const sendContext: SendContext = {
     hotelId,
     pmsType,
     today: hotelToday(String((hotel as { timezone?: unknown } | null)?.timezone ?? "UTC"), now),
     now,
+    liveNow,
   };
 
   const roomTypeNames = new Map<string, string>(
@@ -516,6 +551,7 @@ async function buildRealChangelog(
     ),
     modeTimeline,
     pmsType,
+    liveNow,
   };
 
   if (!history) {
@@ -529,15 +565,16 @@ async function buildRealChangelog(
       auditRows.length >= AUDIT_ROW_LIMIT,
     );
     const since = oldestShownRun(cycles);
-    const [problems, answers, support, pmsChanges, sentCycles] = await Promise.all([
+    const [problems, answers, support, pmsChanges, switches, sentCycles] = await Promise.all([
       loadPushProblems(supabase, hotelId, roomTypeNames, since, null),
       loadAlertChoices(supabase, hotelId, lookups, since, null),
       loadSupportChanges(supabase, hotelId, since, null),
       loadPmsChanges(supabase, hotelId, lookups, since, sendContext, null),
-      withSendLines(cycles, sendContext),
+      modeSwitchItems(supabase, modeHistory.switches, pmsType),
+      withSendLines(supabase, cycles, sendContext),
     ]);
     // Rebuilt from audit rows alone, the log has no run log to page by.
-    return { items: mergeTimeline(sentCycles, problems, [...answers, ...support, ...pmsChanges]), older: null };
+    return { items: mergeTimeline(sentCycles, problems, [...answers, ...support, ...pmsChanges, ...switches]), older: null };
   }
 
   // The log covers everything after the newest run it did not read, or the
@@ -547,12 +584,13 @@ async function buildRealChangelog(
   // An older page covers up to where the page above stopped, and that far
   // back in the same way.
   const since = history.readBackTo ?? history.firstRunAt;
-  const [problems, answers, support, pmsChanges, cycles] = await Promise.all([
+  const [problems, answers, support, pmsChanges, switches, cycles] = await Promise.all([
     loadPushProblems(supabase, hotelId, roomTypeNames, since, through),
     loadAlertChoices(supabase, hotelId, lookups, since, through),
     loadSupportChanges(supabase, hotelId, since, through),
     loadPmsChanges(supabase, hotelId, lookups, since, sendContext, through),
-    withSendLines(buildCyclesFromRuns(history.shown, lookups), sendContext),
+    modeSwitchItems(supabase, modeHistory.switches, pmsType, since, through),
+    withSendLines(supabase, buildCyclesFromRuns(history.shown, lookups), sendContext),
   ]);
   const gaps = planQuietGaps({
     changes: cycles.map((c) => c.timestamp),
@@ -561,17 +599,37 @@ async function buildRealChangelog(
       ...answers.map((a) => a.timestamp),
       ...support.map((s) => s.timestamp),
       ...pmsChanges.map((c) => c.timestamp),
+      ...switches.map((m) => m.timestamp),
     ],
     readBackTo: history.readBackTo,
   });
   const quiet = await buildQuietChecks(gaps, (gap) => countQuietGap(supabase, hotelId, gap, through), history.folded);
   return {
-    items: mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support, ...pmsChanges], {
+    items: mergeTimeline([...cycles, ...quiet], problems, [...answers, ...support, ...pmsChanges, ...switches], {
       after: history.readBackTo,
       through,
     }),
     older: history.readBackTo,
   };
+}
+
+/**
+ * The switches people made between simulation and live, within the history
+ * shown (from `since`, and up to `through` on an older page; mergeTimeline
+ * keeps only those inside the page), named as the log names a person.
+ */
+async function modeSwitchItems(
+  supabase: SupabaseClient,
+  switches: ModeSwitch[],
+  pmsType: string | null,
+  since: string | null = null,
+  through: string | null = null,
+): Promise<ChangelogModeSwitch[]> {
+  const sinceMs = since ? Date.parse(since) : -Infinity;
+  const throughMs = through ? Date.parse(through) : Infinity;
+  const shown = switches.filter((s) => Date.parse(s.at) >= sinceMs && Date.parse(s.at) <= throughMs);
+  if (shown.length === 0) return [];
+  return buildModeSwitches(shown, { names: await namesFor(supabase, shown.map((s) => s.by)), pmsType });
 }
 
 /**
@@ -817,7 +875,12 @@ async function chooserNamesFor(
   supabase: SupabaseClient,
   rows: AlertChoiceRow[],
 ): Promise<Map<string, string>> {
-  const ids = new Set(rows.map((r) => r.by).filter((id): id is string => !!id));
+  return namesFor(supabase, rows.map((r) => r.by));
+}
+
+/** Display names for these people, on the same terms as setterNamesFor: MAYA staff as "MAYA support". */
+async function namesFor(supabase: SupabaseClient, people: (string | null)[]): Promise<Map<string, string>> {
+  const ids = new Set(people.filter((id): id is string => !!id));
   const names = new Map<string, string>();
   if (ids.size === 0) return names;
   const reader = isAdminConfigured() ? createAdminClient() : supabase;

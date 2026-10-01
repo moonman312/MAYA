@@ -4,10 +4,11 @@
  * The rules list's fire count ("12×") as a button, and the fire log it
  * opens: that rule's fires in the last 90 days, newest first, the same fires
  * the count counts (src/lib/rule-fire-log.ts). Each row is when it fired in
- * the property's time, the night it changed and the adjustment; a click opens
- * the room type, the price before and after its run, why it fired, where the
- * price went and what ended it later, worded by GET /api/rules/:id/fires for
- * the mode the property was in at the time. "Older" reads the next page.
+ * the property's time (with its zone), the night and room type it changed
+ * and the adjustment; a click opens the price before and after its run, why
+ * it fired, where the price went and what ended it later, worded by GET
+ * /api/rules/:id/fires for the mode the property was in at the time.
+ * "Older" reads the next page.
  *
  * Nothing is fetched until the popup opens, so the rules list stays as fast
  * as it was. The popup only reads, so every role that sees the rules list
@@ -216,7 +217,7 @@ export function RuleFireLogDialog({
               hasOlder={older != null}
               busy={olderBusy}
               error={olderError}
-              endLine={pagedBack ? "Nothing older. Fires are kept for 90 days." : null}
+              endLine={pagedBack ? "Nothing older. The fire log shows the last 90 days." : null}
               onOlder={() => void loadOlder()}
             />
           ) : null}
@@ -235,12 +236,16 @@ function FireRow({ fire, open, onToggle }: { fire: RuleFireItem; open: boolean; 
         aria-expanded={open}
         aria-controls={detailId}
         onClick={onToggle}
-        className="grid w-full cursor-pointer grid-cols-[1fr_auto_auto_auto] items-center gap-x-2 py-2 text-left text-[0.8125rem] hover:bg-slate-800/40 sm:gap-x-3 sm:text-sm"
+        className="grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-x-2 py-2 text-left text-[0.8125rem] hover:bg-slate-800/40 sm:gap-x-3 sm:text-sm"
       >
         <time dateTime={fire.fired_at} title={fire.when_exact} className="whitespace-nowrap text-slate-300">
           {fire.when}
         </time>
-        <span className="whitespace-nowrap text-slate-400">{fire.night}</span>
+        {/* The room type tells apart one run's fires on several room types; it gives way first on a phone. */}
+        <span className="truncate whitespace-nowrap text-slate-400" title={`${fire.night}, ${fire.room_type}`}>
+          {fire.night}
+          <span className="text-slate-500"> · {fire.room_type}</span>
+        </span>
         {/* On a phone the Simulation tag sits over the amount, so the row stays one line of text. */}
         <span className="flex flex-col items-end gap-0.5 font-medium tabular-nums text-sky-300 sm:flex-row sm:items-center sm:gap-1.5">
           {fire.mode === "simulation" ? (
@@ -264,6 +269,9 @@ function FireRow({ fire, open, onToggle }: { fire: RuleFireItem; open: boolean; 
           )}
           {fire.price_note ? <p className="text-slate-400">{fire.price_note}</p> : null}
           {fire.send_line ? <p className={`text-xs ${SEND_TONE[fire.send_state ?? "waiting"]}`}>{fire.send_line}</p> : null}
+          {fire.send_after_line ? (
+            <p className={`text-xs ${SEND_TONE[fire.send_after_state ?? "waiting"]}`}>{fire.send_after_line}</p>
+          ) : null}
           {fire.why.map((line) => (
             <p key={`why-${line}`} className="text-slate-400">
               {line}

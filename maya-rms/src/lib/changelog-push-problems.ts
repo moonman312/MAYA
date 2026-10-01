@@ -25,6 +25,7 @@ import { NO_RATE_TARGET_REASON } from "../../supabase/functions/_shared/pms/push
 import type {
   ChangelogCycle,
   ChangelogItem,
+  ChangelogModeSwitch,
   ChangelogPmsChange,
   ChangelogPushProblem,
   ChangelogQuietChecks,
@@ -196,7 +197,7 @@ export function mergeTimeline(
   problems: ChangelogPushProblem[],
   // The owner's answers, the changes MAYA support made, and rates changed in
   // the property system: each sits where it happened.
-  answers: (ChangelogRuleAlertChoice | ChangelogSupportChange | ChangelogPmsChange)[] = [],
+  answers: (ChangelogRuleAlertChoice | ChangelogSupportChange | ChangelogPmsChange | ChangelogModeSwitch)[] = [],
   /**
    * after: the newest run the log did not read (nothing at or before it is
    * shown). through: on an older page, where the page above stopped (nothing

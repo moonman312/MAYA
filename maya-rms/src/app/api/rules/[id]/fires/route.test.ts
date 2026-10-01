@@ -102,6 +102,8 @@ function seed(extra: Record<string, Row[]> = {}): Record<string, Row[]> {
       },
     ],
     pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "connected" }],
+    // Live now, as the mode history says.
+    hotel_settings: [{ hotel_id: HOTEL, simulation_mode: false }],
     hotel_mode_history: [
       { hotel_id: HOTEL, since: "-infinity", simulated: true, recorded_at: ago(30) },
       { hotel_id: HOTEL, since: WENT_LIVE, simulated: false, recorded_at: WENT_LIVE },
@@ -147,7 +149,8 @@ describe("GET /api/rules/:id/fires", () => {
     const live = byId(body.fires, "ladder:live-1");
     expect(live).toMatchObject({ stay_date: NIGHT, room_type: "Queen", adjustment: "+10%", mode: "live" });
     expect(live.night).toMatch(/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) [A-Z][a-z]{2} \d{1,2}$/);
-    expect(live.when).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM)$/);
+    // In the property's time, with its zone: never mistaken for the viewer's clock.
+    expect(live.when).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} (AM|PM) E[DS]T$/);
     expect(live.when_exact).toMatch(/E[DS]T$/);
   });
 
@@ -158,8 +161,11 @@ describe("GET /api/rules/:id/fires", () => {
     expect(sim).toMatchObject({
       mode: "simulation",
       send_state: "simulated",
-      send_line: "Nothing was sent to Cloudbeds.",
+      // Live now: going live may have sent that price since, so "at the time".
+      send_line: "Nothing was sent to Cloudbeds at the time.",
     });
+    // A later run took it off again, so it isn't the night's price: nothing more.
+    expect(sim.send_after_line).toBeUndefined();
     expect(sim.price_line).toMatch(/^Simulation: the price for (Sun|Mon|Tue|Wed|Thu|Fri|Sat) [A-Z][a-z]{2} \d{1,2}, Queen would have gone from \$150\.00 to \$165\.00\.$/);
     expect(sim.later).toEqual([expect.stringMatching(/^Would have come off [A-Z][a-z]{2} \d{1,2}, /)]);
     expect(sim.why).toEqual(["It was 82% full, past the 70% mark you set."]);
@@ -170,7 +176,7 @@ describe("GET /api/rules/:id/fires", () => {
     state.admin = fake(seed());
     const live = byId((await load()).body.fires, "ladder:live-1");
     expect(live).toMatchObject({
-      price_line: "Queen: $150.00 to $160.00.",
+      price_line: `Queen · stay ${NIGHT}: $150.00 up to $160.00 (+6.7%)`,
       price_note: "It stopped at your ceiling.",
       send_state: "sent",
       send_line: "Sent to Cloudbeds.",
@@ -196,9 +202,56 @@ describe("GET /api/rules/:id/fires", () => {
     state.client = fake(seed(replaced));
     state.admin = fake(seed(replaced));
     const live = byId((await load()).body.fires, "ladder:live-1");
-    expect(live.price_line).toBe("Queen: $150.00 to $160.00.");
+    expect(live.price_line).toBe(`Queen · stay ${NIGHT}: $150.00 up to $160.00 (+6.7%)`);
     expect(live.send_line).toBeNull();
     expect(live.send_state).toBeNull();
+  });
+
+  it("says what going live did with a simulated fire's price the night still has", async () => {
+    const stillSim = {
+      ladder_transition_event: [activate("sim-2", ago(15), NIGHT2)],
+      evaluation_audit: [audit(ago(25), NIGHT2, 150), audit(ago(15), NIGHT2, 165)],
+      published_price: [{ hotel_id: HOTEL, stay_date: NIGHT2, room_type_id: "rt-q", price: 165 }],
+    };
+    const sentAfter = {
+      rate_updates: [
+        { hotel_id: HOTEL, room_type_id: "rt-q", stay_date: NIGHT2, status: "sent", price: 165, error: null, attempts: 1, pms_job_reference: "j", pushed_at: ago(9.9) },
+      ],
+    };
+    state.client = fake(seed(stillSim));
+    state.admin = fake(seed({ ...stillSim, ...sentAfter }));
+    let [fire] = (await load()).body.fires;
+    expect(fire).toMatchObject({
+      mode: "simulation",
+      send_line: "Nothing was sent to Cloudbeds at the time.",
+      send_after_state: "sent",
+      send_after_line: "Sent to Cloudbeds after you went live.",
+    });
+    // Not sent at that price yet: waiting, now that the property is live.
+    state.admin = fake(seed({ ...stillSim, rate_updates: [] }));
+    [fire] = (await load()).body.fires;
+    expect(fire.send_after_line).toBe("Waiting to be sent to Cloudbeds now that you're live.");
+    // Still simulating: nothing was sent, and nothing more to say.
+    const simulating = { ...stillSim, hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] };
+    state.client = fake(seed(simulating));
+    state.admin = fake(seed({ ...simulating, ...sentAfter }));
+    [fire] = (await load()).body.fires;
+    expect(fire.send_line).toBe("Nothing was sent to Cloudbeds.");
+    expect(fire.send_after_line).toBeUndefined();
+  });
+
+  it("never says waiting when the push can't send now", async () => {
+    const pending = { rate_updates: [] };
+    state.client = fake(seed());
+    const gates: Record<string, Row[]>[] = [
+      { hotel_settings: [{ hotel_id: HOTEL, simulation_mode: true }] },
+      { hotel_subscriptions: [{ hotel_id: HOTEL, status: "canceled" }] },
+      { pms_connections: [{ hotel_id: HOTEL, pms_type: "cloudbeds", status: "disconnected" }] },
+    ];
+    for (const gate of gates) {
+      state.admin = fake(seed({ ...pending, ...gate }));
+      expect(byId((await load()).body.fires, "ladder:live-1").send_line).toBeNull();
+    }
   });
 
   it("claims no send at all when the ledger can't be read, and says so plainly on Mews", async () => {
@@ -206,7 +259,7 @@ describe("GET /api/rules/:id/fires", () => {
     state.admin = null;
     const fires = (await load()).body.fires;
     expect(byId(fires, "ladder:live-1").send_line).toBeNull();
-    expect(byId(fires, "ladder:sim-1").send_line).toBe("Nothing was sent to Cloudbeds.");
+    expect(byId(fires, "ladder:sim-1").send_line).toBe("Nothing was sent to Cloudbeds at the time.");
 
     const mews = { pms_connections: [{ hotel_id: HOTEL, pms_type: "mews", status: "connected" }] };
     state.client = fake(seed(mews));
@@ -222,7 +275,7 @@ describe("GET /api/rules/:id/fires", () => {
     state.admin = fake(seed(noHistory));
     const sim = byId((await load()).body.fires, "ladder:sim-1");
     expect(sim.mode).toBeUndefined();
-    expect(sim.price_line).toBe("Queen: $150.00 to $165.00.");
+    expect(sim.price_line).toBe(`Queen · stay ${NIGHT2}: $150.00 up to $165.00 (+10%)`);
     expect(sim.send_line).toBeNull();
     expect(sim.later).toEqual([expect.stringMatching(/^Came off /)]);
   });
@@ -290,7 +343,7 @@ describe("GET /api/rules/:id/fires", () => {
     const [second, first] = body.fires;
     expect(first.adjustment).toBe("+$15");
     expect(first.why).toEqual(["6 bookings arrived that day and the 2 days before, past the 4-booking mark you set."]);
-    expect(first.price_line).toBe("Queen: $150.00 to $165.00.");
+    expect(first.price_line).toBe(`Queen · stay ${NIGHT}: $150.00 up to $165.00 (+10%)`);
     expect(first.later).toEqual([
       expect.stringMatching(/^Told to stop on this night /),
       expect.stringMatching(/^Came off .*: bookings behind it cancelled\.$/),

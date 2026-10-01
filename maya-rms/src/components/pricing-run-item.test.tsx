@@ -7,6 +7,7 @@
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { ModeSwitchItem } from "./mode-switch-item";
 import { PricingRunItem } from "./pricing-run-item";
 import type { ChangelogCycle, ChangelogEntry } from "@/types/domain";
 
@@ -58,6 +59,41 @@ describe("PricingRunItem", () => {
     expect(screen.getByText("Simulation: the price for Fri Nov 13, Queen would have gone from $150.00 to $165.00.")).toBeTruthy();
     expect(screen.getByText("Nothing was sent to Cloudbeds.")).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/up to \$165/);
+  });
+
+  it("adds what going live did with a simulated price, and words the count it doesn't show as would-have", () => {
+    show({
+      ...run(
+        [
+          entry({
+            mode: "simulation",
+            headline: "Simulation: the price for Fri Nov 13, Queen would have gone from $150.00 to $165.00.",
+            send_state: "simulated",
+            send_line: "Nothing was sent to Cloudbeds at the time.",
+            send_after_state: "sent",
+            send_after_line: "Sent to Cloudbeds after you went live.",
+          }),
+        ],
+        "simulation",
+      ),
+      total_changes: 13,
+    });
+    expect(screen.getByText("Nothing was sent to Cloudbeds at the time.").className).toContain("amber");
+    expect(screen.getByText("Sent to Cloudbeds after you went live.").className).toContain("emerald");
+    expect(screen.getByText("And 12 more prices would have changed in this run.")).toBeTruthy();
+  });
+
+  it("shows a switch to live as a line of its own", () => {
+    render(
+      <ModeSwitchItem
+        item={{ kind: "mode_switch", id: "m1", timestamp: "2026-10-01T10:00:00Z", to: "live", title: "Sam took pricing live. From the next cycle, MAYA sends its prices to Cloudbeds." }}
+        formatWhen={() => "Thu, Oct 1, 2026, 10:00 AM"}
+        formatAge={() => null}
+        formatExact={() => "exact"}
+      />,
+    );
+    expect(screen.getByText("Went live").className).toContain("emerald");
+    expect(screen.getByText("Sam took pricing live. From the next cycle, MAYA sends its prices to Cloudbeds.")).toBeTruthy();
   });
 
   it("says where a live price went", () => {

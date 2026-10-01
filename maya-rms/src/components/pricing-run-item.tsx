@@ -8,8 +8,9 @@
  * The words come from the server, worded for the mode the property was in at
  * the run's time (src/lib/price-mode.ts): a simulated run is tagged
  * "Simulation", its bold line says what would have happened, and its line
- * under it says nothing was sent. A live change says it was sent only when
- * the send ledger shows it. A change without those words (the demo log, or a
+ * under it says nothing was sent (at the time, once the property is live,
+ * with a second line when going live sent that price since). A live change
+ * says it was sent only when the send ledger shows it. A change without those words (the demo log, or a
  * property whose history can't be told) reads as the log always did.
  */
 
@@ -79,6 +80,9 @@ export function PricingRunItem({
             <div className="text-sm font-medium text-slate-200">{ch.headline ?? legacyHeadline(ch)}</div>
             {ch.send_line ? (
               <p className={`mt-0.5 text-xs ${SEND_TONE[ch.send_state ?? "waiting"]}`}>{ch.send_line}</p>
+            ) : null}
+            {ch.send_after_line ? (
+              <p className={`text-xs ${SEND_TONE[ch.send_after_state ?? "waiting"]}`}>{ch.send_after_line}</p>
             ) : null}
             {(ch.narrative && ch.narrative.length > 0 ? ch.narrative : [ch.description]).map((sentence, si) => (
               <p key={si} className="mt-0.5 text-[0.8125rem] leading-relaxed text-slate-400">

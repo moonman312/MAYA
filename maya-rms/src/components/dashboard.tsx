@@ -40,6 +40,8 @@ import { draftKind, type PreviewRequest } from "@/lib/rule-activation-client";
 import { currencySymbolFor, isQuietChecks, isRuleAlertChoice } from "@/lib/changelog-route-helpers";
 import { isSupportChange } from "@/lib/changelog-support";
 import { SupportChangeItem } from "@/components/support-change-item";
+import { isModeSwitch } from "@/lib/changelog-mode-switches";
+import { ModeSwitchItem } from "@/components/mode-switch-item";
 import { isPmsChange } from "@/lib/changelog-pms-changes";
 import { PmsChangeItem } from "@/components/pms-change-item";
 import { QuietChecksLine } from "@/components/quiet-checks-line";
@@ -1089,7 +1091,7 @@ export function Dashboard({
   useEffect(() => {
     if (arrival?.dest !== "changelog.entry" || changelog.length === 0) return;
     const run = arrival.params.run;
-    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isPmsChange(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
+    if (!changelog.some((c) => !isPushProblem(c) && !isRuleAlertChoice(c) && !isSupportChange(c) && !isPmsChange(c) && !isModeSwitch(c) && !isQuietChecks(c) && c.changes.some((ch) => ch.evaluation_run_id === run))) {
       setArrivalNote("entry-gone");
     }
   }, [arrival, changelog]);
@@ -1104,7 +1106,7 @@ export function Dashboard({
     // A push problem is always shown: it is never a "nothing changed" run.
     () =>
       changesOnly
-        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || isSupportChange(c) || isPmsChange(c) || (!isQuietChecks(c) && c.has_changes))
+        ? changelog.filter((c) => isPushProblem(c) || isRuleAlertChoice(c) || isSupportChange(c) || isPmsChange(c) || isModeSwitch(c) || (!isQuietChecks(c) && c.has_changes))
         : changelog,
     [changesOnly, changelog],
   );
@@ -2315,6 +2317,17 @@ export function Dashboard({
                   return (
                     <SupportChangeItem
                       key={`support-${cycle.id}`}
+                      item={cycle}
+                      formatWhen={formatFriendlyDateTime}
+                      formatAge={formatRelativeAge}
+                      formatExact={formatDisplayTime}
+                    />
+                  );
+                }
+                if (isModeSwitch(cycle)) {
+                  return (
+                    <ModeSwitchItem
+                      key={`mode-${cycle.id}`}
                       item={cycle}
                       formatWhen={formatFriendlyDateTime}
                       formatAge={formatRelativeAge}

@@ -12,9 +12,11 @@
  *
  * Each row is worded like the change log, and by the same rules
  * (src/lib/price-mode.ts): a fire recorded while the property was simulating
- * says what would have happened and that nothing was sent; a live one says
- * it was sent only when the send ledger shows it, and only for the night's
- * latest price; with the mode not known, nothing is claimed about sending.
+ * says what would have happened and that nothing was sent (at the time, once
+ * the property is live, with the ledger's word on what going live did with
+ * that price while it is still the night's); a live one says it was sent
+ * only when the send ledger shows it, and only for the night's latest price;
+ * with the mode not known, nothing is claimed about sending.
  * Why it fired uses the change log's own sentences (describeConditions)
  * with the numbers the fire was judged on, or only the numbers when the rule
  * has been edited since, since its marks then are not on record. Nothing is
@@ -25,8 +27,19 @@
 
 import { describeConditions, type NarrativeMetrics } from "@/lib/changelog-narrative";
 import { toNarrativeMetrics } from "@/lib/changelog-route-helpers";
-import { nightSendState, type SendFacts } from "@/lib/changelog-send-lines";
-import { modeAt, nightLabel, pmsSendsPrices, priceMoveHeadline, sameCents, sendLine, type ModeTimeline, type PriceMode, type SendState } from "@/lib/price-mode";
+import { afterLiveState, nightSendState, type SendFacts } from "@/lib/changelog-send-lines";
+import {
+  afterLiveLine,
+  modeAt,
+  nightLabel,
+  pmsSendsPrices,
+  priceMoveHeadline,
+  sameCents,
+  sendLine,
+  type ModeTimeline,
+  type PriceMode,
+  type SendState,
+} from "@/lib/price-mode";
 import type { RuleCondition } from "@/types/domain";
 
 /** How far back the count and the log reach: the engine's audit retention. */
@@ -66,7 +79,7 @@ export type RuleFireItem = {
   id: string;
   kind: "ladder" | "pickup";
   fired_at: string;
-  /** When it fired, in the property's time: "Oct 3, 2:05 PM". */
+  /** When it fired, in the property's time with its zone: "Oct 3, 2:05 PM EDT". */
   when: string;
   /** The same, to the second and with the zone, for a hover: "Oct 3, 2026, 2:05:12 PM EDT". */
   when_exact: string;
@@ -85,6 +98,9 @@ export type RuleFireItem = {
   price_note: string | null;
   send_state: "simulated" | SendState | null;
   send_line: string | null;
+  /** A simulated fire's price the night still has, on a property live now: what going live did with it. */
+  send_after_state?: Exclude<SendState, "not_sent">;
+  send_after_line?: string;
   /** Why it fired: the numbers it was judged on, in the change log's words. */
   why: string[];
   /** What happened to it later, oldest first. */
@@ -119,6 +135,8 @@ export type FireLogContext = {
   timezone: string;
   modeTimeline: ModeTimeline;
   pmsType: string | null;
+  /** The property is live now (loadLiveNow); null or unset when not known. */
+  liveNow?: boolean | null;
   /** The send ledger's reading of the nights asked for; null when it could not be read. */
   sendFacts: SendFacts | null;
   now: Date;
@@ -194,7 +212,11 @@ function yearIn(iso: string | Date, timezone: string): string {
   return partsIn(at, timezone, { year: "numeric" });
 }
 
-/** "Oct 3, 2:05 PM" in the property's time; the year too when it is not this year there. */
+/**
+ * "Oct 3, 2:05 PM EDT" in the property's time, with its zone so it is never
+ * read as the viewer's own clock (the change log shows the viewer's); the
+ * year too when it is not this year there.
+ */
 export function hotelTimeLabel(iso: string, timezone: string, now: Date): string {
   const sameYear = yearIn(iso, timezone) === yearIn(now, timezone);
   return partsIn(iso, timezone, {
@@ -203,6 +225,7 @@ export function hotelTimeLabel(iso: string, timezone: string, now: Date): string
     ...(sameYear ? {} : { year: "numeric" }),
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 }
 
@@ -314,7 +337,12 @@ export function laterLines(row: FireLogRow, ctx: Pick<FireLogContext, "modeTimel
   return events.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).map((e) => e.line);
 }
 
-/** The price line and the floor or ceiling note, worded for the mode. */
+/**
+ * The price line and the floor or ceiling note, worded for the mode: the
+ * change log's own bold line ("Queen · stay 2026-11-13: $150.00 up to
+ * $165.00 (+10%)", or its simulated sentence), from the night's price before
+ * the fire's run to its price after it.
+ */
 function priceWords(
   row: FireLogRow,
   mode: PriceMode,
@@ -324,15 +352,17 @@ function priceWords(
   const after = num(row.price_after);
   if (after == null) return { price_line: null, price_note: null };
   const before = num(row.price_before);
+  const lead = `${roomType} · stay ${row.stay_date.slice(0, 10)}`;
   let line: string;
   if (mode === "simulation") {
     line = priceMoveHeadline({ mode, stayDate: row.stay_date, roomType, from: before ?? after, to: after, changePct: 0, currencySymbol: sym });
   } else if (before == null) {
-    line = `${roomType}: ${money(after, sym)} after this run.`;
+    line = `${lead}: ${money(after, sym)} after this run.`;
   } else if (sameCents(before, after)) {
-    line = `${roomType}: stayed at ${money(after, sym)}.`;
+    line = `${lead}: stayed at ${money(after, sym)}.`;
   } else {
-    line = `${roomType}: ${money(before, sym)} to ${money(after, sym)}.`;
+    const changePct = before > 0 ? Math.round(((after - before) / before) * 1000) / 10 : 0;
+    line = priceMoveHeadline({ mode, stayDate: row.stay_date, roomType, from: before, to: after, changePct, currencySymbol: sym });
   }
   const limit = row.clamped_by === "ceiling" ? "ceiling" : row.clamped_by === "floor" ? "floor" : null;
   const note = limit ? `${mode === "simulation" ? "It would have stopped" : "It stopped"} at your ${limit}.` : null;
@@ -340,8 +370,20 @@ function priceWords(
 }
 
 /** Where the fire's price went, as the change log says it. */
-function sendWords(row: FireLogRow, mode: PriceMode, ctx: FireLogContext): Pick<RuleFireItem, "send_state" | "send_line"> {
-  if (mode === "simulation") return { send_state: "simulated", send_line: sendLine({ mode, state: null, pmsType: ctx.pmsType }) };
+function sendWords(
+  row: FireLogRow,
+  mode: PriceMode,
+  ctx: FireLogContext,
+): Pick<RuleFireItem, "send_state" | "send_line" | "send_after_state" | "send_after_line"> {
+  if (mode === "simulation") {
+    const words = { send_state: "simulated" as const, send_line: sendLine({ mode, state: null, pmsType: ctx.pmsType, liveNow: ctx.liveNow }) };
+    // Going live sent the night's price, this one included while it still is the night's.
+    const after = num(row.price_after);
+    if (ctx.liveNow !== true || after == null || row.newer_row_at || !ctx.sendFacts) return words;
+    const state = afterLiveState({ stay_date: row.stay_date, room_type_id: row.room_type_id, price: after }, Date.parse(row.fired_at), ctx.sendFacts);
+    const line = afterLiveLine(state, ctx.pmsType);
+    return line && state && state !== "not_sent" ? { ...words, send_after_state: state, send_after_line: line } : words;
+  }
   if (mode !== "live" || ctx.pmsType == null) return { send_state: null, send_line: null };
   if (!pmsSendsPrices(ctx.pmsType)) {
     return { send_state: "not_sent", send_line: sendLine({ mode, state: "not_sent", pmsType: ctx.pmsType }) };
@@ -353,11 +395,21 @@ function sendWords(row: FireLogRow, mode: PriceMode, ctx: FireLogContext): Pick<
   return state ? { send_state: state, send_line: sendLine({ mode, state, pmsType: ctx.pmsType }) } : { send_state: null, send_line: null };
 }
 
-/** The nights whose send state the ledger is asked about: live fires that are still the night's latest price. */
-export function ledgerCells(rows: FireLogRow[], modeTimeline: ModeTimeline): { stay_date: string; room_type_id: string }[] {
+/**
+ * The nights whose send state the ledger is asked about: fires that are
+ * still the night's latest price, live ones, and with `simulatedToo` (the
+ * property is live now) simulated ones as well.
+ */
+export function ledgerCells(
+  rows: FireLogRow[],
+  modeTimeline: ModeTimeline,
+  simulatedToo = false,
+): { stay_date: string; room_type_id: string }[] {
   const out = new Map<string, { stay_date: string; room_type_id: string }>();
   for (const r of rows) {
-    if (r.newer_row_at || num(r.price_after) == null || modeAt(modeTimeline, r.fired_at) !== "live") continue;
+    const mode = modeAt(modeTimeline, r.fired_at);
+    const asked = mode === "live" || (simulatedToo && mode === "simulation");
+    if (r.newer_row_at || num(r.price_after) == null || !asked) continue;
     const stay = String(r.stay_date).slice(0, 10);
     out.set(`${stay}|${r.room_type_id}`, { stay_date: stay, room_type_id: String(r.room_type_id) });
   }

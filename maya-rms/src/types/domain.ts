@@ -546,6 +546,13 @@ export type ChangelogEntry = {
    */
   send_line?: string;
   send_state?: "simulated" | "sent" | "waiting" | "failed" | "held" | "not_sent";
+  /**
+   * A simulated change whose price the night still has, on a property that is
+   * live now: what became of that price once live, from the send ledger
+   * ("Sent to Cloudbeds after you went live."). Absent otherwise.
+   */
+  send_after_line?: string;
+  send_after_state?: "sent" | "waiting" | "failed" | "held";
 };
 
 export type ChangelogCycle = {
@@ -677,6 +684,21 @@ export type ChangelogPmsChange = {
 };
 
 /**
+ * Someone on the property switching it between simulation and live, as one
+ * change log line (hotel_mode_history 'switch' rows, src/lib/changelog-mode-switches.ts).
+ * MAYA support's switches show as a support change instead.
+ */
+export type ChangelogModeSwitch = {
+  kind: "mode_switch";
+  id: string;
+  /** When the switch was made. */
+  timestamp: string;
+  to: "live" | "simulation";
+  /** What the log says, in one or two sentences. */
+  title: string;
+};
+
+/**
  * Pricing runs in a row that changed nothing, as one change log line: how
  * many, and when the first and last of them ran. Anything else the log shows
  * in that time (a change, a push problem ending, an owner's answer) splits
@@ -710,4 +732,5 @@ export type ChangelogItem =
   | ChangelogPushProblem
   | ChangelogRuleAlertChoice
   | ChangelogSupportChange
-  | ChangelogPmsChange;
+  | ChangelogPmsChange
+  | ChangelogModeSwitch;

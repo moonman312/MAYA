@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * The fire count in the rules list opens that rule's fire log: compact rows
- * (when, night, adjustment), each opening to the rest; "Older" adds the next
+ * (when with the property's zone, night and room type, adjustment), each
+ * opening to the rest; "Older" adds the next
  * page; the log's count puts the list's right. And the change log's own
  * "Older" button, on the same paging.
  */
@@ -20,7 +21,7 @@ const fire = (n: number, over: Partial<RuleFireItem> = {}): RuleFireItem => ({
   id: `ladder:e${n}`,
   kind: "ladder",
   fired_at: `2026-09-${String(28 - n).padStart(2, "0")}T18:05:00Z`,
-  when: `Sep ${28 - n}, 2:05 PM`,
+  when: `Sep ${28 - n}, 2:05 PM EDT`,
   when_exact: `Sep ${28 - n}, 2026, 2:05:00 PM EDT`,
   stay_date: "2026-11-13",
   night: "Fri Nov 13",
@@ -28,7 +29,7 @@ const fire = (n: number, over: Partial<RuleFireItem> = {}): RuleFireItem => ({
   room_type_id: "q",
   adjustment: "+10%",
   mode: "live",
-  price_line: "Queen: $150.00 to $165.00.",
+  price_line: "Queen · stay 2026-11-13: $150.00 up to $165.00 (+10%)",
   price_note: null,
   send_state: "sent",
   send_line: "Sent to Cloudbeds.",
@@ -41,8 +42,10 @@ const simulated = fire(9, {
   mode: "simulation",
   price_line: "Simulation: the price for Fri Nov 13, Queen would have gone from $150.00 to $165.00.",
   send_state: "simulated",
-  send_line: "Nothing was sent to Cloudbeds.",
-  later: ["Would have come off Sep 20, 8:00 AM."],
+  send_line: "Nothing was sent to Cloudbeds at the time.",
+  send_after_state: "sent",
+  send_after_line: "Sent to Cloudbeds after you went live.",
+  later: ["Would have come off Sep 20, 8:00 AM EDT."],
 });
 
 /** The fire rows in the popup (its "?" opens and closes too, so rows are read off the list). */
@@ -87,10 +90,22 @@ describe("RuleFireCount", () => {
     expect(onCount).toHaveBeenCalledWith(3);
     const rows = rowsIn(dialog);
     expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toBe("Sep 27, 2:05 PMFri Nov 13+10%");
-    expect(within(rows[0]).getByText("Sep 27, 2:05 PM").getAttribute("title")).toBe("Sep 27, 2026, 2:05:00 PM EDT");
+    expect(rows[0].textContent).toBe("Sep 27, 2:05 PM EDTFri Nov 13 · Queen+10%");
+    expect(within(rows[0]).getByText("Sep 27, 2:05 PM EDT").getAttribute("title")).toBe("Sep 27, 2026, 2:05:00 PM EDT");
     // Closed rows show nothing more.
     expect(within(dialog).queryByText("Sent to Cloudbeds.")).toBeNull();
+  });
+
+  it("tells one run's fires on two room types apart without opening them", async () => {
+    const king = fire(1, { id: "ladder:k1", room_type: "King", room_type_id: "k" });
+    fetchMock.mockImplementation(async () => json({ ...firstPage, total: 2, fires: [fire(1), king], older: null }));
+    render(<RuleFireCount ruleId="r1" ruleName="Busy nights" count={2} />);
+    fireEvent.click(screen.getByRole("button", { name: /fired 2 times/ }));
+    const rows = await rowsSoon(await screen.findByRole("dialog"));
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "Sep 27, 2:05 PM EDTFri Nov 13 · Queen+10%",
+      "Sep 27, 2:05 PM EDTFri Nov 13 · King+10%",
+    ]);
   });
 
   it("opens a row to the price, where it went, why, and what came later", async () => {
@@ -100,7 +115,7 @@ describe("RuleFireCount", () => {
     const [first] = await rowsSoon(dialog);
     fireEvent.click(first);
     expect(first.getAttribute("aria-expanded")).toBe("true");
-    expect(within(dialog).getByText("Queen: $150.00 to $165.00.")).toBeTruthy();
+    expect(within(dialog).getByText("Queen · stay 2026-11-13: $150.00 up to $165.00 (+10%)")).toBeTruthy();
     expect(within(dialog).getByText("Sent to Cloudbeds.").className).toContain("emerald");
     expect(within(dialog).getByText("It was 82% full, past the 70% mark you set.")).toBeTruthy();
     fireEvent.click(first);
@@ -117,12 +132,14 @@ describe("RuleFireCount", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/rules/r1/fires?older=CURSOR");
     expect(rowsIn(dialog)).toHaveLength(3);
     expect(within(dialog).queryByRole("button", { name: "Older" })).toBeNull();
-    expect(within(dialog).getByText("Nothing older. Fires are kept for 90 days.")).toBeTruthy();
+    // The fires themselves are kept; the log stops at 90 days by choice.
+    expect(within(dialog).getByText("Nothing older. The fire log shows the last 90 days.")).toBeTruthy();
     const sim = rowsIn(dialog)[2];
     fireEvent.click(sim);
     expect(within(dialog).getByText(simulated.price_line!)).toBeTruthy();
-    expect(within(dialog).getByText("Nothing was sent to Cloudbeds.").className).toContain("amber");
-    expect(within(dialog).getByText("Would have come off Sep 20, 8:00 AM.")).toBeTruthy();
+    expect(within(dialog).getByText("Nothing was sent to Cloudbeds at the time.").className).toContain("amber");
+    expect(within(dialog).getByText("Sent to Cloudbeds after you went live.").className).toContain("emerald");
+    expect(within(dialog).getByText("Would have come off Sep 20, 8:00 AM EDT.")).toBeTruthy();
   });
 
   it("says when a rule is off, or has no fires, and closes on Escape back to the count", async () => {

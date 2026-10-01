@@ -7,13 +7,13 @@
  * the first page.
  */
 import { describe, expect, it, vi } from "vitest";
-import { fakeSupabase as sharedFake } from "@/lib/engine/fake-supabase.test";
+import { fakeSupabase as sharedFake, type FakeFault } from "@/lib/engine/fake-supabase.test";
 import { CHANGELOG_OLDER_HEADER } from "@/lib/changelog-paging";
 
 type Row = Record<string, unknown>;
 
-function fake(seed: Record<string, Row[]>) {
-  const f = sharedFake(seed);
+function fake(seed: Record<string, Row[]>, fault?: FakeFault) {
+  const f = sharedFake(seed, { fault });
   return Object.assign(f.client, { auth: { getUser: async () => ({ data: { user: { id: "user-1" } } }) } });
 }
 
@@ -138,6 +138,22 @@ describe("GET /api/changelog, page by page", () => {
     // Only an instant as the page above handed it out, not anything a date parser takes.
     expect((await page("1 Jan 2026")).status).toBe(400);
     expect((await page(at(10))).status).toBe(200);
+  });
+
+  it("fails an older page whose run log can't be read, rather than showing the newest runs again", async () => {
+    state.client = fake(seed());
+    state.admin = fake(seed());
+    const first = await page(null);
+    // The run log errors from here on, for the older page's reads only.
+    state.client = fake(seed(), (c) =>
+      c.table === "evaluation_run_log" && c.filters.some((f) => f.kind === "lte") ? { code: "57014", message: "canceling statement due to statement timeout" } : null,
+    );
+    const older = await page(first.older);
+    expect(older.status).toBe(500);
+    expect(older.older).toBeNull();
+    // The newest page still falls back as it always did when the run log can't be read.
+    state.client = fake(seed(), (c) => (c.table === "evaluation_run_log" ? { code: "57014", message: "timeout" } : null));
+    expect((await page(null)).status).toBe(200);
   });
 
   it("names no older page when the first one reaches the first run on record", async () => {

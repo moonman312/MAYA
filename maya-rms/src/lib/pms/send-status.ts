@@ -163,10 +163,10 @@ export function decideSendState(p: {
   return { state: "retrying", retriesLeft: oneMore ? 1 : MAX_PUSH_ATTEMPTS - ledger.attempts, retryRequested };
 }
 
-type ConnectionRow = { pms_type?: unknown; status?: unknown; reauthorized_at?: unknown };
+export type ConnectionRow = { pms_type?: unknown; status?: unknown; reauthorized_at?: unknown };
 
 /** The connection a price goes through: a working one first, then one MAYA keeps trying, then whatever is on file. */
-function sendingConnection(rows: ConnectionRow[]): ConnectionRow | null {
+export function sendingConnection(rows: ConnectionRow[]): ConnectionRow | null {
   const sending = rows.filter((r) => SENDS_PRICES.has(String(r.pms_type)));
   return (
     sending.find((r) => r.status === "connected" || r.status === "degraded") ??
@@ -176,7 +176,7 @@ function sendingConnection(rows: ConnectionRow[]): ConnectionRow | null {
   );
 }
 
-async function readConnections(admin: SupabaseClient, hotelId: string): Promise<ConnectionRow[]> {
+export async function readConnections(admin: SupabaseClient, hotelId: string): Promise<ConnectionRow[]> {
   const read = (columns: string) => admin.from("pms_connections").select(columns).eq("hotel_id", hotelId);
   let { data, error } = await read("pms_type, status, reauthorized_at");
   // Before the push guardrails migration: no reconnect to end a hold early.

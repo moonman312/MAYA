@@ -103,6 +103,8 @@ export type ChangelogLookups = {
   modeTimeline?: ModeTimeline;
   /** The property system a price would go to (pms_connections.pms_type), for "Nothing was sent to Cloudbeds." */
   pmsType?: string | null;
+  /** The property is live now: a simulated change then says nothing was sent "at the time". */
+  liveNow?: boolean | null;
 };
 
 /** The mode a change was made in, as an entry carries it: absent when not known. */
@@ -119,7 +121,7 @@ function entryMode(mode: PriceMode): { mode?: "simulation" | "live" } {
 function entryWords(
   mode: PriceMode,
   p: { stayDate: string; roomType: string; from: number; to: number; changePct: number },
-  lookups: Pick<ChangelogLookups, "currencySymbol" | "pmsType">,
+  lookups: Pick<ChangelogLookups, "currencySymbol" | "pmsType" | "liveNow">,
 ): Pick<ChangelogEntry, "mode" | "headline" | "send_line" | "send_state"> {
   const headline = priceMoveHeadline({ mode, ...p, currencySymbol: lookups.currencySymbol });
   if (mode !== "simulation") return { ...entryMode(mode), headline };
@@ -127,7 +129,7 @@ function entryWords(
     mode,
     headline,
     send_state: "simulated",
-    send_line: sendLine({ mode, state: null, pmsType: lookups.pmsType }) ?? undefined,
+    send_line: sendLine({ mode, state: null, pmsType: lookups.pmsType, liveNow: lookups.liveNow }) ?? undefined,
   };
 }
 
@@ -693,12 +695,19 @@ export function buildCyclesFromRuns(runs: RunSummary[], lookups: ChangelogLookup
 
 /**
  * The line under a run that shows only its biggest changes: "And 23 more
- * changes in this run." Null when the run shows every change it made.
+ * changes in this run.", or for a simulated run "And 23 more prices would
+ * have changed in this run." (each is one night's price for one room type).
+ * Null when the run shows every change it made.
  */
-export function moreChangesLine(cycle: Pick<ChangelogCycle, "changes" | "total_changes" | "total_is_minimum">): string | null {
+export function moreChangesLine(
+  cycle: Pick<ChangelogCycle, "changes" | "total_changes" | "total_is_minimum" | "mode">,
+): string | null {
   const more = (cycle.total_changes ?? 0) - cycle.changes.length;
   if (more <= 0) return null;
   const count = cycle.total_is_minimum ? `at least ${more}` : String(more);
+  if (cycle.mode === "simulation") {
+    return `And ${count} more ${more === 1 ? "price" : "prices"} would have changed in this run.`;
+  }
   return `And ${count} more ${more === 1 ? "change" : "changes"} in this run.`;
 }
 

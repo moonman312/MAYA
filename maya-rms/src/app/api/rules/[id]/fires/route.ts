@@ -2,7 +2,8 @@ import { NOT_READY_YET, dbErrorResponse } from "@/lib/api-guards";
 import { currencySymbolFor, measuredRoomTypeNames } from "@/lib/changelog-route-helpers";
 import { isMissingFunctionError } from "@/lib/engine/snapshots";
 import { resolveAccessibleHotelId } from "@/lib/hotel-context";
-import { loadModeTimeline, loadPmsType, sendFactsFor } from "@/lib/price-mode-load";
+import { pmsSendsPrices } from "@/lib/price-mode";
+import { loadLiveNow, loadModeTimeline, loadPmsType, sendFactsFor } from "@/lib/price-mode-load";
 import { ruleFireCounts } from "@/lib/rule-fire-counts";
 import {
   FIRE_LOG_DAYS,
@@ -82,7 +83,7 @@ export async function GET(req: Request, { params }: Params) {
     if (ruleErr) throw ruleErr;
     if (!ruleRow) return NextResponse.json({ error: "Rule not found." }, { status: 404 });
 
-    const [log, hotelRead, roomRead, modeTimeline, pmsType, counts] = await Promise.all([
+    const [log, hotelRead, roomRead, modeTimeline, pmsType, counts, liveNow] = await Promise.all([
       supabase.rpc("rule_fire_log", {
         p_hotel_id: hotelId,
         p_rule_id: id,
@@ -95,6 +96,7 @@ export async function GET(req: Request, { params }: Params) {
       loadModeTimeline(supabase, hotelId, "api/rules/fires"),
       loadPmsType(supabase, hotelId),
       before ? Promise.resolve(null) : ruleFireCounts(supabase, hotelId),
+      loadLiveNow(supabase, hotelId),
     ]);
     if (log.error) {
       if (!isMissingFunctionError(log.error)) throw log.error;
@@ -127,8 +129,8 @@ export async function GET(req: Request, { params }: Params) {
       : undefined;
     const now = new Date();
     const sendFacts = await sendFactsFor(
-      { hotelId, pmsType, today: hotelToday(timezone, now), now },
-      ledgerCells(page, modeTimeline),
+      { hotelId, pmsType, today: hotelToday(timezone, now), now, liveNow },
+      ledgerCells(page, modeTimeline, liveNow === true && pmsSendsPrices(pmsType)),
       "api/rules/fires",
     );
 
@@ -145,6 +147,7 @@ export async function GET(req: Request, { params }: Params) {
           timezone,
           modeTimeline,
           pmsType,
+          liveNow,
           sendFacts,
           now,
         }),
