@@ -113,6 +113,12 @@ describe("the migration file", () => {
     expect(code).not.toMatch(/grant[^;]*\banon\b/i);
   });
 
+  it("checks by hand through rule_fires, which the SQL editor may call, not rule_fire_counts", () => {
+    const check = sql.slice(sql.indexOf("-- Checking by hand afterwards"), sql.indexOf("-- One row per rule that fired"));
+    expect(check).toMatch(/from public\.rule_fires\('0{8}-0{4}-0{4}-0{4}-0{12}'\) f/);
+    expect(check).not.toMatch(/select \* from public\.rule_fire_counts\(/);
+  });
+
   it("revokes execute from public and anon on every function it defines", () => {
     const defined = [...code.matchAll(/create or replace function (public\.[a-z_]+)\(/g)].map((m) => m[1]);
     expect(defined.sort()).toEqual(["public.rule_fire_counts", "public.rule_fire_log", "public.rule_fires"]);
@@ -411,6 +417,23 @@ describe.skipIf(!PGLITE_DIR)("the rule fire log migration in PGlite", () => {
       await expect(q(`select * from public.rule_fire_counts($1)`, [HOTEL])).rejects.toThrow(/permission denied/);
       await expect(q(`select * from public.rule_fires($1)`, [HOTEL])).rejects.toThrow(/permission denied/);
     });
+  });
+
+  it("answers the header's hand check in the SQL editor, where rule_fire_counts refuses", async () => {
+    // The SQL editor: the database owner, no signed-in person, no service role.
+    await db.exec(`select set_config('request.jwt.claim.sub', '', false); select set_config('request.jwt.claim.role', '', false);`);
+    try {
+      await expect(q(`select * from public.rule_fire_counts($1)`, [HOTEL])).rejects.toThrow(/Not authorized/);
+      const sql = readFileSync(resolve(ROOT, MIGRATION), "utf8");
+      const check = sql
+        .slice(sql.indexOf("--   select f.rule_id"), sql.indexOf("-- One row per rule that fired"))
+        .replace(/^--\s?/gm, "")
+        .replace("00000000-0000-0000-0000-000000000000", HOTEL);
+      const rows = await q(check);
+      expect(Object.fromEntries(rows.map((r) => [String(r.rule_id), Number(r.fires)]))).toEqual({ [BUSY]: 32, [RUSH]: 2 });
+    } finally {
+      await db.exec(`select set_config('request.jwt.claim.role', 'service_role', false);`);
+    }
   });
 
   it("runs a third time without changing an answer", async () => {

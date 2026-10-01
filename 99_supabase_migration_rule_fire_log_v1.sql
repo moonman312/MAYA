@@ -72,9 +72,14 @@
 -- Run AFTER 99_supabase_migration_simulation_history_v1.sql. One transaction.
 -- Idempotent: every function is replaced, nothing else is created.
 --
--- Checking by hand afterwards (a property's id in place of the zeros):
+-- Checking by hand afterwards in the SQL editor (a property's id in place of
+-- the zeros). rule_fire_counts itself answers only the service role or the
+-- property's own people, so the editor, which is neither, asks rule_fires,
+-- the definition the count is made of:
 --
---   select * from public.rule_fire_counts('00000000-0000-0000-0000-000000000000');
+--   select f.rule_id, count(*) as fires
+--     from public.rule_fires('00000000-0000-0000-0000-000000000000') f
+--    group by f.rule_id;
 --
 -- One row per rule that fired in the last 90 days.
 -- ============================================================================
