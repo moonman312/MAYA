@@ -1715,7 +1715,7 @@ export function Dashboard({
             <RuleBehaviorAnimations />
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[45rem] border-collapse text-sm">
+              <table className="w-full min-w-[40rem] border-collapse text-sm">
                 <thead>
                   <tr className="border-b border-slate-700 text-left text-slate-300">
                     <th className="py-2">Name</th>
@@ -1728,8 +1728,9 @@ export function Dashboard({
                     <th className="py-2">Conditions</th>
                     <th className="py-2">Room Types</th>
                     <th className="py-2">Price Change</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2"></th>
+                    {/* Status and the buttons stay pinned to the right, so a long row never hides them behind a sideways scroll. */}
+                    <th className="sticky right-[8.5rem] bg-slate-900 py-2">Status</th>
+                    <th className="sticky right-0 w-[8.5rem] bg-slate-900 py-2"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1768,11 +1769,14 @@ export function Dashboard({
                           <span className="text-slate-600">—</span>
                         )}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="min-w-[12rem] py-2 pr-3">
                         {formatRuleConditionsDisplay(rule.conditions)}
                       </td>
                       <td className="py-2 pr-3">
-                        <RoomTypeName name={ruleRoomTypesLabel(rule, isCountingRoomTypeId)} className="block max-w-[18rem]" />
+                        {/* Full names wrap here; one nowrap line of several names took the room Conditions needs. */}
+                        <span className="block max-w-[12rem] break-words" title={ruleRoomTypesLabel(rule, isCountingRoomTypeId)}>
+                          {ruleRoomTypesLabel(rule, isCountingRoomTypeId)}
+                        </span>
                       </td>
                       <td className="py-2 pr-3 tabular-nums">
                         {rule.action.adjust_rate_percent !== undefined &&
@@ -1780,7 +1784,7 @@ export function Dashboard({
                         {rule.action.adjust_rate_dollars !== undefined &&
                           `${rule.action.adjust_rate_dollars < 0 ? "-" : "+"}$${Math.abs(rule.action.adjust_rate_dollars)}`}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="sticky right-[8.5rem] bg-slate-900 py-2 pr-3">
                         <button
                           type="button"
                           role="switch"
@@ -1832,7 +1836,7 @@ export function Dashboard({
                           <p className="mt-1 max-w-[16rem] text-[0.6875rem] text-rose-400">{ruleSwitchError.message}</p>
                         ) : null}
                       </td>
-                      <td className="py-2 pr-3">
+                      <td className="sticky right-0 w-[8.5rem] bg-slate-900 py-2 pr-3">
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
