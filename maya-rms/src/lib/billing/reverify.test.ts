@@ -282,10 +282,13 @@ describe("verifySavedCard: verdicts", () => {
     });
   });
 
-  it("does not accuse the card when the issuer wants the cardholder", async () => {
+  it("does not accuse the card when the issuer wants the cardholder, and does not ask again", async () => {
+    // Typical for UK and EU cards. Nobody is at a browser during a sweep, so
+    // every retry gets the same answer; it used to burn four tries and stamp
+    // a good card "stopped working".
     const { stripe } = fakeStripe({ intent: { status: "requires_action" } });
     expect(await verifySavedCard(stripe, row())).toEqual({
-      kind: "inconclusive",
+      kind: "unverifiable",
       code: "authentication_required",
     });
   });
@@ -300,7 +303,7 @@ describe("verifySavedCard: verdicts", () => {
       createError: { type: "StripeCardError", code: "authentication_required" },
     });
     expect(await verifySavedCard(stripe, row())).toEqual({
-      kind: "inconclusive",
+      kind: "unverifiable",
       code: "authentication_required",
     });
   });
@@ -447,25 +450,42 @@ describe("patchFor", () => {
   });
 
   it("re-arms an inconclusive check instead of settling it", () => {
-    const patch = patchFor({ kind: "inconclusive", code: "authentication_required" }, row(), NOW);
+    const patch = patchFor({ kind: "inconclusive", code: "rate_limit" }, row(), NOW);
     expect(patch).toEqual({
       card_verify_due_at: new Date(NOW.getTime() + REVERIFY_RETRY_AFTER_HOURS * 3600_000).toISOString(),
-      card_verify_last_code: "authentication_required",
+      card_verify_last_code: "rate_limit",
       card_verify_attempts: 1,
     });
     expect(patch).not.toHaveProperty("card_verify_failed_at");
   });
 
-  it("stops re-arming and surfaces the reason once retrying is pointless", () => {
+  it("stops re-arming once retrying is pointless, and still never calls the card failed", () => {
+    // What is still inconclusive after four tries is Stripe or MAYA failing to
+    // ask. The failed stamp tells the owner their card stopped working, so it
+    // is kept for a real decline or a missing card.
     const patch = patchFor(
-      { kind: "inconclusive", code: "authentication_required" },
+      { kind: "inconclusive", code: "rate_limit" },
       row({ card_verify_attempts: REVERIFY_MAX_ATTEMPTS - 1 }),
       NOW,
     );
-    expect(patch).toMatchObject({
-      card_verify_failed_at: NOW.toISOString(),
-      card_verify_last_code: "authentication_required",
+    expect(patch).toEqual({
+      card_verify_due_at: null,
+      card_verify_last_code: "rate_limit",
+      card_verify_attempts: REVERIFY_MAX_ATTEMPTS,
     });
+    expect(patch).not.toHaveProperty("card_verify_failed_at");
+  });
+
+  it("settles a card only the cardholder can answer for, at either stage, with no verdict", () => {
+    const outcome = { kind: "unverifiable", code: "authentication_required" } as const;
+    for (const r of [row(), row({ card_verified_at: "2026-07-29T12:04:00Z" })]) {
+      const patch = patchFor(outcome, r, NOW);
+      expect(patch).toEqual({
+        card_verify_due_at: null,
+        card_verify_last_code: "authentication_required",
+        card_verify_attempts: 1,
+      });
+    }
   });
 
   it("takes a moot row out of the sweep without claiming a verdict", () => {
@@ -621,7 +641,9 @@ describe("sweepCardReverification", () => {
 
   it("defers an inconclusive check and leaves it re-checkable", async () => {
     const { admin, rows } = fakeAdmin([seedRow()]);
-    const { stripe } = fakeStripe({ intent: { status: "requires_action" } });
+    const { stripe } = fakeStripe({
+      createError: { type: "StripeRateLimitError", code: "rate_limit", statusCode: 429 },
+    });
 
     const result = await sweepCardReverification({ admin, stripe, now: NOW });
     expect(result).toMatchObject({ deferred: 1, failed: 0 });
@@ -630,6 +652,40 @@ describe("sweepCardReverification", () => {
       card_verified_at: null,
       card_verify_attempts: 1,
       card_verify_due_at: new Date(NOW.getTime() + REVERIFY_RETRY_AFTER_HOURS * 3600_000).toISOString(),
+    });
+  });
+
+  it("settles a card that needs its holder present, without the stopped-working stamp", async () => {
+    const { admin, rows } = fakeAdmin([seedRow()]);
+    const { stripe, calls } = fakeStripe({ intent: { status: "requires_action" } });
+
+    const result = await sweepCardReverification({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ examined: 1, unverifiable: 1, failed: 0, deferred: 0 });
+    expect(rows[0]).toMatchObject({
+      card_verify_failed_at: null,
+      card_verified_at: null,
+      card_verify_due_at: null,
+      card_verify_last_code: "authentication_required",
+    });
+
+    // Out of the sweep: no second question to the same bank.
+    await sweepCardReverification({ admin, stripe, now: new Date(NOW.getTime() + 7 * 3600_000) });
+    expect(calls.retrieves).toHaveLength(1);
+  });
+
+  it("gives up on a check Stripe never answered, without blaming the card", async () => {
+    const { admin, rows } = fakeAdmin([seedRow({ card_verify_attempts: REVERIFY_MAX_ATTEMPTS - 1 })]);
+    const { stripe } = fakeStripe({
+      createError: { type: "StripeAPIError", code: "api_error", statusCode: 500 },
+    });
+
+    const result = await sweepCardReverification({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ examined: 1, gaveUp: 1, deferred: 0, failed: 0 });
+    expect(rows[0]).toMatchObject({
+      card_verify_failed_at: null,
+      card_verify_due_at: null,
+      card_verify_last_code: "api_error",
+      card_verify_attempts: REVERIFY_MAX_ATTEMPTS,
     });
   });
 

@@ -47,7 +47,7 @@ You pay by card. Stripe hosts the payment page and holds the card, and MAYA neve
 
 Your card is checked twice with a zero-amount check: once right after checkout, and again 48 hours after the subscription started. The check asks your bank whether it would still honour the card. No money moves. Some banks briefly show a pending line that then disappears. It is never charged. The second check exists because a card cancelled the day after signing up would otherwise go unnoticed until the first real charge failed.
 
-If the bank's answer is inconclusive (it wants the cardholder present, say), MAYA asks again. It asks up to 4 times in all for each check, about 6 hours apart, and then records that check as failed. A card removed from the billing account after checkout counts as failed too.
+If your bank wants the cardholder present to answer, which many UK and EU banks do, the checks stop there with no verdict: the card is not marked as failed, and it is not checked again. If MAYA cannot get an answer at all, it asks again, up to 4 times in all for each check, about 6 hours apart, and then stops without a verdict. Only a decline counts as failed, and so does a card removed from the billing account after checkout.
 
 A failed check never stops MAYA working. It raises two things: the top card on the <Ui>Billing</Ui> page reads "Your saved card stopped working" with "Nothing has failed yet, but the next charge will. Update it before your renewal to keep pricing running.", and an amber section headed "Your card needs attention" says "We checked it on" the date "and your bank declined it", with the bank's short reason in brackets. The dashboard shows the amber <Ui>Fix it</Ui> banner to everyone on the property.
 

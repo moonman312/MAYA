@@ -49,9 +49,10 @@ export const REVERIFY_BATCH_SIZE = 25;
 export const REVERIFY_RETRY_AFTER_HOURS = 6;
 
 /**
- * Attempts before an inconclusive check is recorded as a failure. Without a
- * ceiling a card stuck on "the issuer wants the cardholder" would be re-checked
- * forever and nobody would ever be told.
+ * Attempts before an inconclusive check stops being retried. What is left
+ * inconclusive by then is Stripe or MAYA failing to ask (a rate limit, an
+ * outage, the wrong Stripe key), which says nothing about the card, so the
+ * check is settled with no verdict rather than stamped failed.
  */
 export const REVERIFY_MAX_ATTEMPTS = 4;
 
@@ -79,6 +80,13 @@ export type ReverifyOutcome =
   | { kind: "failed"; code: string }
   /** We could not tell. Try again later; do not alarm anyone yet. */
   | { kind: "inconclusive"; code: string }
+  /**
+   * The bank wants the cardholder present to answer, which a sweep with nobody
+   * at a browser can never give. Not a decline: a card that authenticated at
+   * checkout bills fine off that mandate, and asking again gets the same
+   * answer. Settled with no verdict.
+   */
+  | { kind: "unverifiable"; code: string }
   /** There is no longer a card worth checking. */
   | { kind: "moot"; code: string };
 
@@ -205,9 +213,10 @@ export async function verifySavedCard(
     if (intent.status === "succeeded") return { kind: "verified" };
 
     // requires_action off-session means the issuer wants the cardholder present.
-    // That is a card we cannot silently confirm, not a card we know is dead.
+    // That is a card we cannot silently confirm, not a card we know is dead,
+    // and every retry would ask the same bank the same question.
     if (intent.status === "requires_action") {
-      return { kind: "inconclusive", code: "authentication_required" };
+      return { kind: "unverifiable", code: "authentication_required" };
     }
     if (intent.status === "processing") return { kind: "inconclusive", code: "processing" };
 
@@ -222,7 +231,7 @@ export async function verifySavedCard(
     // checkout will bill fine off that mandate, and stamping it failed at 48h
     // would tell the owner their good card had died.
     if (codeOf(err) === "authentication_required") {
-      return { kind: "inconclusive", code: "authentication_required" };
+      return { kind: "unverifiable", code: "authentication_required" };
     }
     // A decline is the answer we came for.
     if (err.type === "StripeCardError" || err.type === "card_error") {
@@ -325,18 +334,23 @@ export function patchFor(
   if (outcome.kind === "failed") {
     return { card_verify_failed_at: at, card_verify_last_code: outcome.code, card_verify_attempts: attempts };
   }
-  if (outcome.kind === "moot") {
+  if (outcome.kind === "moot" || outcome.kind === "unverifiable") {
     // No verdict to record, so nulling the due date is what takes it out of the
     // sweep. Stamping verified_at would be a lie and failed_at a false alarm.
+    // A card only the cardholder can answer for is settled the same way, at
+    // either stage: the 48-hour check would get the same answer.
     return { card_verify_due_at: null, card_verify_last_code: outcome.code, card_verify_attempts: attempts };
   }
   // A settled row never comes back here. If the hotel subscribes again,
   // trg_hotel_subscriptions_reset_card_verify clears the stamps so the new card
   // gets its own 48 hours (99_supabase_migration_card_reverify_v1.sql).
 
-  // Inconclusive: try again, until trying again stops being useful.
+  // Inconclusive: try again, until trying again stops being useful. Then the
+  // check is settled with no verdict, like a moot one: only a decline or a
+  // missing card is stamped failed, because that stamp tells the owner their
+  // card stopped working. The sweep tells a person instead (gaveUp).
   if (attempts >= REVERIFY_MAX_ATTEMPTS) {
-    return { card_verify_failed_at: at, card_verify_last_code: outcome.code, card_verify_attempts: attempts };
+    return { card_verify_due_at: null, card_verify_last_code: outcome.code, card_verify_attempts: attempts };
   }
   return {
     card_verify_due_at: new Date(now.getTime() + REVERIFY_RETRY_AFTER_HOURS * 3600_000).toISOString(),
@@ -390,6 +404,10 @@ export type SweepResult = {
   failed: number;
   deferred: number;
   moot: number;
+  /** Settled with no verdict because only the cardholder could answer. */
+  unverifiable: number;
+  /** Inconclusive checks that ran out of attempts this run and were settled with no verdict. */
+  gaveUp: number;
   errors: string[];
 };
 
@@ -407,7 +425,16 @@ export async function sweepCardReverification(opts: {
   limit?: number;
 }): Promise<SweepResult> {
   const now = opts.now ?? new Date();
-  const result: SweepResult = { examined: 0, verified: 0, failed: 0, deferred: 0, moot: 0, errors: [] };
+  const result: SweepResult = {
+    examined: 0,
+    verified: 0,
+    failed: 0,
+    deferred: 0,
+    moot: 0,
+    unverifiable: 0,
+    gaveUp: 0,
+    errors: [],
+  };
 
   const { rows, error } = await dueSubscriptions(opts.admin, now, opts.limit ?? REVERIFY_BATCH_SIZE);
   if (error) {
@@ -424,9 +451,15 @@ export async function sweepCardReverification(opts: {
     result.examined += 1;
     const outcome = await verifySavedCard(opts.stripe, row);
 
+    // patchFor settles an inconclusive check on its last attempt.
+    const gaveUp =
+      outcome.kind === "inconclusive" && (row.card_verify_attempts ?? 0) + 1 >= REVERIFY_MAX_ATTEMPTS;
+
     if (outcome.kind === "verified") result.verified += 1;
     else if (outcome.kind === "failed") result.failed += 1;
     else if (outcome.kind === "moot") result.moot += 1;
+    else if (outcome.kind === "unverifiable") result.unverifiable += 1;
+    else if (gaveUp) result.gaveUp += 1;
     else result.deferred += 1;
 
     // A failed card is the whole reason this runs; it goes in the log whether or
@@ -439,6 +472,7 @@ export async function sweepCardReverification(opts: {
           sub: row.stripe_subscription_id,
           outcome: outcome.kind,
           code: outcome.code,
+          ...(gaveUp ? { gaveUp: true, attempts: REVERIFY_MAX_ATTEMPTS } : {}),
         }),
       );
     }
@@ -458,6 +492,8 @@ export async function sweepCardReverification(opts: {
       failed: result.failed,
       deferred: result.deferred,
       moot: result.moot,
+      unverifiable: result.unverifiable,
+      gaveUp: result.gaveUp,
       errors: result.errors.length,
     }),
   );
