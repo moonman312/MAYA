@@ -1,15 +1,16 @@
 /**
- * The activation popup for several new rules at once (an import from PIE):
- * its one count and calendar are exactly the days Apply then changes, with
- * the rules all on together and the floors and ceilings saved with them,
- * and Skip holds those days for every one of them while every other day
- * prices as Apply does. On both copies of the engine, on the preview
- * fixture's hotel (made-up data).
+ * Several new rules at once (an import from PIE, added with Skip): the days
+ * worked out for them are exactly the days Apply would change, with the
+ * rules all on together and the floors and ceilings saved with them; Skip
+ * holds those days for every one of them while every other day prices as
+ * Apply does; and the floors and ceilings' own days, which the review
+ * counts, are then the only days the import moves. On both copies of the
+ * engine, on the preview fixture's hotel (made-up data).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addDays } from "@/lib/observations/calendar";
 import { dryRunCapture } from "@/lib/engine/evaluate";
-import { previewRuleSet, readOnlyClient, skipPlanForRules, type EngineRuleRow, type EvaluateFn, type LimitOverrides, type SkipPlan } from "@/lib/rule-preview";
+import { previewLimits, previewRuleSet, readOnlyClient, skipPlanForRules, type EngineRuleRow, type EvaluateFn, type LimitOverrides, type SkipPlan } from "@/lib/rule-preview";
 import { ENGINES, FAMILY, H, HORIZON, KING, QUEEN, RT, SUITE, T10, TODAY, clone, fake, nightsDiffering, published, ruleRow, settle, uuid, type Tables } from "@/lib/rule-preview-fixture.test";
 import type { FakeRow } from "@/lib/engine/fake-supabase.test";
 
@@ -129,7 +130,7 @@ const CASES: { name: string; rules: () => FakeRow[]; limits?: LimitOverrides }[]
 ];
 
 for (const engine of ENGINES) {
-  describe(`the popup's days for rules added together, on the ${engine.name}`, () => {
+  describe(`the days for rules added together, on the ${engine.name}`, () => {
     let settled: Tables;
     beforeEach(async () => {
       engine.reset();
@@ -187,31 +188,28 @@ for (const engine of ENGINES) {
     }, 120_000);
 
     it.each(CASES.filter((c) => c.limits))(
-      "$name: the floors and ceilings' own days are shown too, so the popup covers every day Apply changes",
+      "$name: with Skip, the only days the import moves are the floors and ceilings' own, as the review counts them",
       async (c) => {
         const t = clone(settled);
         const rules = c.rules();
         vi.setSystemTime(new Date(T10));
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const client = fake(clone(t)).client as any;
-        const input = { hotelId: H, rules: rules as EngineRuleRow[], limits: c.limits, at: T10, horizonDays: HORIZON };
-        const whole = await previewRuleSet(client, input, engine.evaluate);
-        const chunks = await Promise.all([
-          previewRuleSet(client, { ...input, to: addDays(TODAY, 9) }, engine.evaluate),
-          previewRuleSet(client, { ...input, from: addDays(TODAY, 10) }, engine.evaluate),
-        ]);
+        const counted = await previewLimits(client, { hotelId: H, limits: c.limits!, at: T10, horizonDays: HORIZON }, engine.evaluate);
+        expect(counted).toMatchObject({ today: TODAY, horizonDays: HORIZON, nightsChecked: HORIZON * 2 });
         // The limits alone, set and run as the sync runs, against the hotel as it is.
-        const today = published(await realRun(engine.evaluate, t, T10));
-        const limitsOnly = nightsDiffering(published(await realRun(engine.evaluate, withLimits(t, c.limits), T10)), today);
+        const today = published(await realRun(engine.evaluate, t, T11));
+        const limitsOnly = nightsDiffering(published(await realRun(engine.evaluate, withLimits(t, c.limits), T11)), today);
         expect(limitsOnly.length).toBeGreaterThan(0);
-        expect(whole.limitsAffected).toEqual(limitsOnly);
-        expect(chunks.flatMap((x) => x.limitsAffected ?? [])).toEqual(limitsOnly);
-        // Every day Apply changes from today is on the popup's calendar, as the rules' or the limits'.
-        const applied = nightsDiffering(published(await realRun(engine.evaluate, saveApply(t, rules, c.limits), T10)), today);
-        const shown = new Set([...whole.affected, ...(whole.limitsAffected ?? [])]);
-        expect(applied.filter((d) => !shown.has(d))).toEqual([]);
-        // With no limits, nothing extra.
-        expect((await previewRuleSet(client, { ...input, limits: undefined }, engine.evaluate)).limitsAffected).toBeUndefined();
+        expect(counted.limitsAffected).toEqual(limitsOnly);
+        // The import as the route saves it: the rules on with Skip on the days worked out, and the limits set.
+        const input = { hotelId: H, rules: rules as EngineRuleRow[], limits: c.limits, at: T10, horizonDays: HORIZON };
+        const days = await previewRuleSet(client, input, engine.evaluate);
+        const plans = await skipPlanForRules(client, input, days.affected, engine.evaluate);
+        const skipped = published(await realRun(engine.evaluate, saveSkip(t, rules, plans, T10, c.limits), T11));
+        expect(nightsDiffering(skipped, today)).toEqual(counted.limitsAffected);
+        // No limits: nothing to count.
+        expect((await previewLimits(client, { hotelId: H, limits: {}, at: T10, horizonDays: HORIZON }, engine.evaluate)).limitsAffected).toEqual([]);
       },
       120_000,
     );

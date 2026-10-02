@@ -3,20 +3,30 @@
  * ceilings) an import from PIE read, after the owner's review.
  *
  * Body: { rules: [{ id, on, ...the rule builder's draft }], limits:
- * [{ roomTypeId, floor, ceiling }], and, when any rule is on, the activation
- * popup's answer for all of them together: activation ("apply" or "skip"),
- * fingerprint, touched, held or hold_all, days, refreshed }.
+ * [{ roomTypeId, floor, ceiling }] }.
  *
  * Who may: whoever may create rules (ruleGate: Revenue Manager or above).
- * The rules that are on go through one popup: their Apply or Skip is saved
- * only on the numbers it showed (the fingerprint, as for one rule), and Skip
- * holds the days shown for every one of them. Rules that were off in PIE
- * are created off. Nothing is saved when the rules on would go past the
- * 40-rule cap. The limits are set first (the popup's days were worked out
- * on them), then each rule in the screenshot's order; a rule that fails is
- * named in the answer and the rest still save. When every rule fails after
- * the limits were set, the answer is still a success that says the limits
- * were set and names each rule that couldn't be added.
+ *
+ * PIE has already changed the rates in Cloudbeds on the nights its rules
+ * match today, so applying the same rules in MAYA there would change those
+ * nights twice. The rules that were on in PIE are therefore added on with
+ * Skip, never Apply, and with no popup (Jake, 2026-10-01): the nights they
+ * would change right now keep their prices, each until its rule stops
+ * being true there and then becomes true again, and every other night
+ * works as Apply. Those nights are the ones the activation popup would
+ * have shown, worked out here at the save itself, on the limits being set
+ * (previewRuleSet, then skipPlanForRules, as the popup's Skip), so there is
+ * no preview to go stale before the save. When they can't be worked out,
+ * every night each rule could act on is held, as the popup's Skip does
+ * then. Rules that were off in PIE are created off. An activation,
+ * fingerprint or days sent by a page from before this change are ignored.
+ *
+ * Nothing is saved when the rules on would go past the 40-rule cap. The
+ * held nights are worked out first, then the limits are set, then each rule
+ * is created in the screenshot's order; a rule that fails is named in the
+ * answer and the rest still save. When every rule fails after the limits
+ * were set, the answer is still a success that says the limits were set
+ * and names each rule that couldn't be added.
  *
  * Nothing from the screenshot reaches the server but the rules and limits
  * themselves: no image, no text read from it.
@@ -26,9 +36,9 @@ import { checkCap, limitOverrides, planImportRequest, type ImportRequest } from 
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { nudgeHotelSync } from "@/lib/pms/sync-nudge";
-import { previewFingerprint, skipPlanForRules, type SkipPlan } from "@/lib/rule-preview";
+import { previewRuleSet, skipPlanForRules, type SkipPlan } from "@/lib/rule-preview";
 import { ruleErrorResponse, ruleGate } from "@/lib/rule-route";
-import { DAYS_CHANGED, RuleSaveError, cleanTouched, commitRuleChange, type ActivationChoice } from "@/lib/rule-save";
+import { RuleSaveError, cleanTouched, commitRuleChange } from "@/lib/rule-save";
 import { NextResponse } from "next/server";
 
 export const maxDuration = 120;
@@ -51,31 +61,25 @@ export async function POST(req: Request) {
     const request = await planImportRequest(gate.admin, gate.hotelId, body, at);
     // Rules an earlier try already created stay as they are.
     const on = request.rules.flatMap((r) => (r.on && !r.existing ? [r.plan] : []));
-    let choice: ActivationChoice | null = null;
-    let held: string[] | "all" = [];
-    if (on.length > 0) {
-      if (body.activation !== "apply" && body.activation !== "skip") {
-        throw new RuleSaveError(409, "Choose whether to apply the price adjustments.", "activation_required");
-      }
-      choice = body.activation;
-      const holdAll = choice === "skip" && (body.hold_all === true || !Array.isArray(body.held));
-      if (!holdAll) {
-        const now = await previewFingerprint(gate.admin, gate.hotelId, at);
-        if (typeof body.fingerprint !== "string" || body.fingerprint !== now) throw new RuleSaveError(409, DAYS_CHANGED, "stale");
-      }
-      held = holdAll ? "all" : cleanTouched(body.held);
-    }
     await checkCap(gate.admin, gate.hotelId, on.length);
     const horizonDays = await hotelPricingHorizon(gate.admin, gate.hotelId);
 
-    // The Skip for all of them, from one dry run on the limits being set.
+    // The Skip for all of them: the nights they would change right now, on
+    // the limits being set, held for every one.
+    let held: string[] | "all" = [];
+    let touched: string[] = [];
     let skipPlans = new Map<string, SkipPlan>();
-    if (choice === "skip") {
-      skipPlans = await skipPlanForRules(
-        gate.admin,
-        { hotelId: gate.hotelId, rules: on.map((plan) => plan.after), limits: limitOverrides(request.limits), at, horizonDays },
-        held,
-      );
+    if (on.length > 0) {
+      const input = { hotelId: gate.hotelId, rules: on.map((plan) => plan.after), limits: limitOverrides(request.limits), at, horizonDays };
+      try {
+        const days = await previewRuleSet(gate.admin, input);
+        held = days.affected;
+        touched = cleanTouched(days.touched);
+      } catch (e) {
+        console.error(JSON.stringify({ fn: "rules-import", step: "days", error: e instanceof Error ? e.message : String(e) }));
+        held = "all";
+      }
+      skipPlans = await skipPlanForRules(gate.admin, input, held);
     }
 
     const limitsSet = await setLimits(gate, request);
@@ -83,7 +87,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: limitsSet.error, created: [], failed: [], limits: limitsSet.count }, { status: 500 });
     }
 
-    const touched = cleanTouched(body.touched);
     const created: { id: string; on: boolean }[] = [];
     const failed: { id: string; error: string }[] = [];
     for (const [i, rule] of request.rules.entries()) {
@@ -92,7 +95,7 @@ export async function POST(req: Request) {
         continue;
       }
       try {
-        const result = await commitRuleChange(gate.supabase, gate.admin, rule.plan, rule.on ? choice : null, {
+        const result = await commitRuleChange(gate.supabase, gate.admin, rule.plan, rule.on ? "skip" : null, {
           at,
           horizonDays,
           touched: rule.on ? touched : [],
@@ -116,6 +119,7 @@ export async function POST(req: Request) {
     }
 
     if (created.length > 0 || limitsSet.count > 0) await nudgeHotelSync(gate.admin, gate.hotelId).catch(() => "next_cycle");
+    const skipped = on.length > 0;
     const { error } = await gate.admin.rpc("product_event_emit", {
       p_event: "rules.imported",
       p_hotel_id: gate.hotelId,
@@ -127,9 +131,10 @@ export async function POST(req: Request) {
         created_off: created.filter((c) => !c.on).length,
         failed: failed.length,
         limits: limitsSet.count,
-        choice: choice ?? "none",
+        choice: skipped ? "skip" : "none",
         held_all: held === "all",
-        days: choice && held !== "all" && Number.isFinite(Number(body.days)) ? Math.min(Math.max(0, Math.floor(Number(body.days))), 1000) : null,
+        // The nights held, as worked out at the save; null when they couldn't be, or no rule was on.
+        days: skipped && held !== "all" ? Math.min(held.length, 1000) : null,
       },
       p_source: "app",
     });
@@ -138,7 +143,7 @@ export async function POST(req: Request) {
     // set, the answer says so, with each rule that couldn't be added.
     const none = failed.length > 0 && created.length === 0 && limitsSet.count === 0;
     return NextResponse.json(
-      { created, failed, limits: limitsSet.count, skipped: choice === "skip", ...(none ? { error: failed[0].error } : {}) },
+      { created, failed, limits: limitsSet.count, skipped, ...(none ? { error: failed[0].error } : {}) },
       { status: none ? 409 : 200 },
     );
   } catch (e) {

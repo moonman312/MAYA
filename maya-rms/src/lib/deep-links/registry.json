@@ -1153,7 +1153,8 @@
       "settings-colours": "watch/settings#colours",
       "settings-pms-changes": "watch/settings#changes-made-in-your-property-system",
       "pms-removed": "watch/rates-changed-in-your-pms#a-rate-removed-in-your-system",
-      "pie-import": "rules/import-your-rules-from-pie"
+      "pie-import": "rules/import-your-rules-from-pie",
+      "pie-skip": "rules/import-your-rules-from-pie#adding-them"
     }
   }
 }

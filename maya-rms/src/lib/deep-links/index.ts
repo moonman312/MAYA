@@ -54,4 +54,5 @@ export type HelpPanel =
   | "settings-colours"
   | "settings-pms-changes"
   | "pms-removed"
-  | "pie-import";
+  | "pie-import"
+  | "pie-skip";

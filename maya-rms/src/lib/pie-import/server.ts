@@ -74,7 +74,7 @@ export async function planImportRequest(
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** The limits in a request: this property's room types, a floor above 0, a ceiling at or above it. */
-async function parseLimits(admin: SupabaseClient, hotelId: string, value: unknown): Promise<LimitInput[]> {
+export async function parseLimits(admin: SupabaseClient, hotelId: string, value: unknown): Promise<LimitInput[]> {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 200) throw new RuleSaveError(400, "Invalid payload.");
   const out: LimitInput[] = [];

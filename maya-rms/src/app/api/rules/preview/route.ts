@@ -8,10 +8,11 @@
  * will be saved under. `from` and `to` ask for part of the window (the
  * popup's calendar comes in chunks); the whole window when left out.
  *
- * An import from PIE asks for all its new rules at once: { intent:
- * "import", rules, limits, from?, to? }, what POST /api/rules/import saves
- * (`rules` the drafts with their ids and `on`; only the ones on are in the
- * count, on the floors and ceilings in `limits`).
+ * An import from PIE's review asks what the floors and ceilings it would
+ * set change by themselves: { intent: "import_limits", limits }, the
+ * `limits` POST /api/rules/import saves. Its rules need no popup (they are
+ * added with Skip, which the save works out itself), so this is the only
+ * thing the review shows before anything is saved.
  *
  * The answer comes from dry runs of the engine the scheduled sync runs
  * (src/lib/rule-preview.ts), never an estimate, with a fingerprint of
@@ -22,8 +23,8 @@
 import { hotelPricingHorizon } from "@/lib/pms/pricing-horizon";
 import { DAYS_NOT_CALCULATED } from "@/lib/rule-activation-client";
 import { enforceRateLimit } from "@/lib/rate-limit";
-import { checkCap, limitOverrides, planImportRequest } from "@/lib/pie-import/server";
-import { previewFingerprint, previewRule, previewRuleSet } from "@/lib/rule-preview";
+import { limitOverrides, parseLimits } from "@/lib/pie-import/server";
+import { previewFingerprint, previewLimits, previewRule } from "@/lib/rule-preview";
 import { ruleErrorResponse, ruleGate } from "@/lib/rule-route";
 import { RuleSaveError, parseDraft, planRuleChange, type RuleIntent } from "@/lib/rule-save";
 import { NextResponse } from "next/server";
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   }
   const intent = body.intent;
-  if (intent === "import") return previewImport(gate, body);
+  if (intent === "import_limits") return previewImportLimits(gate, body);
   if (intent !== "create" && intent !== "edit" && intent !== "enable") {
     return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
   }
@@ -98,29 +99,18 @@ export async function POST(req: Request) {
   }
 }
 
-/** The popup's days for an import's rules that are on, all together. */
-async function previewImport(gate: Extract<Awaited<ReturnType<typeof ruleGate>>, { ok: true }>, body: Record<string, unknown>) {
+/** What the floors and ceilings an import from PIE would set change by themselves, for its review. */
+async function previewImportLimits(gate: Extract<Awaited<ReturnType<typeof ruleGate>>, { ok: true }>, body: Record<string, unknown>) {
   try {
     const at = new Date().toISOString();
-    const request = await planImportRequest(gate.admin, gate.hotelId, body, at);
-    const on = request.rules.flatMap((r) => (r.on && !r.existing ? [r.plan] : []));
-    if (on.length === 0) return NextResponse.json({ needsActivation: false, change: "new" });
-    await checkCap(gate.admin, gate.hotelId, on.length);
-    const [horizonDays, fingerprint] = await Promise.all([
-      hotelPricingHorizon(gate.admin, gate.hotelId),
-      previewFingerprint(gate.admin, gate.hotelId, at),
-    ]);
-    const preview = await previewRuleSet(gate.admin, {
-      hotelId: gate.hotelId,
-      rules: on.map((plan) => plan.after),
-      limits: limitOverrides(request.limits),
-      at,
-      horizonDays,
-      from: typeof body.from === "string" ? body.from : undefined,
-      to: typeof body.to === "string" ? body.to : undefined,
-    });
-    return NextResponse.json({ needsActivation: true, change: "new", versionAfter: 1, fingerprint, ...preview });
+    const limits = await parseLimits(gate.admin, gate.hotelId, body.limits);
+    const horizonDays = await hotelPricingHorizon(gate.admin, gate.hotelId);
+    const preview = await previewLimits(gate.admin, { hotelId: gate.hotelId, limits: limitOverrides(limits) ?? {}, at, horizonDays });
+    return NextResponse.json(preview);
   } catch (e) {
-    return ruleErrorResponse(e, DAYS_NOT_CALCULATED);
+    return ruleErrorResponse(e, LIMITS_NOT_CALCULATED);
   }
 }
+
+/** When the days the floors and ceilings change could not be worked out. */
+const LIMITS_NOT_CALCULATED = "We weren't able to work out which days the new floors and ceilings change.";

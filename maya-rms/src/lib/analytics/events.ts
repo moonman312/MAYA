@@ -63,18 +63,18 @@ export const UI_EVENTS = {
    * The activation popup opened: switching a rule on, adding one on, saving
    * an edit to one that is on, or a suggestion on the Rules tab.
    */
-  "rule.preview_opened": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"], kind: ["standard", "event"] },
+  "rule.preview_opened": { from: ["switch", "builder_new", "builder_edit", "suggestion"], kind: ["standard", "event"] },
   /** Its days came back: how many, how long the owner waited, how many nights the engine ran. */
   "rule.preview_shown": {
-    from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"],
+    from: ["switch", "builder_new", "builder_edit", "suggestion"],
     days: "count",
     ms: "count",
     nights_checked: "count",
   },
   /** Its days could not be worked out. */
-  "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"] },
+  "rule.preview_failed": { from: ["switch", "builder_new", "builder_edit", "suggestion"] },
   /** Cancel: nothing saved, nothing switched on. */
-  "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion", "pie_import"], days: "count" },
+  "rule.preview_cancelled": { from: ["switch", "builder_new", "builder_edit", "suggestion"], days: "count" },
   /**
    * The import from PIE opened: from the Rules tab's link, or a link into
    * it (the setup review's, for a Cloudbeds property).

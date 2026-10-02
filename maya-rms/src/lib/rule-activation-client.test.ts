@@ -14,7 +14,6 @@ import {
   draftKind,
   farOutCutLines,
   fetchRulePreview,
-  limitsSentence,
   monthBlocks,
   previewParts,
   type PreviewOutcome,
@@ -60,37 +59,8 @@ describe("the words", () => {
     expect(dayTitle("2026-10-03", undefined)).toBe("Sat 3 Oct 2026");
   });
 
-  it("says what an import's floors and ceilings change by themselves", () => {
-    expect(limitsSentence(1)).toBe("The new floors and ceilings change prices on 1 more day, whether you apply or skip.");
-    expect(limitsSentence(12)).toBe("The new floors and ceilings change prices on 12 more days, whether you apply or skip.");
-    expect(limitsSentence(null)).toBe("The new floors and ceilings change prices too, whether you apply or skip.");
-  });
-
   it("no em dashes anywhere in them", () => {
-    for (const s of [affectedSentence(2), dateRanges(["2026-10-01"]), dayTitle("2026-10-01", 2), limitsSentence(3), limitsSentence(null)]) expect(s).not.toMatch(/—/);
-  });
-
-  it("puts an import's limit days from every part together, and has none without limits", async () => {
-    const answer = (limits: boolean) =>
-      vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as { from?: string };
-        const part = {
-          needsActivation: true,
-          today: "2026-10-01",
-          lastNight: "2027-10-31",
-          affected: [],
-          touched: [],
-          fingerprint: "fp",
-          kind: "event",
-          ...(limits ? { limitsAffected: body.from ? ["2026-12-01"] : ["2026-10-02", "2026-10-03"] } : {}),
-        };
-        return new Response(JSON.stringify(part), { status: 200, headers: { "Content-Type": "application/json" } });
-      });
-    const req = { intent: "import" as const, ruleId: "r1", limits: [{ roomTypeId: "k", floor: 100, ceiling: 200 }] };
-    const outcome = await fetchRulePreview(req, "event", () => {}, answer(true) as unknown as typeof fetch, "2026-10-01");
-    expect(outcome.status === "ready" && outcome.preview.limitsAffected).toEqual(["2026-10-02", "2026-10-03", "2026-12-01"]);
-    const none = await fetchRulePreview({ intent: "enable", ruleId: "r1" }, "event", () => {}, answer(false) as unknown as typeof fetch, "2026-10-01");
-    expect(none.status === "ready" && none.preview.limitsAffected).toBeNull();
+    for (const s of [affectedSentence(2), dateRanges(["2026-10-01"]), dayTitle("2026-10-01", 2)]) expect(s).not.toMatch(/—/);
   });
 });
 

@@ -262,8 +262,8 @@ export type DryRun = {
    */
   rule?: Record<string, unknown>;
   /**
-   * Several new rules at once, the same way (rules imported together, which
-   * one popup covers): each joins the run, on.
+   * Several new rules at once, the same way (rules imported together from
+   * PIE): each joins the run, on.
    */
   rules?: Record<string, unknown>[];
   /**

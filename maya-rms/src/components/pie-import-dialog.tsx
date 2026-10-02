@@ -6,12 +6,19 @@
  * never kept), and shows each PIE rule beside the MAYA rule it becomes, with
  * the floors and ceilings PIE's price limits make. The owner unticks what
  * they don't want, opens any rule in the rule builder first if they like,
- * and adds them: the ones on in PIE through one activation popup for all of
- * them, the ones off created off.
+ * and adds them in one click: the ones on in PIE are added on with Skip,
+ * the ones off created off.
+ *
+ * No activation popup and no Apply (Jake, 2026-10-01): PIE has already
+ * changed the rates in Cloudbeds on the nights its rules match today, so
+ * applying the same rules there would change those nights twice. The save
+ * holds those nights (POST /api/rules/import works them out itself), and
+ * the review says so in one line by the button, the rest behind its "?".
+ * What the new floors and ceilings change by themselves is worked out while
+ * the review is open and said under it.
  */
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { RuleActivationDialog, type ActivationChoice, type SaveAnswer } from "@/components/rule-activation-dialog";
 import { RoomCountHelp } from "@/components/room-type-settings";
 import { track } from "@/lib/analytics/track";
 import { NOT_AN_IMAGE } from "@/lib/pie-import/browser-ocr";
@@ -19,7 +26,7 @@ import { mergeReads, type MergedRead } from "@/lib/pie-import/merge";
 import { PIE_COPY, planImport, type ImportDraft, type ImportItem, type LimitChange, type MayaRoomType } from "@/lib/pie-import/map";
 import type { ScreenshotRead } from "@/lib/pie-import/read";
 import { draftSentence } from "@/lib/pie-import/sentence";
-import { browserToday, draftsKind, type PreviewRequest } from "@/lib/rule-activation-client";
+import { browserToday } from "@/lib/rule-activation-client";
 
 /** The most active rules a property may have (enforce_rule_limit). */
 const ACTIVE_RULE_CAP = 40;
@@ -44,6 +51,32 @@ export const PIE_REVIEW_HELP = {
     "Once you're live, turn PIE's rules off, or set MAYA's price wins, so the two don't change the same rates.",
   ],
 };
+
+/** The line by the button when rules that were on in PIE are being added (Jake's words, 2026-10-01). */
+export const PIE_SKIP_LINE = "PIE has already adjusted the nights these rules match today, so MAYA leaves those as they are and acts on changes from now on.";
+
+export const PIE_SKIP_HELP = {
+  label: "Why the nights PIE adjusted are left as they are",
+  title: "Rules that were on in PIE",
+  lines: [
+    "PIE has already changed your rates in Cloudbeds on the nights its rules match today. The same rules changing those nights in MAYA would change them twice.",
+    "So each rule is added on, and the nights it would change today keep their prices until it stops being true on a night and then becomes true again. Every other night works as if the rule had always been on.",
+    "Floors and ceilings apply as they always do.",
+  ],
+};
+
+/**
+ * The line under the review when the floors and ceilings being set change
+ * prices by themselves (the rules change none the day they are added), or,
+ * when that couldn't be worked out, that they can.
+ */
+export function limitsSentence(days: number | null): string {
+  if (days === null) return "The new floors and ceilings can change prices by themselves.";
+  return `The new floors and ceilings change prices on ${days} ${days === 1 ? "day" : "days"}.`;
+}
+
+/** How long the review waits after a limit is ticked or unticked before asking what they change. */
+const LIMITS_CHECK_DELAY_MS = 400;
 
 /** Reads screenshots into what the review shows (the browser's OCR; tests hand in their own). */
 export type ReadScreenshots = (files: readonly Blob[]) => Promise<ScreenshotRead[]>;
@@ -112,6 +145,8 @@ type Phase = "pick" | "reading" | "review" | "saving" | "done";
 
 type Result = { created: { id: string; on: boolean }[]; failed: { id: string; error: string }[]; limits: number };
 
+type SendAnswer = { ok: true } | { ok: false; error: string };
+
 /** "Garden Room: $110 to $520" */
 /**
  * "Floor $120.00 → $149.00": what the room type has today, then what PIE's
@@ -167,8 +202,9 @@ export function PieImportDialog({
   const [edits, setEdits] = useState<Record<string, ImportDraft[]>>({});
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [activation, setActivation] = useState<{ request: PreviewRequest; name: string; kind: "standard" | "event" } | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  // What each set of limits changes by itself, by the limits sent: days, or null when it couldn't be worked out.
+  const [limitsChecks, setLimitsChecks] = useState<Record<string, number | null>>({});
   const lastSave = useRef<{ rules: Record<string, unknown>[]; limits: { roomTypeId: string; floor: number; ceiling: number }[] } | null>(null);
 
   useEffect(() => {
@@ -291,16 +327,16 @@ export function PieImportDialog({
     return () => document.removeEventListener("paste", onPaste);
   });
 
-  // Esc closes, unless something is saving or the popup is open.
+  // Esc closes, unless something is saving.
   useEffect(() => {
     if (hidden) return;
     dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !activation && phase !== "saving" && phase !== "reading") onClose();
+      if (e.key === "Escape" && phase !== "saving" && phase !== "reading") onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [hidden, activation, phase, onClose]);
+  }, [hidden, phase, onClose]);
 
   const items = plan?.items ?? [];
   const chosen = items.filter((i) => ticked(i) && usable(i));
@@ -311,26 +347,49 @@ export function PieImportDialog({
   const over = activeRules + onCount - ACTIVE_RULE_CAP;
   const nothing = rulesBody.length === 0 && limitsBody.length === 0;
 
-  async function send(body: Record<string, unknown>): Promise<SaveAnswer> {
+  // What the ticked floors and ceilings change by themselves, asked a moment
+  // after the ticks settle, once per set of limits.
+  const limitsKey = limitsBody.length > 0 ? JSON.stringify(limitsBody) : "";
+  useEffect(() => {
+    if (!limitsKey || hidden || phase !== "review" || limitsKey in limitsChecks) return;
+    let alive = true;
+    const save = (days: number | null) => alive && setLimitsChecks((prev) => ({ ...prev, [limitsKey]: days }));
+    const timer = setTimeout(() => {
+      fetchImpl("/api/rules/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ intent: "import_limits", limits: JSON.parse(limitsKey) }),
+      })
+        .then(async (res) => {
+          // No preview here (demo mode): nothing to say.
+          if (res.status === 501) return;
+          const body = (await res.json().catch(() => ({}))) as { limitsAffected?: unknown };
+          save(res.ok && Array.isArray(body.limitsAffected) ? body.limitsAffected.length : null);
+        })
+        .catch(() => save(null));
+    }, LIMITS_CHECK_DELAY_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [limitsKey, limitsChecks, hidden, phase, fetchImpl]);
+  const limitsDays = limitsKey && limitsKey in limitsChecks ? limitsChecks[limitsKey] : undefined;
+
+  async function send(body: Record<string, unknown>): Promise<SendAnswer> {
     try {
       const res = await fetchImpl("/api/rules/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      const answer = (await res.json().catch(() => ({}))) as Partial<Result> & { error?: string; code?: string; skipped?: boolean };
+      if (res.status === 501) return { ok: false, error: "Importing needs a connected property." };
+      const answer = (await res.json().catch(() => ({}))) as Partial<Result> & { error?: string };
       if (res.ok) {
         setResult({ created: answer.created ?? [], failed: answer.failed ?? [], limits: answer.limits ?? 0 });
-        return { ok: true, skipped: answer.skipped === true };
+        return { ok: true };
       }
       // Some floors and ceilings were set before it stopped: shown as they are now.
       if ((answer.limits ?? 0) > 0) onCreated?.();
-      return { ok: false, status: res.status, code: answer.code, error: answer.error ?? "That didn't save. Try again." };
+      return { ok: false, error: answer.error ?? "That didn't save. Try again." };
     } catch {
-      return { ok: false, status: 0, error: "That didn't save. Check your connection and try again." };
+      return { ok: false, error: "That didn't save. Check your connection and try again." };
     }
-  }
-
-  function finished() {
-    setActivation(null);
-    setPhase("done");
-    onCreated?.();
   }
 
   async function create(retry?: { rules: Record<string, unknown>[]; limits: typeof limitsBody }) {
@@ -338,20 +397,12 @@ export function PieImportDialog({
     const limits = retry?.limits ?? limitsBody;
     lastSave.current = { rules, limits };
     setError(null);
-    const on = rules.filter((r) => r.on);
-    if (on.length > 0) {
-      const total = rules.length;
-      setActivation({
-        request: { intent: "import", ruleId: String(on[0].id), rules, limits },
-        name: `${total} ${total === 1 ? "rule" : "rules"} from PIE`,
-        kind: draftsKind(on),
-      });
-      return;
-    }
     setPhase("saving");
     const answer = await send({ rules, limits });
-    if (answer.ok) finished();
-    else {
+    if (answer.ok) {
+      setPhase("done");
+      onCreated?.();
+    } else {
       setPhase("review");
       setError(answer.error);
     }
@@ -360,40 +411,9 @@ export function PieImportDialog({
   const shown = !hidden;
   return (
     <>
-      {activation ? (
-        <RuleActivationDialog
-          ruleName={activation.name}
-          request={activation.request}
-          kind={activation.kind}
-          source="pie_import"
-          save={(choice: ActivationChoice) => send({ rules: activation.request.rules, limits: activation.request.limits, ...choice })}
-          onSaved={finished}
-          onCancel={() => setActivation(null)}
-          onRefused={(message) => {
-            setActivation(null);
-            setError(message);
-          }}
-          onUnavailable={() => {
-            setActivation(null);
-            setError("Importing needs a connected property.");
-          }}
-          onNotNeeded={async () => {
-            const current = activation;
-            setActivation(null);
-            setPhase("saving");
-            const answer = await send({ rules: current.request.rules, limits: current.request.limits });
-            if (answer.ok) finished();
-            else {
-              setPhase("review");
-              setError(answer.error);
-            }
-          }}
-          fetchImpl={fetchImpl}
-        />
-      ) : null}
       <div
-        hidden={!shown || !!activation}
-        className={`fixed inset-0 z-40 items-center justify-center overflow-y-auto bg-slate-950/80 p-4 ${shown && !activation ? "flex" : "hidden"}`}
+        hidden={!shown}
+        className={`fixed inset-0 z-40 items-center justify-center overflow-y-auto bg-slate-950/80 p-4 ${shown ? "flex" : "hidden"}`}
         onMouseDown={(e) => {
           if (e.target === e.currentTarget && phase !== "saving" && phase !== "reading") onClose();
         }}
@@ -494,6 +514,26 @@ export function PieImportDialog({
                     </li>
                   ))}
                 </ul>
+              ) : null}
+            </div>
+          ) : null}
+
+          {(phase === "review" || phase === "saving") && (onCount > 0 || (limitsDays !== undefined && limitsDays !== 0)) ? (
+            <div className="mt-4 space-y-1 text-sm">
+              {onCount > 0 ? (
+                <div className="flex items-start gap-2">
+                  <p className="text-slate-300" data-testid="pie-skip-line">
+                    {PIE_SKIP_LINE}
+                  </p>
+                  <span className="mt-0.5">
+                    <RoomCountHelp {...PIE_SKIP_HELP} docs="pie-skip" />
+                  </span>
+                </div>
+              ) : null}
+              {limitsDays !== undefined && limitsDays !== 0 ? (
+                <p className="text-amber-300" data-testid="pie-limits-line">
+                  {limitsSentence(limitsDays)}
+                </p>
               ) : null}
             </div>
           ) : null}

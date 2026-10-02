@@ -3,15 +3,17 @@
  * Import from PIE, the dialog: a screenshot in (chosen, dropped or pasted),
  * "Reading your screenshot…", the review (each PIE rule beside the MAYA
  * rules it becomes, its notes, ticks, the floors and ceilings), the 40-rule
- * cap said before anything is added, and the add: the rules that are on
- * through one activation popup, the rest straight in. The reading itself is
- * handed in (the OCR has its own tests); every name and number is made up.
+ * cap said before anything is added, and the add: one click, no popup, the
+ * rules that are on added with Skip (one line by the button says why, the
+ * rest behind its "?"), what the new floors and ceilings change by
+ * themselves said under it. The reading itself is handed in (the OCR has
+ * its own tests); every name and number is made up.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PIE_COPY } from "@/lib/pie-import/map";
 import type { PieRowRead, ScreenshotRead } from "@/lib/pie-import/read";
-import { PieImportDialog, type PieEdit } from "./pie-import-dialog";
+import { PIE_SKIP_LINE, PieImportDialog, limitsSentence, type PieEdit } from "./pie-import-dialog";
 
 const GARDEN = "11111111-1111-4111-8111-111111111111";
 const LOFT = "22222222-2222-4222-8222-222222222222";
@@ -49,19 +51,16 @@ type Sent = { url: string; body: Record<string, unknown> };
 let sent: Sent[] = [];
 let events: { event: string; properties: Record<string, unknown> }[] = [];
 let importAnswer: () => Response;
+let limitsAnswer: () => Response;
 
-const PREVIEW = {
-  needsActivation: true,
+const LIMITS_CHECK = {
+  at: "2026-10-01T14:10:00.000Z",
   today: "2026-10-01",
   lastNight: "2027-10-31",
-  affected: ["2026-11-03", "2026-11-04", "2026-11-05"],
-  roomTypesChanged: { "2026-11-03": 2, "2026-11-04": 2, "2026-11-05": 1 },
-  touched: ["2026-11-03", "2026-11-04", "2026-11-05"],
-  fingerprint: "fp",
-  kind: "standard",
-  ms: 50,
-  nightsChecked: 6,
+  horizonDays: 396,
   limitsAffected: ["2026-11-03", "2026-11-20", "2026-11-21"],
+  nightsChecked: 792,
+  ms: 900,
 };
 
 const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -69,7 +68,7 @@ const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => 
   if (url === "/api/room-types") return json(ROOM_TYPES);
   const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
   sent.push({ url, body });
-  if (url === "/api/rules/preview") return json(PREVIEW);
+  if (url === "/api/rules/preview") return limitsAnswer();
   if (url === "/api/rules/import") return importAnswer();
   return json({}, 404);
 }) as unknown as typeof fetch;
@@ -86,8 +85,9 @@ beforeEach(() => {
       ],
       failed: [],
       limits: 2,
-      skipped: false,
+      skipped: true,
     });
+  limitsAnswer = () => json(LIMITS_CHECK);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -163,45 +163,97 @@ describe("Import from PIE", () => {
     expect(JSON.stringify(events)).not.toMatch(/Busy|Garden/);
   });
 
-  it("adds the rules that are on through one popup for all of them, and the rest off", async () => {
+  it("adds the rules in one click, the ones on in PIE with Skip and no popup, and says why by the button", async () => {
     const { onCreated } = await open();
     await readOne();
+    // One short line by the button, the rest behind its "?".
+    expect(screen.getByTestId("pie-skip-line").textContent).toBe(PIE_SKIP_LINE);
+    expect(screen.getByRole("button", { name: "Why the nights PIE adjusted are left as they are" })).toBeTruthy();
+    // What the new floors and ceilings change by themselves, from the engine, once the ticks settle.
+    expect((await screen.findByTestId("pie-limits-line")).textContent).toBe("The new floors and ceilings change prices on 3 days.");
+    const asked = sent.filter((s) => s.url === "/api/rules/preview");
+    expect(asked).toHaveLength(1);
+    expect(asked[0].body).toEqual({
+      intent: "import_limits",
+      limits: [
+        { roomTypeId: GARDEN, floor: 100, ceiling: 500 },
+        { roomTypeId: LOFT, floor: 90, ceiling: 2000 },
+      ],
+    });
+
     fireEvent.click(screen.getByRole("button", { name: "Add 3 rules and 2 limits" }));
-    const popup = await screen.findByRole("dialog", { name: "Add 3 rules from PIE?" });
-    await waitFor(() => expect(within(popup).getByTestId("activation-summary").textContent).toBe("3 days will be affected by these rules."));
-    const asked = sent.find((s) => s.url === "/api/rules/preview")!.body;
-    expect(asked.intent).toBe("import");
-    expect((asked.rules as { rule_name: string; on: boolean }[]).map((r) => [r.rule_name, r.on])).toEqual([
+    expect(await screen.findByTestId("pie-done")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: /from PIE\?/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apply price adjustments" })).toBeNull();
+    expect(screen.getByTestId("pie-done").textContent).toBe("Added 3 rules (2 on, 1 off) and set 2 floors and ceilings.");
+    const saved = sent.filter((s) => s.url === "/api/rules/import");
+    expect(saved).toHaveLength(1);
+    // The rules and limits alone: the server holds the nights itself.
+    expect(Object.keys(saved[0].body).sort()).toEqual(["limits", "rules"]);
+    expect((saved[0].body.rules as { rule_name: string; on: boolean }[]).map((r) => [r.rule_name, r.on])).toEqual([
       ["Busy weekends", true],
       ["Quiet last days", true],
       ["Off one", false],
     ]);
-    expect(asked.limits).toEqual([
-      { roomTypeId: GARDEN, floor: 100, ceiling: 500 },
-      { roomTypeId: LOFT, floor: 90, ceiling: 2000 },
-    ]);
-    // The floors and ceilings change two more days by themselves: said, and in amber on the calendar.
-    expect(within(popup).getByTestId("activation-limits").textContent).toBe("The new floors and ceilings change prices on 2 more days, whether you apply or skip.");
-    expect(within(popup).getByTestId("activation-calendar").querySelector('[data-day="2026-11-20"]')?.getAttribute("data-affected")).toBe("limits");
-    expect(within(popup).getByTestId("activation-calendar").querySelector('[data-day="2026-11-03"]')?.getAttribute("data-affected")).toBe("true");
-    fireEvent.click(within(popup).getByRole("button", { name: "Apply price adjustments" }));
-    expect(await screen.findByTestId("pie-done")).toBeTruthy();
-    expect(screen.getByTestId("pie-done").textContent).toBe("Added 3 rules (2 on, 1 off) and set 2 floors and ceilings.");
-    const saved = sent.find((s) => s.url === "/api/rules/import")!.body;
-    expect(saved).toMatchObject({ activation: "apply", fingerprint: "fp", days: 3, touched: PREVIEW.touched, limits: asked.limits, rules: asked.rules });
+    expect(saved[0].body.limits).toEqual(asked[0].body.limits);
     expect(onCreated).toHaveBeenCalled();
+    // Still only the import's own events: no popup's.
+    expect(events.map((e) => e.event)).toEqual(["pie.import_opened", "pie.screenshots_read"]);
   });
 
-  it("adds rules that were all off, and limits, with no popup", async () => {
+  it("asks again when a limit is unticked, and says nothing about limits when none are ticked", async () => {
+    await open();
+    await readOne();
+    await screen.findByTestId("pie-limits-line");
+    limitsAnswer = () => json({ ...LIMITS_CHECK, limitsAffected: ["2026-11-20"] });
+    const limits = screen.getByTestId("pie-limits");
+    fireEvent.click(within(limits).getByRole("checkbox", { name: "Set Loft's floor and ceiling" }));
+    await waitFor(() => expect(screen.getByTestId("pie-limits-line").textContent).toBe("The new floors and ceilings change prices on 1 day."));
+    expect(sent.filter((s) => s.url === "/api/rules/preview").map((s) => (s.body.limits as unknown[]).length)).toEqual([2, 1]);
+    // Ticked back: the first answer still stands, not asked again.
+    fireEvent.click(within(limits).getByRole("checkbox", { name: "Set Loft's floor and ceiling" }));
+    await waitFor(() => expect(screen.getByTestId("pie-limits-line").textContent).toBe("The new floors and ceilings change prices on 3 days."));
+    fireEvent.click(within(limits).getByRole("checkbox", { name: "Set Loft's floor and ceiling" }));
+    fireEvent.click(within(limits).getByRole("checkbox", { name: "Set Garden Room's floor and ceiling" }));
+    await waitFor(() => expect(screen.queryByTestId("pie-limits-line")).toBeNull());
+    expect(sent.filter((s) => s.url === "/api/rules/preview")).toHaveLength(2);
+  });
+
+  it("says the limits can change prices when that couldn't be worked out, and nothing when they change none", async () => {
+    limitsAnswer = () => json({ error: "We weren't able to work out which days the new floors and ceilings change." }, 500);
+    await open();
+    await readOne();
+    expect((await screen.findByTestId("pie-limits-line")).textContent).toBe("The new floors and ceilings can change prices by themselves.");
+    cleanup();
+    limitsAnswer = () => json({ ...LIMITS_CHECK, limitsAffected: [] });
+    await open();
+    await readOne();
+    await waitFor(() => expect(sent.filter((s) => s.url === "/api/rules/preview")).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByTestId("pie-limits-line")).toBeNull();
+    expect(limitsSentence(1)).toBe("The new floors and ceilings change prices on 1 day.");
+  });
+
+  it("adds rules that were all off, and limits, with no popup and no word about PIE's nights", async () => {
     await open();
     await readOne();
     fireEvent.click(within(item("Busy weekends")).getByRole("checkbox"));
     fireEvent.click(within(item("Quiet last days")).getByRole("checkbox"));
+    expect(screen.queryByTestId("pie-skip-line")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add 1 rule and 2 limits" }));
     expect(await screen.findByTestId("pie-done")).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: /from PIE\?/ })).toBeNull();
-    expect(sent.map((s) => s.url)).toEqual(["/api/rules/import"]);
-    expect((sent[0].body.rules as unknown[]).length).toBe(1);
+    expect(sent.filter((s) => s.url === "/api/rules/import")).toHaveLength(1);
+    expect((sent.find((s) => s.url === "/api/rules/import")!.body.rules as unknown[]).length).toBe(1);
+  });
+
+  it("says what went wrong on the review when nothing could be added", async () => {
+    importAnswer = () => json({ error: "That makes 41 rules on, and a property can have 40. Untick 1 to fit.", code: "cap" }, 409);
+    await open();
+    await readOne();
+    fireEvent.click(screen.getByRole("button", { name: "Add 3 rules and 2 limits" }));
+    expect(await screen.findByText("That makes 41 rules on, and a property can have 40. Untick 1 to fit.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add 3 rules and 2 limits" })).toBeTruthy();
+    expect(screen.queryByTestId("pie-done")).toBeNull();
   });
 
   it("says before adding when the rules on would pass 40, and won't add", async () => {
@@ -326,9 +378,6 @@ describe("Import from PIE", () => {
     const limits = screen.getByTestId("pie-limits");
     for (const c of within(limits).getAllByRole("checkbox")) fireEvent.click(c);
     fireEvent.click(screen.getByRole("button", { name: "Add 1 rule" }));
-    const popup = await screen.findByRole("dialog", { name: "Add 1 rule from PIE?" });
-    await waitFor(() => expect((within(popup).getByRole("button", { name: "Skip price adjustments" }) as HTMLButtonElement).disabled).toBe(false));
-    fireEvent.click(within(popup).getByRole("button", { name: "Skip price adjustments" }));
     expect((await screen.findByTestId("pie-done")).textContent).toBe("Added 1 rule.");
     expect(screen.getByText(/Pick at least one room type to change\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();

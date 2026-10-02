@@ -2,9 +2,10 @@
 /**
  * Import from PIE on the Rules tab: the small link (Cloudbeds properties
  * only), the import opening from a link into it, a rule opened in the rule
- * builder and brought back changed, and the rules added through the one
- * popup. The browser's OCR is stood in for (its own tests run it); every
- * name and number is made up.
+ * builder and brought back changed, and the rules added in one click with
+ * no popup (they are added with Skip), while a rule made by hand in the
+ * builder still goes through the popup, Apply or Skip. The browser's OCR is
+ * stood in for (its own tests run it); every name and number is made up.
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,7 +78,7 @@ beforeEach(() => {
         return json({ connection: { pms_type: pmsType, status: "connected", last_sync_at: null, last_tested_at: null }, pms: null, health: { state: "unknown", successRate: null, total: 0, failures: 0 }, log: [] });
       if (url === "/api/rules/preview")
         return json({ needsActivation: true, today: "2026-10-01", lastNight: "2027-10-31", affected: ["2026-11-03"], roomTypesChanged: { "2026-11-03": 2 }, touched: ["2026-11-03"], fingerprint: "fp", kind: "standard", ms: 5, nightsChecked: 2 });
-      if (url === "/api/rules/import") return json({ created: [{ id: "x", on: true }], failed: [], limits: 0, skipped: false });
+      if (url === "/api/rules/import") return json({ created: [{ id: "x", on: true }], failed: [], limits: 0, skipped: true });
       if (url === "/api/events") return new Response(null, { status: 204 });
       return json({}, 404);
     }),
@@ -118,7 +119,7 @@ describe("Import from PIE on the Rules tab", () => {
     expect(screen.queryByRole("button", { name: "Import from PIE" })).toBeNull();
   });
 
-  it("opens from a link into it, sends a rule to the builder and back, and adds it through the popup", async () => {
+  it("opens from a link into it, sends a rule to the builder and back, and adds it with no popup", async () => {
     await rulesTab("?tab=rules&panel=import-pie");
     const dialog = await screen.findByRole("dialog", { name: "Import from PIE" });
     fireEvent.change(within(dialog).getByTestId("pie-file"), { target: { files: [file()] } });
@@ -137,14 +138,28 @@ describe("Import from PIE on the Rules tab", () => {
     // Nothing saved by the builder.
     expect(sent.filter((s) => s.url === "/api/rules")).toEqual([]);
 
+    expect(within(back).getByTestId("pie-skip-line")).toBeTruthy();
     fireEvent.click(within(back).getByRole("button", { name: "Add 1 rule" }));
-    const popup = await screen.findByRole("dialog", { name: "Add 1 rule from PIE?" });
-    await waitFor(() => expect(within(popup).getByTestId("activation-summary").textContent).toBe("1 day will be affected by these rules."));
-    fireEvent.click(within(popup).getByRole("button", { name: "Apply price adjustments" }));
     expect(await screen.findByTestId("pie-done")).toBeTruthy();
+    expect(screen.queryByTestId("activation-summary")).toBeNull();
+    expect(sent.filter((s) => s.url === "/api/rules/preview")).toEqual([]);
     const saved = sent.find((s) => s.url === "/api/rules/import")!.body!;
     expect((saved.rules as { rule_name: string; action: unknown; on: boolean }[]).map((r) => [r.rule_name, r.action, r.on])).toEqual([
       ["Busy weekends", { adjust_rate_percent: 12 }, true],
     ]);
+
+    // A rule made by hand afterwards still goes through the popup, with Apply and Skip.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Import from PIE" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /\+ Add a rule/ }));
+    fireEvent.change(await screen.findByPlaceholderText("e.g. Weekend surge"), { target: { value: "Full house" } });
+    fireEvent.change(screen.getByDisplayValue("Choose: increase or decrease the rate…"), { target: { value: "increase" } });
+    fireEvent.change(screen.getByLabelText("Adjust by percent (%)"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add Rule" }));
+    const popup = await screen.findByRole("dialog", { name: "Add “Full house”?" });
+    await waitFor(() => expect(within(popup).getByTestId("activation-summary").textContent).toBe("1 day will be affected by this rule."));
+    expect(within(popup).getByRole("button", { name: "Apply price adjustments" })).toHaveProperty("disabled", false);
+    expect(within(popup).getByRole("button", { name: "Skip price adjustments" })).toHaveProperty("disabled", false);
+    expect(sent.find((s) => s.url === "/api/rules/preview")!.body).toMatchObject({ intent: "create", draft: expect.objectContaining({ rule_name: "Full house" }) });
   });
 });
