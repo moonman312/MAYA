@@ -4,7 +4,7 @@ summary: The window that opens whenever a rule is about to start acting, its sma
 section: rules
 order: 105
 readingTime: 16
-keywords: [undo box, unticked, held day cancellations, turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, we weren't able to calculate, could not calculate, days could not be checked, try again, bookings changed while this was open, days were checked again, 0 prices, 0 days, turn it on, nothing to change, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, held days, held until true again, bookings before the rule, counts old bookings, 13 months, 14 months, twelve months, trial run, same as the calendar, the cut repeats, reaches 396 nights, nights ahead, amber lines, cut on low pickup, far-out cut, no booking window condition, once your rules have run for]
+keywords: [undo box, unticked, held day cancellations, turn on, switch on, enable a rule, activate, popup, pop-up, calendar, small calendar, days will be affected, days affected, affected by this rule, apply price adjustments, skip price adjustments, skip, apply, cancel, highlighted days, blue squares, checking your calendar, we weren't able to calculate, could not calculate, days could not be checked, try again, bookings changed while this was open, days were checked again, changed again while this was saving, nothing was saved, try again in a minute, import from pie, pie, no window, 0 prices, 0 days, turn it on, nothing to change, one day, save changes, add rule, turn on rule, why did a window open, what does skip do, leave prices alone, held days, held until true again, bookings before the rule, counts old bookings, 13 months, 14 months, twelve months, trial run, same as the calendar, the cut repeats, reaches 396 nights, nights ahead, amber lines, cut on low pickup, far-out cut, no booking window condition, once your rules have run for]
 questions:
   - Why did a window with a calendar open when I switched a rule on? {#in-plain-words}
   - What does "X days will be affected by this rule" mean? {#what-the-days-mean}
@@ -19,11 +19,13 @@ questions:
   - What do "this rule reaches 396 of the 396 nights ahead" and "The cut repeats" mean? {#what-the-days-mean/a-cut-on}
   - I unticked the undo box. Does a held day still end when bookings cancel? {#skip-price-adjustments}
   - What does "Your bookings changed while this was open, so the days were checked again" mean? {#when-something-changes-while-it-is-open}
+  - What does "Your bookings or prices changed again while this was saving, so nothing was saved" mean? {#when-something-changes-while-it-is-open}
+  - Why didn't the window open when I imported my rules from PIE? {#rules-from-pie}
   - What does "We weren't able to calculate how many days would be affected by this rule." mean? {#when-the-days-cannot-be-checked}
   - Why is it still checking my calendar? {#how-long-it-takes}
   - Does Cancel change anything? {#cancel}
   - When does the window open, and when not? {#when-it-opens}
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 <InPlainWords>
@@ -38,10 +40,10 @@ Whenever a rule is about to start acting, a window opens first. It shows a small
 | Click <Ui>Add Rule</Ui> in the rule builder | Opens, headed "Add "Busy nights"?" (a new rule is saved on) |
 | Click <Ui>Save changes</Ui> on a rule that is on | Opens, headed "Save changes to "Busy nights"?", unless only the name changed |
 | Click <Ui>Add this rule</Ui> or <Ui>Make that change</Ui> on a card from <Ui>Get suggestions from my data</Ui> | Opens |
-| Click <Ui>Add</Ui> in <Ui>Import from PIE</Ui> with some rules that were on in PIE | Opens once for all of them, headed "Add 5 rules from PIE?" (read [Several rules at once](#several-rules-at-once)) |
 | Switch a rule <Ui>Off</Ui> | Does not open: switching off is at once, and the rule's changes stay |
 | Save a new name alone, or save changes to a rule that is off | Does not open: neither moves a price. An edited rule that is off shows the window when you switch it on |
 | Accept a rule card in your first review, or the starter rules | Does not open: the property is being set up |
+| Click <Ui>Add</Ui> in <Ui>Import from PIE</Ui> | Does not open: rules that were on in PIE are added on with their days held, as Skip would (read [Rules from PIE](#rules-from-pie)) |
 | <Ui>Save This Rule</Ui> in the <Ui>Rate Simulator</Ui> | Does not open: the rule arrives switched off. Switching it on opens the window |
 
 ## The calendar
@@ -121,6 +123,8 @@ She also adds "Weekend rush": booking speed at least Faster Than Normal over the
 
 When you click <Ui>Apply price adjustments</Ui>, <Ui>Skip price adjustments</Ui>, <Ui>Turn it on</Ui> or <Ui>Save changes</Ui>, the save first checks whether anything that could move the days changed since they were worked out: a booking or a cancellation, a price typed, a pricing run, another rule, a room type. If something did, the days are worked out again. When they are the same, the rule is saved straight away, and a Skip holds those days. When they are not, nothing is saved, the calendar and the count show the new days, and a line reads "Your bookings changed while this was open, so the days were checked again." Choose again.
 
+If something changes yet again between that second look and the save, nothing is saved, and one red line reads "Your bookings or prices changed again while this was saving, so nothing was saved. Try again in a minute." The window stays open: click your choice again in a minute.
+
 ## When the days cannot be checked
 
 If the check fails or takes too long, the line reads "We weren't able to calculate how many days would be affected by this rule." The window then offers three buttons, and no <Ui>Apply price adjustments</Ui>, since there is no count to apply:
@@ -139,9 +143,9 @@ While the days are worked out, the squares are grey and pulse, the line reads "C
 
 Revenue Managers, General Managers and Hotel Admins. For a Viewer the window opens for a moment and closes again, and "Only a Revenue Manager or above can change this." appears under the rule's switch, or under the rule builder. Nothing is saved. Read [Roles: who can do what](/docs/team/roles).
 
-## Several rules at once
+## Rules from PIE
 
-<Ui>Import from PIE</Ui> adds several rules together, and the ones that were on in PIE go through one window for all of them. The window counts the days they change all on together, after your other rules, on the floors and ceilings the import sets with them, and says so in the plural: "41 days will be affected by these rules.", "0 prices will be affected by these rules." with <Ui>Turn them on</Ui>, or "We weren't able to calculate how many days would be affected by these rules." <Ui>Apply price adjustments</Ui> adds them all and changes those days. <Ui>Skip price adjustments</Ui> adds them all with those days held for every one of them, and when the days could not be worked out it holds every day each rule could change. <Ui>Cancel</Ui> adds none of them. The rules that were off in PIE are added off at the same time. When the floors and ceilings the import sets change prices by themselves on other days, those days are amber on the calendar and a line says so, such as "The new floors and ceilings change prices on 12 more days, whether you apply or skip.": Skip holds only what the rules change. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie#adding-them).
+<Ui>Import from PIE</Ui> adds its rules without this window. PIE has already changed the rates in Cloudbeds on the nights its rules match today, so the rules that were on in PIE are added on as if you had clicked <Ui>Skip price adjustments</Ui>: the days they would change today keep their prices, each until a rule stops being true there and then becomes true again, and every other day works as if you had applied them. The import works those days out itself when you click <Ui>Add</Ui>, on the floors and ceilings it sets, and when it can't, it holds every day each rule could change. Rules that were off in PIE are added off, and switching one on later opens this window as for any rule. Read [Import your rules from PIE](/docs/rules/import-your-rules-from-pie#adding-them).
 
 ## Messages you can meet
 
@@ -150,10 +154,8 @@ Revenue Managers, General Managers and Hotel Admins. For a Viewer the window ope
 | Checking your calendar… | In the window, while the days are worked out | Wait a moment |
 | 0 prices will be affected by this rule. | In the window | Click <Ui>Turn it on</Ui> (<Ui>Save changes</Ui> for an edit to a rule that is on), or <Ui>Cancel</Ui> |
 | We weren't able to calculate how many days would be affected by this rule. | In the window | Click <Ui>Try again</Ui>, or <Ui>Skip price adjustments</Ui>, or <Ui>Cancel</Ui> |
-| The same lines ending "by these rules." | In the window for rules added together by <Ui>Import from PIE</Ui> | The same as for one rule |
-| The new floors and ceilings change prices on 12 more days, whether you apply or skip. | In the window for <Ui>Import from PIE</Ui>, the days in amber | Nothing to do: the floors and ceilings apply whichever you choose. To keep a room type's own, <Ui>Cancel</Ui> and untick it in the review |
-| That makes 43 rules on, and a property can have 40. Untick 3 to fit. | In <Ui>Import from PIE</Ui>, or in red there if rules were switched on elsewhere meanwhile | Untick that many rules that were on in PIE, or turn rules off first |
 | Your bookings changed while this was open, so the days were checked again. | In the window, after <Ui>Apply price adjustments</Ui>, <Ui>Skip price adjustments</Ui>, <Ui>Turn it on</Ui> or <Ui>Save changes</Ui> | Look at the new days and choose again |
+| Your bookings or prices changed again while this was saving, so nothing was saved. Try again in a minute. | In the window, in red, when the days changed again straight after they were checked again | Wait a minute and click your choice again |
 | That's a lot of checks at once. Give it a minute and try again. | In the window, under "We weren't able to calculate…" | Wait a minute and click <Ui>Try again</Ui> |
 | Only a Revenue Manager or above can change this. | Under the switch or the rule builder | Ask a Revenue Manager or above |
 | This property already has 40 active rules, which is the maximum. | Under the switch or the rule builder | Turn a rule off or delete one first. Read [How many rules you can have](/docs/rules/off-delete-or-change#how-many-rules-you-can-have) |

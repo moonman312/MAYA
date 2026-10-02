@@ -1154,6 +1154,7 @@
    "Can a second Cloudbeds user reconnect MAYA?",
    "Can I reconnect with a Cloudbeds group login?",
    "We use PIE. Can we import its rules, and do we turn it off when MAYA is live?",
+   "Can MAYA undo the rates PIE changed after we switch PIE off?",
    "I took too long signing in at Cloudbeds and the sign-in link ran out",
    "How does MAYA date a Cloudbeds booking made late in the evening?",
    "Can I choose which rate plan MAYA writes to in Cloudbeds?",
@@ -3409,7 +3410,7 @@
   "summary": "The window that opens whenever a rule is about to start acting, its small calendar of the days the rule will change, what Apply price adjustments and Skip price adjustments each do, and every message it can show.",
   "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [],
   "headings": [
    {
@@ -3464,8 +3465,8 @@
    },
    {
     "depth": 2,
-    "text": "Several rules at once",
-    "id": "several-rules-at-once"
+    "text": "Rules from PIE",
+    "id": "rules-from-pie"
    },
    {
     "depth": 2,
@@ -3487,6 +3488,8 @@
    "What do \"this rule reaches 396 of the 396 nights ahead\" and \"The cut repeats\" mean?",
    "I unticked the undo box. Does a held day still end when bookings cancel?",
    "What does \"Your bookings changed while this was open, so the days were checked again\" mean?",
+   "What does \"Your bookings or prices changed again while this was saving, so nothing was saved\" mean?",
+   "Why didn't the window open when I imported my rules from PIE?",
    "What does \"We weren't able to calculate how many days would be affected by this rule.\" mean?",
    "Why is it still checking my calendar?",
    "Does Cancel change anything?",
@@ -3502,10 +3505,10 @@
   "slug": "import-your-rules-from-pie",
   "order": 107,
   "title": "Import your rules from PIE",
-  "summary": "How a Cloudbeds property brings its PIE (Price Intelligence Engine) rules and price limits into MAYA from a screenshot, read in your browser: where the link is, the screenshot to take, how each PIE rule becomes a MAYA rule that prices the same, what is not imported, floors and ceilings, adding them, and turning PIE's rules off once you are live.",
-  "readingTime": 15,
+  "summary": "How a Cloudbeds property brings its PIE (Price Intelligence Engine) rules and price limits into MAYA from a screenshot, read in your browser: where the link is, the screenshot to take, how each PIE rule becomes a MAYA rule that prices the same, what is not imported, floors and ceilings, adding them with the nights PIE already adjusted left as they are, what MAYA can't take back from PIE, and turning PIE's rules off once you are live.",
+  "readingTime": 16,
   "readingNote": null,
-  "updated": "2026-09-30",
+  "updated": "2026-10-01",
   "pms": [
    "cloudbeds"
   ],
@@ -3567,6 +3570,11 @@
    },
    {
     "depth": 2,
+    "text": "What MAYA can't take back",
+    "id": "what-maya-cant-take-back"
+   },
+   {
+    "depth": 2,
     "text": "Once you are live",
     "id": "once-you-are-live"
    }
@@ -3584,6 +3592,9 @@
    "A rule says it was cut off. What do I do?",
    "Why is a rule or a limit unticked with \"Check it against PIE\"?",
    "Why does the import say PIE lists more rules than are here?",
+   "Why doesn't MAYA change the nights my PIE rules match today?",
+   "Can MAYA undo what PIE already changed in Cloudbeds?",
+   "How do I start from clean rates after PIE?",
    "Should I turn PIE off after importing?"
   ],
   "faq": []
