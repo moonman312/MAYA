@@ -12,7 +12,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RuleActivationDialog, DAYS_CHANGED_LINE, type ActivationChoice, type SaveAnswer } from "./rule-activation-dialog";
+import { RuleActivationDialog, DAYS_CHANGED_LINE, DAYS_KEPT_CHANGING, type ActivationChoice, type SaveAnswer } from "./rule-activation-dialog";
 import { DAYS_NOT_CALCULATED } from "@/lib/rule-activation-client";
 
 const TODAY = "2026-10-01";
@@ -309,6 +309,27 @@ describe("the activation popup", () => {
     expect(screen.getByTestId("activation-summary").textContent).toBe("2 days will be affected by this rule.");
     expect(second.onSaved).not.toHaveBeenCalled();
     expect(save2).toHaveBeenCalledTimes(1);
+    // The fresh look went through: the amber line once, and nothing in red.
+    expect(screen.getAllByText(DAYS_CHANGED_LINE)).toHaveLength(1);
+    expect(document.querySelector(".text-rose-400")).toBeNull();
+  });
+
+  it("refused as stale again right after the fresh look: one red line, never the amber sentence twice", async () => {
+    let fp = "fp-1";
+    const { impl } = previewRoute(["2026-10-03"], { fingerprint: () => fp });
+    // The server's words for a stale save are the amber sentence; the popup never shows them as an error.
+    const save = vi.fn(async (): Promise<SaveAnswer> => ({ ok: false, status: 409, code: "stale", error: DAYS_CHANGED_LINE }));
+    const { onSaved } = renderDialog({ fetchImpl: impl as unknown as typeof fetch, save });
+    await waitFor(() => expect(button("Skip price adjustments").disabled).toBe(false));
+    fp = "fp-2";
+    fireEvent.click(button("Skip price adjustments"));
+    await waitFor(() => expect(screen.getByText(DAYS_KEPT_CHANGING)).toBeTruthy());
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(DAYS_CHANGED_LINE)).toBeNull();
+    expect(screen.getByText(DAYS_KEPT_CHANGING).className).toContain("text-rose-400");
+    expect(document.querySelectorAll(".text-amber-300, .text-rose-400")).toHaveLength(1);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(button("Skip price adjustments").disabled).toBe(false);
   });
 
   it("hands a refusal for the person's role back to where they clicked", async () => {

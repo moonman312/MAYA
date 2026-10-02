@@ -14,7 +14,8 @@
  * fingerprint of what the answer was worked out on (and Skip the days it
  * holds); when something changed since, the days are worked out again, and
  * the save goes ahead at once if they are the same, or the new days are
- * shown.
+ * shown with one amber line. Refused again straight after, one red line
+ * says nothing was saved (never the amber sentence twice).
  *
  * Jake, 2026-09-29: when no price would change, "0 prices will be affected
  * by this rule." and one button turns the rule on; when the days could not
@@ -91,6 +92,14 @@ export const ACTIVATION_HELP_SET = {
 const SAVE_FAILED = "That didn't save. Try again.";
 
 export const DAYS_CHANGED_LINE = "Your bookings changed while this was open, so the days were checked again.";
+
+/**
+ * The one red line when the save is refused as stale again right after the
+ * days were checked again: something really did change twice in a few
+ * seconds (a pricing run finishing, a booking, a rate). Never the amber
+ * line a second time.
+ */
+export const DAYS_KEPT_CHANGING = "Your bookings or prices changed again while this was saving, so nothing was saved. Try again in a minute.";
 
 function title(intent: PreviewRequest["intent"], name: string): string {
   // An import: `name` says how many ("5 rules from PIE").
@@ -274,7 +283,7 @@ export function RuleActivationDialog({
         continue;
       }
       setSaving(null);
-      setSaveError(answer.error || SAVE_FAILED);
+      setSaveError(answer.code === "stale" ? DAYS_KEPT_CHANGING : answer.error || SAVE_FAILED);
       return;
     }
     setSaving(null);
@@ -382,7 +391,8 @@ export function RuleActivationDialog({
           </p>
         ) : null}
         {error && errorDetail ? <p className="mt-2 text-sm text-amber-300">{errorDetail}</p> : null}
-        {refreshed && ready ? <p className="mt-2 text-sm text-amber-300">{DAYS_CHANGED_LINE}</p> : null}
+        {/* Amber only when the fresh look went through; a refusal after it is the one red line below. */}
+        {refreshed && ready && !saveError ? <p className="mt-2 text-sm text-amber-300">{DAYS_CHANGED_LINE}</p> : null}
         {saveError ? <p className="mt-2 text-sm text-rose-400">{saveError}</p> : null}
 
         <div className="mt-5 flex flex-col gap-2 sm:flex-row-reverse">
