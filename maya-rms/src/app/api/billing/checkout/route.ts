@@ -26,7 +26,7 @@ import { isSupabaseConfigured } from "@/utils/supabase/shared";
 import { findPendingHotelForUser, provisionPendingHotel } from "@/lib/billing/pending-hotel";
 import { hasEntitledSubscription } from "@/lib/pms/marketplace-activate";
 import { isStripeConfigured, priceIdFor, stripeClient } from "@/lib/billing/stripe";
-import { checkCode, checkoutEffectFor, type CheckoutEffect } from "@/lib/billing/codes";
+import { checkCode, checkoutEffectFor, type CheckoutEffect, type SignupCode } from "@/lib/billing/codes";
 import { pmsSignupCodeRequired } from "@/lib/billing/pms-gates";
 import { findMarketplaceClaimForHotel, marketplaceTrialDays } from "@/lib/pms/marketplace-activate";
 import { isEntitled } from "@/lib/billing/sync";
@@ -257,6 +257,7 @@ export async function POST(request: Request) {
 
   let signupCodeId: string | null = null;
   let signupCodeLabel: string | null = null;
+  let signupCode: SignupCode | null = null;
   let effect: CheckoutEffect = {};
   if (typedCode || codeRequired) {
     // Checked against the service-role client because signup_codes is
@@ -270,7 +271,19 @@ export async function POST(request: Request) {
     }
     signupCodeId = codeCheck.code.id;
     signupCodeLabel = codeCheck.code.code;
+    signupCode = codeCheck.code;
     effect = checkoutEffectFor(codeCheck.code, interval);
+  }
+
+  // A code's own trial wins; the Marketplace trial fills in when there is
+  // none. A restart gets neither.
+  const trialDays = restartOf ? 0 : effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
+  // With free days in front, a limited discount's coupon is stretched so it
+  // still reaches the paid invoices the code promised (coverTrial). The screen
+  // already described the code's own terms; this only changes how long the
+  // coupon runs in Stripe.
+  if (signupCode && trialDays) {
+    effect = checkoutEffectFor(signupCode, interval, { trialDays, now: new Date() });
   }
 
   // After the code check so a rejected code leaves nothing behind; before Stripe
@@ -396,10 +409,6 @@ export async function POST(request: Request) {
       ).id;
     }
 
-    // A code's own trial wins; the Marketplace trial fills in when there is
-    // none. A restart gets neither.
-    const trialDays = restartOf ? 0 : effect.trialDays || (marketplace ? marketplaceTrialDays() : 0);
-
     const origin = new URL(request.url).origin;
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -515,7 +524,10 @@ export async function POST(request: Request) {
     // returning the old price. A restart is a different offer from the first
     // signup (no trial), so it names the subscription it follows:
     // cancelling within a day of signing up must not replay the first session.
-    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}${restartOf ? `_after_${restartOf}` : ""}` });
+    // The coupon is named too: one stretched over a trial is worked out from
+    // the date, so a retry the next day can carry a different one, and Stripe
+    // refuses a key replayed with different parameters.
+    { idempotencyKey: `maya_checkout_${hotelId}_${interval}_${rooms}_${signupCodeId ?? "none"}${couponId ? `_${couponId}` : ""}${restartOf ? `_after_${restartOf}` : ""}` });
 
     if (!session.url) {
       return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 502 });

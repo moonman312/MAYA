@@ -236,6 +236,117 @@ export type CheckoutEffect = {
 };
 
 /**
+ * The free days a checkout actually grants (the code's own, the Marketplace
+ * trial, or none on a restart) and when it is made. Only the coupon's length
+ * depends on them; what the screen promises does not.
+ */
+export type CheckoutTiming = { trialDays?: number; now?: Date };
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Calendar months on from a moment, kept on its day of the month and time of
+ * day, with the 29th to 31st falling back to a shorter month's last day: the
+ * way Stripe moves a billing date and ends a repeating coupon.
+ */
+export function addMonthsUtc(from: Date, months: number): Date {
+  const first = Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + months, 1);
+  const target = new Date(first);
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(
+    Date.UTC(
+      target.getUTCFullYear(),
+      target.getUTCMonth(),
+      Math.min(from.getUTCDate(), lastDay),
+      from.getUTCHours(),
+      from.getUTCMinutes(),
+      from.getUTCSeconds(),
+      from.getUTCMilliseconds(),
+    ),
+  );
+}
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * A Checkout Session stays open for 24 hours, and the subscription, with its
+ * trial and coupon, starts when it completes. So a coupon worked out now has
+ * to fit a start anywhere in that window.
+ */
+const CHECKOUT_OPEN_MS = 24 * HOUR_MS;
+
+/**
+ * Months a monthly coupon has to run, counted from signup, so it is still on
+ * when the last discounted invoice arrives: `trialDays` after signup plus
+ * `paidMonths - 1` months. Worked out for a signup at every hour of the
+ * checkout's 24 open hours (a month end can move either date by up to three
+ * days, and only on a day boundary, so hourly is every case) with an hour to
+ * spare, and the longest wins. When the trial ends close to a whole month
+ * after signup (a 30-day trial often does), that is one month more than the
+ * code's own: the owner gets one more discounted month rather than risk one
+ * fewer.
+ */
+function monthlyMonthsCovering(paidMonths: number, trialDays: number, now: Date): number {
+  let months = paidMonths;
+  for (let late = 0; late <= CHECKOUT_OPEN_MS; late += HOUR_MS) {
+    const start = new Date(now.getTime() + late);
+    const trialEnd = new Date(start.getTime() + trialDays * DAY_MS);
+    const lastDiscounted = addMonthsUtc(trialEnd, paidMonths - 1).getTime() + HOUR_MS;
+    while (addMonthsUtc(start, months).getTime() < lastDiscounted) months += 1;
+  }
+  return months;
+}
+
+/**
+ * A limited coupon stretched over a trial.
+ *
+ * Stripe counts a coupon from the day it is applied, which is signup, and
+ * with a trial the first invoice is $0. A "once" coupon is likely spent on
+ * that $0 invoice, and a repeating one loses the months the trial took. So
+ * with a trial, the coupon repeats for long enough to reach the invoices the
+ * code promised a discount on, and no further:
+ *
+ * - Yearly: the discounted yearly invoices (one, or one per twelve of the
+ *   code's months) plus whole months that end at least four weeks after the
+ *   trial does, and long before the next yearly invoice.
+ * - Monthly: under 28 free days, nothing changes. Every month is longer than
+ *   the trial, so the code's own months already end after its last
+ *   discounted invoice and before the next. From 28 days, the months are
+ *   counted on the calendar from now (monthlyMonthsCovering), and only a
+ *   coupon that needs more than the code's own months is a new one.
+ *
+ * A forever coupon, or no trial, is returned as it is. A stretched coupon is
+ * never cached on the code row: its length depends on this checkout.
+ */
+export function coverTrial(spec: CouponSpec, interval: BillingInterval, timing: CheckoutTiming = {}): CouponSpec {
+  const days = Math.max(0, Math.floor(timing.trialDays ?? 0));
+  if (!days || spec.duration === "forever") return spec;
+  const ownMonths = spec.duration === "once" ? 1 : Math.max(1, spec.durationMonths ?? 1);
+  if (interval === "year") {
+    const yearlyInvoices = spec.duration === "once" ? 1 : Math.ceil(ownMonths / 12);
+    const months = 12 * (yearlyInvoices - 1) + Math.ceil(days / 28) + 1;
+    return { ...spec, duration: "repeating", durationMonths: months, reusable: false };
+  }
+  if (days < 28) return spec;
+  const months = monthlyMonthsCovering(ownMonths, days, timing.now ?? new Date());
+  if (months === ownMonths) return spec;
+  return { ...spec, duration: "repeating", durationMonths: months, reusable: false };
+}
+
+/** The coupon a checkout attaches: the cached one when nothing stretched it, else one to create. */
+function withCoupon(
+  base: Pick<CheckoutEffect, "trialDays">,
+  spec: CouponSpec,
+  cachedId: string | null,
+  interval: BillingInterval,
+  timing: CheckoutTiming,
+): CheckoutEffect {
+  const covered = coverTrial(spec, interval, timing);
+  if (covered === spec && spec.reusable && cachedId) return { ...base, discountCouponId: cachedId };
+  return { ...base, couponNeeded: covered };
+}
+
+/**
  * A duration-limited discount, expressed so it is worth the same on either
  * billing period.
  *
@@ -282,10 +393,20 @@ export function displayEffectFor(
   return out;
 }
 
-export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): CheckoutEffect {
+/**
+ * `timing` is for checkout itself: the free days it grants, which can differ
+ * from the code's own (the Marketplace trial, a restart's none), stretch a
+ * limited coupon over the trial (coverTrial). Left out, the coupon is the
+ * code's own shape, which is what the screens describe.
+ */
+export function checkoutEffectFor(
+  code: SignupCode,
+  interval: BillingInterval,
+  timing: CheckoutTiming = {},
+): CheckoutEffect {
   // The kind names what the code IS; a free run at the start is an add-on any
-  // of them can carry. Stripe applies both to one subscription — the trial
-  // delays the first invoice, the coupon discounts it when it arrives.
+  // of them can carry. Stripe applies both to one subscription: the trial
+  // delays the first paid invoice, and the coupon is stretched to reach it.
   const trial = code.trial_days ? { trialDays: code.trial_days } : {};
   if (code.kind === "trial") {
     return trial;
@@ -303,21 +424,23 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
     if (rescale) {
       return {
         ...trial,
-        couponNeeded: {
-          percentOff: annualEquivalent(percentOff, months),
-          duration: "once",
-          reusable: false,
-        },
+        couponNeeded: coverTrial(
+          { percentOff: annualEquivalent(percentOff, months), duration: "once", reusable: false },
+          interval,
+          timing,
+        ),
       };
     }
 
-    if (code.stripe_coupon_id) return { ...trial, discountCouponId: code.stripe_coupon_id };
-    return {
-      ...trial,
-      couponNeeded: months
+    return withCoupon(
+      trial,
+      months
         ? { percentOff, duration: "repeating", durationMonths: months, reusable: true }
         : { percentOff, duration: "forever", reusable: true },
-    };
+      code.stripe_coupon_id,
+      interval,
+      timing,
+    );
   }
   if (code.kind === "amount_off") {
     const monthlyCents = Number(code.amount_off_cents ?? 0);
@@ -333,19 +456,25 @@ export function checkoutEffectFor(code: SignupCode, interval: BillingInterval): 
     if (interval === "year") {
       return {
         ...trial,
-        couponNeeded: months
-          ? { amountOffCents: monthlyCents * months, duration: "once", reusable: false }
-          : { amountOffCents: monthlyCents * 12, duration: "forever", reusable: false },
+        couponNeeded: coverTrial(
+          months
+            ? { amountOffCents: monthlyCents * months, duration: "once", reusable: false }
+            : { amountOffCents: monthlyCents * 12, duration: "forever", reusable: false },
+          interval,
+          timing,
+        ),
       };
     }
 
-    if (code.stripe_coupon_id) return { ...trial, discountCouponId: code.stripe_coupon_id };
-    return {
-      ...trial,
-      couponNeeded: months
+    return withCoupon(
+      trial,
+      months
         ? { amountOffCents: monthlyCents, duration: "repeating", durationMonths: months, reusable: true }
         : { amountOffCents: monthlyCents, duration: "forever", reusable: true },
-    };
+      code.stripe_coupon_id,
+      interval,
+      timing,
+    );
   }
   // A kind this build doesn't know (the retired fixed_price, or a row someone
   // hand-fed the table) grants nothing rather than something surprising.

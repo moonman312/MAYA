@@ -173,6 +173,7 @@ const state = vi.hoisted(() => ({
   customerOpts: [] as Record<string, unknown>[],
   customerSearches: [] as string[],
   couponOpts: [] as Record<string, unknown>[],
+  couponArgs: [] as Record<string, unknown>[],
   priceFails: false,
   adminConfigured: false,
   userMetadata: {} as Record<string, unknown>,
@@ -232,7 +233,8 @@ vi.mock("@/lib/billing/stripe", () => ({
       },
     },
     coupons: {
-      create: async (_args: Record<string, unknown>, opts?: Record<string, unknown>) => {
+      create: async (args: Record<string, unknown>, opts?: Record<string, unknown>) => {
+        state.couponArgs.push(args);
         state.couponOpts.push(opts ?? {});
         return { id: "coupon_test" };
       },
@@ -286,6 +288,7 @@ beforeEach(() => {
   state.customerOpts = [];
   state.customerSearches = [];
   state.couponOpts = [];
+  state.couponArgs = [];
   state.priceFails = false;
   state.adminConfigured = false;
   state.userMetadata = {};
@@ -663,6 +666,47 @@ describe("a percent code's coupon", () => {
     const key = String(state.couponOpts[0]?.idempotencyKey);
     expect(key).toContain("code-pct");
     expect(key).toContain("year");
+  });
+});
+
+describe("a limited discount with free days in front", () => {
+  const halfOffSixWithTrial = {
+    id: "code-trial-pct",
+    code: "HALFSIX",
+    kind: "percent_off",
+    percent_off: 50,
+    duration_months: 6,
+    trial_days: 30,
+    is_active: true,
+    stripe_coupon_id: null,
+  };
+
+  it("yearly: the coupon repeats past the trial rather than being spent on the $0 trial invoice", async () => {
+    seed({ signup_codes: [halfOffSixWithTrial] });
+    const res = await post({ rooms: 40, interval: "year", code: "HALFSIX" });
+    expect(res.status).toBe(200);
+    expect(state.couponArgs[0]).toMatchObject({ percent_off: 25, duration: "repeating", duration_in_months: 3 });
+    expect(lastSession()?.subscription_data).toMatchObject({ trial_period_days: 30 });
+    expect(lastSession()?.discounts).toEqual([{ coupon: "coupon_test" }]);
+    // The coupon is named in the session's key: one worked out from the date
+    // can differ on a retry the next day.
+    expect(String(state.sessionOpts.at(-1)?.idempotencyKey)).toContain("_coupon_test");
+  });
+
+  it("a restart has no free days, so its coupon is the code's own shape", async () => {
+    seed({
+      signup_codes: [halfOffSixWithTrial],
+      hotels: [{ id: "hotel-live", name: "Juniper Lodge", is_active: true }],
+      hotel_memberships: [{ hotel_id: "hotel-live", user_id: USER, role: "hotel_admin", status: "active" }],
+      hotel_subscriptions: [
+        { hotel_id: "hotel-live", stripe_customer_id: "cus_old", stripe_subscription_id: "sub_old", status: "canceled" },
+      ],
+    });
+    state.hotelId = "hotel-live";
+    const res = await post({ rooms: 40, interval: "year", code: "HALFSIX" });
+    expect(res.status).toBe(200);
+    expect(state.couponArgs[0]).toMatchObject({ percent_off: 25, duration: "once" });
+    expect(lastSession()?.subscription_data).not.toHaveProperty("trial_period_days");
   });
 });
 

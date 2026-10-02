@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  addMonthsUtc,
   checkCode,
   checkoutEffectFor,
+  coverTrial,
   describeCode,
   displayEffectFor,
   rejectionMessage,
@@ -537,5 +539,132 @@ describe("a restart gets no free days, whatever the code says", () => {
       ok: true,
       describe: "This code's 30 free days don't apply to a restart, so it doesn't change your price.",
     });
+  });
+});
+
+describe("a limited discount still reaches its paid invoices after free days", () => {
+  // Stripe counts a coupon from signup, and with a trial the first invoice is
+  // $0. A "once" coupon is likely spent on that $0 invoice, and a repeating one
+  // loses the months the trial took. Checkout passes the free days it actually
+  // grants, and the coupon is stretched to cover them.
+  const DAY = 86_400_000;
+  const halfOffSix = (o: Partial<SignupCode> = {}) =>
+    code({ kind: "percent_off", trial_days: 30, percent_off: 50, duration_months: 6, ...o });
+
+  it("yearly: repeats past the trial instead of a once-off coupon the $0 invoice could use up", () => {
+    const effect = checkoutEffectFor(halfOffSix(), "year", { trialDays: 30, now: NOW });
+    expect(effect).toEqual({
+      trialDays: 30,
+      couponNeeded: { percentOff: 25, duration: "repeating", durationMonths: 3, reusable: false },
+    });
+  });
+
+  it("yearly dollars off the same way", () => {
+    const amt = code({ kind: "amount_off", trial_days: 7, percent_off: null, amount_off_cents: 5000, duration_months: 6 });
+    expect(checkoutEffectFor(amt, "year", { trialDays: 7, now: NOW }).couponNeeded).toEqual({
+      amountOffCents: 30000,
+      duration: "repeating",
+      durationMonths: 2,
+      reusable: false,
+    });
+  });
+
+  it("yearly: covers the first paid invoice and never the next, for every trial length Stripe allows", () => {
+    for (const startIso of ["2026-01-31T09:00:00Z", "2026-02-28T23:00:00Z", "2026-07-29T12:00:00Z", "2027-12-15T00:00:00Z"]) {
+      const start = new Date(startIso);
+      for (let days = 1; days <= 730; days += 1) {
+        const spec = coverTrial({ percentOff: 10, duration: "once", reusable: false }, "year", { trialDays: days, now: start });
+        const end = addMonthsUtc(start, spec.durationMonths!).getTime();
+        const firstPaid = start.getTime() + days * DAY;
+        const nextYear = addMonthsUtc(new Date(firstPaid), 12).getTime();
+        expect(end - firstPaid).toBeGreaterThanOrEqual(28 * DAY);
+        expect(end).toBeLessThan(nextYear);
+      }
+    }
+  });
+
+  it("yearly: a code longer than a year keeps reaching the same number of yearly invoices", () => {
+    const eighteen = halfOffSix({ duration_months: 18, trial_days: 14 });
+    expect(checkoutEffectFor(eighteen, "year", { trialDays: 14, now: NOW }).couponNeeded).toMatchObject({
+      duration: "repeating",
+      durationMonths: 14,
+      reusable: false,
+    });
+  });
+
+  it("monthly: under four weeks free changes nothing, and a cached coupon is still used", () => {
+    const cached = halfOffSix({ trial_days: 14, stripe_coupon_id: "co_cached" });
+    expect(checkoutEffectFor(cached, "month", { trialDays: 14, now: NOW })).toEqual({
+      trialDays: 14,
+      discountCouponId: "co_cached",
+    });
+    expect(coverTrial({ percentOff: 50, duration: "repeating", durationMonths: 6, reusable: true }, "month", { trialDays: 27, now: NOW }))
+      .toEqual({ percentOff: 50, duration: "repeating", durationMonths: 6, reusable: true });
+  });
+
+  it("monthly: a 30-day trial from a 31-day month needs nothing extra", () => {
+    const spec = coverTrial(
+      { percentOff: 50, duration: "repeating", durationMonths: 3, reusable: true },
+      "month",
+      { trialDays: 30, now: new Date("2026-01-15T10:00:00Z") },
+    );
+    expect(spec).toEqual({ percentOff: 50, duration: "repeating", durationMonths: 3, reusable: true });
+  });
+
+  it("monthly: a 60-day trial adds the months it took, and is never cached", () => {
+    const effect = checkoutEffectFor(halfOffSix({ trial_days: 60, stripe_coupon_id: "co_cached" }), "month", {
+      trialDays: 60,
+      now: new Date("2026-03-10T10:00:00Z"),
+    });
+    expect(effect.discountCouponId).toBeUndefined();
+    // Free until May 9, then six paid months: May 9 to Oct 9. Seven months
+    // from March 10 ends on October 10, after the sixth and before the seventh.
+    expect(effect.couponNeeded).toEqual({ percentOff: 50, duration: "repeating", durationMonths: 7, reusable: false });
+  });
+
+  it("monthly: every promised month is discounted, at most one more, whatever the start date and trial", () => {
+    // Paid invoices fall on the trial's end and monthly after it. The coupon
+    // runs from signup. Checked for a checkout completed up to a day after it
+    // was opened too, which near a month end is where a month went missing.
+    for (let day = 0; day < 731; day += 1) {
+      const opened = new Date(Date.parse("2026-01-01T15:30:00Z") + day * DAY);
+      for (const days of [28, 29, 30, 31, 45, 59, 60, 61, 90, 365]) {
+        for (const months of [1, 3, 6]) {
+          const spec = coverTrial(
+            { percentOff: 20, duration: "repeating", durationMonths: months, reusable: true },
+            "month",
+            { trialDays: days, now: opened },
+          );
+          for (const lateMs of [0, 3600_000, 6 * 3600_000, 12 * 3600_000, 23 * 3600_000, 24 * 3600_000]) {
+            const start = new Date(opened.getTime() + lateMs);
+            const trialEnd = new Date(start.getTime() + days * DAY);
+            const end = addMonthsUtc(start, spec.durationMonths!).getTime();
+            expect(end).toBeGreaterThan(addMonthsUtc(trialEnd, months - 1).getTime());
+            expect(end).toBeLessThanOrEqual(addMonthsUtc(trialEnd, months + 1).getTime());
+          }
+        }
+      }
+    }
+  });
+
+  it("leaves forever alone, and a restart (no free days) alone", () => {
+    const forever = halfOffSix({ duration_months: null });
+    expect(checkoutEffectFor(forever, "year", { trialDays: 30, now: NOW }).couponNeeded).toMatchObject({ duration: "forever" });
+    expect(checkoutEffectFor(halfOffSix(), "year", { trialDays: 0, now: NOW }).couponNeeded).toEqual({
+      percentOff: 25,
+      duration: "once",
+      reusable: false,
+    });
+  });
+
+  it("does not change what the screens describe", () => {
+    expect(displayEffectFor(halfOffSix(), "year")).toMatchObject({ trialDays: 30, percentOff: 25, discountDuration: "once" });
+    expect(displayEffectFor(halfOffSix(), "month")).toMatchObject({ trialDays: 30, percentOff: 50, discountDuration: 6 });
+  });
+
+  it("moves a billing date the way Stripe does at month ends", () => {
+    expect(addMonthsUtc(new Date("2026-01-31T09:00:00Z"), 1).toISOString()).toBe("2026-02-28T09:00:00.000Z");
+    expect(addMonthsUtc(new Date("2026-01-31T09:00:00Z"), 2).toISOString()).toBe("2026-03-31T09:00:00.000Z");
+    expect(addMonthsUtc(new Date("2027-12-15T00:00:00Z"), 3).toISOString()).toBe("2028-03-15T00:00:00.000Z");
   });
 });
