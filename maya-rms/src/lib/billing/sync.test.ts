@@ -104,6 +104,34 @@ describe("projectSubscription", () => {
     expect(row.signup_code_id).toBe("code-9");
   });
 
+  it("reads a portal cancellation that only sets cancel_at as set to cancel, ending on that date", () => {
+    // Flexible billing mode, which this API version gives new subscriptions:
+    // the portal leaves cancel_at_period_end false and sets cancel_at. Read
+    // only the flag and the billing page said "active, next charge" for a
+    // subscription that was about to end.
+    const ends = Math.floor(Date.parse("2026-08-29T12:00:00Z") / 1000);
+    const row = projectSubscription(sub({ cancel_at: ends, cancel_at_period_end: false }))!;
+    expect(row.cancel_at_period_end).toBe(true);
+    expect(row.current_period_end).toBe("2026-08-29T12:00:00.000Z");
+  });
+
+  it("shows the cancel date when it comes before the period end", () => {
+    const row = projectSubscription(
+      sub({ cancel_at: Math.floor(Date.parse("2026-08-15T00:00:00Z") / 1000) }),
+    )!;
+    expect(row.cancel_at_period_end).toBe(true);
+    expect(row.current_period_end).toBe("2026-08-15T00:00:00.000Z");
+  });
+
+  it("still reads the older cancel_at_period_end flag, and an uncancelled subscription stays uncancelled", () => {
+    const classic = projectSubscription(sub({ cancel_at_period_end: true, cancel_at: null }))!;
+    expect(classic.cancel_at_period_end).toBe(true);
+    expect(classic.current_period_end).toBe("2026-08-29T12:00:00.000Z");
+    const kept = projectSubscription(sub({ cancel_at: null }))!;
+    expect(kept.cancel_at_period_end).toBe(false);
+    expect(kept.current_period_end).toBe("2026-08-29T12:00:00.000Z");
+  });
+
   it("carries why it was cancelled, and never the owner's own words", () => {
     const leaving = sub({
       cancel_at_period_end: true,

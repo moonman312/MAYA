@@ -72,6 +72,17 @@ export function projectSubscription(sub: Stripe.Subscription): SubscriptionProje
   const itemPeriodEnd = (item as { current_period_end?: number }).current_period_end;
   const subPeriodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
 
+  // Stripe says "this subscription ends on a date" in two ways. The customer
+  // portal on this API version (flexible billing mode) sets cancel_at and
+  // leaves cancel_at_period_end false; older subscriptions, and the dashboard's
+  // "at period end", set cancel_at_period_end. Either one means it is set to
+  // cancel. cancel_at is then the day access ends, so it stands in for the
+  // period end, which the billing page shows as "Access ends" (in this mode the
+  // portal sets it to the period end anyway). A cancel_at set by hand beyond
+  // the current period (the dashboard's custom date) shows that later date, and
+  // the page does not show the renewal before it.
+  const cancelAt = typeof sub.cancel_at === "number" ? sub.cancel_at : null;
+
   return {
     hotel_id: hotelId,
     stripe_customer_id: customerId,
@@ -79,9 +90,9 @@ export function projectSubscription(sub: Stripe.Subscription): SubscriptionProje
     status: sub.status,
     billing_interval: interval,
     billed_rooms: item.quantity ?? 0,
-    current_period_end: iso(itemPeriodEnd ?? subPeriodEnd),
+    current_period_end: iso(cancelAt ?? itemPeriodEnd ?? subPeriodEnd),
     trial_end: iso(sub.trial_end),
-    cancel_at_period_end: sub.cancel_at_period_end === true,
+    cancel_at_period_end: sub.cancel_at_period_end === true || cancelAt != null,
     // Due immediately, not in 48 hours: the card gets checked twice. Now, to
     // catch one that was never good, and again at signup + 48h, to catch a
     // virtual card cancelled after the fact — which is the only reason to wait
