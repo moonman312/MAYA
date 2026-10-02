@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { graceExpired, measureRooms, ROOM_SHORTFALL_GRACE_DAYS } from "./room-count";
 import { formatUsd, isBillableRoomCount, MAX_ROOMS, priceCents, type BillingInterval } from "./tiers";
+import { DAY_MS, HOUR_MS, recordBillingProblem, recordBillingSweep } from "./problems";
 import { isResendConfigured, sendEmail } from "@/lib/email/resend";
 import {
   roomShortfallHtml,
@@ -117,6 +118,28 @@ export async function shortfallsNeedingNotice(
   // comparison between two columns, which PostgREST cannot express.
   const rows = (data ?? []).filter((r) => !noticeCoversShortfall(r as ShortfallRow));
   return { rows: rows as ShortfallRow[] };
+}
+
+/**
+ * Properties short on rooms and measured above the self-serve ceiling. Both
+ * queries above leave them out on purpose: nothing here can price them, the
+ * owner is told on the billing page to email us, and a person has to set it
+ * up. This is how that person hears about it.
+ */
+export async function shortAboveSelfServe(
+  admin: SupabaseClient,
+  limit = TRUING_BATCH_SIZE,
+): Promise<{ rows: ShortfallRow[]; error?: string }> {
+  const { data, error } = await admin
+    .from("hotel_subscriptions")
+    .select(SELECT_COLUMNS)
+    .not("room_shortfall_since", "is", null)
+    .eq("plan_kind", "stripe")
+    .gt("measured_rooms", MAX_ROOMS)
+    .order("room_shortfall_since", { ascending: true })
+    .limit(limit);
+  if (error) return { rows: [], error: error.message };
+  return { rows: (data ?? []) as ShortfallRow[] };
 }
 
 /**
@@ -372,9 +395,38 @@ export async function sweepRoomTruing(args: {
     }
   }
 
+  // Above 500 rooms: a person prices these. Once per property per count a
+  // month, so a property that stays there is not a line every day.
+  const { rows: tooLarge } = await shortAboveSelfServe(admin, limit);
+  for (const row of tooLarge) {
+    await recordBillingProblem(
+      admin,
+      {
+        key: `billing-above-max:${row.hotel_id}:${row.measured_rooms}`,
+        hotelId: row.hotel_id,
+        title: `A property runs more than ${MAX_ROOMS} rooms`,
+        detail:
+          `Billed for ${row.billed_rooms} rooms, measured at ${row.measured_rooms}. That is above what MAYA sells ` +
+          "self-serve, so nothing corrects it and no email goes out; the billing page asks the owner to email us. " +
+          "Price it by hand.",
+      },
+      { quietForMs: 30 * DAY_MS, now },
+    );
+  }
+
   const { rows, error } = await dueForTruing(admin, now, limit);
   if (error) {
     console.error(JSON.stringify({ fn: "sweepRoomTruing", error }));
+    await recordBillingProblem(
+      admin,
+      {
+        key: "billing-sweep-failed:room-truing",
+        title: "Room-count truing cannot read its work list",
+        detail: `Reading the properties due a room-count correction failed: ${error}. Nobody is corrected until this is fixed.`,
+      },
+      { quietForMs: 6 * HOUR_MS, now },
+    );
+    await recordBillingSweep(admin, "room-truing", { examined: 0, notified, error }, { now });
     return { examined: 0, notified, corrected: 0, skipped: 0, failed: 0, outcomes: [], error };
   }
 
@@ -383,7 +435,7 @@ export async function sweepRoomTruing(args: {
     outcomes.push({ hotelId: row.hotel_id, outcome: await trueUpOne(admin, stripe, row, now) });
   }
 
-  return {
+  const summary = {
     examined: rows.length,
     notified,
     corrected: outcomes.filter((o) => o.outcome.kind === "corrected").length,
@@ -391,4 +443,18 @@ export async function sweepRoomTruing(args: {
     failed: outcomes.filter((o) => o.outcome.kind === "error" || o.outcome.kind === "too_large").length,
     outcomes,
   };
+  await recordBillingSweep(
+    admin,
+    "room-truing",
+    {
+      examined: summary.examined,
+      notified,
+      corrected: summary.corrected,
+      skipped: summary.skipped,
+      failed: summary.failed,
+      aboveSelfServe: tooLarge.length,
+    },
+    { now },
+  );
+  return summary;
 }

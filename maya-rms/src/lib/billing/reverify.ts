@@ -41,6 +41,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { CARD_REVERIFY_AFTER_HOURS } from "./sync";
+import { DAY_MS, HOUR_MS, recordBillingProblem, recordBillingSweep } from "./problems";
 
 /** Subscriptions examined per invocation. Bounded so the route can't run long. */
 export const REVERIFY_BATCH_SIZE = 25;
@@ -444,6 +445,16 @@ export async function sweepCardReverification(opts: {
     // exactly like "nothing was due" forever.
     console.error(JSON.stringify({ fn: "sweepCardReverification", step: "due_query", error }));
     result.errors.push(error);
+    await recordBillingProblem(
+      opts.admin,
+      {
+        key: "billing-sweep-failed:card-reverify",
+        title: "The card check cannot read its work list",
+        detail: `Reading the subscriptions due a card check failed: ${error}. No card is being checked until this is fixed.`,
+      },
+      { quietForMs: 6 * HOUR_MS, now },
+    );
+    await recordBillingSweep(opts.admin, "card-reverify", { examined: 0, error }, { now });
     return result;
   }
 
@@ -479,7 +490,44 @@ export async function sweepCardReverification(opts: {
 
     const saved = await recordOutcome(opts.admin, row, outcome, now);
     if (!saved.ok && saved.error) result.errors.push(saved.error);
+
+    // Four tries over about 18 hours and Stripe never answered: the check is
+    // settled with no verdict (patchFor), and the usual cause is ours (the
+    // wrong Stripe key, an outage), so a person hears about it.
+    if (gaveUp) {
+      await recordBillingProblem(
+        opts.admin,
+        {
+          key: `billing-card-check-gave-up:${row.hotel_id}`,
+          hotelId: row.hotel_id,
+          title: "A card check got no answer from Stripe",
+          detail:
+            `The card check for subscription ${row.stripe_subscription_id} got no answer in ${REVERIFY_MAX_ATTEMPTS} tries ` +
+            `(last: ${outcome.code}) and has stopped without a verdict. The card was not marked failed. ` +
+            "If several properties show this, check STRIPE_SECRET_KEY in the app.",
+        },
+        { quietForMs: 30 * DAY_MS, now },
+      );
+    }
   }
+
+  // The run, for the billing watchdog: at most hourly, since this runs every
+  // 15 minutes and the watchdog only needs to know it still does.
+  await recordBillingSweep(
+    opts.admin,
+    "card-reverify",
+    {
+      examined: result.examined,
+      verified: result.verified,
+      failed: result.failed,
+      deferred: result.deferred,
+      moot: result.moot,
+      unverifiable: result.unverifiable,
+      gaveUp: result.gaveUp,
+      errors: result.errors.length,
+    },
+    { everyMs: 55 * 60_000, now },
+  );
 
   // Logged even when every card passed. Silence from this sweep otherwise means
   // two very different things — nothing was due, or the cron never fired — and

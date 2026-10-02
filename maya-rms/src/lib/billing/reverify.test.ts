@@ -24,6 +24,24 @@ import {
   type DueSubscription,
 } from "./reverify";
 
+
+/** What the sweep handed the billing watchdog (problems.ts). */
+const watch = vi.hoisted(() => ({
+  problems: [] as { key: string; title: string; hotelId?: string | null; detail: string }[],
+  sweeps: [] as { job: string; detail: Record<string, unknown>; everyMs?: number }[],
+}));
+vi.mock("./problems", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./problems")>()),
+  recordBillingProblem: async (_admin: unknown, problem: { key: string; title: string; hotelId?: string | null; detail: string }) => {
+    watch.problems.push(problem);
+    return { recorded: true };
+  },
+  recordBillingSweep: async (_admin: unknown, job: string, detail: Record<string, unknown>, opts: { everyMs?: number } = {}) => {
+    watch.sweeps.push({ job, detail, everyMs: opts.everyMs });
+    return { recorded: true };
+  },
+}));
+
 const NOW = new Date("2026-07-31T12:00:00Z");
 const DUE = "2026-07-31T10:00:00Z";
 /** When the subscription was recorded — what the 48 hours counts from. */
@@ -674,6 +692,7 @@ describe("sweepCardReverification", () => {
   });
 
   it("gives up on a check Stripe never answered, without blaming the card", async () => {
+    watch.problems.length = 0;
     const { admin, rows } = fakeAdmin([seedRow({ card_verify_attempts: REVERIFY_MAX_ATTEMPTS - 1 })]);
     const { stripe } = fakeStripe({
       createError: { type: "StripeAPIError", code: "api_error", statusCode: 500 },
@@ -687,6 +706,22 @@ describe("sweepCardReverification", () => {
       card_verify_last_code: "api_error",
       card_verify_attempts: REVERIFY_MAX_ATTEMPTS,
     });
+    // The usual cause is on our side, so a person is told instead of the owner.
+    expect(watch.problems).toEqual([
+      expect.objectContaining({ key: `billing-card-check-gave-up:${rows[0].hotel_id}`, title: "A card check got no answer from Stripe" }),
+    ]);
+  });
+
+  it("tells the billing watchdog it ran, at most hourly, and hands nobody a card it merely deferred", async () => {
+    watch.problems.length = 0;
+    watch.sweeps.length = 0;
+    const { admin } = fakeAdmin([seedRow()]);
+    const { stripe } = fakeStripe({ createError: { type: "StripeRateLimitError", code: "rate_limit", statusCode: 429 } });
+    await sweepCardReverification({ admin, stripe, now: NOW });
+    expect(watch.sweeps).toEqual([
+      { job: "card-reverify", detail: expect.objectContaining({ examined: 1, deferred: 1, gaveUp: 0 }), everyMs: 55 * 60_000 },
+    ]);
+    expect(watch.problems).toEqual([]);
   });
 
   it("honours the batch cap so one run can't stall on a backlog", async () => {
@@ -724,13 +759,15 @@ describe("sweepCardReverification", () => {
     logSpy.mockRestore();
   });
 
-  it("gives up quietly when the due query itself fails", async () => {
+  it("stops when the due query itself fails, and says so to a person", async () => {
+    watch.problems.length = 0;
     const { admin, state } = fakeAdmin([seedRow()]);
     state.selectError = "connection reset";
     const { stripe, calls } = fakeStripe();
     const result = await sweepCardReverification({ admin, stripe, now: NOW });
     expect(result).toMatchObject({ examined: 0, errors: ["connection reset"] });
     expect(calls.retrieves).toHaveLength(0);
+    expect(watch.problems.map((p) => p.key)).toEqual(["billing-sweep-failed:card-reverify"]);
   });
 });
 

@@ -255,10 +255,45 @@ describe("persistSubscription", () => {
       const { admin, upserts } = fakeAdmin({ stripe_subscription_id: "sub_first", status: "active" });
       await persistSubscription(admin, row({ stripe_subscription_id: "sub_second", status: "active" }));
       expect(upserts).toHaveLength(1);
-      const logged = String(spy.mock.calls.at(-1)?.[0] ?? "");
-      expect(logged).toContain("duplicate_live_subscription");
+      const logged = spy.mock.calls.map((c) => String(c[0])).find((l) => l.includes("duplicate_live_subscription")) ?? "";
       expect(logged).toContain("sub_first");
       expect(logged).toContain("sub_second");
+      spy.mockRestore();
+    });
+
+    it("hands the double charge to a person through the alert channel", async () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const rpcs: { fn: string; args: Record<string, unknown> }[] = [];
+      const current = { stripe_subscription_id: "sub_first", status: "active" };
+      const admin = {
+        from: (table: string) =>
+          table === "platform_audit_events"
+            ? {
+                select: () => ({
+                  eq: () => ({ eq: () => ({ order: () => ({ limit: async () => ({ data: [], error: null }) }) }) }),
+                }),
+              }
+            : {
+                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: current, error: null }) }) }),
+                upsert: () => Promise.resolve({ error: null }),
+              },
+        rpc: async (fn: string, args: Record<string, unknown>) => {
+          rpcs.push({ fn, args });
+          return { error: null };
+        },
+      } as unknown as SupabaseClient;
+      await persistSubscription(admin, row({ stripe_subscription_id: "sub_second", status: "active" }));
+      expect(rpcs).toHaveLength(1);
+      expect(rpcs[0]).toMatchObject({
+        fn: "platform_log_event",
+        args: {
+          p_event_type: "billing.problem",
+          p_entity_id: "billing-duplicate-subscription:hotel-1",
+          p_hotel_id: "hotel-1",
+          p_detail: { severity: "critical", title: "Two live subscriptions on one property" },
+        },
+      });
+      expect(String((rpcs[0].args.p_detail as Record<string, unknown>).detail)).toContain("sub_first");
       spy.mockRestore();
     });
 

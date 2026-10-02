@@ -329,7 +329,10 @@ A full in-place restore loses a day for every hotel. Most incidents (a bad
     clears the "Your saved card stopped working" warning; without it, a
     property that paid after the backup shows that warning again and counts
     as never paid until its next payment. The handlers are safe to run twice.
-    Stripe resends events up to 30 days old.
+    Stripe resends events up to 30 days old. The nightly Stripe check
+    (`billing-stripe-reconcile`, step 15) also re-reads every subscription on
+    record that is not over, and records a live one from the last 3 days it
+    has no row for, but it stamps no payment, so the resends are still needed.
 
     - A resend that answers 500 is almost always a subscription whose
       property was created after the backup: the property no longer exists.
@@ -422,13 +425,17 @@ keeps every read off until step 14.
       from cron.job
      where jobname in ('cloudbeds-sync-every-5-min', 'think-sync-every-5-min', 'mews-sync-every-5-min',
                        'onboarding-import-worker-every-min', 'pricing-watchdog-every-10-min',
-                       'billing-card-reverify', 'billing-room-truing', 'business-metrics-snapshot',
+                       'billing-card-reverify', 'billing-room-truing', 'billing-stripe-reconcile',
+                       'billing-watchdog', 'business-metrics-snapshot',
                        'rate-push-incident-sweep', 'pms-request-log-sweep', 'engine-data-sweep',
                        'marketplace-claim-sweep', 'never-paid-retention-sweep');
     ```
 
-    Turn `billing-room-truing` and `never-paid-retention-sweep` on only after
-    step 12 is done: both act on subscription records.
+    Turn `billing-room-truing`, `billing-stripe-reconcile` and
+    `never-paid-retention-sweep` on only after step 12 is done: all three act
+    on subscription records. Until each billing job has run once,
+    `billing-watchdog` may post that it "has stopped running": the last run
+    it can see is the backup's. One recovery line follows its first run.
 
 16. **Watch the first reads** (about 10 minutes). Each connection catches up
     on the bookings changed since the backup by itself. Then:

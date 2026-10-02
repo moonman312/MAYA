@@ -9,7 +9,8 @@ import "server-only";
  * The checkout return route can record it a moment earlier, but only when the
  * owner is still in the browser and needs no email, and every live subscription
  * reaches the webhook regardless. So it is sent from there, right after a
- * Marketplace property is switched on (activateIfPaidMarketplace).
+ * Marketplace property is switched on (afterSubscriptionSaved, after-save.ts),
+ * and from the nightly Stripe check when the webhook's message never came.
  *
  * Once per property, and never twice, across Stripe's redeliveries, events
  * that land together, and anything else: the delivery that wins

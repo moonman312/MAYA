@@ -43,6 +43,20 @@ const state = vi.hoisted(() => ({
   /** What the webhook handed the account-ready email, and what it answers. */
   readyCalls: [] as { sub: string; hotel: string; status: string }[],
   readyOutcome: { sent: true } as Record<string, unknown>,
+  /** Problems handed to the billing watchdog. */
+  problems: [] as { key: string; title: string; detail: string; hotelId?: string | null; quietForMs?: number }[],
+}));
+
+vi.mock("@/lib/billing/problems", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/billing/problems")>()),
+  recordBillingProblem: async (
+    _admin: unknown,
+    problem: { key: string; title: string; detail: string; hotelId?: string | null },
+    opts: { quietForMs?: number } = {},
+  ) => {
+    state.problems.push({ ...problem, quietForMs: opts.quietForMs });
+    return { recorded: true };
+  },
 }));
 
 vi.mock("@/lib/billing/account-ready", () => ({
@@ -185,6 +199,7 @@ beforeEach(() => {
   state.upsertError = null;
   state.readyCalls = [];
   state.readyOutcome = { sent: true };
+  state.problems = [];
 });
 
 describe("signature enforcement", () => {
@@ -236,6 +251,10 @@ describe("signature enforcement", () => {
     );
     expect(res.status).toBe(503);
     expect(state.upserts).toHaveLength(0);
+    // And says so to a person: every message from Stripe is being refused.
+    expect(state.problems).toEqual([
+      expect.objectContaining({ key: "stripe-webhook-secret-missing", title: "Stripe's messages are being refused", quietForMs: 6 * 3600_000 }),
+    ]);
   });
 });
 
@@ -366,6 +385,27 @@ describe("checkout.session.completed", () => {
     );
     expect(res.status).toBe(200);
     expect(state.upserts).toHaveLength(1);
+    expect(state.problems).toEqual([]);
+  });
+
+  it("hands a code used past its limit to a person, and still records the payment", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    state.insertError = { code: "23514", message: "signup code redemption cap reached" };
+    const res = await POST(
+      signedRequest({ id: "evt_2", type: "checkout.session.completed", data: { object: session() } }),
+    );
+    expect(res.status).toBe(200);
+    expect(state.upserts).toHaveLength(1);
+    expect(state.problems).toEqual([
+      expect.objectContaining({
+        key: "billing-code-over-cap:code-9:hotel-1",
+        hotelId: "hotel-1",
+        title: "A signup code was used past its limit",
+        quietForMs: 30 * 86_400_000,
+      }),
+    ]);
+    expect(state.problems[0].detail).toContain("code-9");
+    errorSpy.mockRestore();
   });
 
   it("records nothing when no code was used", async () => {

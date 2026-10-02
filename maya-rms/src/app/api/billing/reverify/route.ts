@@ -8,10 +8,10 @@
  * authorization, so a missing secret means the route is down rather than open.
  */
 
-import { createAdminClient, isAdminConfigured } from "@/utils/supabase/admin";
-import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
+import { createAdminClient } from "@/utils/supabase/admin";
+import { stripeClient } from "@/lib/billing/stripe";
+import { guardBillingCron } from "@/lib/billing/cron-guard";
 import { sweepCardReverification } from "@/lib/billing/reverify";
-import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -19,32 +19,9 @@ export const dynamic = "force-dynamic";
 // A full batch is ~2 Stripe round trips per hotel, run sequentially.
 export const maxDuration = 60;
 
-const SECRET_HEADER = "x-billing-cron-secret";
-
-/**
- * Compared byte-for-byte in constant time. A `!==` on a secret leaks its length
- * and, in principle, its prefix to anyone willing to time enough requests.
- */
-function secretMatches(presented: string | null, expected: string): boolean {
-  if (!presented) return false;
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 export async function POST(request: Request) {
-  const secret = process.env.BILLING_CRON_SECRET;
-  if (!secret) {
-    console.error(JSON.stringify({ fn: "cardReverifyRoute", error: "BILLING_CRON_SECRET missing" }));
-    return NextResponse.json({ error: "Not configured" }, { status: 503 });
-  }
-  if (!secretMatches(request.headers.get(SECRET_HEADER), secret)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!isStripeConfigured() || !isAdminConfigured()) {
-    return NextResponse.json({ error: "Billing is not configured" }, { status: 503 });
-  }
+  const refused = await guardBillingCron(request, "cardReverifyRoute");
+  if (refused) return refused;
 
   const result = await sweepCardReverification({
     admin: createAdminClient(),

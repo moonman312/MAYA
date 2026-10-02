@@ -1,0 +1,60 @@
+-- Example: schedule the billing watchdog.
+--
+-- Pure SQL, no app in the way: the function lives in the database
+-- (99_supabase_migration_billing_watchdog_v1.sql) and cron calls it directly,
+-- so it still speaks when the app is down or refuses the billing jobs. Every
+-- 15 minutes it:
+--   - posts each billing problem the app wrote (platform_audit_events,
+--     billing.problem: two live subscriptions on one property, a code used past
+--     its limit, a new card declined on an overdue subscription, a property
+--     above 500 rooms, a missing BILLING_CRON_SECRET or STRIPE_WEBHOOK_SECRET,
+--     MAYA's copy of a subscription found out of date, ...), at most once per
+--     problem per 6 hours;
+--   - once Stripe billing is in use, says when a billing job has stopped
+--     reporting runs: the card check after 2 hours, room-count truing and the
+--     nightly Stripe check after 26 hours. One line per job while it stays
+--     stopped (no repeat within 6 hours), one recovery line when it runs again.
+-- Critical only by default; the second argument 'warn' sends warnings too.
+--
+-- Prereqs: extensions pg_cron and pg_net; the alert webhook in Vault under
+-- maya_alert_webhook. That is the same secret the pricing watchdog uses
+-- (supabase/cron/pricing-watchdog-every-10-min.sql.example step 1), so if the
+-- pricing watchdog is scheduled there is nothing to add. Without it the
+-- watchdog says so on Pilot health ("Alerts: missing. billing-watchdog said
+-- ...") and records no alert.
+--
+-- 0) Ensure the extensions exist:
+--    create extension if not exists pg_cron;
+--    create extension if not exists pg_net;
+--
+-- 1) The webhook in Vault (skip if the pricing watchdog already has it):
+--    select vault.create_secret('https://hooks.slack.com/services/...', 'maya_alert_webhook');
+--
+-- 2) Schedule (every 15 minutes, at :07, :22, :37, :52, after the card check
+--    at :02, :17, :32, :47):
+--    select cron.schedule(
+--      'billing-watchdog',
+--      '7,22,37,52 * * * *',
+--      $$ select public.billing_watchdog(true, 'critical'); $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('billing-watchdog');
+--
+-- What it would say right now, without posting or recording anything:
+--   select kind, alert_key, severity, title, last_at, action, detail
+--     from public.billing_watchdog(false);
+--
+-- What it has posted (the same rows raiseAlert writes):
+--   select event_type, entity_id, detail, created_at
+--     from public.platform_audit_events
+--    where event_type in ('alert.raised', 'alert.recovered')
+--      and (entity_id like 'billing%' or entity_id like 'stripe-webhook%')
+--    order by created_at desc limit 20;
+--
+-- The problems the app wrote, newest first:
+--   select entity_id, hotel_id, detail->>'title' as title, detail->>'detail' as detail, created_at
+--     from public.platform_audit_events
+--    where event_type = 'billing.problem'
+--    order by created_at desc limit 20;

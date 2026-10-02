@@ -54,6 +54,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
+import { HOUR_MS, recordBillingProblem } from "./problems";
 
 type StripeErrorish = {
   type?: string;
@@ -347,6 +348,7 @@ export async function followNewDefaultCard(
     // uncollectible in Stripe. Paying those is a person's call, not ours.
     console.error(JSON.stringify({ fn: "cardChange", customer: customerId, noOpenInvoice }));
   }
+  await handToAPerson(admin, customerId, current, attempts, moveRefused, noOpenInvoice);
   console.log(
     JSON.stringify({
       fn: "cardChange",
@@ -376,6 +378,67 @@ export async function followNewDefaultCard(
     noOpenInvoice,
     superseded,
   };
+}
+
+/**
+ * What still needs a person after a card change goes to the alert channel
+ * (problems.ts), one line per subscription: a new card declined on an overdue
+ * subscription (the owner needs yet another card, and may not know), an
+ * invoice Stripe would not take payment for, a subscription Stripe would not
+ * move, or an overdue one with no open invoice. Never throws.
+ */
+async function handToAPerson(
+  admin: SupabaseClient,
+  customerId: string,
+  current: Stripe.Subscription[],
+  attempts: InvoiceAttempt[],
+  moveRefused: string[],
+  noOpenInvoice: string[],
+): Promise<void> {
+  const hotelOf = new Map(current.map((s) => [s.id, String(s.metadata.hotel_id)]));
+  const statusOf = new Map(current.map((s) => [s.id, s.status]));
+  const problems = new Map<string, { title: string; detail: string }>();
+  for (const a of attempts) {
+    if (a.outcome === "declined") {
+      problems.set(a.subscription, {
+        title: "A new card was declined on an overdue subscription",
+        detail:
+          `The owner saved a new default card and paying invoice ${a.invoice} with it was declined` +
+          `${a.code ? ` (${a.code})` : ""}. Subscription ${a.subscription} is still ${statusOf.get(a.subscription)}; ` +
+          "they need another card.",
+      });
+    } else if (a.outcome === "refused") {
+      problems.set(a.subscription, {
+        title: "Stripe would not take payment for an overdue invoice",
+        detail:
+          `Paying invoice ${a.invoice} of subscription ${a.subscription} with the owner's new card was refused by Stripe` +
+          `${a.code ? ` (${a.code})` : ""}. Look at the invoice in Stripe.`,
+      });
+    }
+  }
+  for (const sub of moveRefused) {
+    if (problems.has(sub)) continue;
+    problems.set(sub, {
+      title: "Stripe would not move a subscription onto the new card",
+      detail: `The owner saved a new default card, and subscription ${sub} could not be moved onto it. Move it by hand in Stripe.`,
+    });
+  }
+  for (const sub of noOpenInvoice) {
+    if (problems.has(sub)) continue;
+    problems.set(sub, {
+      title: "An overdue subscription has no open invoice to pay",
+      detail:
+        `Subscription ${sub} is ${statusOf.get(sub)} with no open invoice (voided or marked uncollectible in Stripe), ` +
+        "so the owner's new card paid nothing. Whether to restart it is a person's call.",
+    });
+  }
+  for (const [sub, p] of problems) {
+    await recordBillingProblem(
+      admin,
+      { key: `billing-card-change:${sub}`, hotelId: hotelOf.get(sub) ?? null, title: p.title, detail: `${p.detail} Customer ${customerId}.` },
+      { quietForMs: 6 * HOUR_MS },
+    );
+  }
 }
 
 /**

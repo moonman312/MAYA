@@ -13,14 +13,13 @@
 
 import { createAdminClient } from "@/utils/supabase/admin";
 import { isStripeConfigured, stripeClient } from "@/lib/billing/stripe";
-import { isEntitledStatus } from "@/lib/billing/entitlement";
-import { persistSubscription, projectSubscription, type SubscriptionProjection } from "@/lib/billing/sync";
-import { activateMarketplaceHotelIfPending } from "@/lib/pms/marketplace-activate";
+import { persistSubscription, projectSubscription } from "@/lib/billing/sync";
+import { afterSubscriptionSaved } from "@/lib/billing/after-save";
 import { decideNudge, sendRenewalNudge, type UpcomingInvoice } from "@/lib/billing/renewal-nudge";
 import { clearCardAlarmAfterPayment } from "@/lib/billing/reverify";
 import { recordFirstPayment } from "@/lib/billing/first-paid";
 import { defaultCardChanged, followNewDefaultCard, previousDefaultCard } from "@/lib/billing/card-change";
-import { sendAccountReadyOnce } from "@/lib/billing/account-ready";
+import { DAY_MS, HOUR_MS, recordBillingProblem } from "@/lib/billing/problems";
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
@@ -46,8 +45,25 @@ export async function POST(request: Request) {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) {
     // Without the secret every body is unverifiable, and accepting one would be
-    // strictly worse than being down.
+    // strictly worse than being down. Every message from Stripe is refused
+    // until it is set, so a person hears about it (at most every 6 hours).
     console.error(JSON.stringify({ fn: "stripeWebhook", error: "STRIPE_WEBHOOK_SECRET missing" }));
+    try {
+      await recordBillingProblem(
+        createAdminClient(),
+        {
+          key: "stripe-webhook-secret-missing",
+          title: "Stripe's messages are being refused",
+          detail:
+            "STRIPE_WEBHOOK_SECRET is not set in the app, so every message from Stripe is answered 503 and " +
+            "nothing Stripe says (payments, cancellations, card changes) reaches MAYA. Set it in Vercel to the " +
+            "endpoint's signing secret (Stripe, Developers, Webhooks).",
+        },
+        { quietForMs: 6 * HOUR_MS },
+      );
+    } catch {
+      // No service role either: the log line above is all there is.
+    }
     return NextResponse.json({ error: "Webhook not configured" }, { status: 503 });
   }
 
@@ -87,10 +103,9 @@ export async function POST(request: Request) {
       }
       const saved = await persistSubscription(admin, row);
       if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
-      await activateIfPaidMarketplace(admin, row, fresh);
-      // The "Payment received" screen promised an email once this is live.
-      // Claimed in the database, so however many deliveries land, one sends.
-      await sendAccountReadyOnce(admin, stripe, fresh, row);
+      // A paid Marketplace property goes live, and the "Payment received"
+      // screen's promised email goes out (once, however many deliveries land).
+      await afterSubscriptionSaved(admin, stripe, fresh, row);
       return NextResponse.json({ received: true, hotel_id: row.hotel_id, status: row.status });
     }
 
@@ -125,6 +140,19 @@ export async function POST(request: Request) {
               action: "paid_but_uncounted_needs_review",
             }),
           );
+          await recordBillingProblem(
+            admin,
+            {
+              key: `billing-code-over-cap:${session.metadata.signup_code_id}:${session.metadata.hotel_id}`,
+              hotelId: session.metadata.hotel_id,
+              title: "A signup code was used past its limit",
+              detail:
+                `This property paid with signup code ${await codeLabel(admin, session.metadata.signup_code_id)} ` +
+                "after the code's use limit was reached, so the use is not counted. Decide whether to honour the " +
+                "discount or refund it.",
+            },
+            { quietForMs: 30 * DAY_MS },
+          );
         } else if (error && error.code !== "23505") {
           console.error(JSON.stringify({ fn: "stripeWebhook", step: "redemption", error: error.message }));
         }
@@ -135,8 +163,7 @@ export async function POST(request: Request) {
         if (row) {
           const saved = await persistSubscription(admin, row);
           if (!saved.ok) return NextResponse.json({ error: saved.error }, { status: 500 });
-          await activateIfPaidMarketplace(admin, row, fresh);
-          await sendAccountReadyOnce(admin, stripe, fresh, row);
+          await afterSubscriptionSaved(admin, stripe, fresh, row);
         }
       }
       return NextResponse.json({ received: true });
@@ -288,32 +315,12 @@ export async function POST(request: Request) {
   }
 }
 
-/**
- * A Marketplace property is connected and importing before it is paid for;
- * the subscription landing is what makes it live and adopts the import its
- * claim started. Done here, on the webhook, so it is live before the owner is
- * back from the card form. Never fails the webhook: the subscription was
- * recorded correctly and Stripe retrying would not help, and the next page
- * load re-attempts activation on its own.
- */
-async function activateIfPaidMarketplace(
-  admin: SupabaseClient,
-  row: SubscriptionProjection,
-  sub: Stripe.Subscription,
-): Promise<void> {
-  if (!isEntitledStatus(row.status)) return;
+/** A code's own text for the alert line, or its id when it cannot be read. */
+async function codeLabel(admin: SupabaseClient, codeId: string): Promise<string> {
   try {
-    await activateMarketplaceHotelIfPending(admin, row.hotel_id, {
-      requestedBy: sub.metadata?.user_id || null,
-    });
-  } catch (e) {
-    console.error(
-      JSON.stringify({
-        fn: "stripeWebhook",
-        step: "activate_marketplace",
-        hotel: row.hotel_id,
-        error: e instanceof Error ? e.message : String(e),
-      }),
-    );
+    const { data } = await admin.from("signup_codes").select("code").eq("id", codeId).maybeSingle();
+    return data?.code ? `${String(data.code)} (${codeId})` : codeId;
+  } catch {
+    return codeId;
   }
 }

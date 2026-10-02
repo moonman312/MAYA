@@ -1,0 +1,59 @@
+-- Example: schedule the nightly Stripe check.
+--
+-- Like the card check and room-count truing, this posts to the Next.js app,
+-- not an Edge Function: it reads Stripe with the same client and writes
+-- hotel_subscriptions through the same rules as the webhook
+-- (src/lib/billing/reconcile.ts).
+--
+-- What it does, once a day: every subscription on record that is not over is
+-- re-read from Stripe and MAYA's copy corrected, and a live subscription
+-- created in the last 3 days that MAYA has no record of is recorded (a signup
+-- whose messages from Stripe never arrived). Any difference other than a date
+-- goes to the alert channel through the billing watchdog, because it means
+-- Stripe's messages are not getting through. A run stops starting new reads
+-- after 45 seconds and the next run carries on where it stopped.
+--
+-- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets. Reuses the SAME
+-- billing_cron_secret and maya_app_url as the card check.
+--
+-- 0) Ensure extensions exist:
+--    create extension if not exists pg_net;
+--    create extension if not exists pg_cron;
+--
+-- 1) Secrets (both already exist if the card check is scheduled):
+--    select vault.create_secret('https://maya.your-domain.com', 'maya_app_url');
+--    select vault.create_secret('<long-random-string>', 'billing_cron_secret');
+--
+-- 2) App env (Vercel → Environment Variables, Production + Preview):
+--    BILLING_CRON_SECRET, STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY,
+--    NEXT_PUBLIC_SUPABASE_URL
+--
+-- 3) Schedule (08:40 UTC daily, away from room-count truing at 09:20):
+--    select cron.schedule(
+--      'billing-stripe-reconcile',
+--      '40 8 * * *',
+--      $$
+--      select net.http_post(
+--        url := (select decrypted_secret from vault.decrypted_secrets where name = 'maya_app_url')
+--               || '/api/billing/reconcile',
+--        headers := jsonb_build_object(
+--          'Content-Type', 'application/json',
+--          'x-billing-cron-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'billing_cron_secret')
+--        ),
+--        body := jsonb_build_object('scheduled_at', now()),
+--        timeout_milliseconds := 60000
+--      ) as request_id;
+--      $$
+--    );
+--
+-- Inspect:    select jobid, jobname, schedule, active from cron.job;
+-- Runs log:   select * from cron.job_run_details order by start_time desc limit 20;
+-- Unschedule: select cron.unschedule('billing-stripe-reconcile');
+--
+-- What it found. Each run is a billing.sweep row, and each difference a
+-- billing.problem row (key billing-drift:<hotel id>):
+--   select event_type, entity_id, detail, created_at
+--     from public.platform_audit_events
+--    where (event_type = 'billing.sweep' and entity_id = 'stripe-reconcile')
+--       or (event_type = 'billing.problem' and entity_id like 'billing-drift:%')
+--    order by created_at desc limit 20;

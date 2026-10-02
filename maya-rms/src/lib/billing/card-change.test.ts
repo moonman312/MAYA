@@ -109,6 +109,16 @@ function fakeAdmin(recorded: Record<string, string | null> = {}, error: { messag
 
 const admin = fakeAdmin().admin;
 
+/** What was handed to a person through the billing watchdog (problems.ts). */
+const handed = vi.hoisted(() => [] as { key: string; title: string; hotelId?: string | null; detail: string }[]);
+vi.mock("./problems", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./problems")>()),
+  recordBillingProblem: async (_admin: unknown, problem: { key: string; title: string; hotelId?: string | null; detail: string }) => {
+    handed.push(problem);
+    return { recorded: true };
+  },
+}));
+
 /** The owner had pm_old as the default and saved pm_new. */
 const fromOld = { previousCard: "pm_old", eventId: "evt_1" };
 /** The customer had no default card before (Checkout never sets one). */
@@ -120,6 +130,7 @@ const cardError = (code: string) =>
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
+  handed.length = 0;
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -454,6 +465,12 @@ describe("followNewDefaultCard", () => {
       moved: ["sub_1", "sub_2"],
     });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("insufficient_funds"));
+    // The owner may not know their new card was declined too: a person does.
+    expect(handed).toEqual([
+      expect.objectContaining({ key: "billing-card-change:sub_1", hotelId: "hotel-sub_1", title: "A new card was declined on an overdue subscription" }),
+    ]);
+    expect(handed[0].detail).toContain("in_a");
+    expect(handed[0].detail).toContain("insufficient_funds");
   });
 
   it("treats Stripe refusing the invoice itself as an answer, not an outage, and not as a declined card", async () => {
@@ -467,6 +484,9 @@ describe("followNewDefaultCard", () => {
     expect(r).toMatchObject({ attempts: [{ invoice: "in_1", outcome: "refused", code: "invoice_not_open" }], moved: ["sub_1"] });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("invoice_not_payable"));
     expect(console.error).not.toHaveBeenCalledWith(expect.stringContaining("still_overdue_owner_needs_another_card"));
+    expect(handed.map((p) => [p.key, p.title])).toEqual([
+      ["billing-card-change:sub_1", "Stripe would not take payment for an overdue invoice"],
+    ]);
   });
 
   it("counts an invoice Stripe's own retry paid first as already paid, raises nothing, and goes on to the next", async () => {
@@ -535,6 +555,7 @@ describe("followNewDefaultCard", () => {
     const r = await followNewDefaultCard(admin, f.stripe, "cus_1", fromOld);
     expect(r).toMatchObject({ moved: [], moveRefused: ["sub_1"], attempts: [{ outcome: "paid" }] });
     expect(console.error).toHaveBeenCalledWith(expect.stringContaining("move_subscription_to_new_card_by_hand"));
+    expect(handed.map((p) => p.title)).toEqual(["Stripe would not move a subscription onto the new card"]);
   });
 
   it("sends no idempotency key on a move when there is no event to key it on", async () => {
@@ -638,5 +659,13 @@ describe("followNewDefaultCard", () => {
     const f = fakeStripe({ invoices: { sub_1: [] } });
     const r = await followNewDefaultCard(admin, f.stripe, "cus_1", fromOld);
     expect(r).toMatchObject({ acted: true, attempts: [], noOpenInvoice: ["sub_1"], moved: ["sub_1"] });
+    expect(handed.map((p) => [p.key, p.title])).toEqual([
+      ["billing-card-change:sub_1", "An overdue subscription has no open invoice to pay"],
+    ]);
+  });
+
+  it("hands nothing to a person when every overdue invoice was paid", async () => {
+    await followNewDefaultCard(admin, fakeStripe().stripe, "cus_1", fromOld);
+    expect(handed).toEqual([]);
   });
 });

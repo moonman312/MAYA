@@ -74,6 +74,26 @@ vi.mock("@/lib/email/resend", () => ({
     sent.emails.push(msg);
   },
 }));
+/** What the sweep handed the billing watchdog (problems.ts). */
+const watch = vi.hoisted(() => ({
+  problems: [] as { key: string; title: string; hotelId?: string | null; detail: string; quietForMs?: number }[],
+  sweeps: [] as { job: string; detail: Record<string, unknown> }[],
+}));
+vi.mock("./problems", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./problems")>()),
+  recordBillingProblem: async (
+    _admin: unknown,
+    problem: { key: string; title: string; hotelId?: string | null; detail: string },
+    opts: { quietForMs?: number } = {},
+  ) => {
+    watch.problems.push({ ...problem, quietForMs: opts.quietForMs });
+    return { recorded: true };
+  },
+  recordBillingSweep: async (_admin: unknown, job: string, detail: Record<string, unknown>) => {
+    watch.sweeps.push({ job, detail });
+    return { recorded: true };
+  },
+}));
 // The notice re-measures to name what is not billed; that reads room types this
 // fake has no tables for, and is not what these tests are about.
 vi.mock("./room-count", async (importActual) => ({
@@ -83,6 +103,8 @@ vi.mock("./room-count", async (importActual) => ({
 
 beforeEach(() => {
   sent.emails = [];
+  watch.problems = [];
+  watch.sweeps = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "log").mockImplementation(() => {});
 });
@@ -354,6 +376,10 @@ function fakeQueryAdmin() {
       filters.push(["lte", col, val]);
       return chain;
     },
+    gt: (col: string, val: unknown) => {
+      filters.push(["gt", col, val]);
+      return chain;
+    },
     eq: (col: string, val: unknown) => {
       filters.push(["eq", col, val]);
       return chain;
@@ -379,6 +405,33 @@ describe("the batch windows exclude what only a human can price", () => {
     await shortfallsNeedingNotice(admin);
     expect(filters).toContainEqual(["lte", "measured_rooms", MAX_ROOMS]);
   });
+
+  it("hands them to a person instead, once per property and count a month, and charges nobody", async () => {
+    vi.stubEnv("MAYA_INVITE_REDIRECT_BASE", "https://maya.example.com");
+    const { admin } = tableAdmin(row({ measured_rooms: MAX_ROOMS + 100 }));
+    const { stripe, updates } = fakeStripe();
+    const result = await sweepRoomTruing({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ examined: 0, corrected: 0 });
+    expect(updates).toHaveLength(0);
+    expect(sent.emails).toHaveLength(0);
+    expect(watch.problems).toEqual([
+      expect.objectContaining({
+        key: `billing-above-max:hotel-1:${MAX_ROOMS + 100}`,
+        hotelId: "hotel-1",
+        title: `A property runs more than ${MAX_ROOMS} rooms`,
+        quietForMs: 30 * 86_400_000,
+      }),
+    ]);
+    expect(watch.sweeps).toEqual([{ job: "room-truing", detail: expect.objectContaining({ aboveSelfServe: 1, examined: 0 }) }]);
+    vi.unstubAllEnvs();
+  });
+
+  it("tells the billing watchdog it ran even when nobody is short", async () => {
+    const { admin } = tableAdmin(row({ room_shortfall_since: null }));
+    await sweepRoomTruing({ admin, stripe: fakeStripe().stripe, now: NOW });
+    expect(watch.problems).toEqual([]);
+    expect(watch.sweeps).toEqual([{ job: "room-truing", detail: expect.objectContaining({ examined: 0, aboveSelfServe: 0 }) }]);
+  });
 });
 
 /**
@@ -400,6 +453,14 @@ function tableAdmin(sub: ShortfallRow) {
             const v = r[col];
             if (v == null) return false;
             return typeof val === "number" ? Number(v) <= val : String(v) <= String(val);
+          });
+          return chain;
+        },
+        gt: (col: string, val: unknown) => {
+          tests.push((r) => {
+            const v = r[col];
+            if (v == null) return false;
+            return typeof val === "number" ? Number(v) > val : String(v) > String(val);
           });
           return chain;
         },

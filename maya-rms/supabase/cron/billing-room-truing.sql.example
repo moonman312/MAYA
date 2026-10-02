@@ -20,6 +20,13 @@
 -- customer pays — a low frequency keeps the blast radius of a bug small and
 -- gives you a whole day to notice it in the logs.
 --
+-- A property short on rooms and measured above 500 rooms is never corrected
+-- or emailed (nothing self-serve can price it); it is handed to a person
+-- instead, once per property and count a month (billing.problem, key
+-- billing-above-max:<hotel>:<rooms>). Each run reports itself to the billing
+-- watchdog (a billing.sweep row under room-truing), which says when it has
+-- not run for 26 hours: schedule supabase/cron/billing-watchdog.sql.example.
+--
 -- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets. Reuses the SAME
 -- billing_cron_secret as the card check.
 --

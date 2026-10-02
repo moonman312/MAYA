@@ -10,6 +10,16 @@
 -- returns nothing on the vast majority of runs, so the frequency costs nothing.
 -- The 48-hour check is not urgent to the minute and inconclusive ones re-arm
 -- themselves 6 hours out; a batch of 25 per run drains any realistic backlog.
+-- Only a decline or a missing card is stamped failed. A bank that wants the
+-- cardholder present (common for UK and EU cards) settles the check with no
+-- verdict, and so does a check Stripe never answered in 4 tries, which is also
+-- handed to a person (billing.problem, key billing-card-check-gave-up:<hotel>).
+--
+-- Each run reports itself to the billing watchdog (a billing.sweep row under
+-- card-reverify, at most hourly). Schedule
+-- supabase/cron/billing-watchdog.sql.example too: it says when this has not
+-- run for 2 hours, which is the only way to hear that the cron, the secret or
+-- the app stopped it.
 --
 -- Prereqs: extensions `pg_cron`, `pg_net`; Vault secrets.
 --
@@ -24,7 +34,8 @@
 -- 2) App env (Vercel → Environment Variables, Production + Preview):
 --    BILLING_CRON_SECRET   (same value as vault `billing_cron_secret`)
 --    STRIPE_SECRET_KEY, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL
---    Without BILLING_CRON_SECRET the route answers 503 — it never runs unauthed.
+--    Without BILLING_CRON_SECRET the route answers 503 (it never runs unauthed)
+--    and writes a billing problem (billing-cron-secret-missing) for the watchdog.
 --
 -- 3) Schedule:
 --    select cron.schedule(

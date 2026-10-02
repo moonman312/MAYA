@@ -18,6 +18,7 @@ import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BillingInterval } from "./tiers";
 import { isEntitledStatus } from "./entitlement";
+import { HOUR_MS, recordBillingProblem } from "./problems";
 
 /** How long after signup the card is checked a second time (Jake's call). */
 export const CARD_REVERIFY_AFTER_HOURS = 48;
@@ -176,6 +177,21 @@ export async function persistSubscription(
         existing: current.stripe_subscription_id,
         action: "needs_manual_cancel_and_refund",
       }),
+    );
+    // To the alert channel too: a log line is how this went unnoticed.
+    // Stripe redelivers, so one line per property per 6 hours is enough.
+    await recordBillingProblem(
+      admin,
+      {
+        key: `billing-duplicate-subscription:${row.hotel_id}`,
+        hotelId: row.hotel_id,
+        title: "Two live subscriptions on one property",
+        detail:
+          `Stripe has ${row.stripe_subscription_id} (${row.status}) and ${current.stripe_subscription_id} ` +
+          `(${current.status}) live for this property, and MAYA now follows ${row.stripe_subscription_id}. ` +
+          "One of them is a double charge: cancel and refund it in Stripe.",
+      },
+      { quietForMs: 6 * HOUR_MS },
     );
   }
 
