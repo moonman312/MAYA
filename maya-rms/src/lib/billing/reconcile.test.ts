@@ -236,6 +236,17 @@ describe("sweepStripeReconcile", () => {
     expect(upserts[0]).toMatchObject({ stripe_subscription_id: "sub_again", status: "active" });
   });
 
+  it("does not re-read the old subscription of a property it just recorded a new one for", async () => {
+    // Checkout never completed on the old one; the new one's messages were lost.
+    const { admin, upserts } = fakeAdmin([row({ status: "incomplete", stripe_subscription_id: "sub_old" })]);
+    const { stripe, retrieved } = fakeStripe({ sub_old: sub({ id: "sub_old", status: "incomplete_expired" }) }, [sub({ id: "sub_new" })]);
+    const result = await sweepStripeReconcile({ admin, stripe, now: NOW });
+    expect(result).toMatchObject({ recovered: 1, examined: 0 });
+    expect(retrieved).toEqual([]);
+    expect(upserts).toHaveLength(1);
+    expect(watch.problems.map((p) => p.key)).toEqual(["billing-drift:hotel-1"]);
+  });
+
   it("tells a person once when subscriptions cannot be read, and carries on with the rest", async () => {
     const { admin } = fakeAdmin([row(), row({ hotel_id: "hotel-2", stripe_subscription_id: "sub_missing" })]);
     const { stripe } = fakeStripe({ sub_1: sub() });

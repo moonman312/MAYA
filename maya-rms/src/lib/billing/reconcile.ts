@@ -173,6 +173,9 @@ export async function sweepStripeReconcile(opts: {
   }
 
   const onRecord = new Set(rows.map((r) => r.stripe_subscription_id).filter((id): id is string => Boolean(id)));
+  // Properties pass 1 just recorded a subscription for: the row read above is
+  // no longer theirs, so pass 2 leaves them alone this run.
+  const recordedNow = new Set<string>();
 
   // A difference: corrected, followed up like a webhook would, and told.
   const apply = async (
@@ -227,6 +230,7 @@ export async function sweepStripeReconcile(opts: {
       if (await apply(sub, projection, changes, projection.hotel_id)) {
         result.recovered += 1;
         onRecord.add(sub.id);
+        recordedNow.add(projection.hotel_id);
       }
     }
   } catch (e) {
@@ -236,7 +240,9 @@ export async function sweepStripeReconcile(opts: {
   }
 
   // 2. Everything on record that can still change, from where the last run stopped.
-  const open = rows.filter((r) => r.stripe_subscription_id && !TERMINAL.has(String(r.status)));
+  const open = rows.filter(
+    (r) => r.stripe_subscription_id && !TERMINAL.has(String(r.status)) && !recordedNow.has(r.hotel_id),
+  );
   const cursor = (await lastBillingSweep(admin, "stripe-reconcile"))?.detail?.cursor;
   const from = typeof cursor === "string" ? open.findIndex((r) => r.hotel_id > cursor) : 0;
   const ordered = from > 0 ? [...open.slice(from), ...open.slice(0, from)] : open;
