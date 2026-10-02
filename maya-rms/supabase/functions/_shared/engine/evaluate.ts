@@ -18,6 +18,7 @@ import {
   purgeOldAuditRows,
   purgeOldRunLogRows,
   recordRunHeartbeat,
+  ruleSnapshotOf,
 } from "./audit.ts";
 import {
   bookingSpeedAuditSnapshots,
@@ -2219,6 +2220,9 @@ export async function evaluateHotel(
     }
   }
 
+  // Each switched-on rule as the audit rows keep it, so the change log tells
+  // them as they were decided, whatever happens to the rule later.
+  const ruleSnapshots = new Map(rules.map((r) => [r.id, ruleSnapshotOf(r, (id) => countingIds.has(id))]));
   const auditRows: Record<string, unknown>[] = [];
   for (const { key, assembled } of assembledCells) {
     const stayDate = assembled.stay_date;
@@ -2243,6 +2247,7 @@ export async function evaluateHotel(
         : [],
       previousSignature: lastAuditSignatures.get(key) ?? null,
       manualOverride: manualByCell.get(key) ?? null,
+      ruleSnapshots,
     };
     const row = buildAuditRow(auditInput);
     if (row) {

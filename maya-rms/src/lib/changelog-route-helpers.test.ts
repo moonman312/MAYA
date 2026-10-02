@@ -25,6 +25,7 @@ import {
   moreChangesLine,
   planQuietGaps,
   priorAuditRowFrom,
+  ruleSnapshotsOf,
   type PriorAuditRow,
 } from "./changelog-route-helpers";
 import type { EvaluationAuditDetails } from "@/types/domain";
@@ -451,10 +452,20 @@ describe("buildApplications", () => {
 
   it("skips steps it cannot resolve to an action", () => {
     const d = details({
-      active_ladder_effects: [{ rule_id: "rule-gone", delta: "+5%" }],
+      active_ladder_effects: [{ rule_id: "rule-gone", delta: "not a delta" }],
       application_order: ["ladder:rule-gone", "pickup:evt-unknown"],
     });
     expect(buildApplications(d, lookups())).toEqual([]);
+  });
+
+  it("still tells a step of a rule deleted since, with the amount the row applied, so the prices add up", () => {
+    const d = details({
+      active_ladder_effects: [{ rule_id: "rule-gone", delta: "+5%" }],
+      application_order: ["ladder:rule-gone"],
+    });
+    expect(buildApplications(d, lookups())).toEqual([
+      { rule_name: "Pricing rule", condition: null, action: { kind: "percent", direction: "increase", value: 5 }, metrics: null, is_pickup: false },
+    ]);
   });
 });
 
@@ -1122,6 +1133,177 @@ describe("a night put back at its base", () => {
       .flatMap((e) => e.narrative ?? [])
       .join(" ");
     expect(words).not.toMatch(/[\u2014!<>=]/);
+  });
+});
+
+describe("an old entry tells each rule as its run had it (A46)", () => {
+  // 25 September: "Busy bump" (above 70%, raise 10%) raises 10 October from
+  // $200 to $220 at 82% full. On 28 September the owner makes it "Busy nights",
+  // above 90%, raise 25% (version 2).
+  const edited = (o: Partial<ChangelogLookups> = {}) =>
+    lookups({
+      rules: new Map([
+        ["rule-1", { name: "Busy nights", version: 2, action_type: "percent" as const, action_direction: "increase" as const, action_value: 25, is_pickup_rule: false }],
+        ["rule-2", { name: "Late surge", version: 4, action_type: "percent" as const, action_direction: "increase" as const, action_value: 25, is_pickup_rule: true }],
+      ]),
+      conditions: new Map([
+        ["rule-1", { occupancy_operator: "gt" as const, occupancy_threshold: 0.9 }],
+        ["rule-2", { pickup_operator: "gt" as const, pickup_threshold: 6, pickup_window_days: 3 as const }],
+      ]),
+      ...o,
+    });
+  const snapshot = { "rule-1": { name: "Busy bump", version: 1, condition: { occupancy_operator: "gt", occupancy_threshold: 0.7 } } };
+
+  it("reads the rule the row kept: its name, its mark and the amount it applied", () => {
+    const kept = row({ details: { ...row().details, rule_snapshots: snapshot as never } });
+    const entry = buildEntry(kept, edited());
+    expect(entry.rule_name).toBe("Busy bump");
+    expect(entry.narrative).toEqual(['"Busy bump" raised this night 10%, from $200.00 to $220.00.', "It was 82% full, past the 70% mark you set."]);
+  });
+
+  it("keeps the rule's name and mark after it is deleted", () => {
+    const kept = row({ details: { ...row().details, rule_snapshots: snapshot as never } });
+    const entry = buildEntry(kept, edited({ rules: new Map(), conditions: new Map() }));
+    expect(entry.narrative).toEqual(['"Busy bump" raised this night 10%, from $200.00 to $220.00.', "It was 82% full, past the 70% mark you set."]);
+  });
+
+  it("on a row from before rows kept the rule, tells today's mark only while the rule is on the row's version", () => {
+    // Version 1 decided it, the rule is on version 2: what the run saw, and no mark.
+    expect(buildEntry(row(), edited()).narrative).toEqual([
+      '"Busy nights" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full.",
+      "It had 12 days to go.",
+      "The rule has been edited since.",
+    ]);
+    // Renamed only (no new version): today's mark is the row's.
+    const renamed = edited({
+      rules: new Map([["rule-1", { name: "Busy nights", version: 1, action_type: "percent" as const, action_direction: "increase" as const, action_value: 10, is_pickup_rule: false }]]),
+      conditions: new Map([["rule-1", { occupancy_operator: "gt" as const, occupancy_threshold: 0.7 }]]),
+    });
+    expect(buildEntry(row(), renamed).narrative).toEqual([
+      '"Busy nights" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full, past the 70% mark you set.",
+    ]);
+  });
+
+  it("takes each amount from the row, so a later entry never replays today's 25%", () => {
+    // A later run on the same night: the standard change held, a pickup fire stacked on it.
+    const later = row({
+      final_price: 242,
+      pre_clamp_price: 242,
+      details: details({
+        matched_ladder_rules: [
+          { rule_id: "rule-1", rule_version: 1, transition: "noop", action: { kind: "percent", direction: "increase", value: 10 }, metrics: { occupancy: 0.84 } },
+        ],
+        active_ladder_effects: [{ rule_id: "rule-1", delta: "+10%" }],
+        active_pickup_effects: [{ event_id: "evt-1", rule_id: "rule-2", delta: "+10%", rule_version: 3 }],
+        pickup_candidates: [{ rule_id: "rule-2", outcome: "won", metrics: { net_pickup_units: 5 }, tie_break_trace: ["winner"], event_id: "evt-1" }],
+        application_order: ["ladder:rule-1", "pickup:evt-1"],
+      }),
+    });
+    const entry = buildEntry(later, edited());
+    expect(entry.narrative).toEqual([
+      '"Busy nights" raised this night 10%, from $200.00 to $220.00.',
+      "It was 84% full.",
+      "The rule has been edited since.",
+      'Then "Late surge" raised it 10%, from $220.00 to $242.00.',
+      "5 bookings arrived in its count.",
+      "The rule has been edited since.",
+    ]);
+  });
+
+  it("goes by the fire's version, from the row or from the fire itself", () => {
+    const fire = (o: Record<string, unknown>) =>
+      row({
+        details: details({
+          active_pickup_effects: [{ event_id: "evt-1", rule_id: "rule-2", delta: "+10%", ...o }],
+          pickup_candidates: [{ rule_id: "rule-2", outcome: "won", metrics: { net_pickup_units: 7 }, tie_break_trace: ["winner"], event_id: "evt-1" }],
+          application_order: ["pickup:evt-1"],
+        }),
+      });
+    const why = (r: AuditChangeRow, l: ChangelogLookups) => buildEntry(r, l).narrative?.slice(1);
+    // The row says version 4, the rule's own: today's mark.
+    expect(why(fire({ rule_version: 4 }), edited())).toEqual(["7 bookings arrived that day and the 2 days before, past the 6-booking mark you set."]);
+    // An older row: the version comes from the fire (pickupVersions).
+    expect(why(fire({}), edited({ pickupVersions: new Map([["evt-1", 4]]) }))).toEqual([
+      "7 bookings arrived that day and the 2 days before, past the 6-booking mark you set.",
+    ]);
+    expect(why(fire({}), edited({ pickupVersions: new Map([["evt-1", 2]]) }))).toEqual(["7 bookings arrived in its count.", "The rule has been edited since."]);
+    // No version anywhere: only what the run saw, without claiming an edit.
+    expect(why(fire({}), edited())).toEqual(["7 bookings arrived in its count."]);
+  });
+
+  it("reads today's rule as it always did when the versions were never read", () => {
+    expect(buildEntry(row(), lookups()).narrative).toEqual([
+      '"Busy-day bump" raised this night 10%, from $200.00 to $220.00.',
+      "It was 82% full, past the 70% mark you set.",
+    ]);
+  });
+
+  it("names a fire taken off, and a rule that came off, as the rows kept them, with the amount the row before applied", () => {
+    const retired = buildRetirements(
+      details({
+        rule_snapshots: { "rule-2": { name: "Spike catcher", version: 3, condition: { pickup_operator: "gt", pickup_threshold: 4 } } },
+        retired_pickup_effects: [
+          { event_id: "e1", rule_id: "rule-2", delta: "+12%", applied_at: "2026-07-27T10:00:00Z", fire_seq: 1, reason: "bookings_cancelled", cancel_check: "net_units" },
+        ],
+      }),
+      edited().rules,
+    );
+    expect(retired.map((r) => [r.rule_name, r.delta])).toEqual([["Spike catcher", "+12%"]]);
+
+    const atBase = row({ base_price: 200, final_price: 200, pre_clamp_price: 200, details: details() });
+    const prior: PriorAuditRow = {
+      final_price: 220,
+      base_price: 200,
+      application_order: ["ladder:rule-1"],
+      manual: null,
+      ladder_deltas: new Map([["rule-1", "+10%"]]),
+      rule_snapshots: snapshot as never,
+    };
+    expect(buildEntry({ ...atBase, previous: prior }, edited()).narrative).toEqual([
+      '"Busy bump" stopped applying an earlier 10% raise here.',
+      "That took this night from $220.00 to $200.00.",
+    ]);
+    // Before the migration returns them: today's rule, as before.
+    const bare: PriorAuditRow = { final_price: 220, base_price: 200, application_order: ["ladder:rule-1"], manual: null };
+    expect(buildEntry({ ...atBase, previous: bare }, edited()).narrative?.[0]).toBe('"Busy nights" stopped applying an earlier 25% raise here.');
+  });
+
+  it("reads audit_rows_before's rule changes and kept rules, and only well-formed copies", () => {
+    expect(
+      priorAuditRowFrom({
+        final_price: 220,
+        base_price: 200,
+        application_order: ["ladder:rule-1"],
+        base_source: "calendar",
+        ladder_effects: [{ rule_id: "rule-1", delta: "+10%" }, { rule_id: 7 }],
+        rule_snapshots: { ...snapshot, broken: { name: "x" }, list: [] },
+      }),
+    ).toEqual({
+      final_price: 220,
+      base_price: 200,
+      application_order: ["ladder:rule-1"],
+      manual: null,
+      ladder_deltas: new Map([["rule-1", "+10%"]]),
+      rule_snapshots: snapshot,
+    });
+    expect(ruleSnapshotsOf(null)).toBeNull();
+    expect(ruleSnapshotsOf({ a: { name: "A", version: 1, condition: [] } })).toBeNull();
+    expect(ruleSnapshotsOf({ a: { name: "A", version: 1, condition: {}, measured_room_type_ids: ["rt-1", 3] } })).toEqual({
+      a: { name: "A", version: 1, condition: {}, measured_room_type_ids: ["rt-1"] },
+    });
+  });
+
+  it("names what a kept rule measured when that is not what it changes", () => {
+    const kept = row({
+      details: {
+        ...row().details,
+        rule_snapshots: { "rule-1": { ...snapshot["rule-1"], measured_room_type_ids: ["rt-2", "rt-gone"] } } as never,
+      },
+    });
+    const entry = buildEntry(kept, edited({ roomTypeNames: new Map([["rt-1", "Deluxe King"], ["rt-2", "Garden Room"]]) }));
+    expect(entry.narrative?.[1]).toBe("Garden Room was 82% full, past the 70% mark you set.");
   });
 });
 

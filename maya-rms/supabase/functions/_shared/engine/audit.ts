@@ -3,7 +3,7 @@
  * Deno-portable copy of src/lib/engine/audit.ts (import paths only differ).
  */
 
-import type { EvaluationAuditDetails } from "./domain.ts";
+import type { EngineRule, EvaluationAuditDetails, RuleCondition, RuleSnapshot } from "./domain.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BaseSource } from "./base-price.ts";
 import { buildStamp } from "./build.ts";
@@ -53,6 +53,11 @@ export type AuditInput = {
    * day, forever, since nothing ever purged this table.
    */
   previousSignature?: string | null;
+  /**
+   * The run's switched-on rules as the row keeps them (ruleSnapshotOf), by
+   * id. The row stores the ones it names (rule_snapshots).
+   */
+  ruleSnapshots?: ReadonlyMap<string, RuleSnapshot>;
   /** The open manual_price row for this cell, when one exists. */
   manualOverride?: {
     set_by: string | null;
@@ -104,6 +109,51 @@ export function auditBaseKey(details: {
   return details.base_source === "manual" && details.manual_override
     ? `manual:${details.manual_override.set_at}`
     : "";
+}
+
+/**
+ * A rule as an audit row keeps it, so the change log can tell the row as it
+ * was decided whatever happens to the rule later: its name, version, the
+ * parts of its condition that are set, and what it measures when that is not
+ * what it changes (room types that count as rooms only, as the engine
+ * measures them).
+ */
+export function ruleSnapshotOf(rule: EngineRule, isCounting: (id: string) => boolean): RuleSnapshot {
+  const condition: RuleCondition = {};
+  for (const [k, v] of Object.entries(rule.condition)) {
+    if (v != null) (condition as Record<string, unknown>)[k] = v;
+  }
+  const counted = (ids: readonly string[]) => [...new Set(ids.filter(isCounting))].sort();
+  const measured = counted(rule.signal_room_type_ids);
+  const differs = measured.join(",") !== counted(rule.affected_room_type_ids).join(",");
+  return {
+    name: rule.name,
+    version: rule.version,
+    condition,
+    ...(differs && measured.length > 0 ? { measured_room_type_ids: measured } : {}),
+  };
+}
+
+/** The snapshots of the rules a row names: on its price, switched off by this run, or a fire taken off. */
+function snapshotsNamed(
+  details: Pick<EvaluationAuditDetails, "application_order" | "active_pickup_effects" | "matched_ladder_rules" | "retired_pickup_effects">,
+  snapshots: ReadonlyMap<string, RuleSnapshot> | undefined,
+): Record<string, RuleSnapshot> | null {
+  if (!snapshots || snapshots.size === 0) return null;
+  const ids = new Set<string>();
+  for (const step of details.application_order) {
+    const [kind, id] = step.split(":");
+    if (kind === "ladder" && id) ids.add(id);
+  }
+  for (const e of details.active_pickup_effects) ids.add(e.rule_id);
+  for (const m of details.matched_ladder_rules) if (m.transition === "deactivate") ids.add(m.rule_id);
+  for (const e of details.retired_pickup_effects ?? []) ids.add(e.rule_id);
+  const out: Record<string, RuleSnapshot> = {};
+  for (const id of [...ids].sort()) {
+    const snap = snapshots.get(id);
+    if (snap) out[id] = snap;
+  }
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 /**
@@ -207,6 +257,7 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
       delta: formatDelta(e.action_kind, e.action_direction, e.action_value),
       ...(e.applied_at !== undefined ? { applied_at: e.applied_at } : {}),
       ...(e.fire_seq !== undefined ? { fire_seq: e.fire_seq } : {}),
+      ...(e.rule_version !== undefined ? { rule_version: e.rule_version } : {}),
     })),
     ...(input.retiredPickupEffects && input.retiredPickupEffects.length > 0
       ? {
@@ -256,6 +307,10 @@ export function buildAuditRow(input: AuditInput): Record<string, unknown> | null
   if (input.previousSignature != null && input.previousSignature === signature) {
     return null;
   }
+  // The rules as they stood, kept with the row (not part of the signature:
+  // a rename or edit alone writes no row).
+  const named = snapshotsNamed(details, input.ruleSnapshots);
+  if (named) details.rule_snapshots = named;
 
   return {
     evaluation_run_id: input.runId,

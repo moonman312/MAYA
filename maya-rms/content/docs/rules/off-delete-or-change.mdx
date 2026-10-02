@@ -25,6 +25,7 @@ questions:
   - Who created this rule, and who switched it off or deleted it? {#who-did-what}
   - Can I change the undo box on a rule I already saved? {#changing-a-rule}
   - What happens to a rule's changes when I edit it? {#changing-a-rule/what-an-edit}
+  - Does editing a rule change what the change log says about it? {#changing-a-rule/the-change-log}
   - Why did a window with a calendar open when I switched a rule on? {#the-onoff-switch}
 updated: 2026-10-01
 ---
@@ -62,7 +63,7 @@ The red <Ui>Delete</Ui> button at the end of a rule's row opens a dialog headed 
 - <Ui>Turn It Off and Keep Its Changes</Ui>: switches the rule off and closes the dialog
 - <Ui>Cancel</Ui>
 
-The change log keeps its price entries, but older entries lose the deleted rule's reasons. A standard rule's move still shows, named "Pricing rule", with no sentence saying why. A booking speed or pickup rule's move is left out of those entries. Your answers to the rule's keeps-adjusting banner (the "Your answer" entries) are removed along with the rule. New entries show the price without it. Read [The change log](/docs/watch/the-change-log).
+The change log keeps its price entries, and each one keeps the deleted rule's name, reasons and amount as they were when it ran. Entries from before October 2026 did not keep them: there the rule's moves read "Pricing rule", with no sentence saying why. Your answers to the rule's keeps-adjusting banner (the "Your answer" entries) are removed along with the rule. New entries show the price without it. Read [The change log](/docs/watch/the-change-log#rules-you-change-or-delete).
 
 <Callout kind="careful">
 Deleting a rule changes prices. Every night the rule had adjusted is re-priced without it from the next cycle, nearest nights first. On a live Cloudbeds or ThinkReservations property, those prices are sent to your system. On Mews they change in MAYA only. If you want the prices to stay where they are, turn the rule off instead.
@@ -79,6 +80,8 @@ Click <Ui>Edit</Ui> beside <Ui>Delete</Ui> at the end of the rule's row. The rul
 <Ui>Cancel editing</Ui>, under the form, empties the builder without saving. A rule's date window (a rule imported from PIE with dates has one), weekdays and priority are not in the builder, and an edit keeps them as saved. If someone changed the rule in another tab after you opened it, the save stops with "This rule changed in another tab. Reload it to edit." and a <Ui>Reload</Ui> button that fills the builder with the rule as it is now.
 
 **What an edit does to the rule's changes.** With <Ui>Apply price adjustments</Ui>, every change the rule has on the price is judged against the edited rule: a standard rule's change stays at the new amount where the edited rule holds and comes off where it does not (room types taken off the rule and nights it no longer covers included), and a booking speed or pickup rule's earlier changes come off, with the edited rule reading its whole window again. With <Ui>Skip price adjustments</Ui>, every change on the days the window showed stays where it is until the rule stops being true there and then becomes true again, and every other night is judged as with Apply. Changing its conditions, amount or room types also clears the rule's "Stop for this night" answers, which belonged to the rule as it was. A new name or the undo box alone keeps them. Read [A rule that is changed](/docs/rules/when-a-change-comes-off#a-rule-that-is-changed).
+
+**The change log keeps what the rule was.** Its older entries still tell each change as the rule was when it ran, under the name it had then. Entries from before October 2026 work differently: [Rules you change or delete](/docs/watch/the-change-log#rules-you-change-or-delete).
 
 The "Tune ... ?" card after <Ui>Get suggestions from my data</Ui> is an edit too: <Ui>Make that change</Ui> moves the occupancy threshold of a standard rule, through the same window when the rule is on. Read [Getting suggestions later](/docs/review/getting-suggestions-later) and [Change a rule](/docs/recipes/change-a-rule).
 

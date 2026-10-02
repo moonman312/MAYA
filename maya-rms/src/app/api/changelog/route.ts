@@ -4,8 +4,12 @@
  * With Supabase configured and a resolvable hotel, the 10 most recent runs
  * that changed a price are rebuilt from evaluation_audit rows and narrated
  * via changelog-narrative. A night a run put back at its base counts as a
- * change, told from the price it had (summariseRun, audit_rows_before). The
- * quiet runs between them are counted, not
+ * change, told from the price it had (summariseRun, audit_rows_before).
+ * Each rule is told as its run had it: the name, marks and amount the audit
+ * row kept, so editing, renaming or deleting a rule never rewrites an old
+ * entry (ruleAsDecided; rows from before they were kept borrow today's rule
+ * only while it is on the version they were decided on, pickupVersionsFor).
+ * The quiet runs between them are counted, not
  * read: each stretch is one line saying how many checks changed nothing
  * (loadRunHistory, countQuietGap). A live hotel's rate push problems that
  * need the owner are merged in, one item each: ongoing ones on top, resolved
@@ -86,6 +90,7 @@ import {
 import { CHANGELOG_OLDER_HEADER, justAfter } from "@/lib/changelog-paging";
 import { buildChangelog } from "@/lib/demo-data";
 import { newestAuditAt, priorRowsFor } from "@/lib/changelog-prior-rows";
+import { pickupVersionsFor } from "@/lib/changelog-rule-versions";
 import { buildModeSwitches } from "@/lib/changelog-mode-switches";
 import { attachSendLines, cellKey, liveCells, overwriteSendState } from "@/lib/changelog-send-lines";
 import { pmsSendsPrices, type ModeSwitch, type SendState } from "@/lib/price-mode";
@@ -451,7 +456,7 @@ async function buildRealChangelog(
       supabase
         .from("pricing_rules")
         .select(
-          `id, name, action_type, action_direction, action_value, is_pickup_rule, undo_on_cancellation,
+          `id, name, version, action_type, action_direction, action_value, is_pickup_rule, undo_on_cancellation,
            rule_condition (
              occupancy_operator, occupancy_threshold,
              dta_operator, dta_threshold_days,
@@ -512,6 +517,8 @@ async function buildRealChangelog(
     });
     ruleLookup.set(id, {
       name: String(rule.name),
+      // An old entry tells today's marks only while the rule is on the version it was decided on.
+      ...(rule.version != null ? { version: Number(rule.version) } : {}),
       action_type: rule.action_type as RuleLookupEntry["action_type"],
       action_direction: rule.action_direction as RuleLookupEntry["action_direction"],
       action_value: Number(rule.action_value),
@@ -547,17 +554,20 @@ async function buildRealChangelog(
     }
   }
 
+  const shownRows = history ? history.shown.flatMap((run) => run.topRows) : auditRows;
+  const [setterNames, pickupVersions] = await Promise.all([
+    setterNamesFor(supabase, shownRows),
+    pickupVersionsFor(supabase, hotelId, shownRows),
+  ]);
   const lookups: ChangelogLookups = {
     roomTypeNames,
     rules: ruleLookup,
     conditions: conditionLookup,
     ruleRoomSets,
     countingRoomTypeIds,
+    pickupVersions,
     currencySymbol: currencySymbolFor(hotel?.currency ? String(hotel.currency) : null),
-    setterNames: await setterNamesFor(
-      supabase,
-      history ? history.shown.flatMap((run) => run.topRows) : auditRows,
-    ),
+    setterNames,
     modeTimeline,
     pmsType,
     liveNow,

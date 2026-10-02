@@ -104,9 +104,11 @@ export function dayRates(
 export type HotelHistory = {
   /**
    * Per stay date, the room revenue a day counts for its RevPAR: the room
-   * types that count as rooms, each booking at its imported rate, else its
-   * latest (calendar_daily_revenue_v3). Before that function exists, every
-   * room type's revenue at the latest rate (v2, v1).
+   * types that count as rooms, each booking at the rate it has now, else the
+   * first rate MAYA read for it (calendar_daily_revenue_v3; until
+   * 99_supabase_migration_calendar_and_log_v1.sql the first rate came
+   * first). Before that function exists, every room type's revenue at the
+   * latest rate (v2, v1).
    */
   revenueByDate: Map<string, number>;
   /** Every stretch of rooms out of service on record, for the series' sellable rooms. */
@@ -226,7 +228,7 @@ async function loadHotelHistory(
   const PAGE = 1000;
 
   // v3 counts what a day counts for its RevPAR (the room types that count as
-  // rooms, each booking at its imported rate first). v2, every room type at
+  // rooms, each booking at the rate it has now). v2, every room type at
   // its latest rate, is the fallback until 99_supabase_migration_signups_feed_v1.sql
   // has run. Both check access once and page by date; v1 ran the RLS check on
   // every reservation and re-aggregated the book per page, which can time out
@@ -902,16 +904,19 @@ async function getCalendarFromDb(
   }
 
   /**
-   * Nightly room revenue: prefer imported base (stable BAR), else current PMS
-   * rate, else 0. A booking the PMS sent with no rate earned nothing we can
-   * see, and a stand-in figure would show up as real revenue and pull the
-   * average rate towards it. calendar_daily_revenue counts it as 0 as well.
+   * Nightly room revenue: the booking's rate now (current_rate, which every
+   * sync keeps up to date), else the first rate MAYA read for it (base_rate,
+   * which never moves), else 0. A booking the hotel moved from $200 to $150
+   * earns $150, as the engine's revenue counts have it. A booking the PMS
+   * sent with no rate earned nothing we can see, and a stand-in figure would
+   * show up as real revenue and pull the average rate towards it.
+   * calendar_daily_revenue_v3 counts the same way.
    */
   function nightlyRoomAmount(r: { base_rate: number | null; current_rate: number | null }): number {
-    const b = r.base_rate != null ? Number(r.base_rate) : NaN;
-    if (Number.isFinite(b)) return b;
     const c = r.current_rate != null ? Number(r.current_rate) : NaN;
     if (Number.isFinite(c)) return c;
+    const b = r.base_rate != null ? Number(r.base_rate) : NaN;
+    if (Number.isFinite(b)) return b;
     return 0;
   }
 

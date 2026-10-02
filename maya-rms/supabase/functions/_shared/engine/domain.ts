@@ -200,8 +200,19 @@ export type EvaluationAuditDetails = {
     fire_seq?: number;
   }[];
   active_ladder_effects: { rule_id: string; delta: string }[];
-  /** applied_at and fire_seq are missing on rows written before stacking. */
-  active_pickup_effects: { event_id: string; rule_id: string; delta: string; applied_at?: string; fire_seq?: number }[];
+  /**
+   * applied_at and fire_seq are missing on rows written before stacking;
+   * rule_version (the version of the rule that made the fire) on rows written
+   * before 2026-10-01.
+   */
+  active_pickup_effects: {
+    event_id: string;
+    rule_id: string;
+    delta: string;
+    applied_at?: string;
+    fire_seq?: number;
+    rule_version?: number;
+  }[];
   /** Fires this run took off the cell, when any. */
   retired_pickup_effects?: {
     event_id: string;
@@ -237,4 +248,21 @@ export type EvaluationAuditDetails = {
    * MAYA had sent; rows typed in MAYA leave it out.
    */
   manual_override?: { set_by: string | null; set_at: string; source?: "pms"; pms_type?: string | null };
+  /**
+   * Each switched-on rule the row names (on the price, switched off this run,
+   * or a fire taken off), as it stood when the run was made. The change log
+   * tells the row from these, so a later edit, rename or delete never
+   * rewrites what an old entry says. Rows written before 2026-10-01 lack it.
+   */
+  rule_snapshots?: Record<string, RuleSnapshot>;
+};
+
+/** A rule as an audit row keeps it (EvaluationAuditDetails.rule_snapshots). */
+export type RuleSnapshot = {
+  name: string;
+  version: number;
+  /** The condition's parts that are set. */
+  condition: RuleCondition;
+  /** The room types it measures, only when they are not the ones it changes (rooms only). */
+  measured_room_type_ids?: string[];
 };

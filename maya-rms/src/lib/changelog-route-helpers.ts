@@ -24,6 +24,7 @@ import type {
   ChangelogRuleAlertChoice,
   EvaluationAuditDetails,
   RuleCondition,
+  RuleSnapshot,
 } from "@/types/domain";
 
 export type AuditChangeRow = {
@@ -52,6 +53,14 @@ export type PriorAuditRow = {
   application_order: string[];
   /** The price set by hand that row was on, or null. */
   manual: { set_by: string | null; pms: string | null } | null;
+  /**
+   * The amount each standard rule change on that row applied
+   * (active_ladder_effects), by rule id. Absent until
+   * 99_supabase_migration_calendar_and_log_v1.sql returns them.
+   */
+  ladder_deltas?: Map<string, string>;
+  /** The rules as that row kept them (rule_snapshots), when it did. */
+  rule_snapshots?: Record<string, RuleSnapshot>;
 };
 
 /** One audit_rows_before row, read loosely like every other audit read. */
@@ -66,16 +75,118 @@ export function priorAuditRowFrom(r: Record<string, unknown>): PriorAuditRow {
           pms: null,
         }
       : null;
+  const ladder = ladderDeltasOf(r.ladder_effects);
+  const snapshots = ruleSnapshotsOf(r.rule_snapshots);
   return {
     final_price: Number(r.final_price),
     base_price: r.base_price != null ? Number(r.base_price) : Number(r.final_price),
     application_order: order,
     manual,
+    ...(ladder.size > 0 ? { ladder_deltas: ladder } : {}),
+    ...(snapshots ? { rule_snapshots: snapshots } : {}),
   };
+}
+
+/** A row's active_ladder_effects as each rule's delta, read loosely. */
+function ladderDeltasOf(raw: unknown): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!Array.isArray(raw)) return out;
+  for (const e of raw as unknown[]) {
+    const { rule_id: ruleId, delta } = (e ?? {}) as Record<string, unknown>;
+    if (typeof ruleId === "string" && typeof delta === "string") out.set(ruleId, delta);
+  }
+  return out;
+}
+
+/** An audit row's rule_snapshots, read loosely: only entries with a name, a version and a condition. */
+export function ruleSnapshotsOf(raw: unknown): Record<string, RuleSnapshot> | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: Record<string, RuleSnapshot> = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    const snap = v as Partial<RuleSnapshot> | null;
+    if (
+      !snap ||
+      typeof snap.name !== "string" ||
+      typeof snap.version !== "number" ||
+      !snap.condition ||
+      typeof snap.condition !== "object" ||
+      Array.isArray(snap.condition)
+    ) {
+      continue;
+    }
+    out[id] = {
+      name: snap.name,
+      version: snap.version,
+      condition: snap.condition,
+      ...(Array.isArray(snap.measured_room_type_ids)
+        ? { measured_room_type_ids: snap.measured_room_type_ids.filter((x): x is string => typeof x === "string") }
+        : {}),
+    };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/**
+ * The audit's signed delta ("+10%", "-$5.00", engine/audit.ts formatDelta)
+ * as the adjustment it applied, or null when it doesn't read as one.
+ */
+export function actionFromDelta(delta: unknown): NarrativeApplication["action"] | null {
+  if (typeof delta !== "string") return null;
+  const m = /^([+-])(\$)?(\d+(?:\.\d+)?)(%)?$/.exec(delta.trim());
+  if (!m || Boolean(m[2]) === Boolean(m[4])) return null;
+  return { kind: m[4] ? "percent" : "fixed", direction: m[1] === "-" ? "decrease" : "increase", value: Number(m[3]) };
+}
+
+/** A rule as an entry tells it: see ruleAsDecided. */
+type DecidedRule = {
+  name: string;
+  condition: RuleCondition | null;
+  measured: string[] | null;
+  /** Set when the marks it was decided on are not on record (NarrativeApplication.marks_not_on_record). */
+  marksNotOnRecord?: "edited" | "unknown";
+};
+
+/**
+ * A rule as a row was decided on it. The row's own copy (rule_snapshots,
+ * written since 2026-10-01) is the rule as its run had it, whatever has
+ * happened to the rule since. A row without one borrows today's rule: its
+ * name always (a deleted rule reads "Pricing rule"), its marks and room
+ * types only while the rule is on the version the row was decided on
+ * (`version`, the row's record of it). After an edit they are not on record,
+ * and neither are they when the row doesn't say which version it was.
+ * A lookup that never read the rules' versions uses today's rule as the log
+ * always did.
+ */
+export function ruleAsDecided(
+  ruleId: string,
+  snapshots: Record<string, RuleSnapshot> | null | undefined,
+  version: number | undefined,
+  lookups: Pick<ChangelogLookups, "rules" | "conditions"> &
+    Partial<Pick<ChangelogLookups, "ruleRoomSets" | "countingRoomTypeIds" | "roomTypeNames">>,
+): DecidedRule {
+  const snap = snapshots?.[ruleId];
+  if (snap) {
+    const measured = (snap.measured_room_type_ids ?? [])
+      .map((id) => lookups.roomTypeNames?.get(id))
+      .filter((n): n is string => !!n);
+    return { name: snap.name, condition: snap.condition, measured: measured.length > 0 ? measured : null };
+  }
+  const rule = lookups.rules.get(ruleId);
+  if (!rule) return { name: "Pricing rule", condition: null, measured: null };
+  const today = { name: rule.name, condition: lookups.conditions.get(ruleId) ?? null, measured: measuredRoomTypeNames(ruleId, lookups) };
+  if (rule.version === undefined) return today;
+  if (version === rule.version) return today;
+  return { name: rule.name, condition: null, measured: null, marksNotOnRecord: version === undefined ? "unknown" : "edited" };
 }
 
 export type RuleLookupEntry = {
   name: string;
+  /**
+   * The rule's version today. An old entry takes the rule's condition from
+   * today only when it was decided on this version (an edit moves it on).
+   * Absent: not read, and today's condition is used as it always was.
+   */
+  version?: number;
   action_type: "percent" | "fixed";
   action_direction: "increase" | "decrease";
   action_value: number;
@@ -95,6 +206,11 @@ export type ChangelogLookups = {
   ruleRoomSets?: Map<string, { signal: string[]; affected: string[] }>;
   /** Room types that count as rooms; unset means every room type does. */
   countingRoomTypeIds?: Set<string>;
+  /**
+   * The rule version of each fire named on rows from before the audit kept
+   * it (pickup_event.rule_version, by event id), for ruleAsDecided.
+   */
+  pickupVersions?: Map<string, number>;
   /**
    * The property's mode history (hotel_mode_history), so each change is worded
    * for the mode at its run's time. Unset or empty: the mode is not known and
@@ -387,10 +503,14 @@ export function toNarrativeMetrics(
 /**
  * Rebuild the applied-rule chain for one audit row, in application order.
  *
- * Prefers matched_ladder_rules for action + observed metrics; falls back to
- * the pricing_rules lookup (metrics null) for effects carried over from
- * earlier runs. Pickup entries are keyed by event id and mapped back to their
- * rule via active_pickup_effects.
+ * Each step's amount is the one the row applied (its active ladder or pickup
+ * effect's delta), so the replayed prices are the row's own whatever the
+ * rule says today; matched_ladder_rules, then today's rule, only stand in
+ * for a row that kept no delta. The rule's name, marks and room types are
+ * the ones it was decided on (ruleAsDecided). Observed metrics come from
+ * matched_ladder_rules for a standard rule and from the fire this run made
+ * for a pickup rule. Pickup entries are keyed by event id and mapped back to
+ * their rule via active_pickup_effects.
  *
  * An event rule can hold several fires on one night. Only the fire this run
  * made carries this run's metrics, which is why the winner is matched on its
@@ -401,14 +521,16 @@ export function toNarrativeMetrics(
 export function buildApplications(
   details: EvaluationAuditDetails,
   lookups: Pick<ChangelogLookups, "rules" | "conditions"> &
-    Partial<Pick<ChangelogLookups, "ruleRoomSets" | "countingRoomTypeIds" | "roomTypeNames">>,
+    Partial<Pick<ChangelogLookups, "ruleRoomSets" | "countingRoomTypeIds" | "roomTypeNames" | "pickupVersions">>,
 ): NarrativeApplication[] {
   const applications: NarrativeApplication[] = [];
+  const snapshots = ruleSnapshotsOf(details.rule_snapshots);
   const matchedByRule = new Map(
     (details.matched_ladder_rules ?? []).map((m) => [m.rule_id, m]),
   );
-  const pickupRuleByEvent = new Map(
-    (details.active_pickup_effects ?? []).map((e) => [e.event_id, e.rule_id]),
+  const ladderDeltas = ladderDeltasOf(details.active_ladder_effects);
+  const pickupByEvent = new Map(
+    (details.active_pickup_effects ?? []).map((e) => [e.event_id, e]),
   );
   const wonPickup = (details.pickup_candidates ?? []).filter((c) => c.outcome === "won");
   const wonPickupByEvent = new Map(
@@ -425,41 +547,36 @@ export function buildApplications(
     const [kind, id] = step.split(":");
     if (!id) continue;
     const isPickup = kind === "pickup";
-    const ruleId = isPickup ? pickupRuleByEvent.get(id) : id;
+    const fire = isPickup ? pickupByEvent.get(id) : undefined;
+    const ruleId = isPickup ? fire?.rule_id : id;
     if (!ruleId) continue;
     const seen = timesApplied.get(ruleId) ?? 0;
     timesApplied.set(ruleId, seen + 1);
 
     const rule = lookups.rules.get(ruleId);
-    const matched = matchedByRule.get(ruleId);
-
-    let action: NarrativeApplication["action"] | null = null;
-    let metrics: NarrativeApplication["metrics"] = null;
-    if (matched) {
-      action = matched.action;
-      metrics = toNarrativeMetrics(matched.metrics);
-    } else if (rule) {
-      action = {
-        kind: rule.action_type,
-        direction: rule.action_direction,
-        value: Number(rule.action_value),
-      };
-    }
+    const matched = isPickup ? undefined : matchedByRule.get(ruleId);
+    const todays = rule ? { kind: rule.action_type, direction: rule.action_direction, value: Number(rule.action_value) } : null;
+    const action = actionFromDelta(isPickup ? fire?.delta : ladderDeltas.get(ruleId)) ?? matched?.action ?? todays;
     if (!action) continue;
-    if (isPickup && !metrics) {
+    let metrics: NarrativeApplication["metrics"] = matched ? toNarrativeMetrics(matched.metrics) : null;
+    if (isPickup) {
       const won = wonPickupByEvent.get(id) ?? wonPickupByRule.get(ruleId);
       metrics = toNarrativeMetrics(won?.metrics ?? null);
     }
 
-    const measured = measuredRoomTypeNames(ruleId, lookups);
+    const version = isPickup
+      ? (typeof fire?.rule_version === "number" ? fire.rule_version : lookups.pickupVersions?.get(id))
+      : matched?.rule_version;
+    const decided = ruleAsDecided(ruleId, snapshots, version, lookups);
     applications.push({
-      rule_name: rule?.name ?? "Pricing rule",
-      condition: lookups.conditions.get(ruleId) ?? null,
+      rule_name: decided.name,
+      condition: decided.condition,
       action,
       metrics,
       is_pickup: isPickup,
-      ...(measured ? { measured_room_types: measured } : {}),
+      ...(decided.measured ? { measured_room_types: decided.measured } : {}),
       ...(seen > 0 ? { repeat: true } : {}),
+      ...(decided.marksNotOnRecord ? { marks_not_on_record: decided.marksNotOnRecord } : {}),
     });
   }
 
@@ -467,16 +584,17 @@ export function buildApplications(
 }
 
 /**
- * The fires this run took off the night, in the audit's order. A rule that
- * has since been deleted still has its name read from the audit's own
- * fallback, so the sentence never says "undefined".
+ * The fires this run took off the night, in the audit's order, each named as
+ * the row kept its rule (or today's name; "Pricing rule" for a rule deleted
+ * since), so the sentence never says "undefined".
  */
 export function buildRetirements(
   details: EvaluationAuditDetails,
   rules: ChangelogLookups["rules"],
 ): NarrativeRetirement[] {
+  const snapshots = ruleSnapshotsOf(details.rule_snapshots);
   return (details.retired_pickup_effects ?? []).map((e) => ({
-    rule_name: rules.get(e.rule_id)?.name ?? "Pricing rule",
+    rule_name: snapshots?.[e.rule_id]?.name ?? rules.get(e.rule_id)?.name ?? "Pricing rule",
     delta: e.delta,
     reason: e.reason,
     ...(e.finding ? { finding: e.finding } : {}),
@@ -492,12 +610,15 @@ function clampedByFor(details: EvaluationAuditDetails): "floor" | "ceiling" | nu
  * The rules applied on the row before that this row no longer applies, each
  * once, in that row's order. A ladder rule the run switched off says why
  * (its deactivate transition on this row); one that came off another way
- * (paused, deleted, out of its dates) is named without a reason. A pickup
- * fire comes off through retired_pickup_effects instead, which the caller
- * words, so those are left out here.
+ * (paused, deleted, out of its dates) is named without a reason. Each is
+ * told with the amount the row before applied and the name either row kept
+ * (today's rule stands in for rows that kept neither). A pickup fire comes
+ * off through retired_pickup_effects instead, which the caller words, so
+ * those are left out here.
  */
 function rulesOff(row: AuditChangeRow, prior: PriorAuditRow, rules: ChangelogLookups["rules"]): NarrativeRetirement[] {
   const still = new Set(row.details?.application_order ?? []);
+  const snapshots = ruleSnapshotsOf(row.details?.rule_snapshots);
   const deactivated = new Map(
     (row.details?.matched_ladder_rules ?? []).filter((m) => m.transition === "deactivate").map((m) => [m.rule_id, m]),
   );
@@ -510,11 +631,16 @@ function rulesOff(row: AuditChangeRow, prior: PriorAuditRow, rules: ChangelogLoo
     seen.add(id);
     const matched = deactivated.get(id);
     const rule = rules.get(id);
-    const action = matched?.action ?? (rule ? { kind: rule.action_type, direction: rule.action_direction, value: rule.action_value } : null);
+    // The amount the row before applied, and the name either row kept.
+    const recorded = prior.ladder_deltas?.get(id);
+    const action =
+      actionFromDelta(recorded) ??
+      matched?.action ??
+      (rule ? { kind: rule.action_type, direction: rule.action_direction, value: rule.action_value } : null);
     if (!action) continue;
     const sign = action.direction === "decrease" ? "-" : "+";
     out.push({
-      rule_name: rule?.name ?? "Pricing rule",
+      rule_name: prior.rule_snapshots?.[id]?.name ?? snapshots?.[id]?.name ?? rule?.name ?? "Pricing rule",
       delta: action.kind === "percent" ? `${sign}${action.value}%` : `${sign}$${Number(action.value).toFixed(2)}`,
       reason: matched ? "no_longer_met" : null,
     });

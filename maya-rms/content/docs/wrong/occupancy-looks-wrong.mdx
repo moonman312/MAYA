@@ -81,7 +81,7 @@ The day card's revenue figure sums every room type, including ones you have unti
 
 ## Why does day revenue differ from a revenue pickup rule?
 
-They value a booked night differently. The day card values each booked night at the booking's rate as it was imported, falling back to its current rate, and at 0 when neither is on file. A pickup count rule set to <Ui>Revenue (currency)</Ui> sums each booked night's current rate as your system reports it. The two can differ for the same night. Neither figure is sent anywhere.
+Both value a booked night at the booking's rate as your system last reported it. They part only on a booking your system reported with no rate on MAYA's latest read: the day card counts the rate MAYA first read for that booking, and a pickup count rule set to <Ui>Revenue (currency)</Ui> counts it as 0. A booking your system has never reported an amount for is 0 in both. Neither figure is sent anywhere.
 
 ## Why does day revenue not match my property system's revenue report?
 

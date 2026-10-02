@@ -3,7 +3,7 @@ title: The change log
 summary: Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.
 section: watch
 order: 20
-readingTime: 31
+readingTime: 32
 keywords: [change log, deleted rule, deleted rule missing, revenue pickup, booking mark, UTC, exact time, seconds, pricing run, prices checked, show all cycles, show changes only, sentence, raised, lowered, past the mark, under the mark, faster than normal, days since this rule or a stronger one's latest raise, later on the day of, full days after, cancellations meant, no longer true, that took this night from, prices checked 47 times, nothing needed to change, just before that, quiet line, two rules, ceiling, floor, stopped there, stopped applying, set the base rate, changed in cloudbeds, pricing rule, rate moved, rates not reaching, your answer, your corrections, 10 runs, 40 changes, 90 days, time zone, currency, euro, pound, dollar sign, export, email, notification, couldn't load your price history, weeks ago, last month, gone from the log, disappeared, older change, old change, older button, see older, page back, older history, nothing older, couldn't load older history, look up a change, price history, history of a night, night's history, past prices, what was the price before, empty, blank, nothing listed, log is empty, this morning, earlier today, an hour ago, 50 minutes, last hour, went back, back to normal, dropped back, price came back down, no entry, missing change, not listed, starting price, starting point, 37.5%, total move, wrong before price, not finding the rate, can't find the rate, five minutes, MAYA sent its price again, the rate was removed in Cloudbeds, MAYA's price wins, something other than MAYA seems to be changing rates, Open the setting, overwrite, overwrote, simulation, simulated run, would have, would have gone, would have raised, would have lowered, would have been, nothing was sent, nothing was sent to cloudbeds, sent to cloudbeds, waiting to be sent, couldn't be sent, held back, typed a price, did it reach cloudbeds, was it sent, its simulated changes, due to go out again, at the time, nothing was sent at the time, after you went live, sent after you went live, now that you're live, went live, back to simulation, switched pricing back, would have changed in this run]
 pms: [cloudbeds, thinkreservations, mews]
 questions:
@@ -39,7 +39,9 @@ questions:
   - 'Can I export the change log?' {#something-to-try}
   - 'Why does the bold line use a different currency sign from the calendar?' {#money-and-names}
   - 'Does the bold line show my currency, or always $?' {#money-and-names}
-  - 'What happens in the change log when I delete a rule?' {#prices-people-set}
+  - 'What happens in the change log when I delete a rule?' {#rules-you-change-or-delete}
+  - 'I edited a rule. Do its older entries change?' {#rules-you-change-or-delete}
+  - 'What does "The rule has been edited since" mean?' {#rules-you-change-or-delete}
   - 'Why does my revenue pickup rule''s sentence talk about bookings?' {#pickup-count}
   - 'Why is "Show the numbers" under a change an occupancy rule made?' {#a-change-line-by-line/a-fallback}
   - 'Why did a problem sending prices take hours to show in the change log?' {#prices-not-reaching-your-property-system/a-problem-that-often}
@@ -253,7 +255,16 @@ With nothing stacked on top, that one sentence is the whole entry, and the bold 
 
 A price typed while your property is simulating reads "Priya typed a price of $180.00.", under the bold line "Simulation: the price for Fri Nov 13, Standard would have been $180.00." and the line "Nothing was sent to Cloudbeds."
 
-Deleting a rule removes it for good, and older entries lose its reasons. An occupancy or booking window rule's move still shows, as "Pricing rule" raised (or lowered) this night, with no sentence saying why. A booking speed or pickup rule's move is left out of the entry altogether, so the prices in the remaining sentences may not add up to the bold line. A "stopped applying" line for a deleted rule reads "Pricing rule" too.
+## Rules you change or delete
+
+Each entry keeps every rule as its run had it: the rule's name, the marks you had set, the room types it measured and the amount it applied. So when you edit, rename or delete a rule later, its older entries still say what happened then, and the prices in each entry add up to the bold line.
+
+Entries from before October 2026 did not keep the rule, so they borrow it as it is now:
+
+- If you have only renamed the rule, or switched it off and on, the entry reads as usual, under its name now.
+- If you have changed anything else, such as its amount, its condition, its room types or its dates, the entry shows the amount the run applied and the numbers the run saw, with no mark beside them, then "The rule has been edited since.": "It was 82% full. The rule has been edited since." Your marks at the time are not on record. A change with no numbers on record shows no reason at all.
+- If MAYA cannot tell which settings an older booking speed or pickup change was made under, it shows the numbers only, without that last sentence.
+- If you have deleted the rule, its moves read "Pricing rule", with no sentence saying why. A "stopped applying" line for it reads "Pricing rule" too.
 
 ## Your answers
 

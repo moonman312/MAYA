@@ -1264,7 +1264,7 @@ export type PickupInsertResult =
   | { status: "concurrent_fire" }
   | { status: "write_failed" };
 
-const FIRE_COLUMNS = "id, rule_id, applied_at, fire_seq, action_kind, action_direction, action_value";
+const FIRE_COLUMNS = "id, rule_id, rule_version, applied_at, fire_seq, action_kind, action_direction, action_value";
 
 let loggedPreUndoInsert = false;
 
@@ -1380,6 +1380,7 @@ function dryFireEffect(c: PickupCandidate, n: number): PickupEffect {
   return pickupEffectOf({
     id: `dry-${n}`,
     rule_id: c.rule.id,
+    rule_version: c.rule.version,
     applied_at: c.eval_ts,
     fire_seq: c.fire_seq,
     action_kind: c.rule.action_type,

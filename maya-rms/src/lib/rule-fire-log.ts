@@ -25,8 +25,10 @@
  * Pure and client-safe: the route builds the rows, the popup reads the types.
  */
 
-import { describeConditions, type NarrativeMetrics } from "@/lib/changelog-narrative";
+import { describeConditions, observedLines, type NarrativeMetrics } from "@/lib/changelog-narrative";
 import { toNarrativeMetrics } from "@/lib/changelog-route-helpers";
+
+export { observedLines };
 import { afterLiveState, nightSendState, type SendFacts } from "@/lib/changelog-send-lines";
 import {
   afterLiveLine,
@@ -240,39 +242,6 @@ export function hotelTimeExact(iso: string, timezone: string): string {
     second: "2-digit",
     timeZoneName: "short",
   });
-}
-
-function pct(fraction: number): string {
-  return `${Math.round(fraction * 100)}%`;
-}
-
-function listWords(items: string[]): string {
-  if (items.length < 2) return items.join("");
-  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
-}
-
-/**
- * Only what was seen, with no mark beside it: for a fire whose rule has been
- * edited since (its marks then are not on record), and for numbers a fire
- * kept on its own row.
- */
-export function observedLines(m: NarrativeMetrics | null, measured: string[] | null): string[] {
-  if (!m) return [];
-  const out: string[] = [];
-  if (m.occupancy != null) {
-    const who = measured?.length ? `${listWords(measured)} ${measured.length === 1 ? "was" : "were"}` : "It was";
-    out.push(`${who} ${pct(m.occupancy)} full.`);
-  }
-  if (m.dta != null) out.push(`It had ${m.dta === 1 ? "1 day" : `${m.dta} days`} to go.`);
-  if (m.pickup_units != null) out.push(`${m.pickup_units} ${m.pickup_units === 1 ? "booking" : "bookings"} arrived in its count.`);
-  const bs = m.booking_speed;
-  if (bs) {
-    const recent = Math.round(bs.recent);
-    const seen = recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : String(recent);
-    const usual = bs.expected < 1 ? "where a night like this usually gets almost none" : `against the ${Math.round(bs.expected)} a night like this usually gets`;
-    out.push(`Bookings in its count: ${seen}, ${usual}.`);
-  }
-  return out;
 }
 
 /**

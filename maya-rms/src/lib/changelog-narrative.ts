@@ -31,6 +31,12 @@
  *     kind of thing an owner wants to notice.
  *   - A rule that watches other room types than the ones it changed names
  *     them: "Standard and Deluxe were 92% full", on a Suite price change.
+ *   - An entry tells each rule as its run had it: the name, marks and room
+ *     types the audit row kept (rule_snapshots), and the amount the row
+ *     applied. A row from before the rows kept them borrows today's rule only
+ *     while the rule is on the version the row was decided on; after an edit
+ *     it tells the numbers the run saw and that the rule has been edited
+ *     since, never marks the owner has since changed.
  *   - A change recorded while the property was simulating says what would
  *     have happened ("would have raised this night 10%"), never that a
  *     price moved (`simulated`, from the mode at the run's time:
@@ -115,6 +121,13 @@ export type NarrativeApplication = {
   measured_room_types?: string[] | null;
   /** This rule already applied earlier in the chain: it fired again on this night. */
   repeat?: boolean;
+  /**
+   * Set when the marks the rule was decided on are not on record (`condition`
+   * is then null): "edited", the row was decided on an earlier version of the
+   * rule; "unknown", the row doesn't say which version. Only the numbers the
+   * run saw are told, with no mark beside them (observedLines).
+   */
+  marks_not_on_record?: "edited" | "unknown";
 };
 
 /** An adjustment this run took off the night, in the order the audit lists them. */
@@ -387,6 +400,30 @@ export function describeConditions(
   return sentences.filter((s): s is string => s != null);
 }
 
+/**
+ * Only what was seen, with no mark beside it: for a change whose rule has
+ * been edited since (its marks then are not on record), and for numbers a
+ * fire kept on its own row. The rules' fire log words them the same way.
+ */
+export function observedLines(m: NarrativeMetrics | null | undefined, measured: string[] | null | undefined): string[] {
+  if (!m) return [];
+  const out: string[] = [];
+  if (m.occupancy != null) {
+    const who = measured?.length ? `${listWords(measured)} ${measured.length === 1 ? "was" : "were"}` : "It was";
+    out.push(`${who} ${pct(m.occupancy)} full.`);
+  }
+  if (m.dta != null) out.push(`It had ${dayWord(m.dta)} to go.`);
+  if (m.pickup_units != null) out.push(`${m.pickup_units} ${m.pickup_units === 1 ? "booking" : "bookings"} arrived in its count.`);
+  const bs = m.booking_speed;
+  if (bs) {
+    const recent = Math.round(bs.recent);
+    const seen = recent < 0 ? "more cancelled than booked" : recent === 0 ? "none" : String(recent);
+    const usual = bs.expected < 1 ? "where a night like this usually gets almost none" : `against the ${Math.round(bs.expected)} a night like this usually gets`;
+    out.push(`Bookings in its count: ${seen}, ${usual}.`);
+  }
+  return out;
+}
+
 /** Same math as the engine's applyAdjustments — percent compounds, fixed adds. */
 export function applyStep(
   price: number,
@@ -514,7 +551,13 @@ export function narrateChange(input: NarrativeInput): string[] {
     sentences.push(`${opener}, from ${money(before, sym)} to ${money(running, sym)}.`);
     // A repeat's conditions were read on the run it fired, not this one, so
     // only the fire this run made carries a "why" it can stand behind.
-    if (!app.repeat || app.metrics) {
+    if (app.marks_not_on_record) {
+      // The rule as it was decided is not on record: what the run saw, and
+      // no mark the owner may since have changed.
+      const seen = observedLines(app.metrics, app.measured_room_types);
+      sentences.push(...seen);
+      if (seen.length > 0 && app.marks_not_on_record === "edited") sentences.push("The rule has been edited since.");
+    } else if (!app.repeat || app.metrics) {
       sentences.push(...describeConditions(app.condition, app.metrics, app.measured_room_types, app.action.direction));
     }
   });

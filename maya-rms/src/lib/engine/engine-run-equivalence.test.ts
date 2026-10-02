@@ -481,14 +481,30 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
     }
     return v;
   };
-  const rows = (name: string, drop: string[] = []) =>
+  const rows = (name: string, drop: string[] = [], keep: (r: FakeRow) => FakeRow = (r) => r) =>
     (tables[name] ?? [])
       .map((r) => {
         const copy: Record<string, unknown> = {};
-        for (const [k, x] of Object.entries(r)) if (!drop.includes(k)) copy[k] = swapEventIds(x);
+        for (const [k, x] of Object.entries(keep(r))) if (!drop.includes(k)) copy[k] = swapEventIds(x);
         return JSON.stringify(canonical(copy));
       })
       .sort();
+  // The rules as a row names them, and the version behind each fire, are the
+  // change log's record of the rules (audit A46), not what a run priced.
+  const pricedOnly = (r: FakeRow): FakeRow => {
+    const details = r.details as Record<string, unknown> | null | undefined;
+    if (!details || typeof details !== "object") return r;
+    const rest: Record<string, unknown> = { ...details };
+    delete rest.rule_snapshots;
+    if (Array.isArray(rest.active_pickup_effects)) {
+      rest.active_pickup_effects = (rest.active_pickup_effects as Record<string, unknown>[]).map((e) => {
+        const effect = { ...e };
+        delete effect.rule_version;
+        return effect;
+      });
+    }
+    return { ...r, details: rest };
+  };
   // Tables keyed by their natural key carry no meaningful id; the fake
   // numbers every row it writes, in write order.
   return {
@@ -498,7 +514,7 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
     ladder_rule_state: rows("ladder_rule_state", ["id", "last_evaluated_at"]),
     ladder_transition_event: rows("ladder_transition_event", ["id"]),
     pickup_event: rows("pickup_event", ["id"]),
-    evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"]),
+    evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"], pricedOnly),
     // The nights a run priced are logged since the push guardrails; the
     // pre-batching engine had no such columns, and every other one is compared.
     // build says which deploy ran the run (audit A29), not what it priced.

@@ -3663,6 +3663,7 @@
    "Who created this rule, and who switched it off or deleted it?",
    "Can I change the undo box on a rule I already saved?",
    "What happens to a rule's changes when I edit it?",
+   "Does editing a rule change what the change log says about it?",
    "Why did a window with a calendar open when I switched a rule on?"
   ],
   "faq": []
@@ -4074,7 +4075,7 @@
   "order": 20,
   "title": "The change log",
   "summary": "Your pricing runs that changed a price, newest first, 10 at a time with an Older button back through 90 days, and the quiet runs between them counted into one line each. Each night listed shows its starting price and its new price, where that price went, then one plain sentence per rule saying what it did and why. A run made in simulation says what would have happened.",
-  "readingTime": 31,
+  "readingTime": 32,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -4147,6 +4148,11 @@
     "depth": 2,
     "text": "Prices people set",
     "id": "prices-people-set"
+   },
+   {
+    "depth": 2,
+    "text": "Rules you change or delete",
+    "id": "rules-you-change-or-delete"
    },
    {
     "depth": 2,
@@ -4238,6 +4244,8 @@
    "Why does the bold line use a different currency sign from the calendar?",
    "Does the bold line show my currency, or always $?",
    "What happens in the change log when I delete a rule?",
+   "I edited a rule. Do its older entries change?",
+   "What does \"The rule has been edited since\" mean?",
    "Why does my revenue pickup rule's sentence talk about bookings?",
    "Why is \"Show the numbers\" under a change an occupancy rule made?",
    "Why did a problem sending prices take hours to show in the change log?",
@@ -7900,7 +7908,7 @@
    },
    {
     "q": "Why does day revenue differ from a revenue pickup rule?",
-    "a": "They value a booked night differently. The day card values each booked night at the booking's rate as it was imported, falling back to its current rate, and at 0 when neither is on file. A pickup count rule set to Revenue (currency) sums each booked night's current rate as your system reports it. The two can differ for the same night. Neither figure is sent anywhere."
+    "a": "Both value a booked night at the booking's rate as your system last reported it. They part only on a booking your system reported with no rate on MAYA's latest read: the day card counts the rate MAYA first read for that booking, and a pickup count rule set to Revenue (currency) counts it as 0. A booking your system has never reported an amount for is 0 in both. Neither figure is sent anywhere."
    },
    {
     "q": "Why does day revenue not match my property system's revenue report?",

@@ -135,6 +135,7 @@ export const MIGRATION_ORDER = [
   "99_supabase_migration_sync_claim_paying_only_v1.sql",
   "99_supabase_migration_pricing_records_v1.sql",
   "99_supabase_migration_billing_watchdog_v1.sql",
+  "99_supabase_migration_calendar_and_log_v1.sql",
 ];
 
 /**

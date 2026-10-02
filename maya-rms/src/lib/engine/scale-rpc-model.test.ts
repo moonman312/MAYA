@@ -184,6 +184,9 @@ export function auditLastSignatures(audits: FakeRow[], a: Record<string, unknown
         clamped_by: d.clamped_by != null ? String(d.clamped_by) : null,
         base_source: d.base_source != null ? String(d.base_source) : null,
         manual_override: d.manual_override ?? null,
+        // 99_supabase_migration_calendar_and_log_v1.sql
+        ladder_effects: d.active_ladder_effects ?? null,
+        rule_snapshots: d.rule_snapshots ?? null,
       };
     });
 }
@@ -279,8 +282,9 @@ export function calendarDailyRevenueV2(reservations: FakeRow[], a: Record<string
 /**
  * calendar_daily_revenue_v3(p_hotel_id, p_after, p_limit): per date, the room
  * revenue a calendar day counts for its RevPAR: active room types that count
- * as rooms, each booking at coalesce(base_rate, current_rate, 0). Every date
- * with a booking is listed.
+ * as rooms, each booking at coalesce(current_rate, base_rate, 0) (the rate it
+ * has now, 99_supabase_migration_calendar_and_log_v1.sql). Every date with a
+ * booking is listed.
  */
 export function calendarDailyRevenueV3(reservations: FakeRow[], roomTypes: FakeRow[], a: Record<string, unknown>): FakeRow[] {
   const counting = new Set(
@@ -292,7 +296,7 @@ export function calendarDailyRevenueV3(reservations: FakeRow[], roomTypes: FakeR
   for (const r of reservations) {
     if (r.hotel_id !== a.p_hotel_id) continue;
     const d = String(r.stay_date);
-    const amount = r.base_rate != null ? Number(r.base_rate) : r.current_rate != null ? Number(r.current_rate) : 0;
+    const amount = r.current_rate != null ? Number(r.current_rate) : r.base_rate != null ? Number(r.base_rate) : 0;
     const counted = r.room_type_id != null && counting.has(String(r.room_type_id));
     cents.set(d, (cents.get(d) ?? 0) + (counted ? Math.round(amount * 100) : 0));
   }

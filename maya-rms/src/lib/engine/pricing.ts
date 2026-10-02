@@ -24,6 +24,8 @@ export type PickupEffect = AdjustmentSpec & {
   /** When it fired, and its fire number on the cell. Absent only in hand-built test data. */
   applied_at?: string;
   fire_seq?: number;
+  /** The version of the rule that made the fire, for the change log. Absent when the read didn't ask for it. */
+  rule_version?: number;
 };
 
 export type AssembledPrice = {
@@ -253,7 +255,7 @@ export async function loadActivePickupEffects(
 ): Promise<PickupEffect[]> {
   const { data, error } = await supabase
     .from("pickup_event")
-    .select("id, rule_id, applied_at, fire_seq, action_kind, action_direction, action_value")
+    .select("id, rule_id, rule_version, applied_at, fire_seq, action_kind, action_direction, action_value")
     .eq("hotel_id", hotelId)
     .eq("stay_date", stayDate)
     .eq("affected_room_type_id", roomTypeId)
@@ -273,6 +275,7 @@ export function pickupEffectOf(r: any): PickupEffect {
     rule_id: String(r.rule_id),
     ...(r.applied_at != null ? { applied_at: String(r.applied_at) } : {}),
     ...(r.fire_seq != null ? { fire_seq: Number(r.fire_seq) } : {}),
+    ...(r.rule_version != null ? { rule_version: Number(r.rule_version) } : {}),
     action_kind: r.action_kind,
     action_direction: r.action_direction,
     action_value: Number(r.action_value),
@@ -402,7 +405,7 @@ export async function loadActivePickupEffectsForRange(
     rows = await fetchAllRows(() =>
       supabase
         .from("pickup_event")
-        .select("id, rule_id, stay_date, affected_room_type_id, applied_at, fire_seq, action_kind, action_direction, action_value")
+        .select("id, rule_id, rule_version, stay_date, affected_room_type_id, applied_at, fire_seq, action_kind, action_direction, action_value")
         .eq("hotel_id", hotelId)
         .in("affected_room_type_id", roomTypeIds)
         .gte("stay_date", firstDate)

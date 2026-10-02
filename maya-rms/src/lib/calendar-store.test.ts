@@ -558,6 +558,22 @@ describe("getCalendar (Supabase): revenue and average rate", () => {
     expect(cal.days["10"].revenue).toBe(120);
     expect(cal.days["11"].room_types[0]).toMatchObject({ booked: 0, revenue: 0, rate: null });
   });
+
+  it("counts each booking at the rate it has now, and the first rate only when the property system sent none since (A48)", async () => {
+    const { client } = calendarDb({
+      hotels: [{ id: "h1", timezone: "UTC", total_rooms_per_type: 100 }],
+      room_types: [{ id: "rt1", hotel_id: "h1", name: "Garden Room", is_active: true, total_rooms: 10, counts_as_room: true }],
+      reservations: [
+        // First read at 200, moved to 150 in the property system since.
+        { id: "a", hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt1", base_rate: 200, current_rate: 150 },
+        // The property system sent no rate on its last read: the first one stands.
+        { id: "b", hotel_id: "h1", stay_date: "2026-10-05", room_type_id: "rt1", base_rate: 180, current_rate: null },
+      ],
+    });
+    const cal = await getCalendar(2026, 10, client);
+    expect(cal.days["5"].room_types[0]).toMatchObject({ booked: 2, revenue: 330, rate: 165 });
+    expect(cal.days["5"]).toMatchObject({ revenue: 330, adr: 165 });
+  });
 });
 
 describe("sellableRevparSeries: what the colours rank", () => {
