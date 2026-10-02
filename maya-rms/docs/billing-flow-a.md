@@ -174,7 +174,8 @@ cleans up after itself.
 
 ## Switching to production
 
-Three environment variables and one script. No code changes.
+Three environment variables, one script, the Stripe dashboard settings below
+and the billing jobs. No code changes.
 
 1. In the Stripe dashboard, switch to **live** mode. Copy the live secret and
    publishable keys.
@@ -186,11 +187,19 @@ Three environment variables and one script. No code changes.
    ```
 
 3. Add a live webhook endpoint at `https://maya-rms.com/api/stripe/webhook`
-   listening for: `checkout.session.completed`, `customer.subscription.created`,
-   `customer.subscription.updated`, `customer.subscription.deleted`,
-   `customer.subscription.paused`, `customer.subscription.resumed`,
-   `customer.subscription.trial_will_end`, `invoice.payment_succeeded`,
-   `invoice.upcoming`, `customer.updated`. Copy its signing secret.
+   listening for exactly these events: `checkout.session.completed`,
+   `customer.subscription.created`, `customer.subscription.updated`,
+   `customer.subscription.deleted`, `customer.subscription.paused`,
+   `customer.subscription.resumed`, `customer.subscription.trial_will_end`,
+   `invoice.payment_succeeded`, `invoice.upcoming`, `customer.updated`. Set its
+   **API version** to the one the app's Stripe library uses (`2026-07-29.dahlia`
+   with stripe 22.4, in `node_modules/stripe/cjs/apiVersion.js`), and never older
+   than `2025-03-31.basil`: the webhook reads an invoice's subscription from
+   `invoice.parent.subscription_details`, which older versions do not send. On an
+   older version `invoice.payment_succeeded` matches no subscription, so "first
+   paid" is never stamped (a hotel that paid, cancelled and went quiet would look
+   never-paid to the 180-day sweep, which deletes its history and stored
+   credential) and the card warning never clears. Copy its signing secret.
    `customer.updated` is what follows the owner to a new default card saved
    in the billing portal (`lib/billing/card-change.ts`): subscriptions on the
    old default card (or, when the customer had no default, on the one card
@@ -203,13 +212,58 @@ Three environment variables and one script. No code changes.
    (`stale_subscription_not_touched`) and left alone. What Stripe's portal
    itself does to a subscription's own card is proved by
    `docs/stripe-portal-card-proof.md`.
-4. In Vercel (Production), set `STRIPE_SECRET_KEY`,
+4. Check the live dashboard settings in the next section. Test and live mode
+   keep separate settings, so a sandbox that works proves nothing about live.
+5. In Vercel (Production), set `STRIPE_SECRET_KEY`,
    `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET` to the live
    values, and `MAYA_MARKETPLACE_TRIAL_DAYS` to what the offer should be.
-5. Redeploy. The first live signup is the smoke test — use your own card and
+6. Schedule the billing jobs and their watchdog (see "The billing jobs" below).
+7. Redeploy. The first live signup is the smoke test: use your own card and
    cancel it.
 
 Going back to test mode is the same three variables, the other way.
+
+### Stripe dashboard settings the code depends on
+
+None of these can be set from the code, and each one is a promise the code or
+the customer docs make. Check them in **live** mode before the first real
+signup, and again whenever someone changes Stripe settings.
+
+| Where in the dashboard | Setting | Why |
+|---|---|---|
+| Developers → Webhooks → the live endpoint | API version `2026-07-29.dahlia` (at least `2025-03-31.basil`), and exactly the ten events in step 3 | See step 3. A missing event is a feature that silently stops: `customer.updated` moves subscriptions to a new card and pays an overdue invoice, `invoice.payment_succeeded` stamps first paid and clears the card warning, `invoice.upcoming` sends the renewal nudge. |
+| Settings → Billing → Subscriptions and emails → Manage failed payments | Retries on (Smart Retries, about two weeks), then **If all retries for a payment fail: mark the subscription as unpaid** | "Unpaid" is what stops the work (`entitlement.ts`) and what a new card revives (`card-change.ts`, the "Unpaid since" row, the docs' "Unpaid (stopped)"). Left on "leave the subscription past-due", a hotel that stops paying is priced for ever, because `past_due` keeps working. Set to "cancel", the recovery path and the docs about "Unpaid" never apply. |
+| Same page → Customer emails | Send emails when card payments fail: on. Send a reminder before a trial ends: on. Receipts for successful payments: on. | The docs say failed-payment, card-expiry, receipt and trial-reminder emails come from Stripe, and the Terms promise a reminder before the first charge from us or our payment processor. MAYA sends none of these itself. |
+| Same page → Upcoming renewal events | Days before renewal for `invoice.upcoming` (the default is fine) | The renewal nudge to a paid property with no PMS connected goes out this many days before the charge. |
+| Settings → Billing → Customer portal | Cancellations: on, **at the end of the billing period**, no prorated refund, cancellation reasons on. Payment methods: customers can update them. Invoice history: on. Customer information: email, billing address and tax ID. Subscriptions: customers can switch between the monthly and yearly prices of the MAYA product, with prorations charged at once; changing the quantity off. Pausing: off. Save the page once so a configuration exists. | The docs promise cancel at period end with no refund, a monthly/yearly switch in the portal, and a room count changed only on MAYA's billing page. The portal route opens the `subscription_update`, `subscription_cancel` and `payment_method_update` flows, which Stripe refuses while their feature is off. A portal cancellation in this API version sets `cancel_at` (read as "Access ends" since A37). |
+| Settings → Payment methods | Cards only (Apple Pay and Google Pay are cards). Bank debits and other wallets off. | Checkout refuses US bank accounts in code; any other method would reach the card check, which only knows how to check a card, and a delayed debit can fail after service was given (audit A77). |
+| Your user profile → Communication preferences | Webhook failure emails on, to an inbox someone reads | Stripe emails when deliveries to the endpoint keep failing (a signing secret changed in one place, the app down). The nightly Stripe check corrects MAYA's copy and the billing watchdog says so, but Stripe's email is the first word. |
+
+### The billing jobs
+
+Four `pg_cron` schedules, each with its own example in `supabase/cron/`:
+
+- `billing-card-reverify.sql.example`: the card check, every 15 minutes.
+- `billing-room-truing.sql.example`: room-count truing, daily.
+- `billing-stripe-reconcile.sql.example`: the nightly Stripe check
+  (`src/lib/billing/reconcile.ts`). Every subscription on record that is not
+  over is re-read from Stripe and MAYA's copy corrected, and a live
+  subscription from the last 3 days that MAYA never heard of is recorded and
+  switched on as the webhook would. It is what keeps billing right on the day
+  Stripe's messages stop arriving.
+- `billing-watchdog.sql.example`: `billing_watchdog()`
+  (`99_supabase_migration_billing_watchdog_v1.sql`), every 15 minutes, in the
+  database. It posts every billing problem the app hands to a person
+  (`src/lib/billing/problems.ts`: two live subscriptions on one property, a
+  code used past its limit, a new card declined on an overdue subscription, a
+  property above 500 rooms, a missing `BILLING_CRON_SECRET` or
+  `STRIPE_WEBHOOK_SECRET`, a card check Stripe never answered, MAYA's copy of a
+  subscription found out of date) to the same Slack webhook as every other
+  alert (the Vault secret `maya_alert_webhook`), and says when one of the three
+  jobs above has stopped reporting runs.
+
+The three app jobs share `BILLING_CRON_SECRET` (Vercel) and the Vault secrets
+`billing_cron_secret` and `maya_app_url`.
 
 ## Known limits
 
