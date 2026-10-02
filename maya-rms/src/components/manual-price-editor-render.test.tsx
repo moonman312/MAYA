@@ -85,6 +85,71 @@ describe("ManualPriceEditor", () => {
   });
 });
 
+describe("ManualPriceEditor and a live refresh", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const box = (view: ReturnType<typeof render>) => view.getByLabelText("Manual price for King") as HTMLInputElement;
+
+  it("follows the night's price while nobody has typed", () => {
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    expect(box(view).value).toBe("180");
+    view.rerender(<ManualPriceEditor {...base} currentPrice={189} manualPrice={null} />);
+    expect(box(view).value).toBe("189");
+  });
+
+  it("keeps what the owner typed when the night is priced again, and Save sends it", async () => {
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ ok: true, cells: 1, suppressedRules: 0, retiredPickups: 0, pausedRules: 0, pushed: "simulation", preview: [] }));
+      }),
+    );
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    fireEvent.focus(box(view));
+    fireEvent.change(box(view), { target: { value: "2" } });
+    // A booking lands mid-typing and the calendar refreshes.
+    view.rerender(<ManualPriceEditor {...base} currentPrice={189} manualPrice={null} />);
+    expect(box(view).value).toBe("2");
+    fireEvent.change(box(view), { target: { value: "250" } });
+    fireEvent.blur(box(view));
+    view.rerender(<ManualPriceEditor {...base} currentPrice={191} manualPrice={null} />);
+    expect(box(view).value).toBe("250");
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    await view.findByRole("status");
+    expect(bodies).toEqual([{ hotelId: "hotel-1", roomTypeId: "rt-1", dateFrom: "2026-10-05", price: 250 }]);
+  });
+
+  it("leaves the box alone while the owner is in it, and catches up when they leave without typing", () => {
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    fireEvent.focus(box(view));
+    view.rerender(<ManualPriceEditor {...base} currentPrice={189} manualPrice={null} />);
+    expect(box(view).value).toBe("180");
+    fireEvent.blur(box(view));
+    expect(box(view).value).toBe("189");
+  });
+
+  it("follows the night again after a save", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(JSON.stringify({ ok: true, cells: 1, suppressedRules: 0, retiredPickups: 0, pausedRules: 0, pushed: "simulation", preview: [] }))),
+    );
+    const view = render(<ManualPriceEditor {...base} manualPrice={null} />);
+    fireEvent.change(box(view), { target: { value: "250" } });
+    fireEvent.click(view.getByRole("button", { name: "Save" }));
+    await view.findByRole("status");
+    view.rerender(<ManualPriceEditor {...base} manualPrice={{ price: 250, set_at: "2026-10-01T12:00:00Z", source: "maya" }} />);
+    expect(box(view).value).toBe("250");
+    // Cleared in the PMS since: the box shows the night as it is now.
+    view.rerender(<ManualPriceEditor {...base} currentPrice={205} manualPrice={null} />);
+    expect(box(view).value).toBe("205");
+  });
+});
+
 const INCIDENT = "0b0c8a6e-3c1d-4d8e-9f2a-6a1b2c3d4e5f";
 const typed = { price: 200, set_at: "2026-10-01T12:00:00Z", source: "maya" as const };
 

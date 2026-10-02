@@ -320,12 +320,22 @@ export function ManualPriceEditor({
   const [retrying, setRetrying] = useState(false);
   const passed = hotelToday != null && stayDate < hotelToday;
 
-  // A save or a live refresh can change what the night is worth; follow it,
-  // but only when the number itself moves so a refresh mid-typing doesn't
-  // wipe what someone is entering.
+  // A save or a live refresh can change what the night is worth; the box
+  // follows it until the owner types or while they are in it, so a refresh
+  // never replaces a number someone is entering (and Save never sends the
+  // replaced one). The card is keyed by night and room type, so a new night
+  // starts clean; a save or clear hands the box back to the night's price.
+  const typed = useRef(false);
+  const focused = useRef(false);
+  const latestPrefill = useRef(prefill);
   useEffect(() => {
-    setValue(prefill != null ? String(prefill) : "");
+    latestPrefill.current = prefill;
+    if (!typed.current && !focused.current) setValue(prefill != null ? String(prefill) : "");
   }, [prefill]);
+  function followPrefill() {
+    const p = latestPrefill.current;
+    setValue(p != null ? String(p) : "");
+  }
 
   // The status reads that are still to come, and the newest one started:
   // only its answer is shown, so a slow early read never overwrites a later one.
@@ -402,6 +412,8 @@ export function ManualPriceEditor({
         return;
       }
       const body = (await res.json()) as SaveResponse;
+      // Saved: the box shows the night's price again as the calendar catches up.
+      typed.current = false;
       setMessage({ kind: "ok", text: describeSave(body, pmsName) });
       const delays = REFRESH_AFTER_VERDICT[body.pushed];
       if (delays) scheduleRefreshes(delays, isFinalSendStatus);
@@ -472,6 +484,7 @@ export function ManualPriceEditor({
         return;
       }
       const body = (await res.json().catch(() => ({}))) as { cells?: number; passed?: boolean };
+      typed.current = false;
       setMessage({ kind: "ok", text: describeClear(body.cells, body.passed) });
       onSaved();
     } catch {
@@ -496,7 +509,18 @@ export function ManualPriceEditor({
             min="0"
             value={value}
             disabled={busy}
-            onChange={(e) => setValue(e.target.value)}
+            onChange={(e) => {
+              typed.current = true;
+              setValue(e.target.value);
+            }}
+            onFocus={() => {
+              focused.current = true;
+            }}
+            onBlur={() => {
+              focused.current = false;
+              // Only looked at, never typed in: catch up on a price that moved meanwhile.
+              if (!typed.current) followPrefill();
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") void save();
             }}
