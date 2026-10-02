@@ -501,7 +501,8 @@ function normalizeTables(tables: Record<string, FakeRow[]>) {
     evaluation_audit: rows("evaluation_audit", ["id", "evaluation_run_id"]),
     // The nights a run priced are logged since the push guardrails; the
     // pre-batching engine had no such columns, and every other one is compared.
-    evaluation_run_log: rows("evaluation_run_log", ["id", "evaluation_run_id", "first_stay_date", "last_stay_date"]),
+    // build says which deploy ran the run (audit A29), not what it priced.
+    evaluation_run_log: rows("evaluation_run_log", ["id", "evaluation_run_id", "first_stay_date", "last_stay_date", "build"]),
     stay_date_snapshot: rows("stay_date_snapshot", ["id"]),
   };
 }
