@@ -9,7 +9,7 @@
  * save_rule is recorded, not run (rule-activation-sql.test.ts runs it).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FakeRow } from "@/lib/engine/fake-supabase.test";
+import type { FakeCall, FakeRow } from "@/lib/engine/fake-supabase.test";
 
 const HOTEL = "h1";
 const USER = "00000000-0000-4000-8000-0000000000a1";
@@ -24,6 +24,8 @@ const state = {
   events: [] as Record<string, unknown>[],
   userWrites: [] as { table: string; payload: unknown; order: number }[],
   order: 0,
+  /** How the admin client's reads come back (reorderingReads: as a real network does). */
+  network: null as ((call: FakeCall) => Promise<void>) | null,
 };
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -41,6 +43,7 @@ vi.mock("@/lib/rate-limit", () => ({ enforceRateLimit: async () => null }));
 async function adminClient() {
   const { fakeSupabase } = await import("@/lib/engine/fake-supabase.test");
   const db = fakeSupabase(state.tables, {
+    beforeCall: (call) => state.network?.(call),
     rpc: (fn, args) => {
       if (fn === "engine_run_gaps") return [];
       if (fn === "product_event_emit") {
@@ -92,7 +95,7 @@ vi.mock("@/utils/supabase/server", () => ({
   }),
 }));
 
-const { ENGINES, T10, KING, QUEEN, SUITE, FAMILY, settle } = await import("@/lib/rule-preview-fixture.test");
+const { ENGINES, T10, KING, QUEEN, SUITE, FAMILY, settle, reorderingReads } = await import("@/lib/rule-preview-fixture.test");
 const { POST: preview } = await import("@/app/api/rules/preview/route");
 const { POST: importRules } = await import("@/app/api/rules/import/route");
 
@@ -135,6 +138,7 @@ beforeEach(async () => {
   state.events = [];
   state.userWrites = [];
   state.order = 0;
+  state.network = null;
   adminProxy = await adminClient();
 });
 afterEach(() => {
@@ -304,5 +308,39 @@ describe("POST /api/rules/import", () => {
     state.canManage = false;
     expect((await save({ rules: RULES(), activation: "skip", hold_all: true })).status).toBe(403);
     expect(state.saves).toEqual([]);
+  });
+});
+
+describe("Skip on a property with bookings, over a real network", () => {
+  // Jake, 2026-10-01: on a Cloudbeds property, Import from PIE, the review,
+  // then Skip price adjustments, failed every time with "Your bookings changed
+  // while this was open, so the days were checked again." in amber and then in
+  // red, and nothing was saved. The popup does what this does: the preview,
+  // the save with its fingerprint, and on "stale" one fresh preview and the
+  // save again.
+  it("saves at the first try, with the days shown held for every rule that is on", async () => {
+    state.network = reorderingReads();
+    const rules = [
+      ...RULES(),
+      rule(3, true, { occupancy_operator: "gt", occupancy_threshold: 0.45, dta_operator: "gt", dta_threshold_days: 4 }, { adjust_rate_percent: 12 }),
+    ];
+    const limits = [...LIMITS(), { roomTypeId: SUITE, floor: 300, ceiling: 330 }];
+    const statuses: number[] = [];
+    let held: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const shown = await previewOf({ rules, limits });
+      expect(shown.status).toBe(200);
+      held = shown.body.affected as string[];
+      const res = await save({ rules, limits, activation: "skip", fingerprint: shown.body.fingerprint, touched: shown.body.touched, held, days: held.length, refreshed: attempt > 0 });
+      statuses.push(res.status);
+      if (res.body.code !== "stale") break;
+    }
+    expect(statuses).toEqual([200]);
+    expect(held.length).toBeGreaterThan(0);
+    expect(state.userWrites.map((w) => w.table)).toEqual(["room_types", "room_types"]);
+    const on = state.saves.filter((s) => s.p_activation === "skip");
+    expect(on.map((s) => s.p_rule_id)).toEqual([id(0), id(1), id(3)]);
+    for (const s of on) expect(s.p_hold_nights).toEqual(held);
+    expect(state.saves.find((s) => s.p_rule_id === id(2))).toMatchObject({ p_activation: "off" });
   });
 });

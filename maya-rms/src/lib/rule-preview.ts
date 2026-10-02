@@ -650,16 +650,20 @@ export async function skipPlanForRule(
  * Skip. Taken when the popup's numbers are worked out and again when the
  * owner clicks Apply or Skip: when it moved, the numbers are worked out
  * again before anything is saved.
+ *
+ * The reads go out together and come back in whatever order the network
+ * answers them, so each is hashed in its own place, never in the order it
+ * arrived: the same data always gives the same fingerprint. (Hashed in the
+ * order they arrived, the popup's fingerprint and the save's almost never
+ * matched, and every Apply or Skip was refused as "stale" twice.)
  */
 export async function previewFingerprint(client: SupabaseClient, hotelId: string, at: string): Promise<string> {
-  const parts: unknown[] = [hotelId];
   const settle = async (label: string, q: PromiseLike<{ data: unknown; error: { message: string } | null }>) => {
     const { data, error } = await q;
-    parts.push(label, error ? `error:${error.message}` : data);
+    return [label, error ? `error:${error.message}` : data];
   };
   const { timeZone, today } = await hotelClock(client, hotelId, at);
-  parts.push(timeZone, today);
-  await Promise.all([
+  const reads = await Promise.all([
     settle(
       "run",
       client
@@ -689,6 +693,8 @@ export async function previewFingerprint(client: SupabaseClient, hotelId: string
         .order("id", { ascending: true }),
     ),
   ]);
+  // Promise.all keeps the order asked: run, marks, pass, rules.
+  const parts: unknown[] = [hotelId, timeZone, today, ...reads.flat()];
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 32);
 }
 

@@ -13,7 +13,7 @@ import { evaluateHotel as appEvaluateHotel } from "@/lib/engine/evaluate";
 import { resetBookingSpeedLogOnce as appResetLog } from "@/lib/engine/booking-speed-provider";
 import { evaluateHotel as edgeEvaluateHotel } from "../../supabase/functions/_shared/engine/evaluate";
 import { resetBookingSpeedLogOnce as edgeResetLog } from "../../supabase/functions/_shared/engine/booking-speed-provider";
-import { fakeSupabase, type FakeRow } from "@/lib/engine/fake-supabase.test";
+import { fakeSupabase, type FakeCall, type FakeRow } from "@/lib/engine/fake-supabase.test";
 import type { EvaluateFn } from "@/lib/rule-preview";
 
 export const ENGINES: { name: string; evaluate: EvaluateFn; reset: () => void }[] = [
@@ -264,6 +264,32 @@ export function clone(tables: Tables): Tables {
     }
   }
   return out;
+}
+
+/**
+ * The four reads previewFingerprint makes together (rule-preview.ts),
+ * answered in a different order each time, the way a real network answers
+ * requests sent at once: the k-th time each is read it waits ((its place +
+ * k) % 4) * 5 ms, so one request gets them back as run, marks, pass, rules,
+ * the next as rules, run, marks, pass, and so on. The fake answers in the
+ * order it is asked unless told otherwise, which is why no test saw a
+ * fingerprint that depended on it. For fakeSupabase's beforeCall.
+ */
+export function reorderingReads(): (call: FakeCall) => Promise<void> {
+  const reads = [
+    ["evaluation_run_log", "evaluated_at"],
+    ["pricing_dirty_nights", "stay_date, mark_seq"],
+    ["hotel_pricing_state", "full_reprice_seq"],
+    ["pricing_rules", "id, version, is_active, updated_at, skip_at"],
+  ];
+  const times = new Map<number, number>();
+  return async (call) => {
+    const place = reads.findIndex(([table, columns]) => call.table === table && call.columns === columns);
+    if (place < 0) return;
+    const k = times.get(place) ?? 0;
+    times.set(place, k + 1);
+    await new Promise((r) => setTimeout(r, ((place + k) % 4) * 5));
+  };
 }
 
 /** Published prices, `stay_date|room_type_id` to price. */

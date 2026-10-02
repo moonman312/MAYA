@@ -9,7 +9,7 @@
  * Postgres in rule-activation-sql.test.ts).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FakeRow } from "@/lib/engine/fake-supabase.test";
+import type { FakeCall, FakeRow } from "@/lib/engine/fake-supabase.test";
 
 const HOTEL = "h1";
 const USER = "00000000-0000-4000-8000-0000000000a1";
@@ -26,6 +26,8 @@ const state = {
   nudges: 0,
   events: [] as Record<string, unknown>[],
   userWrites: [] as { table: string; payload: unknown }[],
+  /** How the admin client's reads come back (reorderingReads: as a real network does). */
+  network: null as ((call: FakeCall) => Promise<void>) | null,
 };
 
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
@@ -44,6 +46,7 @@ vi.mock("@/lib/require-supabase-hotel", () => ({ hasHotelRank: async () => state
 async function adminClient() {
   const { fakeSupabase } = await import("@/lib/engine/fake-supabase.test");
   const db = fakeSupabase(state.tables, {
+    beforeCall: (call) => state.network?.(call),
     rpc: (fn, args) => {
       if (fn === "engine_run_gaps") return [];
       if (fn === "product_event_emit") {
@@ -102,7 +105,7 @@ vi.mock("@/utils/supabase/server", () => ({
   }),
 }));
 
-const { ENGINES, R, T10, KING, QUEEN, settle } = await import("@/lib/rule-preview-fixture.test");
+const { ENGINES, R, T10, KING, QUEEN, settle, reorderingReads } = await import("@/lib/rule-preview-fixture.test");
 const { POST: preview } = await import("@/app/api/rules/preview/route");
 const { POST: create } = await import("@/app/api/rules/route");
 const { PUT: edit, DELETE: remove } = await import("@/app/api/rules/[id]/route");
@@ -140,6 +143,7 @@ beforeEach(async () => {
   state.nudges = 0;
   state.events = [];
   state.userWrites = [];
+  state.network = null;
   adminProxy = await adminClient();
 });
 afterEach(() => {
@@ -271,6 +275,21 @@ describe("saving through the popup", () => {
     expect(state.events).toEqual([
       expect.objectContaining({ p_properties: expect.objectContaining({ choice: "skip", from: "builder_new", held_all: false }) }),
     ]);
+  });
+
+  it("Apply and Skip save at the first try when the reads come back in another order than the popup's did", async () => {
+    // A real network answers the fingerprint's reads in any order; the
+    // fingerprint is the same for the same data whatever that order.
+    state.network = reorderingReads();
+    for (const [i, choice] of (["apply", "skip"] as const).entries()) {
+      const ruleId = `d1000000-0000-4000-8000-00000000001${i}`;
+      const { body } = await previewOf({ intent: "create", ruleId, draft });
+      const res = await create(
+        json("/api/rules", { ...draft, id: ruleId, activation: choice, fingerprint: body.fingerprint, touched: body.touched, ...(choice === "skip" ? { held: body.affected } : {}) }),
+      );
+      expect([choice, res.status]).toEqual([choice, 201]);
+    }
+    expect(state.saves.map((s) => s.p_activation)).toEqual(["apply", "skip"]);
   });
 
   it("Skip when the days could not be worked out holds every day the rule could act on, with no check", async () => {
