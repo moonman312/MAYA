@@ -3871,7 +3871,7 @@
   "order": 10,
   "title": "The calendar",
   "summary": "What each day on the Calendar tab shows and how your property can change it in Settings, what the colours and the key beside them mean, what you see when you click a day, and how fresh the numbers are.",
-  "readingTime": 16,
+  "readingTime": 17,
   "readingNote": null,
   "updated": "2026-09-30",
   "pms": [
@@ -8184,7 +8184,7 @@
   "order": 80,
   "title": "Calendar and change log questions",
   "summary": "Why every day is amber or a busy night is red, which screens show your currency's sign, why ADR shows a dash on an empty night, why the log is empty or full of \"Prices checked\", why an older change disappeared, and other things the two tabs do that look odd.",
-  "readingTime": 10,
+  "readingTime": 11,
   "readingNote": null,
   "updated": "2026-10-01",
   "pms": [
@@ -8232,6 +8232,11 @@
     "depth": 2,
     "text": "Why do past months show zeros?",
     "id": "why-do-past-months-show-zeros"
+   },
+   {
+    "depth": 2,
+    "text": "Why does the calendar say \"Couldn't load this month\"?",
+    "id": "why-does-the-calendar-say-couldnt-load-this-month"
    },
    {
     "depth": 2,
@@ -8288,6 +8293,7 @@
    "Why does today say revenue instead of revenue on the books?",
    "Why are there no weekday headers?",
    "Why do past months show zeros?",
+   "Why does the calendar say \"Couldn't load this month\"?",
    "Why are there so many \"Prices checked\" entries?",
    "Why is the change log empty?",
    "Why did an older change disappear?",
@@ -8331,6 +8337,10 @@
    {
     "q": "Why do past months show zeros?",
     "a": "Nights before your property's imported history have nothing to show. The year picker runs from the first month with a booking or a price to the last."
+   },
+   {
+    "q": "Why does the calendar say \"Couldn't load this month\"?",
+    "a": "MAYA could not read that month just now. The days of another month or property are never shown in its place. Press Try again. If it keeps happening, reload the page, and if that doesn't help, contact us."
    },
    {
     "q": "Why are there so many \"Prices checked\" entries?",

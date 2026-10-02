@@ -82,7 +82,7 @@ import type {
   EngineRule,
   RuleConfig,
 } from "@/types/domain";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useDashboardUrl } from "@/components/deep-links/use-dashboard-url";
 import { ArrivalNote, FilledChip, readArrivalOnce } from "@/components/deep-links/arrival-bits";
 import { flashWhenReady } from "@/components/deep-links/flash";
@@ -422,7 +422,13 @@ export function Dashboard({
   const [roomTypeOptions, setRoomTypeOptions] = useState<
     { id: string; name: string; counts_as_room?: boolean | null }[]
   >([]);
-  const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
+  // The month on screen, with the property and month it is for
+  // (calendarCacheKey). It is drawn only while that is the property and month
+  // selected (`calendar` below), so a late or failed read never shows one
+  // month or property under another's name (audit A44).
+  const [calendarEntry, setCalendarEntry] = useState<{ key: string; data: CalendarResponse } | null>(null);
+  // The property and month whose read failed with nothing to show for it.
+  const [calendarFailedKey, setCalendarFailedKey] = useState<string | null>(null);
   // The change log, a page at a time: "Older" adds the page before.
   const changelogPages = useChangelogPages<ChangelogItem>();
   const { items: changelog, error: changelogError, reload: reloadChangelog } = changelogPages;
@@ -563,6 +569,27 @@ export function Dashboard({
     (y: number, m: number) => `${activeHotelId ?? "demo"}|${y}-${m}`,
     [activeHotelId],
   );
+  // The property and month selected now. A read that lands after the owner
+  // moved on is for a month or property no longer on screen, and is ignored.
+  const wantedCalendarKey = calendarCacheKey(year, month);
+  const wantedCalendarKeyRef = useRef(wantedCalendarKey);
+  useLayoutEffect(() => {
+    wantedCalendarKeyRef.current = wantedCalendarKey;
+  }, [wantedCalendarKey]);
+  const calendar =
+    calendarEntry &&
+    calendarEntry.key === wantedCalendarKey &&
+    calendarEntry.data.year === year &&
+    calendarEntry.data.month === month
+      ? calendarEntry.data
+      : null;
+  /** Shows a month read for `key`, unless the owner has moved on since. */
+  const showCalendar = useCallback((key: string, data: CalendarResponse): boolean => {
+    if (key !== wantedCalendarKeyRef.current) return false;
+    setCalendarEntry({ key, data });
+    setCalendarFailedKey((failed) => (failed === key ? null : failed));
+    return true;
+  }, []);
 
   /** Fetch one month with in-flight dedupe; resolves null on failure. */
   const fetchMonth = useCallback(
@@ -608,29 +635,30 @@ export function Dashboard({
     const cached = calendarCacheRef.current.get(key);
     if (cached) {
       // Instant paint from cache; refetch only if it's aged past freshness.
-      setCalendar(cached.data);
+      showCalendar(key, cached.data);
       prefetchNeighborMonths(year, month);
       if (Date.now() - cached.fetchedAt >= CAL_FRESH_MS) {
         const data = await fetchMonth(year, month);
-        if (data) {
-          setCalendar(data);
-          setLastUpdated(new Date());
-        }
+        if (data && showCalendar(key, data)) setLastUpdated(new Date());
       }
       return;
     }
     setLoading(true);
+    setCalendarFailedKey((failed) => (failed === key ? null : failed));
     try {
       const data = await fetchMonth(year, month);
       if (data) {
-        setCalendar(data);
-        setLastUpdated(new Date());
+        if (showCalendar(key, data)) setLastUpdated(new Date());
+      } else if (key === wantedCalendarKeyRef.current) {
+        // Nothing to show for this month: say so, rather than leave the
+        // month before on screen under this one's name.
+        setCalendarFailedKey(key);
       }
       prefetchNeighborMonths(year, month);
     } finally {
       setLoading(false);
     }
-  }, [month, year, calendarCacheKey, fetchMonth, prefetchNeighborMonths, CAL_FRESH_MS]);
+  }, [month, year, calendarCacheKey, fetchMonth, prefetchNeighborMonths, CAL_FRESH_MS, showCalendar]);
 
   /**
    * Background refresh used by polling / tab-focus: updates the calendar in
@@ -639,13 +667,11 @@ export function Dashboard({
    * Errors are swallowed so a transient failure just keeps the current data.
    */
   const reloadCalendarQuiet = useCallback(async () => {
+    const key = calendarCacheKey(year, month);
     const data = await fetchMonth(year, month);
-    if (data) {
-      setCalendar(data);
-      setLastUpdated(new Date());
-    }
-    // On failure, keep showing the last good calendar.
-  }, [month, year, fetchMonth]);
+    if (data && showCalendar(key, data)) setLastUpdated(new Date());
+    // On failure, keep showing the last good read of this month.
+  }, [month, year, calendarCacheKey, fetchMonth, showCalendar]);
 
   /**
    * The property's calendar choices just saved in Settings: shown at once on
@@ -655,7 +681,7 @@ export function Dashboard({
     for (const [key, entry] of calendarCacheRef.current) {
       calendarCacheRef.current.set(key, { ...entry, data: { ...entry.data, display } });
     }
-    setCalendar((c) => (c ? { ...c, display } : c));
+    setCalendarEntry((c) => (c ? { ...c, data: { ...c.data, display } } : c));
   }, []);
 
   const closeSettings = useCallback(() => {
@@ -844,11 +870,15 @@ export function Dashboard({
       setEditing(null);
       setActivation(null);
       calendarCacheRef.current.clear();
+      // The last property's month must not show under this one's name. The
+      // calendar tab reads this property's month as soon as it is the active
+      // one (the effect on reloadCalendar below).
+      setCalendarEntry(null);
+      setCalendarFailedKey(null);
       setActiveHotelId(hotelId);
       // The last property's connection must not show over this one while it loads.
       setPmsActivity(null);
       await Promise.all([reloadRules(), reloadRoomTypes()]);
-      if (tab === "calendar") await reloadCalendar();
       if (tab === "changelog") await reloadChangelog();
     } finally {
       setHotelSwitching(false);
@@ -1179,7 +1209,9 @@ export function Dashboard({
     [changesOnly, changelog],
   );
 
-  const calendarBusy = loading || hotelSwitching;
+  // Loading until the selected month has come, or its read has failed.
+  const calendarFailed = !calendar && calendarFailedKey === wantedCalendarKey;
+  const calendarBusy = loading || hotelSwitching || (!calendar && !calendarFailed);
   // The property's own symbol on the calendar's amounts, built the way the
   // change log's sentences build it.
   const currencySymbol = currencySymbolFor(calendar?.currency);
@@ -1192,18 +1224,18 @@ export function Dashboard({
 
   // Year options come from the property's actual data range when the API
   // reports one; otherwise a sensible window around the current year.
+  // The range is the property's, so the last month read keeps the list
+  // steady while the next one loads.
+  const rangeMin = calendarEntry?.data.range?.min;
+  const rangeMax = calendarEntry?.data.range?.max;
   const calendarYears = useMemo(() => {
     const nowYear = new Date().getUTCFullYear();
-    const minYear = calendar?.range?.min
-      ? Number(calendar.range.min.slice(0, 4))
-      : nowYear - 2;
-    const maxYear = calendar?.range?.max
-      ? Number(calendar.range.max.slice(0, 4))
-      : nowYear + 1;
+    const minYear = rangeMin ? Number(rangeMin.slice(0, 4)) : nowYear - 2;
+    const maxYear = rangeMax ? Number(rangeMax.slice(0, 4)) : nowYear + 1;
     const years: number[] = [];
     for (let y = Math.min(minYear, year); y <= Math.max(maxYear, year); y++) years.push(y);
     return years;
-  }, [calendar?.range?.min, calendar?.range?.max, year]);
+  }, [rangeMin, rangeMax, year]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100">
@@ -1509,9 +1541,11 @@ export function Dashboard({
                 className="ml-auto text-xs text-slate-500"
                 title="Updates the moment prices or bookings change"
               >
-                {lastUpdated
-                  ? `Updated ${lastUpdated.toLocaleTimeString()} · live`
-                  : "Loading…"}
+                {calendarFailed
+                  ? null
+                  : lastUpdated
+                    ? `Updated ${lastUpdated.toLocaleTimeString()} · live`
+                    : "Loading…"}
               </span>
             </div>
 
@@ -1542,6 +1576,17 @@ export function Dashboard({
                       );
                     })}
                   </div>
+                ) : calendarFailed ? (
+                  <p role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-slate-800 bg-slate-950 p-4 text-sm text-slate-300">
+                    Couldn&apos;t load this month.
+                    <button
+                      type="button"
+                      className="cursor-pointer rounded bg-slate-800 px-3 py-1 text-sm hover:bg-slate-700"
+                      onClick={() => void reloadCalendar()}
+                    >
+                      Try again
+                    </button>
+                  </p>
                 ) : null}
               </div>
             </div>

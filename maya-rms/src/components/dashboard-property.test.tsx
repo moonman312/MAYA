@@ -114,9 +114,10 @@ describe("a property switch that fails", () => {
 
     fireEvent.change(select, { target: { value: "hotel-2" } });
 
-    expect((await screen.findByRole("alert")).textContent).toBe(
-      "Couldn't switch to Sea View Inn. You're still on The Harbour Inn. Try again in a moment.",
-    );
+    // The calendar has no month to give here, so its own message shows too.
+    expect(
+      (await screen.findAllByRole("alert")).map((a) => a.textContent).filter((t) => t?.startsWith("Couldn't switch")),
+    ).toEqual(["Couldn't switch to Sea View Inn. You're still on The Harbour Inn. Try again in a moment."]);
     await waitFor(() => expect(select.disabled).toBe(false));
     expect(select.value).toBe("hotel-1");
     expect(rulesReads()).toBe(before);
@@ -130,13 +131,13 @@ describe("a property switch that fails", () => {
     const select = (await screen.findByLabelText("Property")) as HTMLSelectElement;
     await waitFor(() => expect(select.value).toBe("hotel-1"));
     fireEvent.change(select, { target: { value: "hotel-2" } });
-    await screen.findByRole("alert");
+    await screen.findByText(/^Couldn't switch/);
     await waitFor(() => expect(select.disabled).toBe(false));
 
     refuse = false;
     fireEvent.change(select, { target: { value: "hotel-2" } });
     await waitFor(() => expect(select.value).toBe("hotel-2"));
-    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/^Couldn't switch/)).toBeNull();
   });
 });
 
@@ -271,5 +272,81 @@ describe("the calendar's amounts", () => {
     fireEvent.click(screen.getByRole("button", { name: "What the colours mean" }));
     expect(screen.getByText(/revenue per room with this property's own nights/)).toBeTruthy();
     expect(document.body.textContent).not.toContain("\u2014");
+  });
+});
+
+/** A plain month: every night the same revenue, so its tiles say which month is on screen. */
+function plainMonth(month: number, revenue: number) {
+  const daysIn = new Date(Date.UTC(2026, month, 0)).getUTCDate();
+  const days: Record<string, unknown> = {};
+  for (let d = 1; d <= daysIn; d++) {
+    days[String(d)] = { occupancy_pct: 50, booked: 5, total: 10, revenue, weekday: "Monday", revpar: 50, color: "orange", room_types: [] };
+  }
+  return {
+    year: 2026,
+    month,
+    month_name: `${month}/2026`,
+    days_in_month: daysIn,
+    first_weekday: new Date(Date.UTC(2026, month - 1, 1)).getUTCDay(),
+    thresholds: { low: 40, high: 70, basis: "revpar", past: { p33: 1, p67: 2 }, future: { p33: 1, p67: 2 } },
+    range: { min: "2026-01", max: "2027-10" },
+    days,
+  };
+}
+
+describe("the month on screen is the month and property selected (A44)", () => {
+  const tiles = (text: string) => screen.queryAllByText(text).length;
+
+  it("says a month couldn't load instead of leaving the month before under its name, and Try again reads it", async () => {
+    routes["/api/calendar/2026/10"] = () => json(plainMonth(10, 850));
+    routes["/api/calendar/2026/11"] = () => json({ error: "boom" }, 500);
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+    await waitFor(() => expect(tiles("$850")).toBe(31));
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect((await screen.findByText("Couldn't load this month.")).closest("[role=alert]")).toBeTruthy();
+    expect(tiles("$850")).toBe(0);
+    expect((screen.getByLabelText("Month") as HTMLSelectElement).value).toBe("11");
+    expect(screen.queryByText(/· live$/)).toBeNull();
+
+    routes["/api/calendar/2026/11"] = () => json(plainMonth(11, 444));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(tiles("$444")).toBe(30));
+    expect(screen.queryByText("Couldn't load this month.")).toBeNull();
+  });
+
+  it("ignores a month's answer that lands after the owner moved on", async () => {
+    let releaseOctober: () => void = () => {};
+    routes["/api/calendar/2026/10"] = (() =>
+      new Promise<Response>((resolve) => {
+        releaseOctober = () => resolve(json(plainMonth(10, 850)));
+      })) as unknown as () => Response;
+    routes["/api/calendar/2026/11"] = () => json(plainMonth(11, 444));
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+    await screen.findByLabelText("Loading calendar");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(tiles("$444")).toBe(30));
+    releaseOctober();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(tiles("$444")).toBe(30);
+    expect(tiles("$850")).toBe(0);
+  });
+
+  it("never shows the last property's month under the new one, even when its read fails", async () => {
+    routes["/api/calendar/2026/10"] = () => json(plainMonth(10, 850));
+    routes["/api/hotels/active"] = () => json({ ok: true, activeHotelId: "hotel-2" });
+    window.history.replaceState(null, "", "/?date=2026-10-10");
+    render(<Dashboard initialSearch={window.location.search} />);
+    const select = (await screen.findByLabelText("Property")) as HTMLSelectElement;
+    await waitFor(() => expect(tiles("$850")).toBe(31));
+
+    routes["/api/calendar/2026/10"] = () => json({ error: "boom" }, 500);
+    fireEvent.change(select, { target: { value: "hotel-2" } });
+    await waitFor(() => expect(select.value).toBe("hotel-2"));
+    expect(await screen.findByText("Couldn't load this month.")).toBeTruthy();
+    expect(tiles("$850")).toBe(0);
   });
 });
